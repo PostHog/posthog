@@ -23,6 +23,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes, resolve_schedule_timezone
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -137,6 +138,88 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_flag = FeatureFlag.objects.get(key="flag-1")
         self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
         self.assertEqual(updated_flag.filters["multivariate"]["variants"], variants)
+
+    def test_a_target_in_another_config_format_fails_without_blocking_the_batch(self) -> None:
+        v2_document = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        other_format = FeatureFlag.objects.create(
+            name="other", key="other-format", active=True, filters=v2_document, team=self.team, created_by=self.user
+        )
+        v1_flag = FeatureFlag.objects.create(
+            name="v1", key="v1-flag", active=False, filters={"groups": []}, team=self.team, created_by=self.user
+        )
+        failing = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=other_format.id,
+            model_name="FeatureFlag",
+            payload={"operation": "add_release_condition", "value": {"groups": [{"properties": []}]}},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=60)),
+        )
+        applying = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=v1_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+        )
+
+        process_scheduled_changes()
+
+        other_format.refresh_from_db()
+        v1_flag.refresh_from_db()
+        failing.refresh_from_db()
+        applying.refresh_from_db()
+        assert other_format.filters == v2_document
+        assert v1_flag.active is True
+        assert failing.failure_reason is not None
+        assert json.loads(failing.failure_reason)["error_type"] == "ConfigFormatError"
+        assert failing.executed_at is not None
+        assert applying.failure_reason is None
+        assert applying.executed_at is not None
+
+    @parameterized.expand(
+        [
+            ("deleted_cohort", "unrecoverable", "has been deleted"),
+            ("disabled_dependency", "recoverable", "depends on disabled flags"),
+        ]
+    )
+    def test_scheduled_enable_rejected_by_the_flag_api(
+        self, rejection: str, classification: str, expected_error: str
+    ) -> None:
+        if rejection == "deleted_cohort":
+            cohort = Cohort.objects.create(team=self.team, name="Retired cohort", deleted=True)
+            prop = {"key": "id", "type": "cohort", "value": cohort.id}
+        else:
+            dependency = FeatureFlag.objects.create(
+                key="dependency", active=False, filters={"groups": []}, team=self.team, created_by=self.user
+            )
+            prop = {"key": str(dependency.id), "type": "flag", "value": "true", "operator": "flag_evaluates_to"}
+        feature_flag = FeatureFlag.objects.create(
+            name="Flag 1",
+            key="flag-1",
+            active=False,
+            filters={"groups": [{"properties": [prop]}]},
+            team=self.team,
+            created_by=self.user,
+        )
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        feature_flag.refresh_from_db()
+        scheduled_change.refresh_from_db()
+        assert feature_flag.active is False
+        assert (scheduled_change.executed_at is not None) is (classification == "unrecoverable")
+        assert scheduled_change.failure_reason is not None
+        failure_data = json.loads(scheduled_change.failure_reason)
+        assert failure_data["error_classification"] == classification
+        assert expected_error in failure_data["error"]
 
     def test_schedule_feature_flag_invalid_payload(self) -> None:
         feature_flag = FeatureFlag.objects.create(

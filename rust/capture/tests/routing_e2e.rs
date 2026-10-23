@@ -65,8 +65,8 @@ async fn it_routes_dlq_redirected_events_to_the_dlq_topic() -> Result<()> {
     );
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = main_topic.topic_name().to_string();
-    config.kafka.kafka_dlq_topic = dlq_topic.topic_name().to_string();
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+    config.outputs.dlq_topic = dlq_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
     // A failed first load (tight Redis timeout on a busy runner) retries on
@@ -130,7 +130,7 @@ async fn it_routes_custom_redirected_events_to_the_admin_topic() -> Result<()> {
     );
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = main_topic.topic_name().to_string();
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
     // A failed first load (tight Redis timeout on a busy runner) retries on
@@ -179,8 +179,8 @@ async fn it_routes_diverted_ai_events_to_the_ai_topic() -> Result<()> {
     let ai_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = main_topic.topic_name().to_string();
-    config.kafka.capture_analytics_ai_events_topic = ai_topic.topic_name().to_string();
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+    config.outputs.ai_main_topic = ai_topic.topic_name().to_string();
     let server = ServerHandle::for_config(config).await;
 
     let batch = json!([
@@ -224,7 +224,7 @@ async fn it_routes_diverted_ai_events_to_the_ai_topic() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_routes_forced_ai_events_to_ai_overflow_when_the_valve_is_armed() -> Result<()> {
+async fn it_routes_limiter_overflowed_ai_events_to_ai_overflow() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
@@ -232,12 +232,14 @@ async fn it_routes_forced_ai_events_to_ai_overflow_when_the_valve_is_armed() -> 
     let main_topic = EphemeralTopic::new().await;
     let ai_topic = EphemeralTopic::new().await;
     let ai_overflow_topic = EphemeralTopic::new().await;
+    let analytics_overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = main_topic.topic_name().to_string();
-    config.kafka.capture_analytics_ai_events_topic = ai_topic.topic_name().to_string();
-    config.kafka.capture_analytics_ai_events_overflow_topic =
-        Some(ai_overflow_topic.topic_name().to_string());
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+    config.outputs.analytics_overflow_topic = analytics_overflow_topic.topic_name().to_string();
+    config.outputs.ai_main_topic = ai_topic.topic_name().to_string();
+    config.outputs.ai_overflow_topic = ai_overflow_topic.topic_name().to_string();
+    config.ai_events_overflow_enabled = true;
     config.overflow_enabled = true;
     config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();
@@ -252,8 +254,6 @@ async fn it_routes_forced_ai_events_to_ai_overflow_when_the_valve_is_armed() -> 
     let res = server.capture_events(event.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // A force-limited AI key overflows to the AI overflow topic — never the
-    // analytics overflow — with the key dropped and person processing off.
     let (key, event, headers) = ai_overflow_topic.next_message_full()?;
     assert_eq!(key, None, "force-limited overflow must drop the event key");
     assert_json_include!(
@@ -271,5 +271,6 @@ async fn it_routes_forced_ai_events_to_ai_overflow_when_the_valve_is_armed() -> 
 
     ai_topic.assert_empty();
     main_topic.assert_empty();
+    analytics_overflow_topic.assert_empty();
     Ok(())
 }

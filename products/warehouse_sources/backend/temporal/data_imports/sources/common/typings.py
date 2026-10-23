@@ -9,12 +9,15 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, Ty
 
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 if TYPE_CHECKING:
     import pyarrow as pa
     from dlt.common.data_types.typing import TDataType
 
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
         ValidatedRowFilter,
     )
@@ -30,6 +33,13 @@ else:
     class ValidatedRowFilter:
         def __repr__(self) -> str:
             return "<ValidatedRowFilter: type-checking-only stub>"
+
+    class SourceCursorManager:
+        def __class_getitem__(cls, item: Any) -> type:
+            return cls
+
+        def __repr__(self) -> str:
+            return "<SourceCursorManager: type-checking-only stub>"
 
 
 SortMode = Literal["asc", "desc"]
@@ -64,6 +74,24 @@ class OutputLane:
     own writer tracks the schema it ends up with."""
 
 
+@frozen
+class ReplaceScope:
+    """The destination rows that one incremental run replaces, named by the value of one column.
+
+    The source names each row's origin (for example the file it came from) in `column`. Before the
+    run's first batch loads, the loader deletes every row whose value is in `replaced` or is not in
+    `retained`. The run's batches then load as appends. So a run replaces the rows of each origin it
+    reads again, and removes the rows of each origin that is gone. A row with no value in `column`
+    is outside the scope and stays.
+    """
+
+    column: str
+    replaced: frozenset[str]
+    """The origins this run reads again: changed or new. Their old rows go before the new rows load."""
+    retained: frozenset[str]
+    """Every origin that is live now. The rows of any other origin go."""
+
+
 @dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
 class SourceResponse:
     name: str
@@ -78,8 +106,18 @@ class SourceResponse:
     """Override partition mode at a source level"""
     partition_format: Optional[PartitionFormat] = None
     """Override partition format at a source level"""
-    sort_mode: Optional[SortMode] = "asc"
-    """our source typically return data in ascending timestamp order, but some (eg Stripe) do not"""
+    sort_mode: Optional[SortMode] = None
+    """The order in which the rows of an incremental or append read arrive.
+
+    - `"asc"`: ascending order of the incremental field, from the first row of the run to the last.
+    - `"desc"`: descending order of the incremental field.
+    - `None`: no order.
+
+    The watermark is the largest value the run read, with or without an order. `"asc"` is a promise
+    the pipeline acts on: after a worker shutdown, the next attempt reads only the rows after the
+    last value the pipeline queued, so a later row with a lower value is lost. Set it per run, and
+    only on a read whose query or API contract proves the order. A full refresh has no incremental
+    field, so the value has no effect there."""
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
@@ -100,15 +138,29 @@ class SourceResponse:
     """Override the batcher's per-chunk byte cap (defaults to DEFAULT_CHUNK_SIZE_BYTES). Lower it for
     sources whose rows are large (e.g. whole documents) so the source->Arrow conversion doesn't
     materialise an oversized table and OOM the worker."""
-    xmin_ceiling_xid: Optional[int] = None
-    """xmin syncs: bare 32-bit ceiling captured this run, persisted as the next run's lower bound."""
-    xmin_ceiling_xid8: Optional[int] = None
-    """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
-    xmin_num_wraparound: Optional[int] = None
-    """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
+    supports_resume: bool = True
+    """Whether *this run* can cheaply resume after a bail (source checkpoints, or an ascending
+    incremental watermark). Gated by the pipeline together with a non-None resumable-source manager,
+    so a resumable-source class whose current table isn't actually resumable (e.g. a SQL full load
+    with no orderable primary key) sets this False and is treated as non-resumable for shutdown."""
+    on_complete: Optional[Callable[[], None]] = None
+    """Called after every yielded row has been durably written or staged. Sources use this to remove
+    a final checkpoint without opening a crash window before the pipeline flushes its last batch."""
+    destination_reset_required: bool = False
+    """Whether source metadata discovered during setup requires rebuilding the destination table."""
+    reset_handed_over: bool = False
+    """Whether the source passed this run's reset to another process, so this run must not delete the
+    destination table. Wins over `destination_reset_required` and the reset the run was asked for."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
+    replace_scope: Optional[ReplaceScope] = None
+    """Set by an incremental source that replaces rows by origin instead of merging on a primary key
+    (see `ReplaceScope`). The run loads as appends and needs no primary key. A first sync or a reset
+    ignores it, because the table starts empty."""
+    preserve_column_names: bool = False
+    """Write the column names as the source yields them instead of normalizing them to snake_case.
+    Set for a table whose existing queries name its columns as they were before the import."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
@@ -137,6 +189,8 @@ class SourceInputs:
     history_start: Optional[datetime.datetime] = None
     # Start of the previous successful sync (the job's created_at), so a safe lower bound for "seen".
     last_synced_at: Optional[datetime.datetime] = None
+    # Sync history survives cursor resets and table deletion.
+    schema_has_ever_synced: bool = False
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # The schema's stored primary key and the key a full probe last proved unique. A source that
@@ -150,13 +204,16 @@ class SourceInputs:
     # Effective vendor API version: the source instance's pin resolved through the source's
     # `default_version`. Sources with a versioned vendor API thread it to their request layer.
     api_version: Optional[str] = None
-    # True when this schema is a fan-out child whose parent should be read from the warehouse
-    # (flag on + parents verified synced). Evaluated once by the run-time gate in
-    # `import_data_activity_sync` so sources don't re-evaluate the feature flag per run.
+    # True when this schema is a fan-out child whose parents are all readable from the
+    # warehouse. Evaluated once by the run-time gate in `import_data_activity_sync`.
     fanout_warehouse_reuse: bool = False
-    # True when extraction batches should be bounded by accumulated bytes rather than by the
-    # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
-    byte_bounded_extraction: bool = False
     # Temporal's attempt number for this activity, starting at 1. A source can read a retry
     # differently from a first run, because the first run has already shown what fails.
     activity_attempt: int = 1
+    # Times a worker died on this run without raising, which is what a page too large for its
+    # memory looks like. A source that pages can read smaller pages after one.
+    worker_deaths: int = 0
+    # Set for a source that implements `CursorSource`. It holds the cursor stored by the last
+    # successful run, or no cursor when this run rebuilds the table.
+    source_cursor: Optional[SourceCursorManager[Any]] = None
+    sync_type: ExternalDataSchemaSyncType | None = None

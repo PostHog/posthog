@@ -2,7 +2,7 @@ import type { AnySignalReportArtefact } from "@posthog/shared/domain-types";
 
 export type ActivityArtefact = Extract<
   AnySignalReportArtefact,
-  { type: "commit" | "task_run" }
+  { type: "commit" | "task_run" | "ranking_score" }
 >;
 
 export function selectActivityArtefacts(
@@ -11,7 +11,10 @@ export function selectActivityArtefacts(
   return artefacts
     .filter(
       (artefact): artefact is ActivityArtefact =>
-        artefact.type === "commit" || artefact.type === "task_run",
+        artefact.type === "commit" ||
+        artefact.type === "task_run" ||
+        // A degraded score has no heads to show.
+        (artefact.type === "ranking_score" && !artefact.degraded),
     )
     .sort((left, right) => left.created_at.localeCompare(right.created_at));
 }

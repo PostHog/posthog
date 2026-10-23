@@ -44,6 +44,7 @@ import {
     PersonPropertyFilter,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterRow,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
@@ -175,7 +176,6 @@ export function formatPropertyLabel(
     const { value, key, type } = item
     const label = 'label' in item ? item.label : undefined
     const operator = 'operator' in item ? item.operator : undefined
-    const cohortName = 'cohort_name' in item ? item.cohort_name : undefined
     const resolvedType = (type ?? PropertyFilterType.Event) as PropertyFilterType
     const resolvedOperator = operator ?? PropertyOperator.Exact
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[resolvedType]
@@ -190,10 +190,10 @@ export function formatPropertyLabel(
             ? formatRelativeDateValue(relativeDateValue)
             : undefined
 
-    if (resolvedType === PropertyFilterType.Cohort) {
+    if (isCohortPropertyFilter(item)) {
         return (
             `${capitalizeFirstLetter(cohortOperatorMap[resolvedOperator] || 'user in')} ` +
-            (cohortName || (typeof value === 'number' ? cohortsById[value]?.name : undefined) || `ID ${value}`)
+            cohortFilterName(item, typeof value === 'number' ? cohortsById[value]?.name : undefined)
         )
     }
 
@@ -212,7 +212,7 @@ export function formatPropertyLabel(
 }
 
 /** Make sure unverified user property filter input has at least a "type" */
-export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
+export function sanitizePropertyFilter(propertyFilter: PropertyFilterRow): PropertyFilterRow {
     if (!propertyFilter.type) {
         return {
             ...(propertyFilter as any), // TS error with spreading a union
@@ -256,6 +256,24 @@ export function isValidPropertyFilter(
 
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
+}
+
+export function cohortFilterName(filter: CohortPropertyFilter, fallbackName?: string | null): string {
+    const name = filter.cohort_name || fallbackName
+    if (filter.cohort_missing) {
+        return name ? `${name} (missing)` : `Missing cohort (ID ${filter.value})`
+    }
+    if (filter.cohort_deleted) {
+        return name ? `${name} (deleted)` : `Deleted cohort (ID ${filter.value})`
+    }
+    return name || `ID ${filter.value}`
+}
+
+// The flag API reads these keys from the cohort table on every response. Nobody edits them.
+export const COHORT_ANNOTATION_KEYS = ['cohort_name', 'cohort_deleted', 'cohort_missing'] as const
+
+export function cohortAnnotations(filter: CohortPropertyFilter): Partial<CohortPropertyFilter> {
+    return Object.fromEntries(COHORT_ANNOTATION_KEYS.map((key) => [key, filter[key]])) as Partial<CohortPropertyFilter>
 }
 
 export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filter is BehavioralPropertyFilter {
@@ -349,6 +367,39 @@ export function isPropertyGroupFilterLike(
     filter?: AnyFilterLike | null
 ): filter is PropertyGroupFilter | PropertyGroupFilterValue {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
+}
+
+/** Inlines a nested group into flat rows only when its operator matches the parent's — a different
+ * operator must stay one row, since flattening it would change what the insight returns. */
+export function inlineEquivalentPropertyGroups(
+    values: PropertyFilterRow[],
+    operator: FilterLogicalOperator
+): PropertyFilterRow[] {
+    return values.flatMap((value) => {
+        if (!isPropertyGroupFilterLike(value)) {
+            return [value]
+        }
+        const inlined = inlineEquivalentPropertyGroups(value.values, value.type)
+        if (value.type === operator || inlined.length <= 1) {
+            return inlined
+        }
+        return [{ ...value, values: inlined }]
+    })
+}
+
+/** Plain-text description of a nested group, for a row the editor cannot edit. */
+export function propertyGroupSummary(
+    group: PropertyGroupFilterValue,
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>
+): string {
+    return group.values
+        .map((value) =>
+            isPropertyGroupFilterLike(value)
+                ? `(${propertyGroupSummary(value, cohortsById)})`
+                : formatPropertyLabel(value, cohortsById).trim()
+        )
+        .filter((label) => !!label)
+        .join(group.type === FilterLogicalOperator.Or ? ' or ' : ' and ')
 }
 export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is EventPropertyFilter {
     return filter?.type === PropertyFilterType.Event

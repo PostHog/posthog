@@ -5,6 +5,7 @@ import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
@@ -33,8 +34,22 @@ import { toMcpInputSchema } from './tool-catalog'
 /** Presence of this tool is the runtime signal that the notebook cell surface
  *  (the `revamped-py-notebooks` flag) is live for this client. */
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
+const NOTEBOOK_RUN_TOOL = 'notebooks-run'
 const DOCS_SEARCH_TOOL = 'docs-search'
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
+const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
+
+// Human comment, not AI slop. Version 2.0.0 of the PostHog app for ChatGPT and Codex started
+// requesting `llm_skill:read`, but existing connections never got re-prompted for it, so their
+// agents hit a warning they can't act on. Telling them to "reconnect with that scope" doesn't
+// work there, since the app picks the scopes, so this nudges them to the thing that does:
+// disconnect the app and connect it again. Can be removed after 2027-01-01.
+function projectSkillsScopeReason(oauthClientId: string | undefined): string {
+    if (isChatGptAppConnection(oauthClientId)) {
+        return 'This connection is missing the llm_skill:read scope. A new connection to the PostHog app includes it: disconnect the PostHog app in ChatGPT or Codex and connect it again to read project skills.'
+    }
+    return 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.'
+}
 
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
@@ -77,6 +92,7 @@ export class InstructionsBuilder {
                 }),
             renderUiEnabled: state.renderUiEnabled,
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
+            notebookRunEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_RUN_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
         }
     }
@@ -148,7 +164,7 @@ export class InstructionsBuilder {
                       project: canReadProjectSkills ? new ProjectSkillCatalog(state.context) : undefined,
                       projectUnavailableReason: canReadProjectSkills
                           ? undefined
-                          : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.',
+                          : projectSkillsScopeReason(state.oauthClientId),
                   }
                 : undefined,
             (invocation) => {
@@ -168,10 +184,14 @@ export class InstructionsBuilder {
         const businessKnowledgeSearchEnabled = state?.allTools.some(
             ({ name }) => name === BUSINESS_KNOWLEDGE_SEARCH_TOOL
         )
+        const businessKnowledgeRepoSearchEnabled = state?.allTools.some(
+            ({ name }) => name === BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL
+        )
         return this.formatter.buildExecToolDescription({
             skillsEnabled,
             docsSearchEnabled,
             businessKnowledgeSearchEnabled,
+            businessKnowledgeRepoSearchEnabled,
         })
     }
 
@@ -200,8 +220,10 @@ export class InstructionsBuilder {
         if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }
+        // The connector's header-less `tools/list` advertises guides to every surface, so the call serves them too.
+        const { clientProfile } = state
         return {
-            guidesEnabled: state.clientProfile.isClaudeChatHost(),
+            guidesEnabled: clientProfile.isClaudeChatHost() || clientProfile.isAnthropicConnector(),
             skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
         }
     }

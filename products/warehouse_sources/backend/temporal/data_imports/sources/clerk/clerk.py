@@ -1,17 +1,22 @@
 import functools
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import AsyncIterable, Iterable, Iterator
 from typing import Any, Optional
 
+import orjson
+import pyarrow as pa
+from asgiref.sync import async_to_sync
 from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
     CLERK_ENDPOINTS,
     RETIRED_ENDPOINTS,
+    WEBHOOK_SCHEMA_NAMES,
     ClerkEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -26,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 
 @dataclasses.dataclass
@@ -234,9 +240,11 @@ _INVALID_KEY_MESSAGE = (
     "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your "
     "Clerk dashboard and reconnect."
 )
-_FORBIDDEN_KEY_MESSAGE = (
-    "Your Clerk secret key does not have permission to access this endpoint. Please check the "
-    "key's permissions in your Clerk dashboard."
+# The users list has no feature gate, and Clerk secret keys carry no per-key permissions, so a 403
+# there is Clerk refusing the key for its instance.
+FORBIDDEN_KEY_MESSAGE = (
+    "Clerk refused access with your secret key. Copy the secret key of your active Clerk instance "
+    "from your Clerk dashboard, then update it here."
 )
 _UNSUPPORTED_CHARACTER_MESSAGE = (
     "Your Clerk secret key contains a character that can't be sent to Clerk, such as an invisible "
@@ -252,8 +260,10 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
     # The key rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
-    # than letting the encoding error surface.
-    if not secret_key.isascii():
+    # than letting the encoding error surface. A carriage return or newline is ASCII but still
+    # breaks the header (requests raises InvalidHeader), which happens when someone pastes a whole
+    # multi-line snippet — e.g. a .env file — into the secret key field instead of just the key.
+    if not secret_key.isascii() or "\r" in secret_key or "\n" in secret_key:
         return False, _UNSUPPORTED_CHARACTER_MESSAGE
 
     url = "https://api.clerk.com/v1/users"
@@ -276,7 +286,7 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
         # revoked key, so explain it the same way instead of filing an error.
         return False, _INVALID_KEY_MESSAGE
     if response.status_code == 403:
-        return False, _FORBIDDEN_KEY_MESSAGE
+        return False, FORBIDDEN_KEY_MESSAGE
     if response.status_code == 404:
         # The users list exists on every Clerk instance, so a 404 here is Clerk refusing to resolve
         # the instance the key belongs to rather than a missing record. That is user input like the
@@ -335,6 +345,33 @@ def _skip_when_feature_disabled(
         )
 
 
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    """Extract the Clerk object from each webhook event and keep the latest event per id."""
+    rows_by_id: dict[str, tuple[int, dict[str, Any]]] = {}
+    for event in table.to_pylist():
+        event_type = event.get("type")
+        resource = event.get("data")
+        if isinstance(resource, str):
+            try:
+                resource = orjson.loads(resource)
+            except orjson.JSONDecodeError:
+                continue
+        if not isinstance(event_type, str) or not isinstance(resource, dict) or not resource.get("id"):
+            continue
+        # The Hog template already drops deletions. This keeps a hand-configured webhook from
+        # writing an id-only payload over a stored row. See WEBHOOK_EVENTS_BY_SCHEMA.
+        if event_type.endswith(".deleted") or resource.get("deleted") is True:
+            continue
+
+        raw_timestamp = event.get("timestamp")
+        timestamp = raw_timestamp if isinstance(raw_timestamp, int) and not isinstance(raw_timestamp, bool) else 0
+        current = rows_by_id.get(str(resource["id"]))
+        if current is None or timestamp >= current[0]:
+            rows_by_id[str(resource["id"])] = (timestamp, _convert_timestamps(resource))
+
+    return table_from_py_list([row for _, row in rows_by_id.values()])
+
+
 def clerk_source(
     secret_key: str,
     endpoint: str,
@@ -342,6 +379,7 @@ def clerk_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ClerkResumeConfig],
     logger: FilteringBoundLogger,
+    webhook_source_manager: WebhookSourceManager,
 ) -> SourceResponse:
     retired_reason = RETIRED_ENDPOINTS.get(endpoint)
     if retired_reason is not None:
@@ -403,11 +441,16 @@ def clerk_source(
 
     gated_feature = endpoint_config.gated_feature
 
-    def items() -> Iterator[Any]:
+    webhook_enabled = endpoint in WEBHOOK_SCHEMA_NAMES and async_to_sync(webhook_source_manager.webhook_enabled)()
+
+    def items() -> Iterable[Any] | AsyncIterable[Any]:
+        if webhook_enabled:
+            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
         if gated_feature is None:
-            yield from resource
-            return
-        yield from _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
+            # The resource itself, so the framework stages a page's resume state before the page is
+            # yielded and a hand-off keeps the rows the pipeline still buffers.
+            return resource
+        return _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
 
     if endpoint_config.partition_key is None:
         return SourceResponse(

@@ -5,7 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -34,7 +34,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestExperimentSummaryToolHelpers(APIBaseTest):
+class TestExperimentSummaryToolHelpers(SimpleTestCase):
     def test_parse_metric_dict_funnel(self):
         metric_dict = {
             "metric_type": "funnel",
@@ -449,8 +449,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
                 "name": "Signup conversion",
             }
         ]
-        # UI display order puts the saved primary metric first
-        experiment.primary_metrics_ordered_uuids = ["saved-primary-uuid", "inline-primary-uuid"]
+        # UI display order puts the saved primary metric first. The inline metric is left out on
+        # purpose: the ordering is a display hint, and an unlisted metric is still summarized, last.
+        experiment.primary_metrics_ordered_uuids = ["saved-primary-uuid"]
         await experiment.asave(update_fields=["metrics", "metrics_secondary", "primary_metrics_ordered_uuids"])
 
         # Add 1 saved primary + 1 saved secondary

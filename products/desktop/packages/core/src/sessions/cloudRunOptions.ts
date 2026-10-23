@@ -10,14 +10,8 @@ import {
   type SupportedReasoningEffort,
 } from "@posthog/shared";
 import type { TaskRun } from "@posthog/shared/domain-types";
+import { z } from "zod";
 import { harnessForModelValue } from "../task-detail/configOptions";
-
-/**
- * Pure derivations of a cloud run's options from the host run state / session
- * config. Extracted from the renderer SessionService so the keystone keeps only
- * the I/O and these decisions are testable in isolation (Tiger-Style: the leaf
- * computes, the service applies).
- */
 
 export function getCloudPrAuthorshipMode(
   state: Record<string, unknown>,
@@ -40,6 +34,58 @@ export interface CloudRuntimeOptions {
   model?: string;
   reasoningLevel?: string;
   initialPermissionMode?: ExecutionMode;
+}
+
+const configResultSchema = z.object({
+  configOptions: z.array(
+    z.object({ id: z.string(), currentValue: z.string() }),
+  ),
+});
+
+export async function sendConfiguredCloudPrompt(
+  command: (
+    method: "set_config_option" | "user_message" | "pi/rpc",
+    params: Record<string, unknown>,
+  ) => Promise<unknown>,
+  config: Pick<CloudRuntimeOptions, "model" | "reasoningLevel">,
+  prompt: string,
+  runtime: "acp" | "pi" = "acp",
+): Promise<void> {
+  for (const [configId, value] of [
+    ["model", config.model],
+    ["effort", config.reasoningLevel],
+  ]) {
+    if (!value) continue;
+    if (runtime === "pi") {
+      const result = z.object({ success: z.literal(true) }).safeParse(
+        await command("pi/rpc", {
+          command:
+            configId === "model"
+              ? { type: "set_model", provider: "posthog", modelId: value }
+              : { type: "set_thinking_level", level: value },
+        }),
+      );
+      if (!result.success)
+        throw new Error(
+          "The agent did not accept this setting. Choose it again before sending.",
+        );
+      continue;
+    }
+    const result = configResultSchema.safeParse(
+      await command("set_config_option", { configId, value }),
+    );
+    if (
+      !result.success ||
+      !result.data.configOptions.some(
+        (option) => option.id === configId && option.currentValue === value,
+      )
+    ) {
+      throw new Error(
+        "The agent did not accept this setting. Choose it again before sending.",
+      );
+    }
+  }
+  await command("user_message", { content: prompt });
 }
 
 export interface StoredCloudComposerConfig {

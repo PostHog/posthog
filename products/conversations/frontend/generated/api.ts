@@ -28,9 +28,11 @@ import type {
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    SigningSecretApi,
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
+    TicketNoteCreateRequestApi,
     TicketReplyRequestApi,
     TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
@@ -87,6 +89,40 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsSigningSecretRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/signing_secret/`
+}
+
+/**
+ * The signing secret used for widget identity verification in this project.
+ */
+export const conversationsSigningSecretRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SigningSecretApi> => {
+    return apiMutator<SigningSecretApi>(getConversationsSigningSecretRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsSigningSecretRotateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/signing_secret/rotate/`
+}
+
+/**
+ * Generate a new signing secret. Identity hashes signed with the previous secret stop verifying immediately.
+ */
+export const conversationsSigningSecretRotateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SigningSecretApi> => {
+    return apiMutator<SigningSecretApi>(getConversationsSigningSecretRotateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -181,6 +217,9 @@ export const getConversationsTicketsDestroyUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/conversations/tickets/${id}/`
 }
 
+/**
+ * Soft-delete a ticket. A daily sweeper hard-deletes it after the grace window.
+ */
 export const conversationsTicketsDestroy = async (
     projectId: string,
     id: string,
@@ -293,6 +332,30 @@ export const conversationsTicketsMessagesFullEmailRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getConversationsTicketsNotesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/notes/`
+}
+
+/**
+ * Add a private note to a ticket.
+ *
+ * The note is visible to your team only. The request has no privacy field, so this
+ * endpoint never sends anything to the customer.
+ */
+export const conversationsTicketsNotesCreate = async (
+    projectId: string,
+    id: string,
+    ticketNoteCreateRequestApi: TicketNoteCreateRequestApi,
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(getConversationsTicketsNotesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketNoteCreateRequestApi),
+    })
 }
 
 export const getConversationsTicketsNotesPartialUpdateUrl = (projectId: string, id: string, messageId: string) => {

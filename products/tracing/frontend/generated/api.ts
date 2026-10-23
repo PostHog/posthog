@@ -17,6 +17,8 @@ import type {
     PatchedTeamTracingConfigApi,
     PatchedTracesRetentionRuleApi,
     PatchedTracingViewApi,
+    ServiceHealthRequestApi,
+    ServiceHealthResponseApi,
     TeamTracingConfigApi,
     TracesRetentionRuleApi,
     TracingRetentionRulesListParams,
@@ -49,6 +51,7 @@ import type {
     _TracingServiceNamesResponseApi,
     _TracingSparklineRequestApi,
     _TracingSparklineResponseApi,
+    _TracingTraceAiEventsResponseApi,
     _TracingTraceRequestApi,
     _TracingTraceResponseApi,
     _TracingTreeRequestApi,
@@ -538,6 +541,23 @@ export const tracingSpansServiceNamesRetrieve = async (
     })
 }
 
+export const getTracingSpansServiceHealthCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/service_health/`
+}
+
+export const tracingSpansServiceHealthCreate = async (
+    projectId: string,
+    serviceHealthRequestApi: ServiceHealthRequestApi,
+    options?: RequestInit
+): Promise<ServiceHealthResponseApi> => {
+    return apiMutator<ServiceHealthResponseApi>(getTracingSpansServiceHealthCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(serviceHealthRequestApi),
+    })
+}
+
 export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/sparkline/`
 }
@@ -587,6 +607,28 @@ export const tracingSpansTraceCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingTraceRequestApi),
+    })
+}
+
+export const getTracingSpansTraceAiEventsRetrieveUrl = (projectId: string, traceId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/ai_events/`
+}
+
+/**
+ * List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
+ * can show each model call inline with the spans.
+ *
+ * The spans and the AI events live on different ClickHouse clusters, so one query cannot join
+ * them; this returns the events half and the caller places them by time.
+ */
+export const tracingSpansTraceAiEventsRetrieve = async (
+    projectId: string,
+    traceId: string,
+    options?: RequestInit
+): Promise<_TracingTraceAiEventsResponseApi> => {
+    return apiMutator<_TracingTraceAiEventsResponseApi>(getTracingSpansTraceAiEventsRetrieveUrl(projectId, traceId), {
+        ...options,
+        method: 'GET',
     })
 }
 

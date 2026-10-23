@@ -12,9 +12,20 @@ import { z } from 'zod'
  * break the parse.
  */
 
+const latencyWindowMicrosecondsSchema = z.object({
+    sum: z.number().optional(),
+    cnt: z.number().optional(),
+    p99: z.number().optional(),
+})
+
 const brokerStatsSchema = z.object({
     nodeid: z.number().optional(),
     state: z.string().optional(),
+    outbuf_cnt: z.number().optional(),
+    waitresp_cnt: z.number().optional(),
+    int_latency: latencyWindowMicrosecondsSchema.optional(),
+    outbuf_latency: latencyWindowMicrosecondsSchema.optional(),
+    rtt: latencyWindowMicrosecondsSchema.optional(),
 })
 
 const topicStatsSchema = z.object({
@@ -34,4 +45,5 @@ export const producerStatsSchema = z.object({
 
 export type ProducerStats = z.infer<typeof producerStatsSchema>
 export type BrokerStats = z.infer<typeof brokerStatsSchema>
+export type LatencyWindowMicroseconds = z.infer<typeof latencyWindowMicrosecondsSchema>
 export type TopicStats = z.infer<typeof topicStatsSchema>

@@ -1,3 +1,4 @@
+import base64
 import ipaddress
 from types import SimpleNamespace
 
@@ -8,8 +9,10 @@ from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from rest_framework import authentication
+from rest_framework.serializers import Serializer
 
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_EU,
@@ -28,6 +31,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCommandRequestSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
+    TaskRunLivingArtifactEditRequestSerializer,
     TaskRunUpdateSerializer,
     TaskWriteSerializer,
 )
@@ -80,6 +84,7 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
             # internally funded inference under a per-run cap.
             ("signals_chat", True),
             ("scout_suggestions", True),
+            ("account_audit", True),
             ("user_created", False),
         ]
     )
@@ -204,12 +209,14 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
                 (TaskRunBootstrapCreateRequestSerializer, False),
                 (TaskRunCreateRequestSerializer, True),
             ]
-            for caller in ["desktop_us", "desktop_eu", "mobile", "sandbox", "session"]
+            for caller in ["desktop_us", "desktop_eu", "mobile", "sandbox", "session", "api_key"]
         ]
     )
     def test_subscription_checks_oauth_origin(self, serializer_class, resume, caller) -> None:
-        authenticator = None
-        if caller != "session":
+        authenticator: authentication.BaseAuthentication | None = None
+        if caller == "api_key":
+            authenticator = PersonalAPIKeyAuthentication()
+        elif caller != "session":
             authenticator = OAuthAccessTokenAuthentication()
             authenticator.access_token = OAuthAccessToken(
                 application=OAuthApplication(
@@ -231,7 +238,9 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
                 "team": SimpleNamespace(id=1),
             },
         )
-        accepted = caller.startswith("desktop") and not resume
+        # An API key acting as a user may select the plan outright, like Desktop. Resuming
+        # without naming the choice stays sandbox-only for every caller.
+        accepted = (caller.startswith("desktop") or caller == "api_key") and not resume
         with patch.object(
             tasks_facade,
             "get_task_run_claude_model_access",
@@ -298,6 +307,65 @@ class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
         if not expected_valid:
             megabytes = TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)
             assert f"{megabytes}MB attachment limit" in str(serializer.errors["content"])
+
+
+INDENTED_CONTENT = "\n    def main():\n        pass\n\n"
+
+
+class TestArtifactContentWhitespace(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "inline_upload",
+                TaskRunArtifactUploadSerializer,
+                {"name": "main.py", "type": "output", "content": INDENTED_CONTENT, "content_encoding": "utf-8"},
+                "content_bytes",
+                INDENTED_CONTENT.encode("utf-8"),
+            ),
+            (
+                "inline_upload_base64_with_trailing_newline",
+                TaskRunArtifactUploadSerializer,
+                {
+                    "name": "main.py",
+                    "type": "output",
+                    "content": base64.b64encode(INDENTED_CONTENT.encode("utf-8")).decode("ascii") + "\n",
+                    "content_encoding": "base64",
+                },
+                "content_bytes",
+                INDENTED_CONTENT.encode("utf-8"),
+            ),
+            (
+                "living_artifact_create",
+                TaskRunLivingArtifactCreateRequestSerializer,
+                {"name": "main.py", "content": INDENTED_CONTENT},
+                "content",
+                INDENTED_CONTENT,
+            ),
+            (
+                "living_artifact_edit",
+                TaskRunLivingArtifactEditRequestSerializer,
+                {"content": INDENTED_CONTENT},
+                "content",
+                INDENTED_CONTENT,
+            ),
+        ]
+    )
+    def test_content_keeps_leading_and_trailing_whitespace(
+        self, _name: str, serializer_class: type[Serializer], data: dict, field: str, expected: str | bytes
+    ) -> None:
+        serializer = serializer_class(data=data)
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data[field] == expected
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", " \n")])
+    def test_blank_base64_content_is_rejected(self, _name: str, content: str) -> None:
+        serializer = TaskRunArtifactUploadSerializer(
+            data={"name": "main.py", "type": "output", "content": content, "content_encoding": "base64"}
+        )
+
+        assert not serializer.is_valid()
+        assert "content" in serializer.errors
 
 
 class TestCredentialResponseSerializer(SimpleTestCase):

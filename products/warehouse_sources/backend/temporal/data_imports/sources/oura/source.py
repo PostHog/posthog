@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OuraSource(ResumableSource[OuraSourceConfig, OuraResumeConfig]):
+    codebase_detection = detect(env=("^OURA_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://cloud.ouraring.com/v2/docs"
@@ -48,7 +51,7 @@ class OuraSource(ResumableSource[OuraSourceConfig, OuraResumeConfig]):
             name=ExternalDataSourceType.OURA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Oura",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Oura personal access token to automatically pull your Oura Ring health data into the PostHog Data warehouse.
 
 You can create a personal access token in the [Oura developer portal](https://cloud.ouraring.com/personal-access-tokens).

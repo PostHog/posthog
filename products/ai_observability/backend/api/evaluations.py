@@ -1,7 +1,10 @@
+import hashlib
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404
@@ -9,7 +12,8 @@ from django.http import Http404
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -20,7 +24,9 @@ from rest_framework.response import Response
 
 from posthog.hogql import ast
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -30,25 +36,37 @@ from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
-from posthog.permissions import AccessControlPermission, posthog_feature_flag_enabled
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 from ..evaluation_conditions import build_condition_filter
+from ..facade import (
+    api as facade,
+    contracts,
+)
+from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
+from ..llm.decisions import decision_evaluations_enabled, is_decision_model
+from ..llm.errors import ProviderConnectionError
+from ..llm.providers.openai import OPENAI_DECISIONS_BASE_URL, OpenAIConfig
+from ..llm.providers.openrouter import OPENROUTER_BASE_URL, is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
+    MAX_CATEGORICAL_OPTIONS,
     SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MAX_MAX_AGE_SECONDS,
     SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
@@ -77,33 +95,16 @@ from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..presentation.query_concurrency import query_concurrency_slots
+from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
     from posthog.models import User
 
+    from ..logic.evaluations.period import PeriodBounds
+
 logger = structlog.get_logger(__name__)
-
-NUMERIC_EVALUATIONS_FEATURE_FLAG = "llm-analytics-numeric-evaluations"
-
-
-def _numeric_evaluations_enabled(serializer: serializers.BaseSerializer) -> bool:
-    request = serializer.context.get("request")
-    get_team = serializer.context.get("get_team")
-    user = getattr(request, "user", None)
-    if user is None or not getattr(user, "is_authenticated", False) or not callable(get_team):
-        return False
-
-    team = get_team()
-    try:
-        return posthog_feature_flag_enabled(
-            NUMERIC_EVALUATIONS_FEATURE_FLAG,
-            str(user.distinct_id),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    except Exception:
-        return False
 
 
 @extend_schema_field(
@@ -118,7 +119,13 @@ def _numeric_evaluations_enabled(serializer: serializers.BaseSerializer) -> bool
                         "type": "string",
                         "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                         "minLength": 1,
-                    }
+                    },
+                    "judge_method": {
+                        "type": "string",
+                        "enum": ["llm", "decision"],
+                        "nullable": True,
+                        "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -129,7 +136,7 @@ def _numeric_evaluations_enabled(serializer: serializers.BaseSerializer) -> bool
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.",
+                        "description": "Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
                         "minLength": 1,
                     }
                 },
@@ -171,22 +178,29 @@ class _EvaluationConfigField(serializers.JSONField):
             },
             "true_is_failure": {
                 "type": "boolean",
-                "description": "Boolean output only. Omit for numeric and sentiment "
+                "description": "Boolean output only. Omit for numeric, categorical, and sentiment "
                 "output. Whether a true result means the evaluation found "
                 "a problem. False (the default) suits pass/fail "
                 "evaluations, where a true result satisfied the criteria. "
                 "Set it to true for detector-style evaluations, so a true "
                 "result is counted and labeled as a fail.",
             },
+            "decision_threshold": {
+                "type": "number",
+                "nullable": True,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.",
+            },
             "min": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive minimum numeric score. Omit for no lower bound.",
+                "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
             },
             "max": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive maximum numeric score. Omit for no upper bound.",
+                "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
             },
             "step": {
                 "type": "number",
@@ -195,24 +209,71 @@ class _EvaluationConfigField(serializers.JSONField):
                 "minimum": 0,
                 "description": "Optional positive input increment. Does not round evaluation results.",
             },
-            "passing_rule": {
-                "type": "object",
-                "nullable": True,
-                "required": ["operator", "threshold"],
-                "description": "Optional numeric passing rule. Null removes the rule; "
-                "historical scores use the current rule.",
-                "properties": {
-                    "operator": {
-                        "type": "string",
-                        "enum": ["gte", "lte"],
-                        "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+            "options": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_CATEGORICAL_OPTIONS,
+                "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+                "items": {
+                    "type": "object",
+                    "required": ["key", "label"],
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9]+(?:[_-][a-z0-9]+)*$",
+                            "description": "Stable category key.",
+                        },
+                        "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "description": "Category display label.",
+                        },
                     },
-                    "threshold": {
-                        "type": "number",
-                        "description": "Finite passing threshold within any configured score bounds.",
-                    },
+                    "additionalProperties": False,
                 },
-                "additionalProperties": False,
+            },
+            "selection_mode": {
+                "type": "string",
+                "enum": ["single", "multiple"],
+                "description": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+            },
+            "passing_rule": {
+                "nullable": True,
+                "description": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.",
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": ["operator", "threshold"],
+                        "properties": {
+                            "operator": {
+                                "type": "string",
+                                "enum": ["gte", "lte"],
+                                "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+                            },
+                            "threshold": {
+                                "type": "number",
+                                "description": "Finite passing threshold within any configured score bounds.",
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["categories"],
+                        "properties": {
+                            "categories": {
+                                "type": "array",
+                                "uniqueItems": True,
+                                "items": {"type": "string"},
+                                "description": "Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.",
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                ],
             },
         },
         "additionalProperties": False,
@@ -222,75 +283,62 @@ class _OutputConfigField(serializers.DictField):
     child = serializers.JSONField(allow_null=True)
 
 
+# One object rather than a `oneOf` per strategy: a generated zod union strips the keys a branch does not
+# declare, so a payload that matches the wrong branch loses its settings, and the empty config of a
+# generation target matches no branch. `validate_target_config` checks the per-strategy combination.
 @extend_schema_field(
     {
-        "oneOf": [
-            {
-                "type": "object",
-                "title": "Fixed window settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["fixed_window"],
-                        "description": "Wait a fixed window after the first matching generation, then evaluate.",
-                    },
-                    "window_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds to wait after the first matching generation before evaluating the whole "
-                            "unit. Captured when the run is scheduled — editing it does not change runs "
-                            "already in flight. The accepted range depends on `target`: "
-                            f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+        "type": "object",
+        "title": "Settle config",
+        "properties": {
+            "strategy": {
+                "type": "string",
+                "enum": ["fixed_window", "inactivity"],
+                "description": (
+                    "'fixed_window' waits a fixed window after the first matching generation, then evaluates. "
+                    "'inactivity' evaluates once the unit has had no new activity for the quiet period. "
+                    "Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                ),
             },
-            {
-                "type": "object",
-                "title": "Inactivity settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["inactivity"],
-                        "description": "Evaluate once the unit has had no new activity for the quiet period.",
-                    },
-                    "quiet_period_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds without new activity before the unit counts as settled. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
-                            "for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
-                    },
-                    "max_age_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Hard cap in seconds on the total wait from the first matching generation, even "
-                            "if the unit stays active. Must be at least quiet_period_seconds. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_MAX_AGE_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+            "window_seconds": {
+                "type": "integer",
+                "description": (
+                    "fixed_window only. Seconds to wait after the first matching generation before evaluating "
+                    "the whole unit. Captured when the run is scheduled — editing it does not change runs "
+                    "already in flight. The accepted range depends on `target`: "
+                    f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
+                    "The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
             },
-        ],
-        "discriminator": {"propertyName": "strategy"},
+            "quiet_period_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Seconds without new activity before the unit counts as settled. The "
+                    f"accepted range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
+                    f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
+                    "for 'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
+            },
+            "max_age_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Hard cap in seconds on the total wait from the first matching generation, "
+                    "even if the unit stays active. Must be at least quiet_period_seconds. The accepted range "
+                    f"depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–{TRACE_EVAL_MAX_MAX_AGE_SECONDS} "
+                    f"for 'trace', {SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for "
+                    "'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
+            },
+        },
+        "additionalProperties": False,
     }
 )
 class _TargetConfigField(serializers.JSONField):
@@ -316,6 +364,11 @@ class ModelConfigurationSerializer(serializers.Serializer):
         errors = {field: "This field is required." for field in ("provider", "model") if field not in data}
         if errors:
             raise serializers.ValidationError(errors, code="required")
+        if data["provider"] == LLMProvider.SYSTEM_ONE:
+            if not data.get("provider_key_id"):
+                raise serializers.ValidationError(
+                    {"provider_key_id": "Select a System One connection for this evaluation."}
+                )
         return data
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -332,7 +385,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
         }
 
 
-class EvaluationConditionSerializer(serializers.Serializer):
+class EvaluationConditionSerializer(ConditionSetSerializer):
     """A trigger condition set controlling which generations an evaluation runs on."""
 
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")
@@ -395,18 +448,18 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
             "{true_is_failure} to declare that a true result means the evaluation found a problem. "
+            "For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). "
             "For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. "
-            "Do not send true_is_failure for numeric output. For 'sentiment': {}."
+            "For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
         ),
     )
     target_config = _TargetConfigField(
         required=False,
         help_text=(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
-            "`strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
-            "max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, "
-            "using per-target defaults, and the accepted bounds also depend on `target`. "
-            "Empty for 'generation'."
+            "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a "
+            "settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
+            "max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other "
+            "field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
         ),
     )
     conditions = EvaluationConditionSerializer(
@@ -468,7 +521,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             },
             "output_type": {
                 "help_text": (
-                    "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis."
+                    "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis."
                 )
             },
             "target": {
@@ -486,26 +539,85 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
+    def _uses_decision_model(self, data: dict[str, object]) -> bool:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return False
+
+        stored_config = getattr(self.instance, "evaluation_config", {})
+        evaluation_config = data.get("evaluation_config", stored_config)
+        judge_method = evaluation_config.get("judge_method") if isinstance(evaluation_config, dict) else None
+        method_changed = judge_method != stored_config.get("judge_method")
+        should_validate_model = (
+            self.instance is None
+            or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
+            or data.get("enabled", False)
+            or method_changed
+        )
+        if not should_validate_model:
+            return False
+
+        model_configuration = self._effective_model_configuration(data) or {}
+        if judge_method is not None and not model_configuration:
+            raise serializers.ValidationError(
+                {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
+            )
+        model_provider = model_configuration.get("provider")
+        if judge_method == "llm":
+            if model_provider == "system_one":
+                raise serializers.ValidationError({"model_configuration": "Select a model that supports LLM judging."})
+            return False
+        try:
+            supports_decisions = is_decision_model(
+                model_provider,
+                model_configuration.get("model"),
+                decision_only=judge_method is None,
+                openrouter_enabled=model_provider == "openrouter"
+                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
+                openai_enabled=judge_method == "decision"
+                and model_provider == LLMProvider.OPENAI
+                and model_configuration.get("model") in OpenAIConfig.DECISION_MODELS
+                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENAI_DECISIONS_BASE_URL),
+            )
+        except ProviderConnectionError as e:
+            raise serializers.ValidationError({"model_configuration": str(e)}) from e
+        if judge_method == "decision" and not supports_decisions:
+            raise serializers.ValidationError(
+                {"model_configuration": "Select an available decision model for this judge method."}
+            )
+        return supports_decisions
+
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
-        is_new_numeric_evaluation = output_type == "numeric" and (
-            self.instance is None or self.instance.output_type != "numeric"
-        )
-        if is_new_numeric_evaluation and not _numeric_evaluations_enabled(self):
-            raise serializers.ValidationError({"output_type": "Numeric evaluations are not enabled for this project."})
+        if "evaluation_config" in data:
+            config = data["evaluation_config"]
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"evaluation_config": "Must be an object."})
+            if (
+                self.partial
+                and self.instance is not None
+                and evaluation_type == EvaluationType.LLM_JUDGE.value
+                and "judge_method" not in config
+                and "judge_method" in self.instance.evaluation_config
+            ):
+                # A prompt-only PATCH must not reset the saved routing choice.
+                data["evaluation_config"] = {"judge_method": self.instance.evaluation_config["judge_method"], **config}
         if (
             self.instance
             and output_type != self.instance.output_type
-            and "numeric" in (output_type, self.instance.output_type)
+            and ({output_type, self.instance.output_type} & {"numeric", "categorical"})
         ):
-            raise serializers.ValidationError(
-                {"output_type": "Create a new evaluation to change between numeric and other output types."}
-            )
+            raise serializers.ValidationError({"output_type": "Create a new evaluation to change its output type."})
         model_configuration = data.get(
             "model_configuration",
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
+        uses_decision_model = self._uses_decision_model(data)
+        if uses_decision_model and output_type not in ("boolean", "categorical", "numeric"):
+            raise serializers.ValidationError(
+                {"model_configuration": "Select a model that supports this evaluation output type."}
+            )
 
         if not evaluation_uses_model_configuration(evaluation_type) and model_configuration is not None:
             raise serializers.ValidationError(
@@ -524,6 +636,12 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise serializers.ValidationError(
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
                 )
+
+        method_changed = "evaluation_config" in data and data["evaluation_config"].get("judge_method") != getattr(
+            self.instance, "evaluation_config", {}
+        ).get("judge_method")
+        if data.get("model_configuration") or data.get("enabled") or method_changed:
+            self._validate_chat_model(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
             self.instance is None
@@ -549,6 +667,29 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
             except ValueError as e:
                 raise serializers.ValidationError({"config": str(e)})
+
+        if uses_decision_model and output_type == "numeric":
+            config = data.get("output_config", getattr(self.instance, "output_config", {}))
+            if config.get("min") is None or config.get("max") is None or config["min"] >= config["max"]:
+                raise serializers.ValidationError(
+                    {
+                        "output_config": "Numeric evaluations with decision models require a minimum score below the maximum score."
+                    }
+                )
+
+        if uses_decision_model and output_type == "categorical":
+            model_configuration = self._effective_model_configuration(data) or {}
+            config = data.get("output_config", getattr(self.instance, "output_config", {}))
+            if (
+                model_configuration.get("provider") == LLMProvider.OPENAI
+                and config.get("selection_mode", "single") == "single"
+                and len(config.get("options", [])) < 2
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "output_config": "OpenAI decision models require at least two options for single-selection categories."
+                    }
+                )
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
         # message index). An aggregate target emits a single evaluation event for the whole unit,
@@ -587,6 +728,24 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 self._validate_re_enable(data)
 
         return data
+
+    def _validate_chat_model(self, data: dict, *, uses_decision_model: bool) -> None:
+        """OpenRouter judges use either chat completions or typed decisions."""
+        model_config = self._effective_model_configuration(data)
+        if not model_config or model_config.get("provider") != LLMProvider.OPENROUTER:
+            return
+        model = model_config.get("model")
+        if uses_decision_model:
+            return
+        if model and is_non_chat_model(model):
+            guidance = (
+                "Choose a chat model or a supported decision model."
+                if decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL)
+                else "Choose a chat model."
+            )
+            raise serializers.ValidationError(
+                {"model_configuration": f"'{model}' is not supported as an evaluation judge. {guidance}"}
+            )
 
     def _validate_can_run(self, data: dict) -> None:
         """An eval being turned on — created enabled or re-enabled — must be able to resolve a
@@ -852,6 +1011,72 @@ class TestHogTargetConfigSerializer(serializers.Serializer):
 class HogEvaluationOutputType(models.TextChoices):
     BOOLEAN = OutputType.BOOLEAN.value, OutputType.BOOLEAN.label
     NUMERIC = OutputType.NUMERIC.value, OutputType.NUMERIC.label
+    CATEGORICAL = OutputType.CATEGORICAL.value, OutputType.CATEGORICAL.label
+
+
+OVERVIEW_CACHE_SECONDS = 300
+
+
+@extend_schema_field(OpenApiTypes.STR)
+class _DateOrDateTimeField(serializers.Field):
+    """A `YYYY-MM-DD` date for whole days, or an ISO 8601 datetime for an exact instant."""
+
+    def to_internal_value(self, data: Any) -> date | datetime:
+        if not isinstance(data, str):
+            self.fail("invalid")
+        try:
+            return date.fromisoformat(data) if len(data) == 10 else datetime.fromisoformat(data)
+        except ValueError:
+            self.fail("invalid")
+
+    def to_representation(self, value: date | datetime) -> str:
+        return value.isoformat()
+
+    default_error_messages = {"invalid": "Enter a date (YYYY-MM-DD) or an ISO 8601 datetime."}
+
+
+class EvaluationsOverviewPeriodSerializer(serializers.Serializer):
+    date_from = _DateOrDateTimeField(
+        required=False,
+        help_text="Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. "
+        "Defaults to 13 days before `date_to`.",
+    )
+    date_to = _DateOrDateTimeField(
+        required=False,
+        help_text="End of the period: a date includes that whole day, a datetime is an exclusive instant. "
+        "Defaults to today.",
+    )
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Skip the result cached for the last five minutes and compute it again.",
+    )
+
+
+class EvaluationsOverviewQuerySerializer(EvaluationsOverviewPeriodSerializer):
+    evaluation_ids = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Only these evaluations. Defaults to every evaluation the user can see.",
+    )
+
+
+class EvaluationRunOutcome(models.TextChoices):
+    PASSED = "passed", "Passed"
+    FAILED = "failed", "Failed"
+
+
+class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
+    outcome = serializers.ChoiceField(
+        choices=EvaluationRunOutcome.choices,
+        required=False,
+        help_text="Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, "
+        "including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter "
+        "with a 400.",
+    )
+    limit = serializers.IntegerField(
+        required=False, default=5, min_value=1, max_value=50, help_text="How many runs to return, newest first."
+    )
 
 
 class TestHogRequestSerializer(serializers.Serializer):
@@ -859,18 +1084,20 @@ class TestHogRequestSerializer(serializers.Serializer):
         choices=HogEvaluationOutputType.choices,
         required=False,
         default=OutputType.BOOLEAN,
-        help_text="Expected output: boolean or numeric. Sentiment is not supported by Hog.",
+        help_text="Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.",
     )
     output_config = _OutputConfigField(
         required=False,
         default=dict,
-        help_text="Output settings used to validate the preview, including numeric bounds and allows_na.",
+        help_text="Output settings used to validate the preview, including bounds, categories, and allows_na.",
     )
     source = serializers.CharField(
         required=True,
         min_length=1,
         help_text=(
-            "Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. "
+            "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. "
+            "Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. "
+            "Return null only for allowed N/A. "
             "Output settings determine which boolean counts as a failure."
         ),
     )  # type: ignore[assignment]
@@ -923,6 +1150,12 @@ class TestHogRequestSerializer(serializers.Serializer):
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
+    categories = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Selected category keys. An empty list is an applicable result; null means no categorical result was produced.",
+    )
     score = serializers.FloatField(
         required=False, allow_null=True, help_text="Raw numeric score, or null when no numeric score was produced."
     )
@@ -965,7 +1198,13 @@ def _hog_test_result_counts(
         if result["error"]:
             counts["error"] += 1
         else:
-            value = result.get("score") if output_type == "numeric" else result["result"]
+            value = (
+                result.get("categories")
+                if output_type == "categorical"
+                else result.get("score")
+                if output_type == "numeric"
+                else result["result"]
+            )
             counts[definition.label_for(value, applicable=value is not None)] += 1
     return {f"{outcome}_count": counts[outcome] for outcome in ("pass", "fail", "na", "error")}
 
@@ -1023,6 +1262,7 @@ def _test_hog_over_sessions(
             "output_preview": r.output_preview,
             "result": r.verdict,
             **({"score": r.score} if output_type == "numeric" else {}),
+            **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
         }
@@ -1100,6 +1340,7 @@ def _test_hog_over_traces(
             "output_preview": r.output_preview,
             "result": r.verdict,
             **({"score": r.score} if output_type == "numeric" else {}),
+            **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
         }
@@ -1347,6 +1588,133 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    def _overview_period(self, request: ValidatedRequest) -> "PeriodBounds":
+        query = request.validated_query_data
+        try:
+            return facade.evaluations_period(self.team, query.get("date_from"), query.get("date_to"))
+        except facade.InvalidPeriodError as error:
+            raise serializers.ValidationError({error.field: str(error)} if error.field else str(error))
+
+    def _cached_overview_read(
+        self,
+        request: ValidatedRequest,
+        name: str,
+        evaluation_ids: Sequence[str],
+        period: "PeriodBounds",
+        read: Callable[[], Contract],
+    ) -> Response:
+        # Keyed by the evaluations the user can see and by their current property restrictions, because a hit skips
+        # the masking a fresh read applies, and a restriction can change while an entry is still cached.
+        visible = hashlib.sha256(",".join(sorted(evaluation_ids)).encode()).hexdigest()
+        restrictions = restriction_fingerprint(
+            get_restricted_properties_with_group_type_index_for_team(
+                user=cast("User", request.user), team_id=self.team.pk
+            )
+        )
+        cache_key = (
+            f"ai_evaluations_{name}/{self.team.pk}/{request.user.pk}/{period.start.astimezone(UTC).isoformat()}/{period.end.astimezone(UTC).isoformat()}"
+            f"/{visible}/{restrictions}"
+        )
+        if not request.validated_query_data["refresh"]:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        with query_concurrency_slots(self.team):
+            payload = read().model_dump(mode="json", by_alias=True)
+        cache.set(cache_key, payload, timeout=OVERVIEW_CACHE_SECONDS)
+        return Response(payload)
+
+    @validated_request(
+        query_serializer=EvaluationsOverviewQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=contracts.EvaluationsOverview),
+            400: OpenApiResponse(description="The period is malformed, empty, longer than 90 days or out of range."),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="overview", required_scopes=["evaluation:read"])
+    def overview(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Each evaluation's results over a period, compared with the period of equal length before it."""
+        period = self._overview_period(request)
+        queryset = self.get_queryset()
+        # The base viewset narrows by access level on `list` only, so this read applies it itself.
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        query = request.validated_query_data
+        if "evaluation_ids" in query:
+            queryset = queryset.filter(id__in=query["evaluation_ids"])
+        evaluation_ids = [str(evaluation_id) for evaluation_id in queryset.values_list("id", flat=True)]
+        return self._cached_overview_read(
+            request,
+            "overview",
+            evaluation_ids,
+            period,
+            lambda: facade.get_evaluations_overview(self.team, cast("User", request.user), evaluation_ids, period),
+        )
+
+    @validated_request(
+        query_serializer=EvaluationRunsQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=contracts.EvaluationRuns),
+            400: OpenApiResponse(
+                description="The period is invalid, or an outcome filter is set on an evaluation without a passing rule."
+            ),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["evaluation:read"])
+    def runs(self, request: ValidatedRequest, **kwargs) -> Response:
+        """One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones."""
+        evaluation_id = str(self.get_object().id)
+        period = self._overview_period(request)
+        query = request.validated_query_data
+        outcome, limit = query.get("outcome"), query["limit"]
+        try:
+            return self._cached_overview_read(
+                request,
+                f"runs/{outcome}/{limit}",
+                [evaluation_id],
+                period,
+                lambda: facade.get_evaluation_runs(
+                    self.team, cast("User", request.user), evaluation_id, period, outcome, limit
+                ),
+            )
+        except facade.NoPassingRuleError:
+            raise serializers.ValidationError(
+                {"outcome": "This evaluation has no passing rule, so its runs are neither passed nor failed."}
+            )
+
+    @validated_request(
+        query_serializer=EvaluationsOverviewPeriodSerializer,
+        responses={
+            200: OpenApiResponse(response=contracts.ScoreHistogram),
+            400: OpenApiResponse(
+                description="The period is invalid, or the evaluation is not numeric with a minimum and maximum score."
+            ),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="score_distribution", required_scopes=["evaluation:read"])
+    def score_distribution(self, request: ValidatedRequest, **kwargs) -> Response:
+        """How one numeric evaluation's scores in a period spread across its configured scale."""
+        evaluation_id = str(self.get_object().id)
+        period = self._overview_period(request)
+        try:
+            return self._cached_overview_read(
+                request,
+                "score_distribution",
+                [evaluation_id],
+                period,
+                lambda: facade.get_evaluation_score_distribution(
+                    self.team, cast("User", request.user), evaluation_id, period
+                ),
+            )
+        except facade.NoScoreScaleError:
+            raise serializers.ValidationError(
+                "Only a numeric evaluation with a minimum and a maximum score has a score distribution."
+            )
+
     @extend_schema(request=TestHogRequestSerializer, responses=TestHogResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
@@ -1524,6 +1892,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "output_preview": output_preview,
                     "result": result.get("verdict"),
                     **({"score": result.get("score")} if output_type == "numeric" else {}),
+                    **({"categories": result.get("categories")} if output_type == "categorical" else {}),
                     "reasoning": result["reasoning"],
                     "error": result["error"],
                 }

@@ -6,6 +6,7 @@ from google.auth.exceptions import RefreshError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -95,6 +96,13 @@ def _property_list_http_error(error: requests.HTTPError) -> str:
 class GoogleSearchConsoleSource(
     ResumableSource[GoogleSearchConsoleSourceConfig, GoogleSearchConsoleResumeConfig], OAuthMixin
 ):
+    codebase_detection = detect(
+        env=("^SEARCH_CONSOLE_", "^GSC_"),
+        npm=("@googleapis/searchconsole", "@googleapis/webmasters"),
+        maven=("com.google.apis:google-api-services-searchconsole",),
+        rubygems=("google-apis-searchconsole_v1",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.google.com/webmaster-tools"
@@ -157,6 +165,12 @@ class GoogleSearchConsoleSource(
             raise IntegrationAccountListingError(
                 "Could not authenticate with Google Search Console. Please reconnect the integration."
             )
+        if not sites:
+            # Google answers 200 with an empty list both when the account owns no property and
+            # when the Search Console scope was not granted. Returning [] leaves the picker on a
+            # generic empty state that names no next step, so raise the same message the 403
+            # listing path uses.
+            raise IntegrationAccountListingError(_PROPERTY_LIST_ACCESS_ERROR)
         # GSC has no name distinct from the site url, so value and display_name are the same.
         return [
             IntegrationAccount(
@@ -367,7 +381,8 @@ class GoogleSearchConsoleSource(
                         placeholder="https://example.com/ or sc-domain:example.com",
                         caption=(
                             "The exact verified property URL as it appears in Google Search Console. "
-                            "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties."
+                            "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties. "
+                            "Each source syncs one property, so add another Google Search Console source for each extra property."
                         ),
                         required=True,
                     ),

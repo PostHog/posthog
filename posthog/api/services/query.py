@@ -38,7 +38,7 @@ from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS, EDITOR_ASSIST_RESPONSES_TOTAL
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.language_service import (
-    WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX,
+    CATALOG_REVISION_PREFIX,
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
@@ -64,12 +64,14 @@ from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
+    unwrapped_source,
 )
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.managed_warehouse.backend.facade.query_execution import get_managed_trino_schema
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -98,8 +100,8 @@ class _EditorAssistRoute:
     malformed_stage: _MalformedResponseStage | None = None
 
 
-def _is_alias_capable_catalog_revision(revision: object) -> bool:
-    return isinstance(revision, str) and revision.startswith(WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
+def _is_current_catalog_revision(revision: object) -> bool:
+    return isinstance(revision, str) and revision.startswith(CATALOG_REVISION_PREFIX)
 
 
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
@@ -116,6 +118,7 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
             and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
             and query.variables is None
             and not query.debug
+            and not query.includeOutputTypes
         )
     return common and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
 
@@ -144,7 +147,7 @@ def _language_service_call(
         return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
 
     if result is not None:
-        if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
+        if _is_current_catalog_revision(result.body.get("catalogRevision")):
             return _EditorAssistRoute(enabled=True, result=result, reason="served")
 
     publication_succeeded = False
@@ -153,7 +156,7 @@ def _language_service_call(
         nonlocal publication_succeeded
         with timings.measure("catalog_schema") if timings is not None else nullcontext():
             schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
-        revision = f"{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
+        revision = f"{CATALOG_REVISION_PREFIX}{time.time_ns()}"
         with timings.measure("catalog_build") if timings is not None else nullcontext():
             catalog = build_catalog(
                 team,
@@ -170,7 +173,7 @@ def _language_service_call(
             current = call()
         except CatalogMissing:
             return None
-        if not _is_alias_capable_catalog_revision(current.body.get("catalogRevision")):
+        if not _is_current_catalog_revision(current.body.get("catalogRevision")):
             if publication_succeeded:
                 raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
             return None
@@ -465,6 +468,14 @@ def process_query_dict(
 def process_database_schema_query(
     team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
 ) -> DatabaseSchemaQueryResponse:
+    if query.executionTarget == "managed_trino":
+        try:
+            return get_managed_trino_schema(query, team=team, user=user)
+        except (APIException, ExposedHogQLError, UserAccessControlError):
+            raise
+        except Exception as error:
+            capture_exception(error, {"team_id": team.pk, "query_kind": "DatabaseSchemaQuery"})
+            raise DatabaseSchemaUnavailable() from error
     return _build_database_schema_query(team, query, user=user).response
 
 
@@ -682,7 +693,7 @@ def process_query_model(
     if hasattr(query, "source") and isinstance(query.source, BaseModel):
         return process_query_model(
             team,
-            query.source,
+            unwrapped_source(query, query.source),
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
             limit_context=limit_context,

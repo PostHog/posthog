@@ -1,17 +1,24 @@
+from datetime import datetime
+
 from products.wizard.backend.facade.contracts import (
     GitRepositoryWorkspace,
     LocalFolderWorkspace,
     WizardRunCreatorDTO,
     WizardRunDTO,
+    WizardRunTaskDTO,
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
     WizardRunEnvironment,
     WizardRunStage,
     WizardRunStatus,
+    WizardTaskStatus,
     WizardWorkspaceType,
 )
-from products.wizard.backend.facade.validation import validate_workspace_metadata_value
+from products.wizard.backend.facade.validation import (
+    validate_optional_workspace_metadata_value,
+    validate_workspace_metadata_value,
+)
 from products.wizard.backend.logic.programs import program_from_mapping
 from products.wizard.backend.models import WizardRun
 
@@ -20,8 +27,10 @@ def workspace_to_record(workspace: WizardWorkspace) -> tuple[WizardWorkspaceType
     match workspace:
         case LocalFolderWorkspace(project_name=project_name):
             return WizardWorkspaceType.LOCAL_FOLDER, {"project_name": project_name}
-        case GitRepositoryWorkspace(repository=repository):
+        case GitRepositoryWorkspace(repository=repository, branch=None):
             return WizardWorkspaceType.GIT_REPOSITORY, {"repository": repository}
+        case GitRepositoryWorkspace(repository=repository, branch=branch):
+            return WizardWorkspaceType.GIT_REPOSITORY, {"repository": repository, "branch": branch}
 
 
 def record_to_workspace(workspace_type: str, metadata: object) -> WizardWorkspace:
@@ -29,7 +38,10 @@ def record_to_workspace(workspace_type: str, metadata: object) -> WizardWorkspac
         case WizardWorkspaceType.LOCAL_FOLDER:
             return LocalFolderWorkspace(project_name=validate_workspace_metadata_value(metadata, "project_name"))
         case WizardWorkspaceType.GIT_REPOSITORY:
-            return GitRepositoryWorkspace(repository=validate_workspace_metadata_value(metadata, "repository"))
+            return GitRepositoryWorkspace(
+                repository=validate_workspace_metadata_value(metadata, "repository"),
+                branch=validate_optional_workspace_metadata_value(metadata, "branch"),
+            )
 
 
 def record_to_run(run: WizardRun) -> WizardRunDTO:
@@ -60,5 +72,17 @@ def record_to_run(run: WizardRun) -> WizardRunDTO:
             )
             if creator is not None
             else None
+        ),
+        tasks=tuple(
+            WizardRunTaskDTO(
+                title=task["title"],
+                status=WizardTaskStatus(task["status"]),
+                created_at=datetime.fromisoformat(task["created_at"]),
+                started_at=datetime.fromisoformat(task["started_at"]) if task["started_at"] else None,
+                completed_at=datetime.fromisoformat(task["completed_at"]) if task["completed_at"] else None,
+                failed_at=datetime.fromisoformat(task["failed_at"]) if task["failed_at"] else None,
+                error_message=task["error_message"],
+            )
+            for task in run.tasks_snapshot or []
         ),
     )

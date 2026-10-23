@@ -18,8 +18,8 @@
     'dependencies',
   ],
   dependencyDashboardOSVVulnerabilitySummary: 'all',
-  dependencyDashboardReportAbandonment: true,
-  osvVulnerabilityAlerts: true,
+  dependencyDashboardReportAbandonment: false,
+  configMigration: false,
   vulnerabilityAlerts: {
     enabled: false,
   },
@@ -30,13 +30,34 @@
     {
       customType: 'regex',
       description: 'Update pinned chrome-headless-shell version in recording-rasterizer Dockerfile',
-      fileMatch: ['Dockerfile\\.recording-rasterizer$'],
+      managerFilePatterns: ['/Dockerfile\\.recording-rasterizer$/'],
       matchStrings: [
         'chrome-headless-shell@(?<currentValue>\\d+\\.\\d+\\.\\d+\\.\\d+)',
       ],
       depNameTemplate: 'chrome-headless-shell',
       datasourceTemplate: 'custom.chrome-for-testing',
       versioningTemplate: 'loose',
+    },
+    {
+      customType: 'regex',
+      description: 'Update the Renovate version pinned in the dashboard digest workflow',
+      managerFilePatterns: ['/^\\.github/workflows/renovate-dashboard-digest\\.yml$/'],
+      matchStrings: ['renovate@(?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'renovate',
+      datasourceTemplate: 'npm',
+    },
+    {
+      customType: 'regex',
+      description: 'Update the nodesource nodejs package pinned in the task sandbox images',
+      managerFilePatterns: [
+        '/^products/tasks/backend/sandbox/images/Dockerfile\\.sandbox-(base|notebook|slim)$/',
+        '/^products/tasks/backend/logic/services/modal_sandbox\\.py$/',
+      ],
+      matchStrings: ['(?<currentValue>\\d+\\.\\d+\\.\\d+-\\d+nodesource\\d+)'],
+      depNameTemplate: 'nodejs',
+      datasourceTemplate: 'deb',
+      versioningTemplate: 'deb',
+      registryUrlTemplate: 'https://deb.nodesource.com/node_24.x?suite=nodistro&components=main&binaryArch=amd64',
     },
   ],
   customDatasources: {
@@ -61,6 +82,14 @@
     {
       matchManagers: ['github-actions'],
       groupName: 'github-actions',
+    },
+    // The sandbox images and the Modal slim image rebuild only when this pin changes,
+    // so skip the dashboard approval and open the PR as soon as nodesource ships a release
+    {
+      matchDatasources: ['deb'],
+      matchDepNames: ['nodejs'],
+      dependencyDashboardApproval: false,
+      groupName: 'sandbox nodejs',
     },
   ],
 }

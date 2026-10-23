@@ -15,20 +15,33 @@ export type SessionState = {
     uuid: string
 }
 
-// Per-MCP-session context, keyed on the protocol session id (not the token).
-// `activeOrgId`/`activeProjectId` record an in-session switch-organization /
-// switch-project; `appliedPin*` record the request pin the session last saw so
-// the resolver can tell a resent pin from a genuinely changed one. See
-// RequestStateResolver.applyPinnedContext.
+// Null clears a selection without restoring the pin; undefined means no override was saved.
 export type SessionScopedState = {
-    activeProjectId: string | undefined
-    activeOrgId: string | undefined
+    // Defaults are separate from explicit switches so delayed initialization cannot undo a switch.
+    defaultContext: { organizationId?: string; projectId?: number } | undefined
+    defaultProjectId: number | undefined
+    activeProjectId: string | null | undefined
+    activeOrgId: string | null | undefined
     appliedPinProjectId: string | undefined
     appliedPinOrgId: string | undefined
 }
 
+/**
+ * The resolver snapshots the session selection and optional pin per request.
+ * The token cache is shared across sessions, so it cannot hold their selections.
+ */
+export type PinnedActiveContext = {
+    /** The org and project ids that the request params, or the session's saved pin, pinned. */
+    pin: { organizationId?: string | undefined; projectId?: string | undefined }
+    /** True when an MCP session records switches across requests. */
+    sessionScoped: boolean
+    /** Effective ids for this request. A switch updates them in place. */
+    orgId?: string | undefined
+    projectId?: string | undefined
+}
+
 export type CachedUser = ApiUser
-export type CachedOrg = Schemas.OrganizationBasic
+export type CachedOrg = Schemas.Organization
 export type CachedProject = Schemas.ProjectBackwardCompat
 
 export type State = {
@@ -37,6 +50,7 @@ export type State = {
     distinctId: string | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
+    apiKeyFetchedAt: number | undefined
     clientName: string | undefined
     oauthClientId: string | undefined
     mcpClientName: string | undefined
@@ -44,8 +58,6 @@ export type State = {
     mcpProtocolVersion: string | undefined
     mcpConsumer: string | undefined
     mcpVendorClient: string | undefined
-    skillsLearnedAt: number | undefined
-    skillsNoSkillsAckAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -58,7 +70,9 @@ export type State = {
     Record<PrefixedString<'integrationKinds'>, string[] | undefined> &
     Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
-    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -106,6 +120,8 @@ export type Env = {
     POSTHOG_ANALYTICS_HOST: string | undefined
     /** Override the published product skills archive, primarily for local development. */
     POSTHOG_MCP_SKILLS_URL?: string | undefined
+    POSTHOG_MCP_SKILLS_SHA256?: string | undefined
+    POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
 export type Context = {
@@ -128,13 +144,6 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
-    /**
-     * Record an in-session context switch so a pinned connection's resent pin
-     * doesn't revert it (see RequestStateResolver.applyPinnedContext). Absent
-     * when the request carries no MCP session id — there is no cross-request
-     * session state to record for.
-     */
-    setSessionActiveContext?: (updates: { orgId?: string; projectId?: string }) => Promise<void>
     /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.
@@ -187,6 +196,7 @@ export type ToolUiMeta = {
 export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
 export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
 export const POSTHOG_INFORMATIONAL_RESPONSE_KEY = '__informational_response' as const
+export const POSTHOG_TEXT_PROJECTION_KEY = '__text_projection' as const
 
 export type PostHogToolMeta = {
     /**

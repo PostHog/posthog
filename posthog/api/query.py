@@ -14,7 +14,14 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, Throttled, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+    Throttled,
+    ValidationError,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -51,7 +58,13 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_q
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import (
+    GENERIC_INTERNAL_CH_ERROR_MESSAGE,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
@@ -77,7 +90,10 @@ from posthog.rate_limit import (
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.customer_analytics.backend.facade.api import validate_account_users_access
+from products.customer_analytics.backend.facade.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
+from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
 from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
@@ -193,6 +209,7 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "AccountUsersQuery": ["query:read", "account:read", "person:read"],
     "AccountsTableQuery": ["query:read", "account:read"],
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
@@ -200,7 +217,10 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
+    "MCPHarnessBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
+    "MCPModelBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPProtocolVersionBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
@@ -406,7 +426,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            replacement = APIException("ClickHouse error while executing query.")
+            error_code = look_up_clickhouse_error_code_meta(e).name
+            user_message = internal_ch_error_user_message(error_code)
+            replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)
             scan_extra = _scan_extra(e)
             if scan_extra:
                 replacement.extra = scan_extra  # type: ignore[attr-defined]
@@ -450,6 +472,26 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        account_users_account_id = next(
+            (
+                label.removeprefix(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
+                for label in query_status.labels or []
+                if label.startswith(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
+            ),
+            None,
+        )
+        if account_users_account_id is not None:
+            try:
+                validate_account_users_access(
+                    self.team, request.user if isinstance(request.user, User) else None, account_users_account_id
+                )
+            except UserAccessControlError as error:
+                raise PermissionDenied(str(error)) from error
+        if managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL in (query_status.labels or []):
+            try:
+                validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
+            except ExposedHogQLError as error:
+                raise PermissionDenied(str(error)) from error
         managed_connection_id = next(
             (
                 label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
@@ -471,17 +513,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
                 code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
             )
-        query_status_response = QueryStatusResponse(query_status=query_status)
-
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
             if query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+                # Add safe copy only after choosing the existing HTTP status; internal failures stay 500.
+                query_status.error_message = internal_ch_error_user_message(query_status.error_code)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
+        query_status_response = QueryStatusResponse(query_status=query_status)
         response = JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
         if query_status.bytes_read is not None:
             _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)

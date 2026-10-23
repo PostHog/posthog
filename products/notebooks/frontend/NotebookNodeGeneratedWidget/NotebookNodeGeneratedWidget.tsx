@@ -23,6 +23,8 @@ import {
 } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookNodeGeneratedWidgetSettings } from './NotebookNodeGeneratedWidgetSettings'
 import { NotebookWidgetBetaNotice } from './NotebookWidgetBetaNotice'
+import { notebookWidgetDashboardLogic } from './notebookWidgetDashboardLogic'
+import { NotebookWidgetDashboardModal } from './NotebookWidgetDashboardModal'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
@@ -133,6 +135,18 @@ function ExpandedWidget({
     } = useActions(logic)
     const { trustBuild } = useActions(trustLogic)
     const { setMenuItems, updateAttributes } = useActions(nodeLogic)
+    const dashboardProps = {
+        notebookShortId,
+        nodeId: attributes.nodeId,
+        versionId: selectedVersionId ?? '',
+        title: attributes.title || 'Notebook widget',
+        persistNotebook: logicProps.persistNotebook,
+    }
+    const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
+    const selectedArtifactUrl =
+        selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
+    const canAddToDashboard =
+        isEditable && selectedVersionId && selectedArtifactUrl && currentTeamId && !artifactUnavailable
     const selectedBuildHash =
         selectedVersionId === status?.current_version_id
             ? (status?.build_hash ?? null)
@@ -144,6 +158,7 @@ function ExpandedWidget({
 
     useEffect(() => {
         setMenuItems([
+            canAddToDashboard ? { label: 'Add to dashboard', onClick: openDashboardModal } : null,
             status?.is_reusable && status.widget_id
                 ? { label: 'Open reusable widget', to: urls.reusableWidget(status.widget_id) }
                 : null,
@@ -172,6 +187,8 @@ function ExpandedWidget({
         ])
     }, [
         isEditable,
+        canAddToDashboard,
+        openDashboardModal,
         openSourceModal,
         selectedBuildHash,
         selectedSecurityReview,
@@ -203,8 +220,6 @@ function ExpandedWidget({
     }
 
     const initialPrompt = prompt.trim()
-    const selectedArtifactUrl =
-        selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const widgetTrust = getNotebookWidgetTrust({
         trustByUser,
         sessionBuildHashes,
@@ -251,6 +266,7 @@ function ExpandedWidget({
             return (
                 <>
                     {trustControls('gate')}
+                    <NotebookWidgetDashboardModal {...dashboardProps} />
                     {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
                 </>
             )
@@ -258,6 +274,7 @@ function ExpandedWidget({
         return (
             <>
                 <div className="flex h-full min-h-0 w-full flex-col">
+                    <NotebookWidgetDashboardModal {...dashboardProps} />
                     {isWorking && workingStatus && !componentPanelState?.showEditPanel ? (
                         <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
                             <span className="flex items-center gap-2" role="status" aria-live="polite">

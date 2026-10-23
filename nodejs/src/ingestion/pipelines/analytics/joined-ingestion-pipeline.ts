@@ -34,6 +34,7 @@ import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-proce
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
 import { createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import {
     createEventUsageBeforeBatchStep,
     createFlushEventUsageStep,
@@ -49,12 +50,12 @@ import {
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
+    RealtimeOnlyEventsOutput,
 } from './outputs'
 import {
     PostTeamPreprocessingSubpipelineConfig,
     createPostTeamPreprocessingSubpipeline,
 } from './post-team-preprocessing-subpipeline'
-import { prefetchTeamsStep } from './steps/prefetchTeamsStep'
 
 export interface JoinedIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
@@ -68,6 +69,7 @@ export interface JoinedIngestionPipelineConfig {
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
+        | RealtimeOnlyEventsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput

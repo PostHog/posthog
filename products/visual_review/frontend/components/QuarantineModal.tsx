@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { dayjs } from 'lib/dayjs'
@@ -13,6 +13,9 @@ const SUGGESTED_REASONS = [
 ]
 
 const DEFAULT_EXPIRY_DAYS = 30
+
+// Owners come from the Storybook story index, so no other run type has a team to notify.
+const NOTIFIABLE_RUN_TYPE = 'storybook'
 
 const COPY = {
     create: {
@@ -67,7 +70,8 @@ export type OnQuarantine = (
     reason: string,
     identifiers: string[],
     expiresAt: string | null,
-    sourceRunId: string | null
+    sourceRunId: string | null,
+    notifyOwners: boolean
 ) => void
 
 interface QuarantineModalProps {
@@ -93,6 +97,8 @@ interface QuarantineModalProps {
      * Forwarded to the parent via `onQuarantine` so the backend can store it.
      */
     sourceRunId?: string | null
+    /** The snapshot's run type. The owner notice switch shows only for Storybook snapshots. */
+    runType?: string
 }
 
 /**
@@ -108,12 +114,15 @@ export function QuarantineModal({
     initialReason,
     initialExpiresAt,
     sourceRunId,
+    runType,
 }: QuarantineModalProps): JSX.Element {
     const isExtend = mode === 'extend'
+    const canNotifyOwners = !isExtend && runType === NOTIFIABLE_RUN_TYPE
     const copy = COPY[mode]
 
     const [reason, setReason] = useState(initialReason ?? '')
     const [includeSibling, setIncludeSibling] = useState(true)
+    const [notifyOwners, setNotifyOwners] = useState(true)
     const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(() => computeDefaultExpiry(initialExpiresAt))
 
     // Re-prefill if the parent swaps which entry we're acting on mid-session.
@@ -125,6 +134,7 @@ export function QuarantineModal({
         }
         setReason(initialReason ?? '')
         setIncludeSibling(true)
+        setNotifyOwners(true)
         setExpiresAt(computeDefaultExpiry(initialExpiresAt))
     }, [initialReason, initialExpiresAt, isOpen])
 
@@ -137,7 +147,13 @@ export function QuarantineModal({
         if (!isExtend && sibling && includeSibling) {
             identifiers.push(sibling)
         }
-        onQuarantine(reason, identifiers, expiresAt ? expiresAt.toISOString() : null, sourceRunId ?? null)
+        onQuarantine(
+            reason,
+            identifiers,
+            expiresAt ? expiresAt.toISOString() : null,
+            sourceRunId ?? null,
+            canNotifyOwners && notifyOwners
+        )
         onClose()
     }
 
@@ -214,6 +230,25 @@ export function QuarantineModal({
                         maxDate={dayjs().add(1, 'year')}
                     />
                 </div>
+
+                {canNotifyOwners && (
+                    <LemonSwitch
+                        checked={notifyOwners}
+                        onChange={setNotifyOwners}
+                        bordered
+                        fullWidth
+                        data-attr="visual-review-quarantine-notify-owners"
+                        label={
+                            <div>
+                                <div className="text-sm font-medium">Notify the owning team in Slack</div>
+                                <div className="text-xs text-muted font-normal">
+                                    Posts to the team's channel now, with your name. Skipped if the story has no owner
+                                    in owners.yaml or the project has no Slack integration.
+                                </div>
+                            </div>
+                        }
+                    />
+                )}
             </div>
         </LemonModal>
     )

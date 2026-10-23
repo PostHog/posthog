@@ -2,8 +2,7 @@ import json
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.settings import WEBHOOK_SECRET_HEADER
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.webhook_template import template
 
@@ -91,16 +90,21 @@ class TestPostmarkWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result["httpResponse"]["status"] == 200
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
+    def test_missing_webhook_secret_drops_delivery(self):
+        globals = self._request(self._bounce(), headers={WEBHOOK_SECRET_HEADER: WEBHOOK_SECRET})
+
+        res = self.run_function(self._inputs(signing_secret=""), globals=globals)
+
+        assert res.result == {
+            "httpResponse": {"status": 200, "body": "Webhook secret not configured, delivery dropped"},
+            "appMetric": "missing_credential",
+        }
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
     @parameterized.expand(
         [
             ("wrong_secret", {WEBHOOK_SECRET_HEADER: "not-the-secret"}, {}, "Bad webhook secret"),
             ("missing_header", {}, {}, "Bad webhook secret"),
-            (
-                "secret_not_configured",
-                {WEBHOOK_SECRET_HEADER: WEBHOOK_SECRET},
-                {"signing_secret": ""},
-                "Webhook secret not configured",
-            ),
         ]
     )
     def test_unauthenticated_deliveries_are_rejected(self, _name, headers, input_overrides, expected_body):

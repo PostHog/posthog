@@ -1,5 +1,7 @@
 import os
+import re
 import shlex
+import base64
 import logging
 import tempfile
 import subprocess
@@ -26,7 +28,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 
 
-class TestGenerateConfigYaml(TestCase):
+class TestGenerateConfigYaml(SimpleTestCase):
     def test_has_ptrace_enabled_with_full_trace(self):
         config = yaml.safe_load(generate_config_yaml())
         self.assertTrue(config["sandbox"]["ptrace"]["enabled"])
@@ -226,22 +228,47 @@ class TestGeneratePolicyYaml(TestCase):
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertIn("ai-gateway.dev.posthog.dev", allow_rule["domains"])
 
-    # One case per member of _SANDBOX_URL_SETTINGS: the enforced-rule path is
-    # shared, so each entry needs its own tripping input or its deletion
-    # merges green.
+    # One case per sandbox URL source: the enforced-rule path is shared, so
+    # each entry needs its own tripping input or its deletion merges green.
     @parameterized.expand(
         [
-            ("SANDBOX_API_URL", "api.sandbox.example.dev"),
-            ("SANDBOX_LLM_GATEWAY_URL", "llm-gw.sandbox.example.dev"),
-            ("SANDBOX_AI_GATEWAY_URL", "ai-gw.sandbox.example.dev"),
-            ("SANDBOX_MCP_URL", "mcp.sandbox.example.dev"),
+            ("api", {"SANDBOX_API_URL": "https://api.sandbox.example.dev"}, "api.sandbox.example.dev", None),
+            (
+                "llm_gateway",
+                {"SANDBOX_LLM_GATEWAY_URL": "https://llm-gw.sandbox.example.dev"},
+                "llm-gw.sandbox.example.dev",
+                None,
+            ),
+            (
+                "ai_gateway",
+                {"SANDBOX_AI_GATEWAY_URL": "https://ai-gw.sandbox.example.dev"},
+                "ai-gw.sandbox.example.dev",
+                None,
+            ),
+            (
+                "mcp_server_url_fallback",
+                {"SANDBOX_MCP_URL": None, "MCP_SERVER_URL": "https://mcp.us.posthog.com/mcp"},
+                "mcp.us.posthog.com",
+                None,
+            ),
+            (
+                "sandbox_mcp_url_wins",
+                {
+                    "SANDBOX_MCP_URL": "https://mcp.sandbox.example.dev/mcp",
+                    "MCP_SERVER_URL": "https://mcp.us.posthog.com/mcp",
+                },
+                "mcp.sandbox.example.dev",
+                "mcp.us.posthog.com",
+            ),
         ]
     )
-    def test_each_sandbox_url_setting_reaches_enforced_rule(self, setting_name, host):
-        with override_settings(DEBUG=False, **{setting_name: f"https://{host}"}):
+    def test_each_sandbox_url_setting_reaches_enforced_rule(self, _name, overrides, host, absent_host):
+        with override_settings(DEBUG=False, **overrides):
             policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertIn(host, allow_rule["domains"])
+        if absent_host:
+            self.assertNotIn(absent_host, allow_rule["domains"])
 
     @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://localhost:3308")
     def test_loopback_sandbox_hosts_stay_off_prod_rule(self):
@@ -275,16 +302,32 @@ class TestGeneratePolicyYaml(TestCase):
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertNotIn("10.0.5.3", allow_rule["domains"])
 
-    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="ai-gateway.dev.posthog.dev")
-    def test_schemeless_setting_warns_and_admits_nothing(self):
+    @parameterized.expand(
+        [
+            (
+                "schemeless",
+                {"SANDBOX_AI_GATEWAY_URL": "ai-gateway.dev.posthog.dev"},
+                "SANDBOX_AI_GATEWAY_URL",
+                "ai-gateway.dev.posthog.dev",
+            ),
+            (
+                "unparseable_mcp_server_url",
+                {"SANDBOX_MCP_URL": None, "MCP_SERVER_URL": "https://[broken/mcp"},
+                "MCP_SERVER_URL",
+                "broken",
+            ),
+        ]
+    )
+    def test_schemeless_setting_warns_and_admits_nothing(self, _name, overrides, setting_name, host_fragment):
         # A scheme-less value passes the injection sites' truthiness gate but
         # parses to no hostname, so the URL reaches the sandbox while its host
         # is never admitted; the warning is the only backend-side signal.
-        with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING") as logs:
-            policy = yaml.safe_load(generate_policy_yaml([]))
-        self.assertTrue(any("SANDBOX_AI_GATEWAY_URL" in line for line in logs.output))
+        with override_settings(DEBUG=False, **overrides):
+            with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING") as logs:
+                policy = yaml.safe_load(generate_policy_yaml([]))
+        self.assertTrue(any(setting_name in line for line in logs.output))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
-        self.assertNotIn("ai-gateway.dev.posthog.dev", allow_rule["domains"])
+        self.assertFalse(any(host_fragment in domain for domain in allow_rule["domains"]))
 
     @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gw.example.dev:8443")
     def test_non_cloud_port_outside_debug_warns_but_keeps_host(self):
@@ -361,6 +404,7 @@ class TestEnvWrapper(SimpleTestCase):
             wrapper_file = Path(temp_dir) / "wrapper.sh"
             env_file.write_bytes(
                 b"SAFE_BASE=kept\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghs_snapshot\x00"
+                b"JWT_PUBLIC_KEY=-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\x00"
             )
             github_env_file.write_bytes(b"GITHUB_TOKEN=ghs_fresh\x00GH_TOKEN=ghs_fresh\x00IGNORED=unsafe\x00")
             oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00IGNORED=unsafe\x00")
@@ -372,8 +416,8 @@ class TestEnvWrapper(SimpleTestCase):
                     str(wrapper_file),
                     "bash",
                     "-c",
-                    'printf "%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
-                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}"',
+                    'printf "%s|%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
+                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}" "$JWT_PUBLIC_KEY"',
                 ],
                 check=True,
                 capture_output=True,
@@ -381,7 +425,10 @@ class TestEnvWrapper(SimpleTestCase):
                 env={"PATH": os.environ["PATH"], "NODE_OPTIONS": "--require=/tmp/inherited.js"},
             )
 
-            self.assertEqual(result.stdout, "kept|ghs_fresh|ghs_fresh|oauth_fresh|")
+            self.assertEqual(
+                result.stdout,
+                "kept|ghs_fresh|ghs_fresh|oauth_fresh||-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----",
+            )
 
     def test_wrapper_does_not_set_proxy_vars(self):
         wrapper = generate_env_wrapper()
@@ -484,7 +531,7 @@ class TestBashEnvScript(SimpleTestCase):
             self.assertNotEqual(result.returncode, 0)
 
 
-class TestBuildAuditQueryCommand(TestCase):
+class TestBuildAuditQueryCommand(SimpleTestCase):
     def test_references_audit_db(self):
         cmd = build_audit_query_command()
         self.assertIn(AGENTSH_AUDIT_DB, cmd)
@@ -504,7 +551,7 @@ class TestBuildAuditQueryCommand(TestCase):
         self.assertTrue(any(part.startswith("SELECT ts_unix_ns") for part in parts))
 
 
-class TestBuildExecPrefix(TestCase):
+class TestBuildExecPrefix(SimpleTestCase):
     def test_returns_correct_format(self):
         self.assertEqual(
             build_exec_prefix(),
@@ -595,16 +642,21 @@ class TestModalSandboxAgentShWrapping(TestCase):
         )
 
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            encoded_script = re.search(r"printf %s ([A-Za-z0-9+/=]+) \| base64 -d", command)
+            if encoded_script:
+                command = base64.b64decode(encoded_script.group(1)).decode()
             if "--taskId" in command:
                 launched.append(command)
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command:
+                return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            if ENV_DISABLE_BUNDLED_SKILLS in command:
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if "chmod" in command:  # gh shim install
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if command.startswith("bash /tmp/posthog-launch-preparation-"):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
-            self.assertIn(ENV_DISABLE_BUNDLED_SKILLS, command)
-            self.assertIn("grep -q autoPublish", command)
-            return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            raise AssertionError(f"Unexpected sandbox command: {command}")
 
         sandbox: ModalSandbox | DockerSandbox
         if provider == "modal":
@@ -653,6 +705,32 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)
+
+    def test_command_hands_the_codex_run_token_over_an_inherited_fd(self):
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
+        with_token = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            allowed_domains=["example.com"],
+            codex_run_token_file="/tmp/agent-codex-run-token",
+        )
+        without_token = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            allowed_domains=["example.com"],
+        )
+        self.assertIn("exec 3< /tmp/agent-codex-run-token && rm -f /tmp/agent-codex-run-token && exec ", with_token)
+        self.assertLess(with_token.index("agentsh exec"), with_token.index("exec 3<"))
+        self.assertNotIn("exec 3<", without_token)
 
     def test_command_includes_runtime_environment_variables(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox

@@ -33,7 +33,9 @@ export function EvaluationRunsFilters(): JSX.Element | null {
                 setEvaluationRunsFilter(value, evaluationRunsFilter)
             }}
             options={[
-                ...(evaluation?.output_type === 'numeric' && !evaluation.output_config.passing_rule
+                ...(evaluation &&
+                ['numeric', 'categorical'].includes(evaluation.output_type) &&
+                !evaluation.output_config.passing_rule
                     ? BASE_FILTER_OPTIONS.filter((option) => option.value === 'all')
                     : BASE_FILTER_OPTIONS),
                 ...(evaluation?.output_config?.allows_na ? [NA_FILTER_OPTION] : []),

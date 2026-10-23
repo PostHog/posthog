@@ -12,6 +12,37 @@ Costs come from recorded gateway usage and include the same markup as PostHog AI
 Older versions and generations without available usage records do not show a cost.
 The estimate does not include separate failed or canceled generation jobs, or notebook compute.
 
+## Dashboard widgets
+
+Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.
+Generated notebook widgets must be enabled.
+The selected widget version must have an available preview before the menu offers **Add to dashboard**.
+Notebook widgets are added from the notebook, rather than the dashboard's generic widget picker.
+Search the dashboard picker by name, description, or creator to find a destination.
+Each option shows its description and creator, and marks pinned dashboards.
+Dashboards without edit access cannot be selected.
+Each snapshot holds up to 5,000 rows per dataframe and 8 MiB in total. Adding a widget fails if any required result has expired or cannot be fully captured within these limits.
+Opening a dashboard reads these saved rows without starting notebook compute. Each viewer still needs access to the source notebook, queries, and connected data sources, and must consent to the exact generated build before it reads data.
+Public dashboards show a placeholder instead of notebook results.
+The widget fills the dashboard tile below its header.
+Use the tile's **…** menu to open the notebook, refresh its results, view source, or check the saved time, automated review, and build ID.
+
+**Refresh from notebook** runs the saved notebook's data cells in document order through the backend notebook runner.
+Dashboard refresh opts into running prepared embedded insights alongside SQL and Python cells with `include_prepared_insights=true`.
+This option requires generated notebook widgets to be enabled. Ordinary **Run all** still runs SQL and Python cells only.
+Insights without a prepared dataframe query cannot supply widget inputs.
+Refresh keeps the existing results visible and replaces the snapshot only after every cell and the new capture succeed.
+The snapshot and dashboard tile are saved together. A refused dashboard save leaves no new snapshot, and a stale refresh cannot overwrite a newer snapshot.
+Refresh continues when the dashboard tab is hidden. Keep the dashboard open until the refresh finishes: closing it before publication leaves the previous snapshot in place and does not stop the backend notebook run.
+Dashboard refresh can execute up to 50 cells, including prepared insights. Display-only insights do not count toward this limit.
+If source runs were deleted, snapshot metadata remains available so the widget can be refreshed, but saved rows cannot be read until source authorization can be checked again.
+Snapshot creation allows 10 requests per hour per credential or user. Refresh publication uses a separate limit of 60 requests per hour.
+A daily cleanup removes snapshots created more than seven days ago if no active dashboard tile references them. Copies on other dashboards keep their shared snapshot.
+Dashboard date ranges and filters do not change notebook variables. Refresh uses the notebook's saved variables and can incur Python compute charges.
+The dashboard keeps the selected generated version; generating a new version in the notebook does not replace dashboard widgets.
+
+## Notebook previews
+
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.
@@ -29,7 +60,7 @@ The estimate does not include separate failed or canceled generation jobs, or no
 - `<Widget>` is the only notebook markdown tag for generated widgets.
 - Widget previews allow pointer lock for interactive controls such as games. Both the iframe and artifact CSP permit `allow-pointer-lock`; the preview URL varies to refresh previously cached CSP headers.
 - Organizations must approve AI data processing before a job is queued and when its worker starts.
-- Every widget endpoint requires the `notebook-generated-widgets` feature flag: creation, status, history, source, restore, cancellation, and dataframe reads. While it is disabled, existing widget nodes still render but every request they make returns 404. A generation job that is already running does not recheck the flag; it finishes model generation and the Canvas build, bounded by the 10-minute stale window and the 15-minute activity timeout. Keep the flag disabled until the generated-code data boundary and mixed-version Canvas rollout are approved.
+- Widget endpoints require authentication and notebook permissions; dataframe reads also require query access. A generation job is bounded by the 10-minute stale window and the 15-minute activity timeout.
 - Production artifact delivery requires `CANVAS_ARTIFACT_ORIGIN`, a dedicated bare HTTPS origin with no path, query, fragment, or credentials, set before rollout. A production deploy with it unset boots clean, but every widget builds and then reports its preview unavailable, because no artifact URL is minted. Artifact URLs use Django's rotating `SECRET_KEY` values for signing by default. Deployments can set `CANVAS_ARTIFACT_SIGNING_KEYS` for independent rotation.
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
@@ -43,7 +74,7 @@ The reusable catalog fields, demo data, input bindings, and pending reviews shar
 The four new non-null fields retain database defaults, so workers from before this migration can still create widgets, versions, and placements during a rolling deploy or rollback.
 Local databases that already applied the earlier catalog, input-binding, pending-review, and merge migrations need their migration records reconciled after verifying all nine fields exist. Record the consolidated migration as applied and prune the four superseded records in both the development and reused test databases. Preserve the existing tables and data; rolling back those field additions would discard saved catalog metadata, bindings, and demo rows.
 
-The notebooks index shows **Notebooks** and **Reusable widgets** tabs only when `notebook-generated-widgets` is enabled. With the flag disabled, it shows the notebook list without tabs.
+The notebooks index shows **Notebooks** and **Reusable widgets** tabs.
 Each reusable widget's page header has a back arrow before the notebook icon that returns to the **Reusable widgets** tab.
 
 A generated widget can be published to the project-scoped reusable widget catalog using **Make reusable…** beside its version pin controls. Publishing gives the widget a stable ID, keeps its existing immutable version history, and creates empty demo inputs from the input contract. Publishing preserves the placement’s bindings and does not copy notebook rows or source run identifiers. Authors can add up to 20 invented sample rows per input using **Demo data**. The success message links to the catalog on the notebooks index's **Reusable widgets** tab. Each catalog entry has a dedicated page for its live demo, input contract, source, usage count, and shared improvement or regeneration actions.
@@ -90,7 +121,7 @@ Pinning the displayed version keeps its preview available. Updated input binding
 Fork requests accept an optional `version_id`, so forking copies the version selected in history. Omitting it copies the placement's pinned or latest version. Concurrent attachments to the same node reuse one placement.
 Fork publication and placement replacement commit together. If either fails, both roll back and the build is not queued.
 
-Reusable widgets remain behind the `notebook-generated-widgets` feature flag and preserve the generated-code trust gate described below. Catalog access requires resource-level notebook permissions, rather than an access grant to one notebook. Reading or editing demo rows also requires query viewer access and the `query:read` token scope. Demo inputs start empty. Authors must use invented sample rows because saved demos are shared with catalog viewers and do not carry notebook or source access restrictions. Catalog demo approval applies only to the open preview and never grants consent to run the build against notebook data. Editing the demo or switching versions clears this approval.
+Reusable widgets preserve the generated-code trust gate described below. Catalog access requires resource-level notebook permissions, rather than an access grant to one notebook. Reading or editing demo rows also requires query viewer access and the `query:read` token scope. Demo inputs start empty. Authors must use invented sample rows because saved demos are shared with catalog viewers and do not carry notebook or source access restrictions. Catalog demo approval applies only to the open preview and never grants consent to run the build against notebook data. Editing the demo or switching versions clears this approval.
 
 ## Agent access
 
@@ -98,9 +129,10 @@ New widgets default to Claude Sonnet 5. An explicitly selected model stays selec
 Widget IDs are saved when their settings, title, or panel visibility change, so editing a widget keeps its generation history attached.
 
 New SQL cells receive a unique name beginning with `sql_df_`; Python cells receive one beginning with `df_`.
-You can rename a dataframe in its result panel.
-The SQL and insight dataframe name rows are visible when either `revamped-py-notebooks` or `notebook-generated-widgets` is enabled.
-The widget flag enables HogQL dataframe preparation. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
+You can rename a dataframe below its results while its edit, filters, or query panel is also open. Results-only views hide the name controls.
+In Jupyter mode, dataframe names use smaller text. Code cells keep the name below their output alongside their visible source editor.
+The SQL and insight dataframe name rows are available to notebook editors.
+HogQL dataframe preparation is available without a feature flag. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
 An editor prepares the insight's dataframe when a SQL or Python cell first references it, before generating a widget, or when rerunning a widget's data dependencies.
 Widget generation continues with the available dataframes if an embedded insight cannot be prepared.
@@ -123,7 +155,8 @@ Saved result reads remain available if the execution flags are disabled, subject
 Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
 
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
-The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
+Click a cell's title or choose **Edit title** from its **More actions** menu to rename it without collapsing its panels. Enter or leaving the field saves; Escape cancels. The cell-type label toggles both panels, and the pencil toggles filters or the editor.
+The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 **Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.
 
@@ -141,12 +174,11 @@ Inline notebook artifacts update the open notebook without saving a second copy,
 Full-notebook replacements preserve the retained question when **Keep question with answer** is on.
 Standalone AI notebook saves preserve Markdown separators and live MDX cells, including `<SQLV2 />` and `<Widget />`, while resolving visualization references.
 Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.
-When the widget flag is enabled, inline AI insertion also converts plain, `md`, or `markdown` code fences containing only valid `<Widget>` tags into widget blocks. Fences containing other code, malformed tags, or an explicit language such as `text` remain code examples.
+Inline AI insertion also converts plain, `md`, or `markdown` code fences containing only valid `<Widget>` tags into widget blocks. Fences containing other code, malformed tags, or an explicit language such as `text` remain code examples.
 The user clicks **Generate widget** in the inserted block's settings to start generation.
-The widget flag and SQL/Python cell flag are independent; enabling widgets does not grant access to SQLV2 or PythonV2 cells.
+Widgets do not grant access to SQLV2 or PythonV2 cells; those still require `revamped-py-notebooks`.
 
-The MCP tools `notebooks-widget-generate`, `notebooks-widget-status`, and `notebooks-widget-cancel` use the same `notebook-generated-widgets` flag as the editor.
-The MCP server evaluates this flag for the authenticated user when it resolves available tools.
+The MCP tools `notebooks-widget-generate`, `notebooks-widget-status`, and `notebooks-widget-cancel` are available to authenticated users with their required notebook and query scopes.
 Generation also requires the organization's AI data processing consent and the `notebook:write` and `query:read` scopes.
 
 An agent inserts a `Widget` component through `notebooks-add-cell`, then calls `notebooks-widget-generate` with its returned `node_id`.

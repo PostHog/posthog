@@ -15,12 +15,14 @@ import os
 import re
 import json
 import shlex
+import functools
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Protocol, Self
 
@@ -51,6 +53,23 @@ from products.tasks.backend.logic.services.sandbox_config import (
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
+
+
+SANDBOX_BASE_DOCKERFILE_PATH = Path(__file__).resolve().parents[2] / "sandbox" / "images" / "Dockerfile.sandbox-base"
+
+
+def read_pinned_agent_version(dockerfile_path: Path) -> str | None:
+    try:
+        source = dockerfile_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+@functools.cache
+def pinned_agent_version() -> str | None:
+    return read_pinned_agent_version(SANDBOX_BASE_DOCKERFILE_PATH)
 
 
 @frozen
@@ -187,6 +206,8 @@ class SandboxResources:
 
 
 class SandboxConfig(BaseModel):
+    base_image_reference: str | None = None
+    require_snapshot: bool = False
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
@@ -257,18 +278,22 @@ class SandboxConfig(BaseModel):
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
 
+    @property
+    def applies_dev_stack_floors(self) -> bool:
+        return self.is_dev_stack_image and self.workload == SandboxWorkload.DEFAULT
+
     @model_validator(mode="after")
     def _enforce_dev_stack_memory_floor(self) -> Self:
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
         return self
 
     @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        raised to the dev-stack image floor, clamped to the limit."""
+        raised to the dev-stack floor on default-workload boxes, clamped to the limit."""
         floor = float(self.cpu_request_cores)
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
         return min(floor, float(self.cpu_cores))
 
@@ -340,6 +365,7 @@ def build_agent_runtime_env_prefix(
     interaction_origin: str | None = None,
     agent_runtime: str | None = None,
     sandbox_id: str | None = None,
+    sandbox_runtime: str | None = None,
     runtime_adapter: str | None = None,
     provider: str | None = None,
     model: str | None = None,
@@ -351,16 +377,17 @@ def build_agent_runtime_env_prefix(
     event_ingest_token: str | None = None,
     task_run_session_token: str | None = None,
     event_ingest_url: str | None = None,
-    event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
         "POSTHOG_AGENT_RUNTIME": agent_runtime,
         "POSTHOG_SANDBOX_ID": sandbox_id,
+        "POSTHOG_SANDBOX_RUNTIME": sandbox_runtime,
         "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
@@ -376,7 +403,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
-            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+            "false" if settings.DEBUG and not event_ingest_url else "true"
         ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
@@ -386,6 +413,7 @@ def build_agent_runtime_env_prefix(
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
         "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
+        "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -418,7 +446,10 @@ def build_bundled_skills_clear_command() -> str:
     vars, but the container environment still holds the value the launcher set.
     """
     paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-    return f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+    return (
+        "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+        f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then /usr/bin/rm -rf {paths} && /usr/bin/mkdir -p {paths}; fi'
+    )
 
 
 def build_agent_server_capability_probe(capability: str) -> str:
@@ -466,6 +497,9 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def execute_in_task_filesystem(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+        return self.execute(command, timeout_seconds=timeout_seconds)
 
     @abstractmethod
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
@@ -535,9 +569,11 @@ class SandboxBase(ABC):
             # POSTHOG_PERSONAL_API_KEY / GITHUB_TOKEN. `env -i` drops those credentials and the
             # user PATH; the fixed PATH resolves only real system binaries (start-dockerd lives
             # in /usr/local/bin). HOME=/root covers tooling that needs it (dockerd runs as root).
-            result = self.execute(
+            result = self.execute_in_task_filesystem(
                 "[ -x /usr/local/bin/bootstrap-dev-stack ] || exit 3; "
-                "/usr/bin/env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
+                "docker_config=$(/usr/bin/mktemp -d /run/posthog-bootstrap-docker.XXXXXX) || exit 1; "
+                '/usr/bin/env -i HOME=/root DOCKER_CONFIG="$docker_config" '
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
                 "setsid /usr/local/bin/bootstrap-dev-stack >/var/log/bootstrap-dev-stack.log 2>&1 </dev/null &",
                 timeout_seconds=30,
             )
@@ -650,13 +686,16 @@ class SandboxBase(ABC):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -690,6 +729,12 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def is_running(self) -> bool: ...
+
+    def exit_reason(self) -> str | None:
+        return None
+
+    def exit_status(self) -> str | None:
+        return None
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
@@ -829,6 +874,33 @@ def parse_sandbox_repo_mount_map() -> dict[str, str]:
     return result
 
 
+CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "This run could not get a ChatGPT token from PostHog. Start the task again. "
+    "If it keeps failing, connect your ChatGPT account again in Settings > Harness."
+)
+
+# Named for the same reason as the Codex message above, and worded for whoever is actually
+# listening. PostHog Desktop is no longer the only client that can answer a credential
+# request — an API caller relays the token itself — so telling everyone to "open Desktop"
+# leaves those callers with no way to act on the one error that ends their run.
+CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "The Claude token did not arrive. Whoever started this run has to answer its "
+    "credential_request within 120 seconds: PostHog Desktop answers from Settings > Harness, "
+    "and an API caller relays the token to the run's command endpoint. Then start the task again."
+)
+
+# The agent-server option each adapter's own-subscription runs need. The launcher greps the
+# binary for it before it starts a run, so both uses read the same name.
+SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
+
+
+def build_subscription_flags(claude_model_access: str | None, codex_model_access: str | None) -> str:
+    access = {"claude": claude_model_access, "codex": codex_model_access}
+    return "".join(
+        f" {flag}" for adapter, flag in SUBSCRIPTION_CLI_FLAGS.items() if access[adapter] == "own-subscription"
+    )
+
+
 def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
@@ -848,9 +920,18 @@ def wait_for_health_check(
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
         raise ProcessTaskFatalError(
-            "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+            CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
             {"sandbox_id": sandbox_id},
             RuntimeError("Claude token unavailable"),
+            capture=False,
+        )
+    if "codex_credential_unavailable" in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
+            {"sandbox_id": sandbox_id},
+            RuntimeError("ChatGPT token unavailable"),
             capture=False,
         )
     if result.exit_code == 0:
@@ -860,6 +941,7 @@ def wait_for_health_check(
 
 
 HEALTH_CURL_MAX_TIME_SECONDS = 2
+SETUP_HOOKS_BUDGET_SECONDS = 630
 
 
 def build_health_check_command(
@@ -873,21 +955,27 @@ def build_health_check_command(
     # The attempt count assumes an instant poll. A poll that waits on curl or python startup
     # would otherwise outrun the exec timeout, and the caller never sees the loop's result.
     budget_seconds = health_check_budget_seconds(max_attempts, poll_interval)
+    hooks_budget_seconds = max(budget_seconds, SETUP_HOOKS_BUDGET_SECONDS)
+    hooks_max_attempts = max(max_attempts, int(hooks_budget_seconds / poll_interval) if poll_interval > 0 else 0)
     return (
-        "SECONDS=0; i=0; while :; do "
+        f"SECONDS=0; i=0; max_attempts={max_attempts}; budget={budget_seconds}; while :; do "
         "  i=$((i + 1)); "
         f"{process_check}"
-        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
+        f"  body=$(curl -q -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
-        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
-        f'\' "$body" && echo "ok:$i" && exit 0; '
+        'ready = payload.get("status") == "ok" and payload.get("hasSession") is True; '
+        'sys.exit(0 if ready else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
+        '\' "$body"; ready=$?; '
+        '    if [ "$ready" = "0" ]; then echo "ok:$i"; exit 0; fi; '
+        f'    if [ "$ready" = "2" ]; then max_attempts={hooks_max_attempts}; budget={hooks_budget_seconds}; fi; '
         "  fi; "
-        f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
+        '  if [ "$i" -ge "$max_attempts" ] || [ "$SECONDS" -ge "$budget" ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
         "done"
     )
@@ -898,7 +986,8 @@ def health_check_budget_seconds(max_attempts: int = 60, poll_interval: float = 0
 
 
 def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
-    return max(30, health_check_budget_seconds(max_attempts, poll_interval) + HEALTH_CURL_MAX_TIME_SECONDS + 5)
+    budget_seconds = max(health_check_budget_seconds(max_attempts, poll_interval), SETUP_HOOKS_BUDGET_SECONDS)
+    return max(30, budget_seconds + HEALTH_CURL_MAX_TIME_SECONDS + 5)
 
 
 SandboxClass = type[SandboxBase]

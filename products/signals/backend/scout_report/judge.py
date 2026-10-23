@@ -195,6 +195,26 @@ def _link_reasons_signal(link_reasons: Sequence[str]) -> SignalData | None:
     )
 
 
+def _report_tags_signal(tags: Sequence[str]) -> SignalData | None:
+    """Wrap the report's slug tags as one `SignalData` for the judge.
+
+    The run prompt of every report scout on the team lists the tags in use, so an injected
+    instruction in a tag reaches other scouts' runs. Returns None when there are no tags, so a
+    report without them produces a judge prompt byte-identical to before."""
+    if not tags:
+        return None
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="Report tags (slug labels that group the report with related reports):\n\n" + ", ".join(tags),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_tags",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     """Adapt the authored-report signals into the `SignalData` shape the safety judge renders."""
     return [
@@ -212,6 +232,27 @@ def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     ]
 
 
+def _decision_explanations_signal(decision_explanations: Sequence[str]) -> SignalData | None:
+    """Wrap the scout-authored actionability and priority explanations as one `SignalData` for the judge.
+
+    Auto-start copies the priority explanation into the implementation task it opens, so an edit
+    that rewrites it reaches an action-capable run. Returns None when the edit sets no decision, so
+    every other edit produces a judge prompt byte-identical to before."""
+    if not decision_explanations:
+        return None
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="Report decision explanations (why the report is or is not actionable, and its priority):\n\n"
+        + "\n\n".join(decision_explanations),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_decision_explanations",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 async def judge_scout_report(
     *,
     team_id: int,
@@ -223,11 +264,13 @@ async def judge_scout_report(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
+    link_reasons: Sequence[str] = (),
+    tags: Sequence[str] = (),
 ) -> ScoutReportJudgement:
     """Run the safety judge on the authored report and resolve the birth status.
 
     The judge sees the authored `title`/`summary`, the backing observations, any attached charts,
-    any suggested prompts, *and* any reviewer reasons — so prompt-injection anywhere the agent
+    any suggested prompts, any reviewer reasons, any link reasons, *and* any tags — so prompt-injection anywhere the agent
     authored (not just the evidence) is caught before the report can surface or feed autostart. The
     safety judge is a plain LLM call (`judge_report_safety`) — no Temporal workflow, no sandbox — so
     this runs inline on whatever worker is authoring the report.
@@ -236,12 +279,16 @@ async def judge_scout_report(
     metric_signal = _metric_signal(metrics)
     prompts_signal = _suggested_prompts_signal(suggested_prompts)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
+    link_signal = _link_reasons_signal(link_reasons)
+    tags_signal = _report_tags_signal(tags)
     safety_input = [
         _report_content_signal(title, summary),
         *([chart_signal] if chart_signal is not None else []),
         *([metric_signal] if metric_signal is not None else []),
         *([prompts_signal] if prompts_signal is not None else []),
         *([reasons_signal] if reasons_signal is not None else []),
+        *([link_signal] if link_signal is not None else []),
+        *([tags_signal] if tags_signal is not None else []),
         *_to_signal_data(signals),
     ]
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
@@ -265,6 +312,8 @@ async def judge_edited_report_content(
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
     link_reasons: Sequence[str] = (),
+    decision_explanations: Sequence[str] = (),
+    tags: Sequence[str] = (),
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -275,7 +324,8 @@ async def judge_edited_report_content(
     it. Judges only the pieces the edit supplies — an edit that only clears fields, or only names
     reviewers without a `reason`, adds no new content and returns safe without an LLM call. Notes,
     reviewer reasons and report-link reasons are included because action-capable report agents read
-    the full work log before acting.
+    the full work log before acting. Tags are included because other report scouts on the team read them
+    in their run prompts.
     """
     safety_input: list[SignalData] = []
     if title is not None or summary is not None:
@@ -300,6 +350,12 @@ async def judge_edited_report_content(
     link_signal = _link_reasons_signal(link_reasons)
     if link_signal is not None:
         safety_input.append(link_signal)
+    decision_signal = _decision_explanations_signal(decision_explanations)
+    if decision_signal is not None:
+        safety_input.append(decision_signal)
+    tags_signal = _report_tags_signal(tags)
+    if tags_signal is not None:
+        safety_input.append(tags_signal)
     if not safety_input:
         return SafetyJudgment(choice=True, explanation=None)
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)

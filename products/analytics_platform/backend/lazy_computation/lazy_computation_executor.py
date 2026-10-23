@@ -3,10 +3,11 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from django.db import DEFAULT_DB_ALIAS
@@ -49,6 +50,9 @@ from products.analytics_platform.backend.lazy_computation.computation_notificati
     subscribe_to_jobs,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
 
@@ -171,7 +175,13 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
+def _get_insert_settings(
+    team_id: int,
+    *,
+    spill_to_disk: bool = False,
+    read_after_write: bool = True,
+    overrides: Mapping[str, int | str] | None = None,
+) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -214,6 +224,8 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_afte
         # build hash tables past the cluster memory limit and fail with
         # MEMORY_LIMIT_EXCEEDED.
         settings["max_bytes_before_external_group_by"] = MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+    if overrides:
+        settings.update(overrides)
     return settings
 
 
@@ -467,6 +479,10 @@ def split_ranges_by_ttl(
     return result
 
 
+# ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES. The pool refused the INSERT before it ran, so
+# nothing was written and a later attempt can pick the build up where it left off.
+TOO_MANY_SIMULTANEOUS_QUERIES_CODE = 202
+
 # ClickHouse error codes that should NOT be retried.
 # These are errors where retrying will never help - the query itself is broken,
 # or the user needs to change something about their request.
@@ -483,7 +499,7 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     159,  # TIMEOUT_EXCEEDED
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
-    202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    TOO_MANY_SIMULTANEOUS_QUERIES_CODE,
     # The rows/bytes-to-read cap is deterministic for a given window: the data
     # won't shrink between attempts, so an immediate retry re-scans the same
     # terabytes only to fail the same way. Fail fast so the caller can fall
@@ -538,6 +554,16 @@ def is_memory_limit_error(error: Exception) -> bool:
     current: BaseException | None = error
     while current is not None:
         if isinstance(current, ServerException) and current.code == MEMORY_LIMIT_EXCEEDED_CODE:
+            return True
+        current = current.__cause__
+    return False
+
+
+def is_capacity_rejected_error(error: Exception) -> bool:
+    """True if the error (or any wrapped cause) is a ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES."""
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ServerException) and current.code == TOO_MANY_SIMULTANEOUS_QUERIES_CODE:
             return True
         current = current.__cause__
     return False
@@ -605,6 +631,9 @@ class LazyComputationResult:
     # True if any insert failed with ClickHouse MEMORY_LIMIT_EXCEEDED. Lets callers react
     # to an OOM (e.g. cap a high-cardinality team's future inserts) without parsing errors.
     memory_exceeded: bool = False
+    # True if any insert was refused with ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES. Nothing was
+    # written, so a caller can retry later instead of reading the uncached range directly.
+    capacity_rejected: bool = False
     # True when the returned job_ids include recently-expired jobs served under the
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
@@ -1123,6 +1152,7 @@ class LazyComputationExecutor:
         errors: list[str] = []
         failures = 0
         memory_exceeded = False
+        capacity_rejected = False
         start_time = time.monotonic()
         interval = self.poll_interval_seconds
         subscribed_ids: set[uuid.UUID] = set()
@@ -1177,7 +1207,11 @@ class LazyComputationExecutor:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
                     errors.append("Timeout waiting for computation jobs")
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("timeout", result)
                     return result
@@ -1235,7 +1269,11 @@ class LazyComputationExecutor:
                 # report the miss so the caller serves live and warms in background.
                 if not self.run_inserts and (build_ranges or pending_jobs):
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("check_miss", result)
                     return result
@@ -1253,7 +1291,11 @@ class LazyComputationExecutor:
                         if time.monotonic() - start_time >= self.wait_timeout_seconds:
                             errors.append("Timeout waiting for computation jobs")
                             result = LazyComputationResult(
-                                ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                ready=False,
+                                job_ids=[],
+                                errors=errors,
+                                memory_exceeded=memory_exceeded,
+                                capacity_rejected=capacity_rejected,
                             )
                             _log_execution("timeout", result)
                             return result
@@ -1345,6 +1387,7 @@ class LazyComputationExecutor:
                         except Exception as e:
                             insert_elapsed = time.monotonic() - insert_start
                             memory_exceeded = memory_exceeded or is_memory_limit_error(e)
+                            capacity_rejected = capacity_rejected or is_capacity_rejected_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
                             new_job.save()
@@ -1370,7 +1413,11 @@ class LazyComputationExecutor:
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
                                 result = LazyComputationResult(
-                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                    ready=False,
+                                    job_ids=[],
+                                    errors=errors,
+                                    memory_exceeded=memory_exceeded,
+                                    capacity_rejected=capacity_rejected,
                                 )
                                 _log_execution("non_retryable_error", result)
                                 return result
@@ -1378,7 +1425,11 @@ class LazyComputationExecutor:
                             if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
                                 result = LazyComputationResult(
-                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                    ready=False,
+                                    job_ids=[],
+                                    errors=errors,
+                                    memory_exceeded=memory_exceeded,
+                                    capacity_rejected=capacity_rejected,
                                 )
                                 _log_execution("max_retries_exceeded", result)
                                 return result
@@ -1387,7 +1438,11 @@ class LazyComputationExecutor:
                 if build_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("max_retries_exceeded", result)
                     return result
@@ -1612,6 +1667,8 @@ def ensure_precomputed(
     end_is_data_horizon: bool = False,
     cache_key_context: dict[str, str] | None = None,
     read_after_write: bool = True,
+    database: "Database | None" = None,
+    insert_settings: Mapping[str, int | str] | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1691,6 +1748,14 @@ def ensure_precomputed(
                       newest parts until replication catches up — usually fast, but
                       with no guaranteed bound. The post-build settle wait covers the
                       builder's own read-back; later readers accept the residual risk.
+        database: A prebuilt HogQL database to print the INSERT against. Without it, every
+                      INSERT builds the team's database from scratch, which costs Postgres reads
+                      and CPU per job. A caller that ensures many windows for one team should
+                      build it once, userless with warehouse access control bypassed and with
+                      the same `modifiers`, and pass it here.
+        insert_settings: ClickHouse settings applied last to every INSERT, over the defaults
+                      and `spill_to_disk`. For a precompute kind whose INSERT needs more
+                      memory or time than the defaults allow.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1753,6 +1818,7 @@ def ensure_precomputed(
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
+        print_start = time.monotonic()
         insert_sql, values = _build_manual_insert_sql(
             team=t,
             job=job,
@@ -1760,7 +1826,9 @@ def ensure_precomputed(
             table=table,
             base_placeholders=base_placeholders,
             modifiers=modifiers,
+            database=database,
         )
+        print_end = time.monotonic()
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
             "client_query_id": str(job.id),
@@ -1770,14 +1838,32 @@ def ensure_precomputed(
         }
         if query_type:
             tag_kwargs["query_type"] = query_type
+        execute_start = time.monotonic()
         with tags_context(**tag_kwargs):
-            return _written_rows(
+            rows_written = _written_rows(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
+                    settings=_get_insert_settings(
+                        t.id,
+                        spill_to_disk=spill_to_disk,
+                        read_after_write=read_after_write,
+                        overrides=insert_settings,
+                    ),
                 )
             )
+        # Splits the job's insert_duration_ms: printing builds the team's HogQL database, which can cost
+        # as much as the ClickHouse INSERT itself.
+        logger.info(
+            "lazy_computation.insert_phases",
+            team_id=t.id,
+            job_id=str(job.id),
+            table=str(table),
+            print_ms=round((print_end - print_start) * 1000),
+            setup_ms=round((execute_start - print_end) * 1000),
+            execute_ms=round((time.monotonic() - execute_start) * 1000),
+        )
+        return rows_written
 
     # A caller can hand in a fully-built TtlSchedule (e.g. one carrying a max_window_days
     # cap) to bound job width — "switch the schedule"; otherwise parse int/dict as usual.
@@ -1836,6 +1922,7 @@ def _build_manual_insert_sql(
     table: LazyComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
     modifiers: HogQLQueryModifiers | None = None,
+    database: "Database | None" = None,
 ) -> tuple[str, dict]:
     """
     Build INSERT SQL for manual lazy computation.
@@ -1887,6 +1974,7 @@ def _build_manual_insert_sql(
         limit_top_select=False,
         modifiers=modifiers if modifiers is not None else create_default_modifiers_for_team(team),
         bypass_warehouse_access_control=True,
+        database=database,
     )
     select_sql, _ = prepare_and_print_ast(
         query,

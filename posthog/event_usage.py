@@ -11,7 +11,6 @@ from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
 from opentelemetry import trace
-from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
@@ -22,7 +21,7 @@ from posthog.models.team import Team
 from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
-from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS, WEBMCP_APP_CLIENT_ID
 from posthog.utils import get_instance_realm, get_instance_region
 
 if TYPE_CHECKING:
@@ -90,6 +89,16 @@ def report_user_signed_up(
     if is_organization_first_user and user.organization is not None:
         exclude_internal_organization_from_crm(user.organization, user)
 
+    if oauth_connection is not None and is_organization_first_user and user.team is not None:
+        posthoganalytics.group_identify(
+            "project",
+            str(user.team.uuid),
+            properties={
+                "created_via_oauth_client": oauth_connection.client_name,
+                "created_via_oauth_client_id": oauth_connection.client_id,
+            },
+        )
+
 
 def report_user_verified_email(current_user: User) -> None:
     """
@@ -150,6 +159,47 @@ def report_user_logged_in(
         distinct_id=user.distinct_id,
         event="user logged in",
         properties={"social_provider": social_provider},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_email_change_requested(user: User, *, verification_required: bool) -> None:
+    """Triggered when a user stages a new login email.
+
+    `verification_required` is False on an instance without email configured, where the new address
+    is written straight to the account and no code goes out.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user email change requested",
+        properties={
+            "verification_required": verification_required,
+            "$set": user.get_analytics_metadata(),
+        },
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_identity_change_refused(user: User, *, field: str, reason: str) -> None:
+    """Triggered when the API refuses to change the login email or the password.
+
+    `reason` is `token_auth` for a personal API key or OAuth token, or `stale_reauth` when the
+    session has not re-authenticated recently enough. See `UserViewSet.guard_identity_change`.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user identity change refused",
+        properties={
+            "field": field,
+            "reason": reason,
+            "$set": user.get_analytics_metadata(),
+        },
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -305,6 +355,8 @@ class EventSource(StrEnum):
     # Signals OAuth application, which is what tells them apart from the coding agents they
     # otherwise look identical to.
     SELF_DRIVING = "self_driving"
+    # A browser agent driving a logged-in tab through the WebMCP tool the web app registers.
+    WEBMCP = "webmcp"
     DESKTOP = "desktop"
     MOBILE = "mobile"
     SLACK = "slack"
@@ -336,6 +388,7 @@ AGENT_EVENT_SOURCES = frozenset(
         EventSource.WIZARD,
         EventSource.CLI,
         EventSource.POSTHOG_AI,
+        EventSource.WEBMCP,
     }
 )
 
@@ -355,6 +408,7 @@ MCP_TRANSPORT_EVENT_SOURCES = frozenset(
         EventSource.SLACK,
         EventSource.POSTHOG_CODE,
         EventSource.SELF_DRIVING,
+        EventSource.WEBMCP,
     }
 )
 
@@ -383,6 +437,8 @@ AnalyticsProps = TypedDict(
         "mcp_client_version": NotRequired[str | None],
         "mcp_protocol_version": NotRequired[str | None],
         "mcp_oauth_client_name": NotRequired[str | None],
+        "upload_attempt_id": NotRequired[str],
+        "upload_run_id": NotRequired[str],
     },
     total=False,
 )
@@ -453,6 +509,8 @@ def get_event_source(request) -> EventSource:
     # declares the posthog-code MCP consumer. Only the application it minted under separates it.
     if client_id in SIGNALS_OAUTH_APP_CLIENT_IDS:
         return EventSource.SELF_DRIVING
+    if client_id == WEBMCP_APP_CLIENT_ID:
+        return EventSource.WEBMCP
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
@@ -480,6 +538,10 @@ def get_event_source(request) -> EventSource:
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
     # which is available after Django's AuthenticationMiddleware runs.
+    # Call-time import: model files import this module during django.setup(), and posthog.auth
+    # pulls zxcvbn and webauthn, which no background process needs.
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415 — keeps the heavy dep off the import path
+
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
     if getattr(getattr(request, "session", None), "session_key", None) is not None:
@@ -592,7 +654,7 @@ def report_user_action(
     if not isinstance(user, User) or not user.distinct_id:
         return
     if user.email:
-        properties["$set_once"] = {"email": user.email}
+        properties["$set_once"] = {**properties.get("$set_once", {}), "email": user.email}
     with _tracer.start_as_current_span("report_user_action"):
         posthoganalytics.capture(
             distinct_id=user.distinct_id,

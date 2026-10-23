@@ -48,11 +48,12 @@ CELL_POLL_INTERVAL_SECONDS = 2
 DISPATCH_RETRY_BUDGET = timedelta(minutes=2)
 
 # The watchdog for a run that stops making progress. Every cell has its own budget already;
-# this bounds the whole run, so a stuck record cannot stay RUNNING and block the notebook.
-NOTEBOOK_RUN_TIMEOUT = timedelta(hours=1)
+# this bounds the whole run, so a stuck record cannot stay RUNNING and block the notebook. It
+# leaves room for one cell that trains a model for hours.
+NOTEBOOK_RUN_TIMEOUT = timedelta(hours=7)
 
 _CELL_STOPPED_ERROR = "A cell did not finish, so the run stopped there."
-_RUN_TIMEOUT_ERROR = "The run took longer than an hour, so it stopped."
+_RUN_TIMEOUT_ERROR = "The run took longer than 7 hours, so it stopped."
 _RUN_ABANDONED_ERROR = "The run stopped because of an internal error."
 _DISPATCH_FAILED_ERROR = "The run could not start a cell."
 _RETRYABLE_DISPATCH = "NotebookRunDispatchRetryable"

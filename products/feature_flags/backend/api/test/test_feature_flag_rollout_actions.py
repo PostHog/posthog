@@ -335,6 +335,18 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         assert set(response.json()) == set(FlagDeletedRejectionSerializer().fields)
 
     @parameterized.expand(ROLLOUT_ACTIONS)
+    def test_rollout_action_refuses_a_flag_in_another_config_format(self, action, body):
+        v2_filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        flag = self._flag(filters=v2_filters)
+
+        response = self._act(flag, action, {**body, "version": flag.version})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "unsupported_config_version"
+        flag.refresh_from_db()
+        assert flag.filters == v2_filters
+
+    @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_requires_the_feature_flag_write_scope(self, action, body):
         flag = self._flag()
         read_only_key = generate_random_token_personal()

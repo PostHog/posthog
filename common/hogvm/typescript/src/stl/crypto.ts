@@ -1,4 +1,5 @@
 import { ExecOptions } from '../types'
+import { HogVMException } from '../utils'
 
 export function sha256(
     data: string | null,
@@ -10,7 +11,7 @@ export function sha256(
     }
     const crypto = options?.external?.crypto
     if (!crypto) {
-        throw new Error('The crypto module is required for "sha256Hex" to work.')
+        throw new HogVMException('The crypto module is required for "sha256Hex" to work.', 'contract')
     }
     return crypto.createHash('sha256').update(data).digest(encoding)
 }
@@ -25,7 +26,7 @@ export function md5(
     }
     const crypto = options?.external?.crypto
     if (!crypto) {
-        throw new Error('The crypto module is required for "md5Hex" to work.')
+        throw new HogVMException('The crypto module is required for "md5Hex" to work.', 'contract')
     }
     return crypto.createHash('md5').update(data).digest(encoding)
 }
@@ -41,7 +42,7 @@ export function sha1(
     }
     const crypto = options?.external?.crypto
     if (!crypto) {
-        throw new Error('The crypto module is required for "sha1Hex" to work.')
+        throw new HogVMException('The crypto module is required for "sha1Hex" to work.', 'contract')
     }
     return crypto.createHash('sha1').update(data).digest(encoding)
 }
@@ -55,7 +56,7 @@ function hmacChain(
 ): string {
     const crypto = options?.external?.crypto
     if (!crypto) {
-        throw new Error(`The crypto module is required for "${name}" to work.`)
+        throw new HogVMException(`The crypto module is required for "${name}" to work.`, 'contract')
     }
     if (data.length < 2) {
         throw new Error('Data array must contain at least two elements.')
@@ -83,4 +84,19 @@ export function sha1HmacChain(
     options?: ExecOptions
 ): string {
     return hmacChain('sha1', 'sha1HmacChainHex', data, encoding, options)
+}
+
+// HMAC-SHA256 with a base64 encoded binary key. Svix-style webhook secrets are random bytes, which a
+// string key would corrupt.
+export function sha256HmacBase64Key(
+    key: string,
+    data: string,
+    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
+    options?: ExecOptions
+): string {
+    const crypto = options?.external?.crypto
+    if (!crypto) {
+        throw new HogVMException('The crypto module is required for "sha256HmacBase64Key" to work.', 'contract')
+    }
+    return crypto.createHmac('sha256', Buffer.from(key, 'base64')).update(data).digest(encoding)
 }

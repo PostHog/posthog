@@ -10,6 +10,7 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import {
     AnyResponseType,
@@ -32,8 +33,11 @@ export function WebVitals(props: {
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
-    const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `WebVitals.${uniqueNode++}`)
+    const { insightProps } = props.context
+    const { onData, loadPriority, dataNodeCollectionId } = insightProps ?? {}
+    const [key] = useState(() =>
+        insightProps?.dashboardItemId ? insightVizDataNodeKey(insightProps) : `WebVitals.${uniqueNode++}`
+    )
 
     const logic = dataNodeLogic({
         query: props.query,
@@ -54,26 +58,26 @@ export function WebVitals(props: {
     const webVitalsQueryResponse = responseLoading ? undefined : (response as WebVitalsQueryResponse | undefined)
 
     const INP = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'INP', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'INP', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
     const LCP = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'LCP', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'LCP', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
     const CLS = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'CLS', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'CLS', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
     const FCP = useMemo(
-        () => getMetric(webVitalsQueryResponse?.results, 'FCP', webVitalsPercentile),
-        [webVitalsQueryResponse, webVitalsPercentile]
+        () => getMetric(webVitalsQueryResponse?.results, props.query.source, 'FCP', webVitalsPercentile),
+        [webVitalsQueryResponse, props.query.source, webVitalsPercentile]
     )
 
     return (
         <div className="flex flex-col flex-1 gap-4">
             <div className="flex flex-col gap-1">
-                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-2 grid-cols-2 xl:grid-cols-4">
                     <WebVitalsTab
                         metric="INP"
                         value={INP}
@@ -112,7 +116,11 @@ export function WebVitals(props: {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
+                <WebVitalsContent
+                    webVitalsQueryResponse={webVitalsQueryResponse}
+                    querySource={props.query.source}
+                    isLoading={responseLoading}
+                />
                 <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
                     <Query
                         key={webVitalsTab}

@@ -165,10 +165,9 @@ and warming can consume to a known endpoint without racing producers.
    (`O_pg_writer(P)`) via a short-lived OffsetFetch consumer. Anything
    at or after this offset still needs to be in cache; anything below
    is already durable in PG.
-2. Resolve the start offset: `committed_offset - lookback_offsets`,
-   clamped to the partition's earliest available offset. The lookback
-   is a configurable safety margin against momentary races between
-   the writer's commit and our read of it.
+2. Resolve the start offset: the committed offset, clamped to the
+   partition's earliest available offset. Every record from there is
+   marked dirty as it warms.
 3. `assign()` (not `subscribe()`) the warming consumer to the
    partition at the resolved start offset and consume until HWM.
 4. Buffer decoded records locally; only commit them to the cache
@@ -183,8 +182,6 @@ and warming can consume to a known endpoint without racing producers.
 
 - `WRITER_CONSUMER_GROUP` — group whose committed offset bounds the
   warming range.
-- `WARM_LOOKBACK_OFFSETS` — safety margin to rewind past the writer's
-  commit.
 - `WARM_COMMITTED_OFFSETS_TIMEOUT_SECS`, `WARM_FETCH_WATERMARKS_TIMEOUT_SECS`,
   `WARM_RECV_TIMEOUT_SECS` — Kafka call timeouts.
 - `WARM_RETRY_MAX_ATTEMPTS`, `WARM_RETRY_INITIAL_BACKOFF_MS`,

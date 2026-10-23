@@ -6,6 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
+import { ExperimentConclusionComment } from './ExperimentConclusionComment'
+
 // Mirrors the Hypothesis card in the Metrics tab so the two read as one family.
 export function ExperimentConclusionCard(): JSX.Element | null {
     const { experiment } = useValues(experimentLogic)
@@ -32,9 +34,7 @@ export function ExperimentConclusionCard(): JSX.Element | null {
                 />
             </div>
             {experiment.conclusion_comment ? (
-                <p className="metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap">
-                    {experiment.conclusion_comment}
-                </p>
+                <ExperimentConclusionComment comment={experiment.conclusion_comment} />
             ) : (
                 <p className="metric-cell font-normal m-0 mt-1 leading-relaxed italic">
                     Add a note about why this experiment ended

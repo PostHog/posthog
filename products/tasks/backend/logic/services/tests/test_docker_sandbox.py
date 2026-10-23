@@ -8,14 +8,18 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
 )
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
+    ExecutionResult,
+    SandboxConfig,
+)
 
 
 @pytest.fixture
@@ -73,6 +77,31 @@ def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandb
 
     # Transient health-check timeout Temporal retries — retryable, and no error-tracking issue.
     assert exc.value.non_retryable is False
+    capture_exception.assert_not_called()
+
+
+@pytest.mark.parametrize("health_poll", ["unhealthy", "timed_out"])
+def test_wait_for_agent_server_ready_fails_fast_when_credential_never_arrived(
+    sandbox: DockerSandbox, health_poll: str
+) -> None:
+    log = ExecutionResult(stdout="[AgentServer] [warn] claude_credential_unavailable", stderr="", exit_code=0)
+    poll_timeout = SandboxTimeoutError(
+        "Execution timed out", {"sandbox_id": sandbox.id}, cause=TimeoutError(), capture=False
+    )
+    with (
+        patch.object(
+            sandbox,
+            "_wait_for_health_check",
+            return_value=False,
+            side_effect=poll_timeout if health_poll == "timed_out" else None,
+        ),
+        patch.object(sandbox, "execute", return_value=log),
+        patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+        pytest.raises(ProcessTaskFatalError, match=CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE) as exc,
+    ):
+        sandbox.wait_for_agent_server_ready(claude_model_access="own-subscription")
+
+    assert exc.value.non_retryable is True
     capture_exception.assert_not_called()
 
 
@@ -151,6 +180,30 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
+def test_build_agent_server_command_opens_the_codex_run_token_on_fd_3(sandbox: DockerSandbox):
+    with_token = sandbox._build_agent_server_command(
+        None, "t1", "r1", "interactive", True, codex_run_token_file="/tmp/agent-codex-run-token"
+    )
+    assert "exec 3< /tmp/agent-codex-run-token && rm -f /tmp/agent-codex-run-token && exec " in with_token
+    assert "exec 3<" not in sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True)
+
+
+def test_start_agent_server_stages_the_codex_run_token_again_for_the_branchless_retry(sandbox: DockerSandbox):
+    with (
+        patch.object(sandbox, "is_running", return_value=True),
+        patch.object(sandbox, "write_file", return_value=_ok_result()) as write_file,
+        patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
+        patch.object(sandbox, "_launch_and_check", side_effect=[False, True]),
+        patch.object(sandbox, "execute", return_value=_log_result()),
+    ):
+        sandbox.start_agent_server(
+            repository=None, task_id="t1", run_id="r1", branch="feature", codex_run_token="run-token"
+        )
+
+    token_writes = [call for call in write_file.call_args_list if call.args[0] == "/run/posthog/agent-codex-run-token"]
+    assert len(token_writes) == 2
+
+
 @parameterized.expand([("supported", AGENT_SERVER_LAUNCH_CAPABILITIES), ("unsupported", ())])
 def test_start_agent_server_launch_failure_is_captured(_name: str, capabilities: tuple[str, ...]):
     config = SandboxConfig(name="test-sandbox")
@@ -159,7 +212,7 @@ def test_start_agent_server_launch_failure_is_captured(_name: str, capabilities:
 
     def execute(command: str, **kwargs) -> ExecutionResult:
         # Only the launch fails; the bundled-skills clear and the launch prep that precede it succeed.
-        if ENV_DISABLE_BUNDLED_SKILLS in command:
+        if ENV_DISABLE_BUNDLED_SKILLS in command or AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command:
             return _preflight_result(capabilities)
         if command.startswith("chmod "):
             return _ok_result()

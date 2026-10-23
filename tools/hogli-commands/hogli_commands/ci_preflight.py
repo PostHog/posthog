@@ -31,6 +31,7 @@ import time
 import shutil
 import socket
 import subprocess
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -50,9 +51,26 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
-from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
+from hogli_commands.preflight_checks import (
+    SEMGREP_SCOPE,
+    SNAPSHOT_MANIFEST,
+    Outcome,
+    Scope,
+    Status,
+    check_cross_lane,
+    check_merge_queue_lane,
+    check_semgrep_devex,
+    check_snapshot_baselines,
+    check_stack_depth,
+    prepare_semgrep,
+)
+from hogli_commands.projections import all_outputs as projection_outputs
+from hogli_commands.size_lint import (
+    SCOPE as SIZE_SCOPE,
+    _merge_base,
+)
 
-Requirement = Literal["node", "desktop-node", "stack", "clickhouse", "python-env"]
+Requirement = Literal["node", "desktop-node", "agent-node", "stack", "clickhouse", "python-env"]
 
 
 @dataclass
@@ -80,6 +98,8 @@ class DiffCheck:
     # for advisory checks whose findings print on stdout with exit 0. Warnings
     # never block and never count toward the advisory footer.
     soft: bool = False
+    # A check that reads the diff itself. It replaces `verify` and `fix`, and it has no auto-fix.
+    run: Callable[[Scope], Outcome] | None = None
     matched: list[str] = field(default_factory=list)
 
     @property
@@ -90,7 +110,7 @@ class DiffCheck:
         as a finding whatever shape it takes: a nudge (``advice``) and a
         guidance-only check (``verify is None``) are both unmeasured.
         """
-        return self.advice is None and self.verify is not None
+        return self.run is not None or (self.advice is None and self.verify is not None)
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
@@ -178,6 +198,19 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("desktop-node",),
     ),
     DiffCheck(
+        key="agent-biome",
+        label="agent workspace lint/format (Biome, what desktop-quality CI runs)",
+        triggers=[
+            "packages/agent/*.ts",
+            "packages/agent/*.mts",
+            "packages/agent/*.json",
+            "packages/agent/*.jsonc",
+        ],
+        verify=["pnpm", "--dir", "packages/agent", "exec", "biome", "ci", "."],
+        fix=["pnpm", "--dir", "packages/agent", "exec", "biome", "check", "--write", "."],
+        requires=("agent-node",),
+    ),
+    DiffCheck(
         key="type-check",
         label="Python type checking (mypy)",
         triggers=["*.py", "*.pyi"],
@@ -216,6 +249,21 @@ DIFF_CHECKS: list[DiffCheck] = [
         # fixtures, ...) and oxfmt exits 2 when every given file is ignored.
         verify=["pnpm", "exec", "oxfmt", "--check", "--no-error-on-unmatched-pattern"],
         fix=["hogli", "format:markdown"],
+        requires=("node",),
+        takes_files=True,
+    ),
+    DiffCheck(
+        key="frontend-format",
+        label="frontend formatting (oxfmt)",
+        # The trees and extensions `format:frontend:check` covers in CI.
+        triggers=[
+            f"{tree}/*.{ext}"
+            for tree in ("products", "frontend/src", "docs")
+            for ext in ("js", "mjs", "ts", "tsx", "json", "yaml", "yml", "css", "scss")
+        ],
+        # Mirrors lint-staged's `format:js`, which agents bypass via --no-verify.
+        verify=["pnpm", "exec", "oxfmt", "--check", "--no-error-on-unmatched-pattern"],
+        fix=["pnpm", "exec", "oxfmt", "--no-error-on-unmatched-pattern"],
         requires=("node",),
         takes_files=True,
     ),
@@ -276,36 +324,17 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("stack",),
     ),
     DiffCheck(
-        key="taxonomy",
-        label="taxonomy JSON out of sync with posthog/taxonomy/taxonomy.py",
-        # From build.py so preflight and build:taxonomy-json can't drift on which diffs
-        # need a regen, plus the generator and its output, so an edit to any side of the
-        # relation is caught.
+        key="projections",
+        label="generated projections out of sync with their Python sources",
+        # From the projection registry, so preflight, build:projections and the registry
+        # cannot drift on which diffs need a regen. The outputs count too, so a hand-edit
+        # to one is caught.
         triggers=[
-            *BUILD_TRIGGERS["build:taxonomy-json"],
-            "bin/build-taxonomy-json.py",
-            "frontend/src/taxonomy/core-filter-definitions-by-group.json",
-            "services/mcp/src/lib/trace-property-allowlist.generated.ts",
+            *BUILD_TRIGGERS["build:projections"],
+            *projection_outputs(),
         ],
-        verify=["hogli", "build:taxonomy-json", "--check"],
-        fix=["hogli", "build:taxonomy-json"],
-        requires=("python-env",),
-    ),
-    DiffCheck(
-        key="object-tags",
-        label="generated object-tag registries out of sync with posthog/object_tags/kinds.py",
-        # From build.py so preflight and build:object-tags can't drift on which diffs
-        # need a regen, plus the generator and its outputs, so an edit to any side of
-        # the relation is caught.
-        triggers=[
-            *BUILD_TRIGGERS["build:object-tags"],
-            "bin/build-object-tags-registry.py",
-            "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
-            "products/desktop/packages/shared/src/objectTagKinds.generated.ts",
-            "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
-        ],
-        verify=["hogli", "build:object-tags", "--check"],
-        fix=["hogli", "build:object-tags"],
+        verify=["hogli", "build:projections", "--check"],
+        fix=["hogli", "build:projections"],
         requires=("python-env",),
     ),
     DiffCheck(
@@ -316,12 +345,42 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["hogli", "migrations:check"],
         requires=("stack", "clickhouse"),
     ),
+    DiffCheck(
+        key="snapshot-baselines",
+        label="visual baselines dropped from snapshots.yml (fails the merge queue batch)",
+        triggers=[SNAPSHOT_MANIFEST],
+        verify=None,
+        run=check_snapshot_baselines,
+    ),
+    DiffCheck(
+        key="semgrep-devex",
+        label="new semgrep findings (devex rules)",
+        triggers=SEMGREP_SCOPE,
+        verify=None,
+        run=check_semgrep_devex,
+    ),
+    DiffCheck(
+        key="cross-lane",
+        label="Python or frontend changes mixed with Node or Rust changes (fails CI without a label)",
+        triggers=["*"],
+        verify=None,
+        run=check_cross_lane,
+        soft=True,
+    ),
+    DiffCheck(
+        key="merge-queue-lane",
+        label="merge queue lane this diff claims",
+        triggers=["*"],
+        verify=None,
+        run=check_merge_queue_lane,
+        soft=True,
+    ),
 ]
 
 
-# A change under these paths can fail .github/workflows/ci-backend-shadow-drift.yml, which runs
+# A change under these paths can fail .github/workflows/ci-depot-action-mirrors.yml, which runs
 # the same depot_mirrors check. Running it here lands the failure pre-push instead of in CI.
-SHADOW_DRIFT_TRIGGERS = [".github/workflows/ci-backend.yml", ".github/actions/**", ".depot/**"]
+DEPOT_MIRROR_TRIGGERS = [".github/actions/**", ".depot/**"]
 
 
 def _has_node_modules() -> bool:
@@ -366,6 +425,9 @@ def _capability_met(req: Requirement) -> bool:
     if req == "desktop-node":
         # products/desktop is a nested standalone workspace with its own install.
         return (REPO_ROOT / "products" / "desktop" / "node_modules" / ".pnpm").exists()
+    if req == "agent-node":
+        # packages/agent is a nested standalone workspace with its own install.
+        return (REPO_ROOT / "packages" / "agent" / "node_modules" / ".pnpm").exists()
     if req == "python-env":
         return _project_python_ready()
     if req == "stack":
@@ -378,8 +440,6 @@ def _unmet(chk: DiffCheck) -> list[Requirement]:
     return [req for req in chk.requires if not _capability_met(req)]
 
 
-Status = Literal["pass", "fail", "warning", "advisory", "skipped"]
-
 # Generous: pnpm installs and migrations:check are legitimately slow, but a wedged
 # command must not hang the agent loop forever (output is captured, not streamed).
 _CHECK_TIMEOUT_SECONDS = 600
@@ -387,9 +447,7 @@ _CHECK_TIMEOUT_SECONDS = 600
 
 def _pnpm_workspace_root(file_path: str) -> str:
     """Repo-relative root of the pnpm workspace owning *file_path* ("." for the root
-    workspace): the nearest ancestor directory with a pnpm-workspace.yaml. The lockfile
-    is not a workspace marker on purpose — products/desktop/packages/agent carries a
-    publish-only pnpm-lock.yaml but belongs to the desktop workspace."""
+    workspace): the nearest ancestor directory with a pnpm-workspace.yaml."""
     current = (REPO_ROOT / file_path).parent.resolve()
     root = REPO_ROOT.resolve()
     while current != root and root in current.parents:
@@ -441,7 +499,19 @@ def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return overall, " · ".join(parts)
 
 
-def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: bool) -> tuple[Status, str]:
+def _run_diff_check(
+    chk: DiffCheck, do_fix: bool, against: str | None, strict: bool, changed: Sequence[str] = ()
+) -> tuple[Status, str]:
+    if chk.run is not None:
+        base = _merge_base(against)
+        if base is None:
+            return "skipped", "no merge-base to compare against"
+        try:
+            return chk.run(Scope(files=chk.matched, changed=list(changed), merge_base=base, committed_only=strict))
+        except Exception as error:
+            # These checks parse the output of other tools. A shape they did not expect
+            # must not block the push with a traceback.
+            return "skipped", f"check could not run ({type(error).__name__}: {str(error)[:120]})"
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
@@ -751,7 +821,13 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 )
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
-def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool) -> None:
+@click.option(
+    "--prepare-semgrep",
+    "prepare_semgrep_tool",
+    is_flag=True,
+    help="Cache the pinned Semgrep tool without running checks.",
+)
+def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool, prepare_semgrep_tool: bool) -> None:
     if os.environ.get("HOGLI_PREFLIGHT_DISABLED", "").lower() in {"1", "true"}:
         disabled_summary: dict[str, Any] = {"mode": "disabled", "results": []}
         if as_json:
@@ -763,6 +839,13 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
                 fg="yellow",
             )
         _emit_telemetry(disabled_summary)
+        return
+
+    if prepare_semgrep_tool:
+        status, detail = prepare_semgrep()
+        if status != "pass":
+            raise click.ClickException(detail)
+        click.echo(detail)
         return
 
     # Fetch first so both the diff base and the staleness check see a fresh
@@ -778,9 +861,10 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     triggered: list[DiffCheck] = []
     for chk in DIFF_CHECKS:
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
-        if chk.matched:
+        # A check that can only warn is not worth its run time in the pre-push hook.
+        if chk.matched and not (strict and chk.soft and chk.run is not None):
             triggered.append(chk)
-    shadow_drift_triggered = any(matches_globs(path, SHADOW_DRIFT_TRIGGERS) for path in files)
+    depot_mirrors_triggered = any(matches_globs(path, DEPOT_MIRROR_TRIGGERS) for path in files)
 
     results: list[dict[str, Any]] = []
     failures = 0
@@ -797,21 +881,28 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
         click.echo(f"       {stale_detail}")
 
-    if shadow_drift_triggered:
+    depth_status, depth_detail = check_stack_depth()
+    failures += depth_status == "fail"
+    results.append({"check": "stack-depth", "status": depth_status, "files": 0, "detail": depth_detail})
+    if not as_json and depth_status != "skipped":
+        click.secho(f"   {_ICON[depth_status]} [stack-depth] open layers in this gh stack", fg=_COLOR[depth_status])
+        click.echo(f"       {depth_detail}")
+
+    if depot_mirrors_triggered:
         violations = mirror_violations(REPO_ROOT, set(files))
         drift_status: Status = "fail" if violations else "pass"
         drift_detail = " · ".join(violations[:3]) if violations else "depot mirrors in sync"
         failures += drift_status == "fail"
-        results.append({"check": "shadow-drift", "status": drift_status, "files": 1, "detail": drift_detail})
+        results.append({"check": "depot-mirrors", "status": drift_status, "files": 1, "detail": drift_detail})
         if not as_json:
             click.secho(
-                f"   {_ICON[drift_status]} [shadow-drift] depot shadow drift (.depot mirrors of backend CI)",
+                f"   {_ICON[drift_status]} [depot-mirrors] depot action mirrors (.depot/actions)",
                 fg=_COLOR[drift_status],
             )
             click.echo(f"       {drift_detail}")
 
     for chk in triggered:
-        status, detail = _run_diff_check(chk, do_fix, against, strict)
+        status, detail = _run_diff_check(chk, do_fix, against, strict, files)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
@@ -823,7 +914,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     summary = {
         "changed_files": len(files),
-        "triggered": (["shadow-drift"] if shadow_drift_triggered else []) + [c.key for c in triggered],
+        "triggered": (["depot-mirrors"] if depot_mirrors_triggered else []) + [c.key for c in triggered],
         "failures": failures,
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
@@ -833,7 +924,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     if as_json:
         click.echo(json.dumps(summary))
     else:
-        if not triggered and not shadow_drift_triggered:
+        if not triggered and not depot_mirrors_triggered:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
         click.echo(

@@ -1,9 +1,12 @@
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
 
+from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import mask_key_value
 
@@ -21,12 +24,19 @@ SUPPORT_SLACK_FILE_READ_SCOPE = "files:read"
 SUPPORT_SLACK_FILE_WRITE_SCOPE = "files:write"
 SUPPORT_SLACK_FILE_SCOPES = frozenset({SUPPORT_SLACK_FILE_READ_SCOPE, SUPPORT_SLACK_FILE_WRITE_SCOPE})
 
+# Posting under a name and avatar other than the bot's own needs this.
+SUPPORT_SLACK_CUSTOM_IDENTITY_SCOPE = "chat:write.customize"
 
-def get_support_slack_settings() -> dict:
-    return get_instance_settings(
+
+# Every SupportHog delivery is verified with the signing secret, so the read is cached and not made
+# once per request. A rotation reaches each process within five minutes.
+@cache_for(timedelta(minutes=5))
+def get_support_slack_settings() -> dict[str, str]:
+    return get_many_or_instance_settings(
         [
             "SUPPORT_SLACK_SIGNING_SECRET",
-        ]
+        ],
+        CredentialsCaller.CONVERSATIONS,
     )
 
 
@@ -45,6 +55,20 @@ def supporthog_missing_file_scopes(team: "Team") -> list[str]:
     settings = team.conversations_settings
     granted = settings.get("slack_scopes") if isinstance(settings, dict) else None
     return sorted(SUPPORT_SLACK_FILE_SCOPES.difference(granted or []))
+
+
+def supporthog_lacks_custom_identity_scope(team: "Team") -> bool:
+    """Whether this install is *known* to be unable to post under a custom name and avatar.
+
+    False when scopes were never recorded: the scope has been requested for as long as we've
+    recorded them, so an unrecorded install most likely has it, and refusing on that guess
+    would block installs that work. Slack still rejects the post if it really is missing.
+    """
+    settings = team.conversations_settings
+    granted = settings.get("slack_scopes") if isinstance(settings, dict) else None
+    if not granted:
+        return False
+    return SUPPORT_SLACK_CUSTOM_IDENTITY_SCOPE not in granted
 
 
 def get_support_slack_bot_token(team: "Team") -> str:

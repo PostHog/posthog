@@ -6,16 +6,25 @@ The title shows the change type and scope. The metadata row shows the time and l
 Priority and reviewer scope remain in the report list. Evidence counts remain in the Evidence section, which starts expanded.
 
 Chat opens the report conversation beside the document, including an existing implementation session when one is available.
+The opening question uses a separate, best-effort scout-note forwarding path. Ask AI only offers to save new feedback learned after the opening turn.
+When a later discussion turn reveals a correction, preference, missing context, or verified fact worth keeping, Ask AI offers to save a short scout note or report work-log entry.
+When both destinations are available and the chat token has the required scopes, the agent offers both choices.
+The agent asks for agreement on the text and selected destination before writing. If a scout note is unavailable or refused, it offers a work-log entry and asks again.
+Pure Q&A needs no save offer. Saving feedback does not resolve or dismiss the report.
 Select text in either report view to ask about that passage.
+Resolve marks an accepted report as done. Choose Implemented manually when you made the change outside the report's task, or No action needed when the report was useful but needs no implementation. You can also record that the issue was already fixed or explain another outcome. The reason and optional details are saved with the resolution. A No action needed resolution does not count as a fix and stops pending or active follow-up checks.
+Dismiss rejects a report with a reason. Both actions remove it from the active inbox, and its history keeps Resolved and Dismissed separate. Resolving a report with an open implementation PR closes that PR after confirmation.
+Activity entries use the verdict recorded with each feedback entry. Resolving shows Report resolved, dismissing shows Report dismissed, and older feedback without a recorded verdict shows Report feedback added. Later status changes do not rewrite these activity labels.
 Reports with a PR show Open in GitHub as the first header button, followed by Chat.
 Copy-link options are in the More report actions menu. Report actions do not offer canvas creation.
 
 A draft pull request shows the approval and merge controls, a draft note, and a secondary Ready for review button.
+Use Run skill on an open pull request to search team skills. Skills you choose often appear first, including before the store loads. If your team has no skills, the menu links to the skills store. The new cloud task opens with the skill, pull request URL, and repository set; review the prompt before you send it.
 Marking a draft ready does not approve or merge it. Existing merge checks still apply.
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 
 The report ends with feedback after its evidence, reviewers, and other supporting sections.
-The suggested reviewer views show each reviewer source and reason. Reviewers with the same reason appear in one compact group.
+The suggested reviewer views show each reviewer source and reason. Each reason appears above its indented reviewer or reviewers, without a separate box. The remove control stays visible, and Add Reviewer appears as a button at the bottom of the section.
 The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
 
 Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.

@@ -10,7 +10,11 @@ import {
   DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
+  hasActiveChannelItemFilters,
+  MOBILE_SOURCE,
+  migrateLegacySources,
   sortChannelItems,
+  WEB_SOURCE,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
 
@@ -220,15 +224,27 @@ describe("buildChannelItems", () => {
     expect(item.repository).toBeNull();
   });
 
-  it("reads the source for filed and Desktop sessions", () => {
-    const items = build({
-      feedTasks: [
-        task({ id: "filed", origin_product: "slack" }),
-        task({ id: "own", origin_product: "user_created" }),
-      ],
-    });
-    expect(items.map((i) => i.source)).toEqual(["slack", DESKTOP_SOURCE]);
-  });
+  it.each([
+    ["a filed session", "slack", undefined, "slack"],
+    ["a Desktop session", "user_created", "posthog_desktop", DESKTOP_SOURCE],
+    ["a legacy manual session", "user_created", undefined, DESKTOP_SOURCE],
+    ["a Mobile session", "user_created", "posthog_mobile", MOBILE_SOURCE],
+    ["a Web session", "user_created", "posthog_web", WEB_SOURCE],
+    ["a PostHog AI session", "posthog_ai", undefined, WEB_SOURCE],
+  ] as const)(
+    "maps %s to its source",
+    (_label, originProduct, clientProvenance, expected) => {
+      const [item] = build({
+        feedTasks: [
+          task({
+            origin_product: originProduct,
+            client_provenance: clientProvenance,
+          }),
+        ],
+      });
+      expect(item.source).toBe(expected);
+    },
+  );
 
   it("marks the sessions asking for input and the ones you haven't read", () => {
     const items = build({
@@ -398,6 +414,7 @@ describe("filterChannelItems", () => {
     model({ id: "local", environment: "local" }),
     model({ id: "cloud", environment: "cloud" }),
     model({ id: "from-slack", source: "slack" }),
+    model({ id: "from-tracker", source: "error_tracking" }),
     model({ id: "quiet" }),
   ];
 
@@ -407,7 +424,11 @@ describe("filterChannelItems", () => {
     { filter: { pinned: "pinned" }, kept: ["pinned"] },
     { filter: { environment: "local" }, kept: ["local"] },
     { filter: { environment: "cloud" }, kept: ["cloud"] },
-    { filter: { source: "slack" }, kept: ["from-slack"] },
+    { filter: { sources: ["slack"] }, kept: ["from-slack"] },
+    {
+      filter: { sources: ["slack", "error_tracking"] },
+      kept: ["from-slack", "from-tracker"],
+    },
   ] as const)("keeps only $kept for $filter", ({ filter, kept }) => {
     const result = filterChannelItems(CANDIDATES, {
       query: "",
@@ -436,6 +457,30 @@ describe("filterChannelItems", () => {
   });
 });
 
+describe("hasActiveChannelItemFilters", () => {
+  it.each([
+    { sources: [DESKTOP_SOURCE, "slack"], active: false },
+    { sources: ["slack", DESKTOP_SOURCE], active: false },
+    { sources: ["slack"], active: true },
+    { sources: [], active: true },
+  ])("is $active for sources $sources", ({ sources, active }) => {
+    expect(
+      hasActiveChannelItemFilters(filters({ sources }), {
+        ...DEFAULT_CHANNEL_ITEM_FILTERS,
+        sources: [DESKTOP_SOURCE, "slack"],
+      }),
+    ).toBe(active);
+  });
+});
+
+describe("migrateLegacySources", () => {
+  it("preserves the old manual source across first-party clients", () => {
+    expect(
+      migrateLegacySources(["user_created", "posthog_ai", "slack"]),
+    ).toEqual([DESKTOP_SOURCE, MOBILE_SOURCE, WEB_SOURCE, "slack"]);
+  });
+});
+
 describe("channelItemSources", () => {
   it("offers each source once", () => {
     const items = [
@@ -447,8 +492,8 @@ describe("channelItemSources", () => {
     ];
     expect(channelItemSources(items)).toEqual([
       "error_tracking",
-      "slack",
       DESKTOP_SOURCE,
+      "slack",
     ]);
   });
 });

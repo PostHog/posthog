@@ -35,6 +35,7 @@ export function SavedFiltersTaxonomicGroup({
                         const name = filter.name || filter.derived_name || 'Unnamed'
                         return (
                             <LemonButton
+                                data-attr="filters-saved-filter-apply"
                                 key={filter.short_id}
                                 size="small"
                                 fullWidth

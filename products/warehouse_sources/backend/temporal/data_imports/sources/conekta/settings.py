@@ -1,5 +1,8 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.conekta.io"
@@ -23,8 +26,9 @@ def _epoch_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConektaEndpointConfig:
+    name: str
     path: str
     # Only `/orders` documents server-side timestamp filters (`created_at.gte` / `updated_at.gte`),
     # so it is the only endpoint that can sync incrementally. Everything else is full refresh:
@@ -33,22 +37,62 @@ class ConektaEndpointConfig:
     # Stable creation timestamp used for datetime partitioning. `None` for resources that expose
     # no creation timestamp at all (checkouts), which therefore stay unpartitioned.
     partition_key: str | None = "created_at"
+    primary_keys: list[str] | None = field(default_factory=lambda: ["id"])
+    # `/balance` answers with one object rather than a paginated list envelope.
+    single_object: bool = False
+    fanout: DependentEndpointConfig | None = None
+    # Structural requirements of `FanoutEndpointLike` (see common/rest_source/fanout.py).
+    default_incremental_field: str | None = None
+    page_size: int = PAGE_SIZE
+
+
+def _customer_fanout() -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="customers",
+        resolve_param="customer_id",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "customer_id"},
+        # A customer deleted between the parent listing and its child fetch answers 404.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    )
 
 
 CONEKTA_ENDPOINTS: dict[str, ConektaEndpointConfig] = {
-    "charges": ConektaEndpointConfig(path="/charges"),
+    # The balance is a single point-in-time object with no id, so each full refresh replaces it.
+    "balance": ConektaEndpointConfig(
+        name="balance", path="/balance", partition_key=None, primary_keys=None, single_object=True
+    ),
+    "charges": ConektaEndpointConfig(name="charges", path="/charges"),
     # Payment links carry `starts_at` / `expires_at` but no creation timestamp.
-    "checkouts": ConektaEndpointConfig(path="/checkouts", partition_key=None),
-    "customers": ConektaEndpointConfig(path="/customers"),
-    "events": ConektaEndpointConfig(path="/events"),
+    "checkouts": ConektaEndpointConfig(name="checkouts", path="/checkouts", partition_key=None),
+    # Child companies of a holding company.
+    "companies": ConektaEndpointConfig(name="companies", path="/companies"),
+    "customers": ConektaEndpointConfig(name="customers", path="/customers"),
+    "events": ConektaEndpointConfig(name="events", path="/events"),
     "orders": ConektaEndpointConfig(
+        name="orders",
         path="/orders",
         incremental_fields=[_epoch_incremental_field("updated_at"), _epoch_incremental_field("created_at")],
     ),
-    "payout_orders": ConektaEndpointConfig(path="/payout_orders"),
-    "plans": ConektaEndpointConfig(path="/plans"),
-    "transactions": ConektaEndpointConfig(path="/transactions"),
-    "transfers": ConektaEndpointConfig(path="/transfers"),
+    # Payment source and subscription ids are only documented per customer, so the customer id is
+    # part of the key to keep it unique across the whole table.
+    "payment_sources": ConektaEndpointConfig(
+        name="payment_sources",
+        path="/customers/{customer_id}/payment_sources",
+        primary_keys=["customer_id", "id"],
+        fanout=_customer_fanout(),
+    ),
+    "payout_orders": ConektaEndpointConfig(name="payout_orders", path="/payout_orders"),
+    "plans": ConektaEndpointConfig(name="plans", path="/plans"),
+    "subscriptions": ConektaEndpointConfig(
+        name="subscriptions",
+        path="/customers/{customer_id}/subscriptions",
+        primary_keys=["customer_id", "id"],
+        fanout=_customer_fanout(),
+    ),
+    "transactions": ConektaEndpointConfig(name="transactions", path="/transactions"),
+    "transfers": ConektaEndpointConfig(name="transfers", path="/transfers"),
 }
 
 ENDPOINTS = tuple(CONEKTA_ENDPOINTS.keys())

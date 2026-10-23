@@ -122,6 +122,7 @@ function resolveCustomApp(raw: Extract<UiAppConfig, { type: 'custom' }>): Resolv
         type: 'custom',
         app_name: raw.app_name,
         description: raw.description,
+        ...(raw.resource_domains ? { resource_domains: raw.resource_domains } : {}),
         ...(raw.render_ui ? { render_ui: raw.render_ui } : {}),
     }
 }
@@ -301,9 +302,11 @@ function generateDispatchModule(apps: DispatchApp[]): string {
                 return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={data as ${data_type}} />,`
             }
             if (app.type === 'custom') {
-                const { data_type, view_component, view_prop } = app.config.render_ui
+                const { data_type, view_component, view_prop, link_prop } = app.config.render_ui
                 const dataExpression = data_type ? `data as ${data_type}` : 'data'
-                return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={${dataExpression}} />,`
+                const args = link_prop ? 'data, openLink' : 'data'
+                const extraProps = link_prop ? ` ${link_prop}={openLink}` : ''
+                return `    '${app.appKey}': ({ ${args} }) => <${view_component} ${view_prop}={${dataExpression}}${extraProps} />,`
             }
             const pascalName = kebabToPascal(app.appKey)
             return `    '${app.appKey}': ({ data, app }) => <${pascalName}Content data={data as ${app.config.list_data_type}} app={app} />,`
@@ -341,6 +344,7 @@ interface RegistryEntry {
     uri: string
     name: string
     description: string
+    resourceDomains?: string[]
 }
 
 function toConstName(appKey: string): string {
@@ -361,7 +365,7 @@ function generateRegistry(entries: RegistryEntry[], dispatchableKeys: string[]):
     const appEntries = entries
         .map(
             (e) =>
-                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',\n    }`
+                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',${e.resourceDomains ? `\n        resourceDomains: ${JSON.stringify(e.resourceDomains)},` : ''}\n    }`
         )
         .join(',\n')
 
@@ -392,6 +396,7 @@ export const UI_APPS: Array<{
     uri: string
     description: string
     appDir: string
+    resourceDomains?: string[]
 }> = [
 ${appEntries},
 ]
@@ -519,6 +524,7 @@ function main(): void {
                     uri,
                     name: appConfig.app_name,
                     description: appConfig.description,
+                    resourceDomains: resolved.resource_domains,
                 })
             }
         }

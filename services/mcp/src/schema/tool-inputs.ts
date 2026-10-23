@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+import {
+    AiObservabilityOfflineExperimentsUploadCreateBody,
+    aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax,
+    aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
+} from '../generated/ai_observability/api'
+import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -7,6 +13,15 @@ import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
 export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+export const SignalReportFeedbackSentimentSchema = z
+    .enum(['positive', 'negative'])
+    .describe("The report rating: 'positive' (thumbs up) or 'negative' (thumbs down).")
+export const SignalReportFeedbackNoteSchema = z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .describe("The person's context for why the report was or was not useful, up to 4000 characters.")
 
 // Mirrors the Django serializer's `validate` rule so a continuation without the revision
 // fails here instead of at the API with a 400.
@@ -30,11 +45,26 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+function normalizeDashboardTileIds(value: unknown): unknown {
+    if (typeof value === 'string' && /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(value)) {
+        return value.split(',').map(Number)
+    }
+    return value
+}
+
+export const DashboardInsightTileIdsSchema = z
+    .preprocess(normalizeDashboardTileIds, z.array(z.number().int().positive()).min(1))
+    .optional()
+    .describe(
+        'IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.'
+    )
+    .transform((ids): string | undefined => ids?.join(','))
+
 const DashboardTileLayoutSchema = z.object({
-    x: z.number().int().min(0).optional(),
-    y: z.number().int().min(0).optional(),
-    w: z.number().int().min(1).optional(),
-    h: z.number().int().min(1).optional(),
+    x: z.number().int().min(0).optional().describe('Column position in the dashboard grid (0-indexed).'),
+    y: z.number().int().min(0).optional().describe('Row position in the dashboard grid (0-indexed).'),
+    w: z.number().int().min(1).optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+    h: z.number().int().min(1).optional().describe('Height in grid rows.'),
 })
 
 export const DashboardTileCreateSchema = z.object({
@@ -49,10 +79,22 @@ export const DashboardTileCreateSchema = z.object({
         .describe(
             'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
         ),
+    agent_context: z
+        .string()
+        .max(10000)
+        .nullable()
+        .optional()
+        .describe(
+            'Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.'
+        ),
     layouts: z
         .object({
-            sm: DashboardTileLayoutSchema.optional(),
-            xs: DashboardTileLayoutSchema.optional(),
+            sm: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+            ),
+            xs: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the small (mobile) breakpoint. The grid is 1 column wide.'
+            ),
         })
         .optional()
         .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
@@ -102,9 +144,7 @@ export const BillingTeamIdsSchema = z
 export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
-    .describe(
-        'Usage type identifiers to filter by, e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-    )
+    .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
@@ -213,6 +253,18 @@ const CategoricalScoreDefinitionConfigSchema = z
             .min(1)
             .optional()
             .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+        passing_rule: z
+            .object({
+                categories: z
+                    .array(z.string().max(128))
+                    .describe('Passing category keys. Every returned category must be included.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe(
+                'Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.'
+            ),
     })
     .strict()
     .describe('Config shape used when kind is "categorical".')
@@ -222,6 +274,17 @@ const NumericScoreDefinitionConfigSchema = z
         min: z.number().optional().describe('Optional inclusive minimum score.'),
         max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
         step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+        passing_rule: z
+            .object({
+                operator: z
+                    .enum(['gte', 'lte'])
+                    .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                threshold: z.number().describe('Finite passing threshold within any configured score bounds.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe('Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule.'),
     })
     .strict()
     .describe('Config shape used when kind is "numeric".')
@@ -230,6 +293,11 @@ const BooleanScoreDefinitionConfigSchema = z
     .object({
         true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
         false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+        true_is_failure: z
+            .boolean()
+            .nullable()
+            .optional()
+            .describe('Whether true means failure. False, omitted, or null means true passes in offline evaluations.'),
     })
     .strict()
     .describe('Config shape used when kind is "boolean".')
@@ -241,8 +309,42 @@ export const ScoreDefinitionConfigSchema = z
         BooleanScoreDefinitionConfigSchema,
     ])
     .describe(
-        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
+
+const OfflineExperimentUploadBody = AiObservabilityOfflineExperimentsUploadCreateBody().shape
+const OfflineExperimentUploadItem = OfflineExperimentUploadBody.items.unwrap().element
+const OfflineExperimentUploadResult = OfflineExperimentUploadBody.results.element
+
+// The API rejects unknown payload keys, but zod drops them before the request. A misnamed key
+// would then upload an incomplete payload, and the immutable item cannot be corrected later.
+export const OfflineExperimentUploadItemsSchema = z
+    .array(
+        OfflineExperimentUploadItem.extend({
+            payload: OfflineExperimentUploadItem.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadItem.shape.payload.description!),
+        })
+    )
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax)
+    .optional()
+    .describe(OfflineExperimentUploadBody.items.description!)
+
+export const OfflineExperimentUploadResultsSchema = z
+    .array(
+        OfflineExperimentUploadResult.extend({
+            payload: OfflineExperimentUploadResult.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadResult.shape.payload.description!),
+        })
+    )
+    .min(1)
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
+    .describe(OfflineExperimentUploadBody.results.description!)
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
@@ -403,6 +505,20 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
+export const ExperimentVariantNotesSchema = z
+    .record(z.string(), z.string())
+    .describe(
+        'Free-text notes per variant, keyed by variant key, shown under each variant in the experiment view. Use them to document what each variant changes. On update, only the variants you pass change and the notes of other variants stay. Pass an empty string to clear the note of a variant.'
+    )
+    .optional()
+
+export const ExperimentVariantScreenshotMediaIdsSchema = z
+    .record(z.string(), z.array(z.string()))
+    .describe(
+        'Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose "experiment", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant.'
+    )
+    .optional()
+
 // Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
 // alias set the generated experiment tools accept via their tools.yaml overrides.
 export const ExperimentResultsGetSchema = z.preprocess(
@@ -416,7 +532,9 @@ export const ExperimentResultsGetSchema = z.preprocess(
             .boolean()
             .optional()
             .default(false)
-            .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+            .describe(
+                'Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.'
+            ),
     })
 )
 
@@ -431,7 +549,6 @@ export const InsightQueryInputSchema = z.preprocess(
     z.object({
         insightId: z
             .union([z.string(), z.number()])
-            .transform((value) => String(value))
             .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
         output_format: z
             .enum(['optimized', 'json'])
@@ -450,7 +567,7 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
 )

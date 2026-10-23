@@ -455,7 +455,6 @@ export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMax = 2
 
 export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesCreateBodyNameMax)
@@ -536,8 +535,9 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -557,7 +557,6 @@ export const warehouseSavedQueriesUpdateBodyIncrementalOneLookbackSecondsMax = 2
 
 export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesUpdateBodyNameMax)
@@ -638,8 +637,9 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -659,7 +659,6 @@ export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSeconds
 
 export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesPartialUpdateBodyNameMax)
@@ -742,8 +741,9 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -780,7 +780,6 @@ export const warehouseSavedQueriesCancelCreateBodyIncrementalOneLookbackSecondsM
 
 export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesCancelCreateBodyNameMax)
@@ -861,8 +860,9 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -919,7 +919,6 @@ export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneL
 
 export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesRevertMaterializationCreateBodyNameMax)
@@ -1004,8 +1003,9 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -1024,6 +1024,13 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .default(warehouseSavedQueriesRunCreateBodyFullRefreshDefault)
             .describe(
                 'Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected.'
+            ),
+        direction: zod
+            .enum(['upstream', 'downstream'])
+            .describe('\* `upstream` - Upstream\n\* `downstream` - Downstream')
+            .optional()
+            .describe(
+                'Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.\n\n\* `upstream` - Upstream\n\* `downstream` - Downstream'
             ),
     })
     .describe('Body of the `run` action.')
@@ -1162,6 +1169,21 @@ export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Point a table made from an uploaded file at a new upload, then import it with one full refresh. Upload the new file with upload_file first. The table keeps its id and its name, and its rows are replaced when the sync finishes. The old file is deleted only after that sync succeeds. The sync bills its rows like any other import.
+ * @summary Replace the file of a table made from an uploaded file
+ */
+export const WarehouseTablesReplaceFileCreateBody = /* @__PURE__ */ zod.object({
+    upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
+    filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+    file_format: zod
+        .enum(['csv', 'json', 'parquet'])
+        .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
+        .describe(
+            "How the uploaded file is read: 'csv', 'json', or 'parquet'.\n\n\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet"
+        ),
+})
+
+/**
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
@@ -1176,6 +1198,9 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
  * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
  * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
  * fall back to the node role, never a user-supplied key).
+ *
+ * For a team with object storage sources, the table also gets a file upload source. Its first
+ * sync imports the file and turns the same table row into a managed table.
  * @summary Create a self-managed warehouse table from an uploaded file
  */
 export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({

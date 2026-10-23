@@ -6,7 +6,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.object_tags.slack import rewrite_object_tags_for_slack
-from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, opens_with_line_anchored_markdown
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -189,20 +189,30 @@ class RelaySlackMessageInput:
     # Gateway trace id of the turn that produced this answer. Trailing and defaulted so a
     # relay enqueued before this field existed still decodes.
     trace_id: str | None = None
+    # Set only for the agent's own answer, so a notice or a placeholder never gets reply buttons.
+    offer_reply_suggestions: bool = False
+    # Set only for the agent's own answer, so a notice or a placeholder never gets a feature tip.
+    # Separate from the reply buttons, so turning those off for a surface leaves tips alone.
+    offer_feature_tip: bool = False
 
 
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
+    from products.slack_app.backend.facade.api import SlackFeature, record_slack_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_messages import (
-        load_run_footer,
+        leading_mention_prefix,
         normalize_labeled_mentions_to_bare,
         project_web_url,
     )
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import get_message_actor
+    from products.tasks.backend.temporal.process_task.utils import (
+        is_explicit_slack_reply,
+        slack_reply_target,
+        turn_person_message,
+    )
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -245,34 +255,26 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             origin_product=mapping.task.origin_product,
         )
 
-    context = SlackThreadContext(
-        integration_id=mapping.integration_id,
-        channel=mapping.channel,
-        thread_ts=mapping.thread_ts,
-        user_message_ts=input.user_message_ts,
-        mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-    )
-    # Mention resolution, most precise first: the echoed message's recorded
-    # sender, then the live/mapping actors for pre-rollout runs. Resolved before the
-    # handler so the footer's links are gated on whoever this reply is actually for.
-    mention_from_message = get_message_actor(input.run_id, input.message_id) if input.message_id else None
-    target = (
-        mention_from_message
-        or state.get("slack_actor_slack_user_id")
-        or mapping.latest_actor_slack_user_id
-        or mapping.mentioning_slack_user_id
+    context = SlackThreadContext.from_mapping(mapping, user_message_ts=input.user_message_ts)
+    # Resolved before the handler, so the handler knows whoever this reply is for.
+    target = slack_reply_target(task_run, mapping, input.message_id)
+    person_message = turn_person_message(str(task_run.id), input.message_id)
+
+    handler = SlackThreadHandler.for_run(
+        context,
+        task_run.id,
+        actor_slack_user_id=target,
+        turn_trace_id=input.trace_id,
+        turn_person_message=person_message,
     )
 
-    handler = SlackThreadHandler(context, actor_slack_user_id=target, turn_trace_id=input.trace_id)
-    handler.run_footer = load_run_footer(task_run.id, integration_id=mapping.integration_id)
+    if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):
+        handler.delete_progress()
+        return
+    text = handler.notification_text(text, target)
 
-    # The mention opens the answer, in the same line, so the reply reads as one message. An answer
-    # that opens with a heading, a list, a quote, a table, or a fence is the exception: Markdown
-    # reads those only at the start of a line, so a mention in front of one would turn it into
-    # literal text. Those answers take the mention on a line of its own, which keeps the construct
-    # intact and still notifies.
-    mention_separator = "\n\n" if opens_with_line_anchored_markdown(text) else " "
-    mention_prefix = f"<@{target}>{mention_separator}" if target else ""
+    # The mention opens the answer, in the same line, so the reply reads as one message.
+    mention_prefix = leading_mention_prefix(text, handler.notification_target(target))
 
     compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
 
@@ -313,14 +315,28 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             # sections and the chart cards, so the footer follows it as its own message.
             handler.post_footer()
 
+    answer_delivered = answer_posted
     if not answer_posted:
-        for index, chunk in enumerate(chunks):
-            prefix = mention_prefix if index == 0 else ""
-            # This relay carries one agent answer, split only to fit Slack's length cap, so
-            # the last chunk is where the turn ends and the footer belongs.
-            handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1, markdown=True)
+        # This relay carries one agent answer, split only to fit Slack's length cap, so the last
+        # chunk is where the turn ends and the footer belongs. Every chunk posts even after one fails.
+        chunks_posted = [
+            handler.post_thread_message(
+                f"{mention_prefix if index == 0 else ''}{chunk}", with_footer=index == len(chunks) - 1, markdown=True
+            )
+            for index, chunk in enumerate(chunks)
+        ]
+        answer_delivered = bool(chunks_posted) and all(chunks_posted)
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
+    handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+    if answer_delivered and has_pending_slack_files:
+        record_slack_feature_used(mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
+
+    # Last, because the model call behind it is the slowest step and the answer must not wait for it.
+    if answer_delivered and input.offer_reply_suggestions:
+        handler.offer_reply_suggestions(text)
+    if answer_delivered and input.offer_feature_tip:
+        handler.offer_feature_tip()

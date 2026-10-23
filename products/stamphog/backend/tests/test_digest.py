@@ -802,7 +802,7 @@ def test_the_digest_call_names_its_product_team_and_source() -> None:
         distinct_id=f"team-{team_id}",
     )
     (selection_call,) = client.calls[:1]
-    assert selection_call["model"] == "claude-sonnet-5"
+    assert selection_call["model"] == "claude-sonnet-5-5"
     assert selection_call["max_tokens"] > 0
     assert selection_call["metadata"] == {"user_id": f"team-{team_id}"}
     assert "extra_headers" not in selection_call and "user" not in selection_call

@@ -26,10 +26,11 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.facade.api import delete_node_from_dag, materialize_saved_query
+from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag, materialize_saved_query
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
+from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.logic.validation import validate_bucket_overrides
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
@@ -65,6 +66,7 @@ class EndpointCrudService:
         self.request = request
         self.user = cast(User, request.user)
         self.materialization = EndpointMaterializationService(team, request)
+        self.materialization_dependencies = EndpointMaterializationDependencyService(team.pk)
 
     def _log_activity(self, *, item_id: str, scope: str, activity: str, detail: Detail) -> None:
         log_activity(
@@ -200,6 +202,9 @@ class EndpointCrudService:
             version_before_update = EndpointVersion.objects.get(pk=target_version.pk)
             was_materialized = current_version.saved_query_id is not None
 
+            # Before any write, so a refused update leaves the endpoint as it was.
+            self._check_disable_breaks_no_reader(endpoint, data, target_version, version_targeted)
+
             step = "endpoint_activation"
             # Endpoint-level activation only — deactivating a single version must never
             # touch the endpoint or the current version's materialization.
@@ -249,9 +254,7 @@ class EndpointCrudService:
                 materialization_error=materialization_error,
             )
 
-        except APIException:
-            raise
-        except ValidationError:
+        except (APIException, ValidationError, HasDependentsError):
             raise
         except Exception as e:
             current_version = endpoint.get_version()
@@ -281,6 +284,32 @@ class EndpointCrudService:
                 {"query": "Cannot change query when targeting a specific version. Query changes create a new version."}
             )
         return target_version_override
+
+    def _check_disable_breaks_no_reader(
+        self,
+        endpoint: Endpoint,
+        data: EndpointRequest,
+        target_version: EndpointVersion,
+        version_targeted: bool,
+    ) -> None:
+        """Raise HasDependentsError if the update would disable a saved query that other queries read.
+
+        Disabling soft-deletes the saved query, so every view or endpoint that selects from it fails.
+        Mirrors the disable decisions in `update` and `_reconcile_materialization`.
+        """
+        versions_to_disable: list[EndpointVersion] = []
+        if version_targeted:
+            if data.is_active is False or data.is_materialized is False:
+                versions_to_disable = [target_version]
+        elif data.is_active is False or (data.is_active is None and not endpoint.is_active):
+            versions_to_disable = list(endpoint.versions.filter(saved_query__isnull=False))
+        elif data.is_materialized is False and (
+            data.query is None or not endpoint.has_query_changed(data.query.model_dump())
+        ):
+            versions_to_disable = [target_version]
+
+        for version in versions_to_disable:
+            self.materialization_dependencies.check_deletable(version)
 
     def _apply_query_change(
         self,
@@ -486,29 +515,33 @@ class EndpointCrudService:
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
 
-        # DAG cleanup only — the saved queries themselves are reverted and soft-deleted
-        # by endpoint.soft_delete() via version.disable_materialization().
-        for version in endpoint.versions.filter(saved_query__isnull=False):
-            try:
-                if version.saved_query:
-                    delete_node_from_dag(version.saved_query)
-            except Exception as e:
-                logger.exception(
-                    "Failed to remove endpoint node from DAG on destroy",
-                    endpoint_name=endpoint.name,
-                    saved_query_id=version.saved_query.id if version.saved_query else None,
-                )
-                capture_exception(
-                    e,
-                    {
-                        "product": Product.ENDPOINTS,
-                        "team_id": self.team.pk,
-                        "endpoint_name": endpoint.name,
-                        "saved_query_id": version.saved_query.id if version and version.saved_query else None,
-                    },
-                )
+        with transaction.atomic():
+            # DAG cleanup only — the saved queries themselves are reverted and soft-deleted
+            # by endpoint.soft_delete() via version.disable_materialization().
+            for version in endpoint.versions.filter(saved_query__isnull=False):
+                try:
+                    if version.saved_query:
+                        self.materialization_dependencies.check_deletable(version)
+                        delete_node_from_dag(version.saved_query)
+                except HasDependentsError:
+                    raise
+                except Exception as e:
+                    logger.exception(
+                        "Failed to remove endpoint node from DAG on destroy",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=version.saved_query.id if version.saved_query else None,
+                    )
+                    capture_exception(
+                        e,
+                        {
+                            "product": Product.ENDPOINTS,
+                            "team_id": self.team.pk,
+                            "endpoint_name": endpoint.name,
+                            "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                        },
+                    )
 
-        endpoint.soft_delete()
+            endpoint.soft_delete()
         clear_endpoint_materialization_cache(
             self.team.pk, endpoint.name, versions=endpoint.versions.values_list("version", flat=True)
         )

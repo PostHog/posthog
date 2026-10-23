@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EnrichedReviewer } from '../../types'
+import { ReviewerClaim } from './SuggestedReviewerClaimControls'
 import {
     getReviewerExplanation,
     getReviewerSourceLabel,
@@ -48,25 +49,16 @@ function reviewerReasonGroupKey(reviewer: EnrichedReviewer, reason: string): str
 
 export function buildReviewerItems(reviewers: EnrichedReviewer[]): ReviewerItem[] {
     const items: ReviewerItem[] = []
-    const reasonCounts = new Map<string, number>()
     const reasonGroups = new Map<string, ReviewerReasonGroupItem>()
 
     for (const reviewer of reviewers) {
         const reason = getReviewerExplanation(reviewer)
-        if (reason) {
-            const groupKey = reviewerReasonGroupKey(reviewer, reason)
-            reasonCounts.set(groupKey, (reasonCounts.get(groupKey) ?? 0) + 1)
-        }
-    }
-
-    for (const reviewer of reviewers) {
-        const reason = getReviewerExplanation(reviewer)
-        const groupKey = reason ? reviewerReasonGroupKey(reviewer, reason) : null
-        if (!reason || !groupKey || reasonCounts.get(groupKey) === 1) {
+        if (!reason) {
             items.push({ kind: 'person', key: reviewerKey(reviewer), reviewer })
             continue
         }
 
+        const groupKey = reviewerReasonGroupKey(reviewer, reason)
         const existing = reasonGroups.get(groupKey)
         if (existing) {
             existing.reviewers.push(reviewer)
@@ -89,10 +81,12 @@ export function SuggestedReviewersList({
     reviewers,
     disabled,
     onRemove,
+    claim,
 }: {
     reviewers: EnrichedReviewer[]
     disabled: boolean
     onRemove: (reviewers: EnrichedReviewer[]) => void
+    claim?: ReviewerClaim
 }): JSX.Element {
     const [showAll, setShowAll] = useState(false)
     const items = buildReviewerItems(reviewers)
@@ -108,6 +102,7 @@ export function SuggestedReviewersList({
                         reason={item.reason}
                         disabled={disabled}
                         onRemove={(reviewer) => onRemove([reviewer])}
+                        claim={claim}
                     />
                 ) : (
                     <SuggestedReviewerPerson
@@ -115,6 +110,7 @@ export function SuggestedReviewersList({
                         reviewer={item.reviewer}
                         disabled={disabled}
                         onRemove={() => onRemove([item.reviewer])}
+                        claim={claim}
                     />
                 )
             )}

@@ -1,10 +1,18 @@
+import time
+import signal
 import typing
 import asyncio
+import datetime
 import threading
 import contextvars
+from collections.abc import Callable
 
 from structlog import get_logger
 from temporalio import activity
+
+# The SDK cancels activities still running this long after the shutdown started, unless the worker
+# was built with another timeout.
+DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT = datetime.timedelta(minutes=5)
 
 LOGGER = get_logger(__name__)
 
@@ -61,9 +69,11 @@ class ShutdownMonitor:
     def __init__(self):
         self._monitor_shutdown_task: asyncio.Task[None] | None = None
         self._monitor_shutdown_thread: threading.Thread | None = None
+        self._on_shutdown_callbacks: list[tuple[contextvars.Context, Callable[[], None]]] = []
         self._is_shutdown_event = asyncio.Event()
         self._is_shutdown_event_sync = threading.Event()
         self._stop_event_sync = threading.Event()
+        self._shutdown_at: float | None = None
 
     def __str__(self) -> str:
         """Return a string representation of this `ShutdownMonitor`."""
@@ -105,9 +115,27 @@ class ShutdownMonitor:
                 # Not running in an activity context.
                 return
 
+            self._record_shutdown_time()
+            self.logger.info("Shutdown detected.")
+            # Run the callbacks before the event is set: a caller that sees the event can raise and
+            # leave the monitor at once, and a callback that ran after that would never run at all.
+            for context, callback in self._on_shutdown_callbacks:
+                try:
+                    context.run(callback)
+                except Exception:
+                    self.logger.exception("A shutdown callback failed.")
             self._is_shutdown_event.set()
 
         self._monitor_shutdown_task = asyncio.create_task(monitor())
+
+    def run_on_shutdown(self, callback: Callable[[], None]) -> None:
+        """Call `callback` once when the worker starts to shut down.
+
+        `callback` runs with a copy of the caller's contextvars, taken now, so it sees the structlog
+        context the caller has bound (for example the job context an activity binds after it enters
+        the monitor). Only the async monitor calls it, so register it inside `async with ShutdownMonitor()`.
+        """
+        self._on_shutdown_callbacks.append((contextvars.copy_context(), callback))
 
     def start_sync(self):
         """Start a `threading.Thread` to monitor for worker shutdown.
@@ -134,6 +162,7 @@ class ShutdownMonitor:
                 # it's a wrapper on `threading.Event.wait`, which does return a `bool`
                 # indicating the reason. So we must also check if the event was set.
                 if activity.is_worker_shutdown():
+                    self._record_shutdown_time()
                     self.logger.info("Shutdown detected.")
                     self._is_shutdown_event_sync.set()
                     break
@@ -184,8 +213,68 @@ class ShutdownMonitor:
         """Check if worker is shutting down."""
         return self._is_shutdown_event.is_set() or self._is_shutdown_event_sync.is_set()
 
+    def _record_shutdown_time(self) -> None:
+        if self._shutdown_at is None:
+            self._shutdown_at = time.monotonic()
+
+    def seconds_since_shutdown(self) -> float | None:
+        """How long ago the worker started to shut down, or None while it still runs.
+
+        A caller created after the shutdown cannot learn the moment from a callback, because the
+        callbacks have already run by then. It reads the elapsed time here instead.
+        """
+        if self._shutdown_at is None:
+            return None
+        return time.monotonic() - self._shutdown_at
+
     def raise_if_is_worker_shutdown(self):
         """Raise an exception if worker is shutting down."""
         if self.is_worker_shutdown():
             self.logger.debug("Worker is shutting down.")
             raise WorkerShuttingDownError.from_activity_context()
+
+
+class ShutdownSignalListener:
+    """Record SIGTERM and SIGINT for a worker to act on, without depending on asyncio's self-pipe.
+
+    `loop.add_signal_handler` delivers a signal through a wakeup byte that the C signal handler
+    writes to the loop's self-pipe. When that pipe is full, the write fails with `BlockingIOError`
+    ("Exception ignored when trying to write to the signal wakeup fd"), the byte is lost, and the
+    worker never starts to shut down. It then keeps polling for new work until the pod is killed.
+
+    A Python-level handler from `signal.signal` runs in the main thread whether or not the byte
+    reaches the pipe, so this listener records the signal there and `wait` polls for it.
+    """
+
+    def __init__(
+        self,
+        signals: tuple[signal.Signals, ...] = (signal.SIGTERM, signal.SIGINT),
+        poll_interval_seconds: float = 1.0,
+    ):
+        self._signals = signals
+        self._poll_interval_seconds = poll_interval_seconds
+        self._received: signal.Signals | None = None
+        self._received_event = threading.Event()
+
+    def install(self) -> None:
+        """Replace the handlers for the listened signals. Call it from the main thread."""
+        for sig in self._signals:
+            signal.signal(sig, self._handle)
+
+    def _handle(self, signum: int, frame: object) -> None:
+        # A later signal (for example the SIGTERM that the worker wrapper script sends again) keeps
+        # the first one, so a shutdown starts only once.
+        if self._received is None:
+            self._received = signal.Signals(signum)
+        self._received_event.set()
+
+    @property
+    def received(self) -> signal.Signals | None:
+        return self._received
+
+    async def wait(self) -> signal.Signals:
+        """Return the first signal received, polling so that no wakeup byte is needed."""
+        while not self._received_event.is_set():
+            await asyncio.sleep(self._poll_interval_seconds)
+        assert self._received is not None
+        return self._received

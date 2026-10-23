@@ -5,8 +5,9 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { fileSystemTypes, productUrls } from '~/products'
 import {
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLFilters,
+    HogQLQuery,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -32,6 +33,16 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
  *
  * Sync the paths with AutoProjectMiddleware!
  */
+
+/** The filters the analytics list reads from its URL. */
+export interface AnalyticsListUrlParams {
+    orderBy?: string
+    type?: string
+    createdBy?: string[]
+    folder?: string
+    search?: string
+    tags?: string[]
+}
 
 export const urls = {
     ...productUrls,
@@ -60,8 +71,11 @@ export const urls = {
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
-    event: (id: string, timestamp: string): string =>
-        `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+    event: (id: string, timestamp: string, eventName?: string): string =>
+        combineUrl(
+            `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+            eventName ? { event: eventName } : {}
+        ).url,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     ingestionWarningsV2: (): string => '/data-management/ingestion-warnings-v2',
     revenueSettings: (): string => '/data-management/revenue',
@@ -77,13 +91,15 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        executionTarget,
+        sendRawQuery,
         dashboard,
         filters,
         metricName,
         metricPrefill,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
-        query?: string | DataVisualizationNode | DataTableNode
+        query?: string | VisualizationNode | DataTableNode
         view_id?: string
         insightShortId?: string
         draftId?: string
@@ -91,6 +107,8 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        executionTarget?: HogQLQuery['executionTarget']
+        sendRawQuery?: boolean
         dashboard?: number
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
@@ -103,6 +121,10 @@ export const urls = {
 
         if (query) {
             params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
+            // With a view, the query opens as unsaved edits on top of that view
+            if (view_id) {
+                params.set('open_view', view_id)
+            }
         } else if (view_id) {
             params.set('open_view', view_id)
         } else if (insightShortId) {
@@ -143,6 +165,12 @@ export const urls = {
         if (connectionId) {
             hashParams.set('c', connectionId)
         }
+        if (executionTarget) {
+            hashParams.set('engine', executionTarget === 'managed_trino' ? 'managed_trino' : 'posthog')
+        }
+        if (sendRawQuery) {
+            hashParams.set('raw', '1')
+        }
         if (filters) {
             hashParams.set('filters', JSON.stringify(filters))
         }
@@ -153,8 +181,8 @@ export const urls = {
     variables: (): string => '/data-management/variables',
     variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
-    resourceTransfer: (resourceKind: string, resourceId: string | number): string =>
-        `/resource-transfer/${resourceKind}/${resourceId}`,
+    resourceTransfer: (resourceKind: string, resourceId: string | number, insightShortId?: string): string =>
+        combineUrl(`/resource-transfer/${resourceKind}/${resourceId}`, { insight_short_id: insightShortId }).url,
     dashboardTemplateCopyToProject: (templateId: string | ':sourceTemplateId', sourceTeamId?: number): string => {
         const path = `/dashboard/templates/${templateId}/copy-to-project`
         return sourceTeamId === undefined
@@ -167,6 +195,14 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
+    todayReport: (reportId: string): string => `/home/reports/${reportId}`,
+    library: (objectType?: string): string => (objectType ? `/library/${objectType}` : '/library'),
+    analytics: (): string => '/analytics',
+    analyticsList: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/all', params).url,
+    analyticsMine: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/mine', params).url,
+    analyticsSpaces: (): string => '/analytics/spaces',
+    analyticsProductHome: (): string => '/analytics/product-analytics',
+    tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
@@ -195,10 +231,10 @@ export const urls = {
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
     /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
-    credentialReview: (): string => '/account/credential-review',
+    credentialReview: (next?: string): string =>
+        `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
-    liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
@@ -249,6 +285,8 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
+    simpleOnboarding: (): string => '/onboarding/simple',
+    onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
@@ -274,7 +312,6 @@ export const urls = {
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
-    experimentsStaffTools: (): string => '/experiments/staff',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
@@ -310,15 +347,11 @@ export const urls = {
     projectFiles: (folder = ''): string => combineUrl('/files', folder ? { folder } : {}).url,
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    links: (params?: string): string =>
-        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    link: (id: string): string => `/link/${id}`,
-    tracing: (): string => '/tracing',
-    metrics: (): string => '/metrics',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     sessionProfile: (id: string): string => `/sessions/${id}`,
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    organizationStartups: (referrer?: string): string => `/organization/startups${referrer ? `/${referrer}` : ''}`,
     agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,

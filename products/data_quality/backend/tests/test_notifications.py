@@ -54,12 +54,6 @@ class _Response:
 class TestDataQualityNotifications(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag = patch(
-            "products.data_quality.backend.logic.notifications.is_data_quality_checks_enabled_for_team_id",
-            return_value=True,
-        )
-        flag.start()
-        self.addCleanup(flag.stop)
         self.view = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
@@ -180,7 +174,7 @@ class TestDataQualityNotifications(BaseTest):
         notification = notifications.call_args.args[0]
         assert notification.resource_type == "data_catalog"
         assert notification.resource_id == str(metric.id)
-        assert notification.source_url == f"/project/{self.team.id}/data-catalog/metrics/signups?tab=tests"
+        assert notification.source_url == f"/project/{self.team.id}/data-catalog/metrics/signups?tab=data-quality"
         assert notification.title == "Data quality check failed on signups"
         with CaptureQueriesContext(connection) as queries:
             recipients = notification.resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)

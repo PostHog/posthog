@@ -16,13 +16,13 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
-from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -44,6 +44,8 @@ from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
+from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget
+
 logger = structlog.get_logger(__name__)
 
 ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
@@ -53,7 +55,7 @@ ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRu
 EVENT_PROMPT_MAX_CHARS = 16_000
 
 # Matches the in-progress marker the task's own Slack updates use, so the later swap to
-# `hedgehog` (or `x`) replaces this rather than stacking a second reaction beside it.
+# `x` replaces this rather than stacking a second reaction beside it.
 TRIGGER_ACK_EMOJI = "eyes"
 
 # Daily ceilings on created tasks (trailing 24h) on top of the in-flight cap: a workflow
@@ -142,6 +144,10 @@ class WorkflowTaskUsageLimited(Exception):
     pass
 
 
+class WorkflowTaskAICreditsExhausted(Exception):
+    pass
+
+
 def create_workflow_task(
     *,
     team: Team,
@@ -172,7 +178,7 @@ def create_workflow_task(
     with the whole project, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
     and `WorkflowTaskLimitExceeded` when the workflow already has `max_parallel_tasks`
     runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
-    AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
+    AI usage limit, `WorkflowTaskAICreditsExhausted` when the team has used its AI credits, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap. `rate_limits` can override either
     product default for this project; a missing value keeps the default.
@@ -220,14 +226,9 @@ def create_workflow_task(
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
 
-    # Fast, unlocked pre-checks before the gate call below. The gate mints an
-    # OAuthAccessToken for gate_owner and makes a blocking request to the LLM gateway, so
-    # an owner who already lost team access, or a workflow that's already past its daily
-    # cap, must not reach it: checking first means neither pays for that mint-and-call on
-    # every trigger event. These reads are not authoritative, since nothing holds the
-    # advisory locks here yet, so a concurrent write can move the counts after this check
-    # runs. The same checks run again under the locks below, and that locked run is the
-    # one that decides.
+    # Fast, unlocked pre-checks so an ineligible owner or a capped workflow never reaches
+    # the gate. Nothing holds the advisory locks yet, so these reads are not authoritative;
+    # the same checks run again under the locks below, and that run decides.
     if not user_has_current_team_access(gate_owner, team):
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
@@ -239,13 +240,18 @@ def create_workflow_task(
         observe_workflow_task_create(reason="team_rate_capped")
         raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
-    # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
-    # fails open), and holding the advisory locks across an external call would stall
-    # every workflow fire for the team. Replays never reach it, so engine retries of an
-    # already-created task succeed even for a blocked owner.
+    # The gate stays outside the transaction: it reads Redis (fails open), and holding the
+    # advisory locks across it would stall every workflow fire for the team. Replays never
+    # reach it, so engine retries of an already-created task succeed even for a blocked owner.
     if usage_limit_response(gate_owner, team.id) is not None:
         observe_workflow_task_create(reason="gate_blocked")
         raise WorkflowTaskUsageLimited()
+    # Workflow runs bill to the AI credits bucket, which the gate above does not read. Both
+    # gateways refuse an exhausted bucket, and the legacy gateway answers with a retryable 429,
+    # so a run created here would retry until the idle timeout instead of failing.
+    if _team_out_of_ai_credits(team):
+        observe_workflow_task_create(reason="ai_credits_exhausted")
+        raise WorkflowTaskAICreditsExhausted()
 
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
@@ -414,6 +420,15 @@ def create_workflow_task(
     # replay path above, which counts as replayed instead.
     observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
+
+
+def _team_out_of_ai_credits(team: Team) -> bool:
+    """False (fail open) when the bucket can't be read, so a Redis error never blocks every fire."""
+    try:
+        return is_team_over_credit_budget(team.api_token, QuotaResource.AI_CREDITS)
+    except Exception:
+        logger.warning("workflow_task_ai_credits_check_failed", team_id=team.id, exc_info=True)
+        return False
 
 
 def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Channel | None:

@@ -1,12 +1,32 @@
+from typing import TYPE_CHECKING
+
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.canvas.backend.facade.enums import (
+    CANVAS_BUILD_STATUS_FAILED,
+    CANVAS_BUILD_STATUS_READY,
+    CANVAS_KIND_COMPONENT,
+    CANVAS_KIND_FREEFORM,
+    CANVAS_KIND_GRID,
+    CANVAS_KINDS,
+    CANVAS_STATE_SCOPE_SHARED,
+    CANVAS_STATE_SCOPE_USER,
+    CANVAS_STATE_SCOPES,
+)
 
-class Canvas(TeamScopedRootMixin, UUIDModel):
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+
+class Canvas(FileSystemSyncMixin, TeamScopedRootMixin, UUIDModel):
     """A canvas document: an agent-built, sandboxed browser app filed in a channel.
 
     The document's source lives in append-only ``CanvasSourceVersion`` rows
@@ -28,10 +48,10 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
       validates and versions the layout without queuing a build.
     """
 
-    KIND_FREEFORM = "freeform"
-    KIND_GRID = "grid"
-    KIND_COMPONENT = "component"
-    KINDS = [KIND_FREEFORM, KIND_GRID, KIND_COMPONENT]
+    KIND_FREEFORM = CANVAS_KIND_FREEFORM
+    KIND_GRID = CANVAS_KIND_GRID
+    KIND_COMPONENT = CANVAS_KIND_COMPONENT
+    KINDS = CANVAS_KINDS
 
     SOURCE_POLICY_STANDARD = "standard"
     SOURCE_POLICY_NOTEBOOK_WIDGET = "notebook_widget"
@@ -88,6 +108,39 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
                 name="canvas_kind_store",
             ),
         ]
+
+    # What makes a canvas a thing a person opens from the project tree: a live, standalone freeform
+    # canvas. Components and grids are widgets, and notebook widgets belong to their notebook. The
+    # unfiled sweep filters on this mapping and `is_filed_analysis` compares an instance to it, so the
+    # two never drift apart.
+    FILED_ANALYSIS_FILTER: dict[str, object] = {
+        "deleted": False,
+        "kind": KIND_FREEFORM,
+        "source_policy": SOURCE_POLICY_STANDARD,
+    }
+
+    @property
+    def is_filed_analysis(self) -> bool:
+        return all(getattr(self, field) == value for field, value in self.FILED_ANALYSIS_FILTER.items())
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Canvas"]:
+        # The unfiled sweep runs outside a request, so the fail-closed manager needs the team spelled out.
+        # `for_team` resolves an environment to its project, so the exact team keeps an environment's sweep
+        # from filing the project's canvases a second time under its own id.
+        base_qs = cls.objects.for_team(team.id).filter(team_id=team.id, **cls.FILED_ANALYSIS_FILTER)
+        return cls._filter_unfiled_queryset(base_qs, team, type="canvas", ref_field="id", surface=surface)
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Canvases"),
+            type="canvas",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/canvases/{self.id}",
+            meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
+            should_delete=not self.is_filed_analysis,
+        )
 
 
 class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
@@ -152,8 +205,8 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
 
     STATUS_QUEUED = "queued"
     STATUS_BUILDING = "building"
-    STATUS_READY = "ready"
-    STATUS_FAILED = "failed"
+    STATUS_READY = CANVAS_BUILD_STATUS_READY
+    STATUS_FAILED = CANVAS_BUILD_STATUS_FAILED
     ACTIVE_STATUSES = [STATUS_QUEUED, STATUS_BUILDING]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
@@ -238,9 +291,9 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
     access a point lookup and table growth capped by canvas count.
     """
 
-    SCOPE_USER = "user"
-    SCOPE_SHARED = "shared"
-    SCOPES = [SCOPE_USER, SCOPE_SHARED]
+    SCOPE_USER = CANVAS_STATE_SCOPE_USER
+    SCOPE_SHARED = CANVAS_STATE_SCOPE_SHARED
+    SCOPES = CANVAS_STATE_SCOPES
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="state_entries")

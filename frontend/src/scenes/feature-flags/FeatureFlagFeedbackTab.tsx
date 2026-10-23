@@ -18,7 +18,8 @@ export function FeedbackTab({ featureFlag }: { featureFlag: FeatureFlagType }): 
                 type: QuickSurveyType.FEATURE_FLAG,
                 flag: featureFlag,
             }}
-            emptyStateBannerMessage="Gather valuable insights by automatically displaying a survey to users in this feature flag"
+            emptyStateHeader="Survey users with this flag enabled"
+            emptyStateDescription="Create a survey that targets users with this feature flag enabled. Responses are linked to the flag so you can review them alongside your rollout."
             multipleSurveysBannerMessage={
                 <>
                     Showing only surveys associated with this feature flag.{' '}

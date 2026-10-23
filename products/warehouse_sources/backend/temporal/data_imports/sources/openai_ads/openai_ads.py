@@ -1,6 +1,7 @@
+import re
 import json
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -13,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -175,12 +179,36 @@ def _convert_insights_times(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+# The insights row id can carry a `plan=<compressed query plan>` segment next to the
+# `start=`, `end=` and `entity_id=` segments. The plan value changes between requests for the same
+# bucket, so the merge on `id` would insert every re-read lookback row as a new row.
+_INSIGHTS_ID_PLAN_SEGMENT = re.compile(r"(?:^|:)plan=[^:]*")
+
+
+def _stable_insights_id(row: dict[str, Any]) -> dict[str, Any]:
+    row_id = row.get("id")
+    if not isinstance(row_id, str):
+        return row
+    return {**row, "id": _INSIGHTS_ID_PLAN_SEGMENT.sub("", row_id).lstrip(":")}
+
+
 def _make_client(api_key: str) -> RESTClient:
     return RESTClient(
         base_url=OPENAI_ADS_BASE_URL,
         headers=_headers(),
         auth=BearerTokenAuth(api_key),
     )
+
+
+def _account_currency(api_key: str) -> str:
+    for page in _make_client(api_key).paginate(
+        path="/v1/ad_account", paginator=SinglePagePaginator(), data_selector="$"
+    ):
+        for account in page:
+            currency = account.get("currency_code")
+            if isinstance(currency, str) and re.fullmatch(r"[A-Z]{3}", currency):
+                return currency
+    raise ValueError("OpenAI Ads did not return an account currency. Check the account settings, then sync again.")
 
 
 def _list_pages(client: RESTClient, path: str, params: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
@@ -254,6 +282,7 @@ def openai_ads_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
+    data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     if config.aggregation_level is not None:
         if resume is not None and resume.since and resume.until:
             window: SyncWindow[str] = SyncWindow(start=resume.since, end=resume.until)
@@ -271,13 +300,17 @@ def openai_ads_source(
                 {"type": "date_range", "since": window.start, "until": window.end, "timezone": "UTC"}
             ),
         }
-        data_map = _convert_insights_times
+        currency = _account_currency(api_key)
+
+        def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
+            return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
+
+        data_map = enrich_insights
     else:
         window = SyncWindow(start="", end="")
         # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
         # full campaign list.
         params = {"limit": LIST_PAGE_SIZE, "order": "asc"}
-        data_map = None
 
     rest_config: RESTAPIConfig = {
         "client": {

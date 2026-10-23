@@ -8,9 +8,10 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
-from django.db.models import Q
+from django.db.models import CharField, Exists, OuterRef, Q, QuerySet
+from django.db.models.functions import Cast, JSONArray
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 
 
@@ -100,3 +101,56 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
         else set()
     )
     return {report_id: (skill_name if skill_name in live else "") for report_id, skill_name in resolved.items()}
+
+
+BACKGROUND_RUN_METADATA = {"managed_by": SignalScoutConfig.ManagedBy.BACKGROUND}
+
+
+def resolve_background_authoring_runs(team_id: int, report_ids: list[str]) -> dict[str, SignalScoutRun]:
+    """Map each report a background-enrolled scout run authored to that run.
+
+    Only authorship counts: a background scout that edited a user scout's report does not make the
+    report a background one. The origin is the one stamped on the run at dispatch, so a person who
+    later takes over, switches off, or deletes the config does not clear it.
+    """
+    if not report_ids:
+        return {}
+    authored = Q()
+    for report_id in report_ids:
+        authored |= Q(emitted_report_ids__contains=[report_id])
+    runs = SignalScoutRun.objects.for_team(team_id).filter(authored, metadata__contains=BACKGROUND_RUN_METADATA)
+    wanted = set(report_ids)
+    resolved: dict[str, SignalScoutRun] = {}
+    for run in runs:
+        for report_id in wanted.intersection(run.emitted_report_ids or []):
+            resolved[report_id] = run
+    return resolved
+
+
+def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
+    return report_id in resolve_background_authoring_runs(team_id, [report_id])
+
+
+def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:
+    # Matches `scout_lists_reports_in_inbox`: only an explicit `inbox: false` opts a scout out.
+    # A subquery rather than a join, so the inbox list query keeps its join-free plan.
+    opted_out_configs = SignalScoutConfig.objects.for_team(team_id).filter(output_destinations__inbox=False)
+    return SignalScoutRun.objects.for_team(team_id).filter(scout_config_id__in=opted_out_configs.values("id"))
+
+
+def inbox_hidden_report_exists(team_id: int) -> Exists:
+    """Matches a report kept out of the inbox because the scout that authored it turned off its inbox destination.
+
+    Only authorship counts, read from the config's current setting: an opted-out scout that edits
+    another source's report does not hide it, and turning the scout back on lists its reports again.
+    Use it in a filter on a `SignalReport` queryset, so the check stays in the database.
+    """
+    return Exists(
+        _inbox_opted_out_runs(team_id).filter(
+            emitted_report_ids__contains=JSONArray(Cast(OuterRef("id"), output_field=CharField()))
+        )
+    )
+
+
+def report_is_hidden_from_inbox(team_id: int, report_id: str) -> bool:
+    return _inbox_opted_out_runs(team_id).filter(emitted_report_ids__contains=[report_id]).exists()

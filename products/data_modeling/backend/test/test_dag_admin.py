@@ -83,11 +83,19 @@ class TestDataModelingDAGAdminTiers(BaseTest):
 
         assert response.status_code == 404
 
-    def test_changelist_and_add_form_render(self):
-        # both call into the display helpers that reverse other admin URLs, and the add form is the
-        # only caller of tiers_link with an unsaved object
+    def test_admin_shows_dags_but_cannot_create_change_or_delete_them(self):
         assert self.client.get(reverse("admin:data_modeling_dag_changelist")).status_code == 200
-        assert self.client.get(reverse("admin:data_modeling_dag_add")).status_code == 200
+        assert self.client.get(reverse("admin:data_modeling_dag_change", args=[self.dag.id])).status_code == 200
+        assert self.client.get(reverse("admin:data_modeling_dag_add")).status_code == 403
+        assert (
+            self.client.post(
+                reverse("admin:data_modeling_dag_change", args=[self.dag.id]), {"name": "Renamed"}
+            ).status_code
+            == 403
+        )
+        assert self.client.post(reverse("admin:data_modeling_dag_delete", args=[self.dag.id])).status_code == 403
+        self.dag.refresh_from_db()
+        assert self.dag.name == "Default"
 
     def test_tiers_page_requires_staff(self):
         self.user.is_staff = False

@@ -1,4 +1,5 @@
-from uuid import uuid4
+from datetime import datetime
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -102,11 +103,15 @@ class TestDeletePersonsAsync(SimpleTestCase):
     def test_retries_only_the_failed_persons(self) -> None:
         failed = uuid4()
         result = PersonProfileDeletionResult(
-            deleted_count=0,
+            deleted_count=1,
             failures=[
                 PersonDeletionFailure(
                     step=PersonDeletionStep.QUEUE_TRAINING_DELETION, person_uuid=failed, error="RuntimeError: x"
-                )
+                ),
+                # Deleted, only its publish failed: a retry would not find it, so it is left out.
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, person_uuid=uuid4(), error="TimeoutError"
+                ),
             ],
         )
         with patch.object(delete_persons_async, "retry", side_effect=Retry("retry")) as retry:
@@ -146,7 +151,73 @@ class TestDeletePersonsAsync(SimpleTestCase):
         assert retry.call_args.kwargs["exc"] is crash
         assert "kwargs" not in retry.call_args.kwargs
 
-    def test_completes_quietly_when_all_deleted(self) -> None:
+    @parameterized.expand(
+        [
+            ("crash_on_an_earlier_attempt", 2, "crash", None, None),
+            ("crash_on_the_last_attempt", 3, "crash", ["a", "b"], ["ghost"]),
+            ("failures_on_the_last_attempt", 3, "failures", ["00000000-0000-0000-0000-000000000001"], []),
+        ]
+    )
+    def test_the_last_attempt_logs_every_person_it_leaves_undeleted(
+        self, _name: str, retries: int, how: str, expected: list[str] | None, unmatched: list[str] | None
+    ) -> None:
+        failed = PersonProfileDeletionResult(
+            deleted_count=1,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.QUEUE_TRAINING_DELETION,
+                    person_uuid=UUID("00000000-0000-0000-0000-000000000001"),
+                    error="x",
+                )
+            ],
+        )
+        delete_persons_async.push_request(retries=retries)
+        self.addCleanup(delete_persons_async.pop_request)
+        with (
+            patch.object(delete_persons_async, "retry", side_effect=Retry("retry")),
+            patch("posthog.tasks.delete_persons.logger") as log,
+        ):
+            with self.assertRaises(Retry):
+                self._run(RuntimeError("database down") if how == "crash" else failed)
+
+        gave_up = [c for c in log.error.call_args_list if c.args == ("delete_persons_async gave up",)]
+        if expected is None:
+            assert gave_up == []
+        else:
+            assert len(gave_up) == 1
+            assert gave_up[0].kwargs["person_uuids"] == expected
+            assert (gave_up[0].kwargs["team_id"], gave_up[0].kwargs["delete_recordings"]) == (1, True)
+            assert datetime.fromisoformat(gave_up[0].kwargs["gave_up_at"]).tzinfo is not None
+            assert gave_up[0].kwargs["unmatched_distinct_ids"] == unmatched
+
+    @parameterized.expand(
+        [
+            ("all_deleted", PersonProfileDeletionResult(deleted_count=2)),
+            (
+                "publish_failed_after_deletion",
+                PersonProfileDeletionResult(
+                    deleted_count=2,
+                    failures=[
+                        PersonDeletionFailure(
+                            step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, person_uuid=uuid4(), error="x"
+                        )
+                    ],
+                ),
+            ),
+            (
+                "activity_log_failed_after_deletion",
+                PersonProfileDeletionResult(
+                    deleted_count=2,
+                    failures=[
+                        PersonDeletionFailure(step=PersonDeletionStep.LOG_ACTIVITY, person_uuid=uuid4(), error="x")
+                    ],
+                ),
+            ),
+        ]
+    )
+    def test_completes_quietly_when_every_person_is_deleted(
+        self, _name: str, result: PersonProfileDeletionResult
+    ) -> None:
         with patch.object(delete_persons_async, "retry") as retry:
-            self._run(PersonProfileDeletionResult(deleted_count=2))
+            self._run(result)
         retry.assert_not_called()

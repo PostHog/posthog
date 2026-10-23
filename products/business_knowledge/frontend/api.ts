@@ -2,6 +2,15 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
+    businessKnowledgeLibrariesCreate,
+    businessKnowledgeLibrariesDestroy,
+    businessKnowledgeLibrariesList,
+    businessKnowledgeLibrariesPartialUpdate,
+    businessKnowledgePlaygroundChatsAskCreate,
+    businessKnowledgePlaygroundChatsCreate,
+    businessKnowledgePlaygroundChatsDestroy,
+    businessKnowledgePlaygroundChatsList,
+    businessKnowledgePlaygroundChatsRetrieve,
     businessKnowledgeSourcesCreate,
     businessKnowledgeSourcesDestroy,
     businessKnowledgeSourcesDocumentsList,
@@ -16,7 +25,11 @@ import type {
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
+    KnowledgeLibraryApi,
     KnowledgeSourceApi,
+    PlaygroundChatApi,
+    PlaygroundChatListApi,
+    SandboxQuestionApi,
     KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
 
@@ -50,12 +63,15 @@ export interface UpdateSourcePayload {
     max_depth?: number
     refresh_interval?: RefreshIntervalValue
     always_include?: boolean
+    library_ids?: string[]
 }
 
 export async function listSources(params?: {
     search?: string
     sourceType?: string
     addedBy?: string
+    libraryId?: string
+    unfiled?: boolean
 }): Promise<KnowledgeSourceApi[]> {
     const search = params?.search?.trim()
     const sourceType =
@@ -71,6 +87,8 @@ export async function listSources(params?: {
         ...(search ? { search } : {}),
         ...(sourceType ? { source_type: sourceType } : {}),
         ...(addedBy ? { added_by: addedBy } : {}),
+        ...(params?.libraryId ? { library_id: params.libraryId } : {}),
+        ...(params?.unfiled ? { unfiled: true } : {}),
     }
     const response = await businessKnowledgeSourcesList(String(getCurrentTeamId()), query)
     return response.results
@@ -81,8 +99,8 @@ export async function getSource(id: string): Promise<KnowledgeSourceApi> {
 }
 
 export async function getSourceDocuments(id: string): Promise<KnowledgeSourceDocumentApi[]> {
-    // 500 matches the crawl cap (MAX_URLS_PER_SOURCE), so one page is the full set.
-    const response = await businessKnowledgeSourcesDocumentsList(String(getCurrentTeamId()), id, { limit: 500 })
+    // 5000 matches the crawl cap (MAX_URLS_PER_SOURCE), so one page is the full set.
+    const response = await businessKnowledgeSourcesDocumentsList(String(getCurrentTeamId()), id, { limit: 5000 })
     return response.results
 }
 
@@ -125,6 +143,48 @@ export async function deleteSource(id: string): Promise<void> {
     await businessKnowledgeSourcesDestroy(String(getCurrentTeamId()), id)
 }
 
+export async function listPlaygroundChats(): Promise<PlaygroundChatListApi[]> {
+    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
+}
+
+export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {
+    return await businessKnowledgePlaygroundChatsCreate(String(getCurrentTeamId()))
+}
+
+export async function getPlaygroundChat(chatId: string): Promise<PlaygroundChatApi> {
+    return await businessKnowledgePlaygroundChatsRetrieve(String(getCurrentTeamId()), chatId)
+}
+
+export async function askPlaygroundChat(chatId: string, question: string): Promise<PlaygroundChatApi> {
+    const body: SandboxQuestionApi = { question }
+    return await businessKnowledgePlaygroundChatsAskCreate(String(getCurrentTeamId()), chatId, body)
+}
+
+export async function deletePlaygroundChat(chatId: string): Promise<void> {
+    await businessKnowledgePlaygroundChatsDestroy(String(getCurrentTeamId()), chatId)
+}
+
 export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {
     return await businessKnowledgeSourcesRefreshCreate(String(getCurrentTeamId()), id)
+}
+
+export type KnowledgeLibrary = KnowledgeLibraryApi
+
+export async function listLibraries(): Promise<KnowledgeLibrary[]> {
+    return await businessKnowledgeLibrariesList(String(getCurrentTeamId()))
+}
+
+export async function createLibrary(name: string): Promise<KnowledgeLibrary> {
+    return await businessKnowledgeLibrariesCreate(String(getCurrentTeamId()), { name })
+}
+
+export async function updateLibrary(
+    id: string,
+    payload: { name?: string; source_ids?: string[]; repos?: string[] }
+): Promise<KnowledgeLibrary> {
+    return await businessKnowledgeLibrariesPartialUpdate(String(getCurrentTeamId()), id, payload)
+}
+
+export async function deleteLibrary(id: string): Promise<void> {
+    await businessKnowledgeLibrariesDestroy(String(getCurrentTeamId()), id)
 }

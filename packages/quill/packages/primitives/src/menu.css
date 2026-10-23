@@ -91,6 +91,60 @@
     }
 
     /*
+     * A row with a `description`: it grows past the one-line row height, and its
+     * trailing parts (submenu chevron, kbd) sit on the label's line.
+     */
+    .quill-button.quill-menu-item--described {
+        align-items: flex-start;
+        height: auto;
+        min-height: 1.75rem;
+        padding-block: 0.375rem;
+    }
+
+    .quill-menu-item--described > svg {
+        margin-block-start: 0.1875rem;
+    }
+
+    /* The body fills the row, so a trailing child of the label (`ms-auto`) reaches the row's end. */
+    .quill-menu-item__body {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-width: 0;
+        text-align: start;
+    }
+
+    .quill-menu-item__title {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .quill-menu-item__description {
+        max-width: 20rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.4;
+        color: var(--muted-foreground);
+        white-space: normal;
+    }
+
+    /* A leading avatar in a menu row takes the row's icon size, so avatars and icons line up down the menu. */
+    :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], .quill-menu-item__title)
+        > [data-slot='avatar'][data-size] {
+        --avatar-size: 0.875rem;
+
+        font-size: 0.5rem;
+    }
+
+    /* Line the description up with the label, past the leading icon or avatar (0.875rem + the 0.5rem gap).
+       CSS skips text nodes, so a trailing icon after a bare label is the first child too; `data-icon='inline-end'` marks it. */
+    .quill-menu-item__title:has(> svg:first-child:not([data-icon='inline-end']), > [data-slot='avatar']:first-child)
+        + .quill-menu-item__description {
+        padding-inline-start: 1.375rem;
+    }
+
+    /*
      * Checkbox / radio menu items get a stronger "active" background than the
      * generic fill-selected (which is too subtle on white popover surfaces).
      * Covers both Base UI's `aria-checked='true'` and `data-checked` hooks so

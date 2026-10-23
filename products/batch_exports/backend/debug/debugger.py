@@ -25,9 +25,9 @@ from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportField,
-    BatchExportModel,
     BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
+    get_batch_export_model,
 )
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
@@ -293,12 +293,7 @@ class BatchExportsDebugger:
             team_id=self.batch_export.team_id,
             batch_export_id=str(self.batch_export.id),
             interval=str(self.batch_export.interval),
-            batch_export_model=BatchExportModel(
-                name=self.batch_export.model or "events",
-                schema=self.batch_export.schema,
-                filters=self.batch_export.filters,
-                hogql_query=self.batch_export.hogql_query,
-            ),
+            batch_export_model=get_batch_export_model(self.batch_export),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
         )
@@ -429,13 +424,6 @@ class BatchExportsDebugger:
         extra_query_parameters: dict[str, str] = {}
         filters = batch_export_run.parent.filters
 
-        if filters is not None and len(filters) > 0:
-            filters_str, extra_query_parameters = compose_filters_clause(
-                filters, team_id=team_id, values=extra_query_parameters
-            )
-        else:
-            filters_str, extra_query_parameters = "", extra_query_parameters
-
         is_backfill = batch_export_run.backfill is not None
 
         if batch_export_run.parent.model == BatchExport.Model.PERSONS:
@@ -488,7 +476,15 @@ class BatchExportsDebugger:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            if query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id):
+            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
+
+            filters_str = ""
+            if filters is not None and len(filters) > 0:
+                filters_str, extra_query_parameters = compose_filters_clause(
+                    filters, team_id=team_id, values=extra_query_parameters
+                )
+
+            if native_source:
                 query = native_events_export_query(query_fields, filters_str)
             else:
                 if filters_str:

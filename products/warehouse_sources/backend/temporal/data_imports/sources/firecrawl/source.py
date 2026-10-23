@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,16 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConfig]):
+    codebase_detection = detect(
+        env=("^FIRECRAWL_",),
+        npm=("@mendable/firecrawl-js", "firecrawl"),
+        pypi=("firecrawl-py", "firecrawl"),
+        cargo=("firecrawl", "firecrawl_rs"),
+        go=("github.com/firecrawl/firecrawl-go", "github.com/mendableai/firecrawl-go"),
+        maven=("com.firecrawl:firecrawl-java",),
+        rubygems=("firecrawl-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -52,7 +63,7 @@ class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConf
             name=ExternalDataSourceType.FIRECRAWL,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Firecrawl",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Firecrawl API key to pull your Firecrawl account activity and usage into the PostHog Data warehouse.
 
 You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.dev/app/api-keys). A single key grants access to all of the tables below.""",

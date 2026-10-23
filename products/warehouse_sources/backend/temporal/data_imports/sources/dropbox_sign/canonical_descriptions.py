@@ -69,6 +69,83 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Unix timestamp at which the API app was created.",
         },
     },
+    "bulk_send_jobs": {
+        "description": "A batch of signature requests sent together from a single template.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/bulkSendJobList/",
+        "columns": {
+            "bulk_send_job_id": "Unique identifier for the bulk send job. Signature requests created by the job carry the same id.",
+            "total": "The total number of signature requests queued for sending by the job.",
+            "is_creator": "Whether the connected account owns the job, rather than a team member sharing it.",
+            "created_at": "Unix timestamp at which the bulk send job was created.",
+        },
+    },
+    "faxes": {
+        "description": "A fax sent or received on one of the account's fax lines.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/faxList/",
+        "columns": {
+            "fax_id": "Unique identifier for the fax.",
+            "title": "The fax's title.",
+            "original_title": "The title used when the fax was originally created.",
+            "subject": "The fax's subject line.",
+            "message": "The message included with the fax.",
+            "sender": "Email address of the sender.",
+            "files_url": "URL the fax's files can be downloaded from.",
+            "final_copy_uri": "Path the completed document can be downloaded from.",
+            "transmissions": "One entry per send or receive attempt, with the recipient number and status.",
+            "metadata": "Custom metadata attached to the fax.",
+            "created_at": "Unix timestamp at which the fax was created.",
+        },
+    },
+    "team": {
+        "description": "The team the connected account belongs to, with its seat and sub-team counts. Empty when the account is not on a team.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/teamInfo/",
+        "columns": {
+            "team_id": "Unique identifier for the team. Matches the team_id on the account table.",
+            "team_parent": "The parent team, when this team is a sub-team.",
+            "name": "The team's name.",
+            "num_members": "Number of members in the team.",
+            "num_sub_teams": "Number of sub-teams under the team.",
+        },
+    },
+    "team_members": {
+        "description": "The members of the connected account's team and the role each one holds. Empty when the account is not on a team.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/teamMembers/",
+        "columns": {
+            "account_id": "Unique identifier for the member's account. Resolves the account ids carried on other tables.",
+            "email_address": "The member's email address.",
+            "role": "The role the member holds on the team.",
+        },
+    },
+    "team_sub_teams": {
+        "description": "The direct sub-teams of the connected account's team. Empty when the account is not on a team.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/teamSubTeams/",
+        "columns": {
+            "team_id": "Unique identifier for the sub-team.",
+            "name": "The sub-team's name.",
+        },
+    },
+    "team_invites": {
+        "description": "Invitations to join the connected account's team, with the role each invite grants. Empty when the account is not on a team.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/teamInvites/",
+        "columns": {
+            "email_address": "Email address of the user invited to the team.",
+            "team_id": "Identifier of the team the invite is for.",
+            "role": "The role the invited user gets on the team.",
+            "sent_at": "Unix timestamp at which the invite was sent.",
+            "redeemed_at": "Unix timestamp at which the invite was redeemed. Null while the invite is pending.",
+            "expires_at": "Unix timestamp at which the invite expires.",
+        },
+    },
+    "fax_lines": {
+        "description": "A fax line (phone number) on the account, with the accounts that can use it.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/faxLineList/",
+        "columns": {
+            "number": "The fax line's phone number.",
+            "created_at": "Unix timestamp at which the fax line was created.",
+            "updated_at": "Unix timestamp at which the fax line was last updated.",
+            "accounts": "The accounts that have access to the fax line.",
+        },
+    },
     "account": {
         "description": "The Dropbox Sign account connected via the API key.",
         "docs_url": "https://developers.hellosign.com/api/reference/operation/accountGet/",

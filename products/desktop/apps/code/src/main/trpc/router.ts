@@ -43,6 +43,7 @@ import { piSessionRouter } from "@posthog/host-router/routers/pi-session.router"
 import { processTrackingRouter } from "@posthog/host-router/routers/process-tracking.router";
 import { provisioningRouter } from "@posthog/host-router/routers/provisioning.router";
 import { releaseFeedRouter } from "@posthog/host-router/routers/release-feed.router";
+import { screenCaptureRouter } from "@posthog/host-router/routers/screen-capture.router";
 import { secureStoreRouter } from "@posthog/host-router/routers/secure-store.router";
 import { settingsBackupRouter } from "@posthog/host-router/routers/settings-backup.router";
 import { shellRouter } from "@posthog/host-router/routers/shell.router";
@@ -59,7 +60,6 @@ import { devRouter } from "./routers/dev";
 import { discordPresenceRouter } from "./routers/discord-presence";
 import { encryptionRouter } from "./routers/encryption";
 import { missionControlRouter } from "./routers/mission-control";
-import { quickAskRouter } from "./routers/quick-ask";
 import { workspaceServerRouter } from "./routers/workspace-server";
 import { router } from "./trpc";
 
@@ -87,6 +87,7 @@ export const trpcRouter = router({
   encryption: encryptionRouter,
   externalApps: externalAppsRouter,
   feedbackContext: feedbackContextRouter,
+  screenCapture: screenCaptureRouter,
   fileWatcher: fileWatcherRouter,
   focus: focusRouter,
   folders: foldersRouter,
@@ -102,7 +103,6 @@ export const trpcRouter = router({
   mcpCallback: mcpCallbackRouter,
   mcpRelay: mcpRelayRouter,
   missionControl: missionControlRouter,
-  quickAsk: quickAskRouter,
   notification: notificationRouter,
   oauth: oauthRouter,
   logs: logsRouter,

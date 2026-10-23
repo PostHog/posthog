@@ -19,6 +19,7 @@ from .enums import (
     WizardRunStatus,
     WizardSessionRunPhase,
     WizardSessionTaskStatus,
+    WizardTaskStatus,
 )
 
 STALE_AFTER = timedelta(minutes=10)
@@ -103,6 +104,8 @@ class LocalFolderWorkspace:
 @frozen
 class GitRepositoryWorkspace:
     repository: str
+    # None means the repository's default branch.
+    branch: str | None = None
     type: Literal["git_repository"] = "git_repository"
 
 
@@ -139,6 +142,19 @@ class CreateWizardRunInput:
 
 
 @frozen
+class StartWizardInstallInput:
+    """
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
+    """
+
+    team_id: int
+    created_by_id: int
+    repository: str
+    branch: str | None = None
+    idempotency_key: str | None = None
+
+
+@frozen
 class WizardRunCreationResult:
     run: "WizardRunDTO"
     created: bool
@@ -150,6 +166,48 @@ class WizardRunCreatorDTO:
     first_name: str
     last_name: str
     email: str
+
+
+@frozen
+class UpdateWizardRunTaskInput:
+    """
+    Payload used to update a single task of a WizardRun.
+    """
+
+    title: str
+    status: WizardTaskStatus
+
+
+@frozen
+class UpdateWizardRunTaskListInput:
+    """
+    Payload used to update the list of tasks of a WizardRun.
+
+    The Wizard's LLM generates and updates the task list, as a snaphost.
+    This is why the input shape doesn't have timestamps. Those will computed
+    server-side.
+    """
+
+    tasks: tuple[UpdateWizardRunTaskInput, ...]
+
+
+@frozen
+class WizardRunTaskDTO:
+    """
+    A single task of a WizardRun.
+
+    Note: the datetimes are computed server-side,
+          since the Wizard only sends the current list's snapshot.
+          This is why it is only shown to the user.
+    """
+
+    title: str
+    status: WizardTaskStatus
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    failed_at: datetime | None
+    error_message: str | None
 
 
 @frozen
@@ -170,6 +228,14 @@ class WizardRunDTO:
     finished_at: datetime | None
     deadline_at: datetime | None
     created_by: WizardRunCreatorDTO | None = None
+    tasks: tuple[WizardRunTaskDTO, ...] = ()
+
+
+@frozen
+class WizardInstallStatusDTO:
+    run: WizardRunDTO
+    pull_request_url: str | None
+    next_step: str
 
 
 @frozen
@@ -177,6 +243,8 @@ class ListWizardRunsInput:
     team_id: int
     offset: int
     limit: int
+    statuses: tuple[WizardRunStatus, ...] = ()
+    created_after: datetime | None = None
 
 
 @frozen
@@ -224,3 +292,38 @@ class WizardRunPullRequestArtifactDTO:
 
 
 type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO
+
+
+@frozen
+class WizardScanSignal:
+    # Free-form so the wizard can add a signal type without a backend change.
+    source: str
+    name: str
+    file: str | None
+
+
+@frozen
+class WizardScanTool:
+    kind: str
+    signals: tuple[WizardScanSignal, ...]
+
+
+@frozen
+class RecordWizardScanInput:
+    team_id: int
+    created_by_id: int | None
+    session_id: str
+    program: str
+    wizard_version: str
+    workspace_fingerprint: str
+    scanned_at: datetime
+    tools: tuple[WizardScanTool, ...]
+    # False when the wizard could not walk the whole workspace, so a missing tool may not be gone.
+    complete: bool = True
+
+
+@frozen
+class WizardScanResult:
+    id: UUID
+    # False when the session already reported this scan, so nothing was written.
+    created: bool

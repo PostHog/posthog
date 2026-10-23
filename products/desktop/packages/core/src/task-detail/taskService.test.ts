@@ -66,15 +66,18 @@ function makeService(overrides: Partial<SessionService> = {}): TaskService {
 }
 
 describe("TaskService.openTask", () => {
-  it("passes the main repository path when resuming Pi in a worktree", async () => {
+  it.each([
+    [
+      "a worktree",
+      { folderPath: "/repo", worktreePath: "/worktrees/task-1" },
+      "/worktrees/task-1",
+    ],
+    ["a scratch dir", null, "/scratch/task-1"],
+  ])("resumes Pi in %s with the task's run", async (_label, workspace, cwd) => {
     const task = {
       id: "task-1",
       runtime: "pi",
       latest_run: { id: "run-1", environment: "local", status: "running" },
-    };
-    const workspace = {
-      folderPath: "/repo",
-      worktreePath: "/worktrees/task-1",
     };
     const piRunner = {
       create: vi.fn(),
@@ -87,6 +90,7 @@ describe("TaskService.openTask", () => {
           getTask: vi.fn(async () => task),
         })),
         getWorkspace: vi.fn(async () => workspace),
+        ensureScratchDir: vi.fn(async () => "/scratch/task-1"),
       } as unknown as ITaskCreationHost,
       {} as SessionService,
       {} as TaskCreationEffects,
@@ -99,7 +103,7 @@ describe("TaskService.openTask", () => {
       success: true,
     });
     expect(piRunner.resume).toHaveBeenCalledWith({
-      taskContext: { taskId: "task-1", cwd: "/worktrees/task-1" },
+      taskContext: { taskId: "task-1", taskRunId: "run-1", cwd },
     });
   });
 
@@ -187,14 +191,20 @@ describe("TaskService.createTask validation", () => {
     { runtime: "acp" as const, adapter: "codex" as const, blocked: false },
     { runtime: "pi" as const, adapter: "claude" as const, blocked: false },
     { runtime: "acp" as const, adapter: "claude" as const, blocked: true },
+    { runtime: "acp" as const, adapter: "codex" as const, blocked: true },
   ])(
-    "checks Claude billing before cloud creation for %s",
+    "checks subscription billing before cloud creation for %s",
     async ({ runtime, adapter, blocked }) => {
-      const resolveClaudeCloudModelAccess = vi
+      const resolveCloudModelAccess = vi
         .fn()
-        .mockImplementation(async () => {
-          if (blocked) throw new Error("Save a Claude token first.");
-          return "own-subscription";
+        .mockImplementation(async (selectedAdapter) => {
+          if (blocked)
+            throw new Error(
+              selectedAdapter === "claude"
+                ? "Save a Claude token first."
+                : "Connect your ChatGPT account first.",
+            );
+          return { kind: "own-subscription", adapter: selectedAdapter };
         });
       const run = vi
         .spyOn(TaskCreationSaga.prototype, "run")
@@ -205,7 +215,7 @@ describe("TaskService.createTask validation", () => {
         });
       try {
         const result = await makeService({
-          resolveClaudeCloudModelAccess,
+          resolveCloudModelAccess,
         }).createTask(
           {
             content: "Check the build",
@@ -220,15 +230,31 @@ describe("TaskService.createTask validation", () => {
           expect(run).not.toHaveBeenCalled();
           expect(result).toMatchObject({
             success: false,
-            error: "Save a Claude token first.",
+            error:
+              adapter === "claude"
+                ? "Save a Claude token first."
+                : "Connect your ChatGPT account first.",
           });
-        } else if (runtime === "acp" && adapter === "claude") {
+        } else if (runtime === "pi") {
+          expect(resolveCloudModelAccess).not.toHaveBeenCalled();
+          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBeUndefined();
+          expect(run.mock.calls[0][0].codexCloudModelAccess).toBeUndefined();
+        } else if (adapter === "claude") {
+          expect(resolveCloudModelAccess).toHaveBeenCalledWith(
+            "claude",
+            undefined,
+          );
           expect(run.mock.calls[0][0].claudeCloudModelAccess).toBe(
             "own-subscription",
           );
         } else {
-          expect(resolveClaudeCloudModelAccess).not.toHaveBeenCalled();
-          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBeUndefined();
+          expect(resolveCloudModelAccess).toHaveBeenCalledWith(
+            "codex",
+            undefined,
+          );
+          expect(run.mock.calls[0][0].codexCloudModelAccess).toBe(
+            "own-subscription",
+          );
         }
       } finally {
         run.mockRestore();

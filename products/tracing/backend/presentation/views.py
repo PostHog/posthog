@@ -13,6 +13,7 @@ No business logic here - that belongs in logic.py via the facade.
 import json
 import base64
 from collections.abc import Callable
+from typing import cast
 
 from django.db import models
 
@@ -45,21 +46,27 @@ from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.permissions import posthog_feature_flag_enabled
 
 from ..facade.api import (
     FACET_COLUMNS,
+    MAX_AI_EVENTS_PER_TRACE,
     MAX_IDS_PER_LOOKUP,
     annotate_self_time,
     count_session_exceptions,
     count_span_exceptions,
     count_trace_exceptions,
+    fetch_trace_ai_events,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
     run_impact_query,
     run_latency_heatmap_query,
+    run_service_health_query,
     run_symbol_stats_query,
+    service_health_byte_cap_message,
 )
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
@@ -74,6 +81,14 @@ from ..logic import (
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
+from .service_health_serializers import (
+    ServiceHealthRequestSerializer,
+    ServiceHealthResponseSerializer,
+    service_health_params,
+)
+
+# Matches FEATURE_FLAGS.TRACING_AI_EVENTS in the frontend.
+TRACING_AI_EVENTS_FEATURE_FLAG = "tracing-ai-events"
 
 
 def _serialize_compare_rows(compare_rows: list | None) -> list[dict] | None:
@@ -362,7 +377,7 @@ class _TracingSparklineRequestSerializer(serializers.Serializer):
 class _TracingTraceRequestSerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
-        help_text="Date range for the query. Defaults to last 24 hours.",
+        help_text="Date range for the query. Omit it to search all retained spans for this trace.",
     )
     excludeAttributes = serializers.BooleanField(
         required=False,
@@ -376,11 +391,34 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     )
 
 
-class _TracingServiceNamesQuerySerializer(serializers.Serializer):
-    search = serializers.CharField(required=False, help_text="Search filter for service names.")
+class _TracingDateQueryParamsSerializer(serializers.Serializer):
     dateRange = serializers.CharField(
         required=False,
-        help_text='JSON-encoded date range, e.g. \'{"date_from": "-1h"}\'.',
+        help_text='JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. '
+        "Or pass date_from and date_to.",
+    )
+    date_from = serializers.CharField(required=False, help_text="Range start: -1h, -7d or ISO 8601. Defaults to -1h.")
+    date_to = serializers.CharField(required=False, help_text='Range end, same format. Omit for "now".')
+
+
+class _TracingServiceNamesQuerySerializer(_TracingDateQueryParamsSerializer):
+    search = serializers.CharField(required=False, help_text="Search filter for service names.")
+
+
+def _date_range_from_query_params(request: Request) -> dict:
+    raw = request.GET.get("dateRange")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            example = json.dumps({"date_from": "-1h"})
+            message = f"dateRange must be a JSON object such as {example}, or pass date_from and date_to. Got {raw!r}."
+            raise serializers.ValidationError({"dateRange": message})
+        return normalize_tracing_date_range(parsed)
+    return normalize_tracing_date_range(
+        {"date_from": request.GET.get("date_from"), "date_to": request.GET.get("date_to")}
     )
 
 
@@ -461,7 +499,7 @@ class _TracingErrorCountsResponseSerializer(serializers.Serializer):
     )
 
 
-class _TracingAttributesQuerySerializer(serializers.Serializer):
+class _TracingAttributesQuerySerializer(_TracingDateQueryParamsSerializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
     search_values = serializers.BooleanField(
         required=False,
@@ -506,7 +544,7 @@ class SpanPropertyType(models.TextChoices):
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute", "span_resource_attribute"
 
 
-class _TracingValuesQuerySerializer(serializers.Serializer):
+class _TracingValuesQuerySerializer(_TracingDateQueryParamsSerializer):
     key = serializers.CharField(help_text="The attribute key to get values for.")
     attribute_type = serializers.ChoiceField(
         choices=SpanPropertyType.choices,
@@ -824,6 +862,40 @@ class _TracingTraceResponseSerializer(serializers.Serializer):
     hasMore = serializers.BooleanField(help_text="Whether a further page of spans exists.")
     nextOffset = serializers.IntegerField(
         allow_null=True, help_text="Offset for the next page, or null on the last page."
+    )
+
+
+class _TracingTraceAiEventSerializer(serializers.Serializer):
+    uuid = serializers.CharField(help_text="Event UUID.")
+    event = serializers.CharField(
+        help_text="The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`."
+    )
+    started_at = serializers.DateTimeField(
+        help_text="When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish."
+    )
+    ai_trace_id = serializers.CharField(help_text="The `$ai_trace_id` of the event, which opens it in LLM analytics.")
+    ai_span_id = serializers.CharField(allow_null=True, help_text="The `$ai_span_id` of the event.")
+    ai_parent_id = serializers.CharField(
+        allow_null=True,
+        help_text="The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.",
+    )
+    span_name = serializers.CharField(allow_null=True, help_text="The `$ai_span_name`, set on `$ai_span` events.")
+    latency_seconds = serializers.FloatField(allow_null=True, help_text="How long the call took, in seconds.")
+    model = serializers.CharField(allow_null=True, help_text="The model the call used.")
+    provider = serializers.CharField(allow_null=True, help_text="The provider the call went to.")
+    input_tokens = serializers.IntegerField(allow_null=True, help_text="Prompt tokens.")
+    output_tokens = serializers.IntegerField(allow_null=True, help_text="Completion tokens.")
+    total_cost_usd = serializers.FloatField(allow_null=True, help_text="Total cost of the call, in USD.")
+    is_error = serializers.BooleanField(help_text="Whether the call failed.")
+
+
+class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
+    results = _TracingTraceAiEventSerializer(
+        many=True, help_text="AI events in the trace, earliest start first, up to `limit` of them."
+    )
+    limit = serializers.IntegerField(help_text="The most AI events the lookup returns for one trace.")
+    has_more = serializers.BooleanField(
+        help_text="Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`."
     )
 
 
@@ -1203,11 +1275,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}'))
-        except json.JSONDecodeError:
-            raw_date_range = {"date_from": "-1h"}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
@@ -1661,6 +1729,36 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
+    @validated_request(
+        ServiceHealthRequestSerializer,
+        responses={200: OpenApiResponse(response=ServiceHealthResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
+    def service_health(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = service_health_params(request.validated_data)
+        try:
+            result = run_service_health_query(team=self.team, params=params)
+        except CHQueryErrorTooManyBytes:
+            return Response(
+                {"detail": service_health_byte_cap_message(team=self.team, params=params)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self._report_usage(
+            request,
+            "tracing service health queried",
+            {
+                "compare": params.compare.value,
+                "span_scope": params.span_scope.value,
+                "has_environment": bool(params.environment),
+                "service_names_count": len(params.service_names),
+                "services_count": result["summary"]["services"],
+                "truncated": result["truncated"],
+            },
+        )
+        return Response(ServiceHealthResponseSerializer(instance=result).data, status=status.HTTP_200_OK)
+
     @extend_schema(
         request=_TracingTreeRequestSerializer,
         responses={200: _TracingTreeResponseSerializer},
@@ -1799,8 +1897,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
-        date_range = self.get_model(
-            normalize_tracing_date_range(query_data.get("dateRange"), default_date_from="-24h"), DateRange
+        date_range = (
+            self.get_model(normalize_tracing_date_range(query_data["dateRange"], default_date_from="-24h"), DateRange)
+            if query_data.get("dateRange")
+            else None
         )
         try:
             # verify the trace_id is valid
@@ -1869,6 +1969,54 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(responses={200: _TracingTraceAiEventsResponseSerializer})
+    # Both scopes: the response is LLM analytics data, so a token scoped to tracing alone must
+    # not reach it. Scopes gate the token; the access-control check below gates the user.
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)/ai_events",
+        required_scopes=["tracing:read", "llm_analytics:read"],
+    )
+    def trace_ai_events(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
+        """List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
+        can show each model call inline with the spans.
+
+        The spans and the AI events live on different ClickHouse clusters, so one query cannot join
+        them; this returns the events half and the caller places them by time.
+        """
+        # The same flag gates the waterfall rows in the frontend, so the endpoint stays dark for
+        # everyone the drawer would not show them to.
+        if not posthog_feature_flag_enabled(
+            TRACING_AI_EVENTS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("AI events in traces are not enabled for this user.")
+
+        if not self.user_access_control.check_access_level_for_resource("llm_analytics", "viewer"):
+            raise PermissionDenied("You do not have access to LLM analytics.")
+
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        try:
+            bytes.fromhex(trace_id)
+        except ValueError:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        ai_events = fetch_trace_ai_events(team=self.team, user=cast(User, request.user), trace_id=trace_id)
+
+        self._report_usage(
+            request,
+            "tracing trace ai events fetched",
+            {"ai_events_count": len(ai_events.events), "ai_events_has_more": ai_events.has_more},
+        )
+
+        response = _TracingTraceAiEventsResponseSerializer(
+            instance={"results": ai_events.events, "has_more": ai_events.has_more, "limit": MAX_AI_EVENTS_PER_TRACE}
+        )
+        return Response(response.data, status=status.HTTP_200_OK)
+
     @extend_schema(
         parameters=[_TracingAttributesQuerySerializer],
         responses={200: _TracingAttributesResponseSerializer},
@@ -1881,11 +2029,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
-        except json.JSONDecodeError:
-            raw_date_range = {}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span_attribute", "span_resource_attribute"):
@@ -1915,11 +2059,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
-        except json.JSONDecodeError:
-            raw_date_range = {}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span", "span_attribute", "span_resource_attribute"):

@@ -15,6 +15,12 @@ import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } fro
 import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
+let mockInView = true
+
+jest.mock('react-intersection-observer', () => ({
+    useInView: () => ({ ref: jest.fn(), inView: mockInView }),
+}))
+
 jest.mock('lib/utils/accessControlUtils', () => ({
     userHasAccess: () => true,
 }))
@@ -32,6 +38,7 @@ jest.mock('../../widget_types/widgetAvailability', () => ({
 jest.mock('../../widgets/registry', () => ({
     getDashboardWidgetDefinition: () => ({
         Component: () => <div>Widget body</div>,
+        MenuItems: () => <button>Widget action</button>,
         TileFilters: () => <div data-attr="widget-tile-filters">filters</div>,
         EditModal: ({
             isOpen,
@@ -111,6 +118,7 @@ const tileWithoutDescription = {
 
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {
+        mockInView = true
         jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(true)
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
@@ -127,7 +135,6 @@ describe('DashboardWidgetItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'widget-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).mount()
     })
@@ -137,12 +144,38 @@ describe('DashboardWidgetItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'widget-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).unmount()
     })
 
-    it('does not render tile filters without product access', () => {
+    it('mounts widget content only near the viewport', () => {
+        mockInView = false
+        const widgetItem = (placement = DashboardPlacement.Dashboard): JSX.Element => (
+            <DashboardWidgetItem
+                tile={tile}
+                placement={placement}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+            />
+        )
+        const { rerender } = render(widgetItem())
+
+        expect(screen.queryByText('Widget body')).not.toBeInTheDocument()
+
+        mockInView = true
+        rerender(widgetItem())
+
+        expect(screen.getByText('Widget body')).toBeInTheDocument()
+
+        mockInView = false
+        rerender(widgetItem(DashboardPlacement.Export))
+
+        expect(screen.getByText('Widget body')).toBeInTheDocument()
+    })
+
+    it('does not render tile filters or widget actions without product access', async () => {
         jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(false)
 
         const { container } = render(
@@ -159,6 +192,8 @@ describe('DashboardWidgetItem', () => {
         )
 
         expect(container.querySelector('[data-attr="widget-tile-filters"]')).toBeNull()
+        await userEvent.click(screen.getByLabelText('more'))
+        expect(screen.queryByText('Widget action')).not.toBeInTheDocument()
     })
 
     it('renders insight-style more menu with view, dashboard section, and refresh data', async () => {
@@ -184,6 +219,7 @@ describe('DashboardWidgetItem', () => {
 
         await userEvent.click(screen.getByLabelText('more'))
 
+        expect(screen.getByText('Widget action')).toBeVisible()
         expect(screen.getByText('View').closest('a')).toHaveAttribute('href', '/project/997/error_tracking')
         expect(
             screen

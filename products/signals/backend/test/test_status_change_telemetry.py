@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 
@@ -30,7 +31,7 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
     @parameterized.expand(
         [
             ("dismiss", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}),
-            ("resolve_on_pr_merge", SignalReport.Status.READY, SignalReport.Status.RESOLVED, {}),
+            ("resolve_without_feedback", SignalReport.Status.READY, SignalReport.Status.RESOLVED, {}),
             ("snooze", SignalReport.Status.READY, SignalReport.Status.POTENTIAL, {"snooze_for": 5}),
         ]
     )
@@ -51,6 +52,42 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         assert kwargs["properties"]["status"] == new_status
         assert kwargs["properties"]["signal_count"] == 3
         assert kwargs["properties"]["total_weight"] == 2.5
+        assert kwargs["properties"].get("resolution_reason") is None
+        assert kwargs["properties"].get("dismissal_cause") is None
+
+    @parameterized.expand(
+        [
+            ("pipeline_without_actor", None, "system", False, None, None),
+            ("user", "user", "user", True, None, None),
+            ("external_agent", "agent", "agent", True, "codex", None),
+            ("internal_task", "task", "task", False, None, "11111111-1111-1111-1111-111111111111"),
+        ]
+    )
+    def test_label_carries_transition_actor(
+        self, _name, actor_kind, expected_kind, expects_user, expected_agent, expected_task_id
+    ):
+        actors = {
+            None: None,
+            "user": ArtefactAttribution.from_user(self.user.id),
+            "agent": ArtefactAttribution.from_agent(self.user.id, "codex"),
+            "task": ArtefactAttribution.from_task("11111111-1111-1111-1111-111111111111"),
+        }
+        report = self._create_report()
+        if actors[actor_kind] is not None:
+            report._transition_actor = actors[actor_kind]  # type: ignore[attr-defined]
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                report.save(update_fields=report.transition_to(SignalReport.Status.SUPPRESSED))
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs["distinct_id"] == str(self.team.uuid)
+        actor_properties = {key: value for key, value in kwargs["properties"].items() if key.startswith("actor_")}
+        assert actor_properties == {
+            "actor_kind": expected_kind,
+            "actor_user_uuid": str(self.user.uuid) if expects_user else None,
+            "actor_distinct_id": self.user.distinct_id if expects_user else None,
+            "actor_agent": expected_agent,
+            "actor_task_id": expected_task_id,
+        }
 
     @parameterized.expand(
         [

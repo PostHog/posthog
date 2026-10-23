@@ -241,6 +241,8 @@ See [Client Types](#client-types) section for detailed explanation.
 
 OAuth supports all the same scopes as Personal API Keys. Each scope has a `read` and/or `write` action (e.g., `experiment:read`, `experiment:write`).
 
+Project and environment detail responses return `live_events_token` only when the authenticated caller can read queries. For scoped credentials, this requires `query:read`, `query:write`, or `*`. A key with only `project:read` receives `null` for this field. List responses do not include `live_events_token`.
+
 For a complete list of available scopes, see [frontend/src/lib/scopes.tsx](https://github.com/PostHog/posthog/blob/master/frontend/src/lib/scopes.tsx#L15).
 
 ### OpenID Connect Scopes
@@ -322,6 +324,12 @@ tokens = token_response.json()
 print(tokens)
 ```
 
+## First-party client metadata documents
+
+PostHog's own public clients (hogli, the Visual Review Chrome extension, and internal tools) authenticate with client ID metadata documents (CIMD) rather than a registered application or dynamic client registration. Their documents live in the [posthog.com repo](https://github.com/PostHog/posthog.com) at `static/.well-known/oauth/<app>/client-metadata.json`, served at `https://posthog.com/.well-known/oauth/<app>/client-metadata.json`. That URL is the `client_id`, so one ID works on US, EU, and self-hosted.
+
+To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
+
 ## Self-registered client logos
 
 Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client that sends none gets the first letter of its name instead.
@@ -344,9 +352,11 @@ The redirect also sets the `ph_pending_oauth_connection` cookie so those screens
 - Cleared when the person grants or denies the authorization.
 - A CIMD client seen for the first time has no application row yet, so the cookie carries the host of its `client_id` URL as the name.
 
+An account created while the cookie is present skips in-app onboarding. Signup sets `onboarding_skipped_reason` to `connector`, pinned to the signup organization, so another organization the person joins later still shows onboarding. A delegated invitee keeps onboarding, because running it is the reason for the invite. Until the project ingests its first event, opening the project homepage sends that person to `/welcome`. Other pages open as linked, so a deep link from the connecting application still works.
+
 While the cookie is present, the signup form pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
 
-Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it.
+Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
 
 ## Endpoints
 

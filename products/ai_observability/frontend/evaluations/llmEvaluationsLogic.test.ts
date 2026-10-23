@@ -1,6 +1,8 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,6 +32,7 @@ const mockProviderKeys: LLMProviderKey[] = [
         last_used_at: null,
         azure_endpoint_display: null,
         api_version_display: null,
+        base_url_display: null,
     },
     {
         id: 'key-invalid',
@@ -43,6 +46,7 @@ const mockProviderKeys: LLMProviderKey[] = [
         last_used_at: null,
         azure_endpoint_display: null,
         api_version_display: null,
+        base_url_display: null,
     },
     {
         id: 'key-error',
@@ -56,6 +60,7 @@ const mockProviderKeys: LLMProviderKey[] = [
         last_used_at: null,
         azure_endpoint_display: null,
         api_version_display: null,
+        base_url_display: null,
     },
 ]
 
@@ -137,6 +142,7 @@ describe('llmEvaluationsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -370,6 +376,22 @@ describe('llmEvaluationsLogic', () => {
             logic.actions.restoreEvaluationSuccess(olderEvaluation)
 
             expect(logic.values.evaluations).toEqual([newerEvaluation, olderEvaluation])
+        })
+    })
+
+    describe('default date range', () => {
+        it.each([
+            { flagOn: true, dateFrom: undefined, expected: '-7d' },
+            { flagOn: false, dateFrom: undefined, expected: '-24h' },
+            { flagOn: true, dateFrom: '-30d', expected: '-30d' },
+        ])('flag on $flagOn with date_from $dateFrom starts at $expected', async ({ flagOn, dateFrom, expected }) => {
+            const flag = FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW
+            featureFlagLogic.actions.setFeatureFlags(flagOn ? [flag] : [], { [flag]: flagOn })
+
+            router.actions.push(combineUrl(urls.aiObservabilityEvaluations(), { date_from: dateFrom }).url)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dateFilter.dateFrom).toEqual(expected)
         })
     })
 

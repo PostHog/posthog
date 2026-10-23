@@ -4,6 +4,7 @@ import {
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
     formatPropertyLabel,
+    inlineEquivalentPropertyGroups,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
@@ -22,6 +23,7 @@ import {
     BehavioralEventType,
     BehavioralPropertyFilter,
     CohortPropertyFilter,
+    CohortType,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     FilterLogicalOperator,
@@ -152,6 +154,31 @@ describe('formatPropertyLabel() for behavioral filters', () => {
         ],
     ])('%s', (_name, overrides, expected, actionsById) => {
         expect(formatPropertyLabel({ ...base, ...overrides }, {}, undefined, actionsById)).toEqual(expected)
+    })
+})
+
+describe('formatPropertyLabel() for cohort filters', () => {
+    const cohortsById = { 42: { id: 42, name: 'Known cohort' } as CohortType }
+
+    it.each<[string, Partial<CohortPropertyFilter>, string]>([
+        ['live cohort named by the flag API', { cohort_name: 'Beta testers' }, 'User in Beta testers'],
+        ['live cohort named by the cohorts model', {}, 'User in Known cohort'],
+        [
+            'deleted cohort with a name',
+            { cohort_name: 'Beta testers', cohort_deleted: true },
+            'User in Beta testers (deleted)',
+        ],
+        ['deleted cohort without a name', { value: 7, cohort_deleted: true }, 'User in Deleted cohort (ID 7)'],
+        ['missing cohort', { value: 7, cohort_deleted: true, cohort_missing: true }, 'User in Missing cohort (ID 7)'],
+    ])('formats a %s', (_, overrides, expected) => {
+        const filter: CohortPropertyFilter = {
+            key: 'id',
+            type: PropertyFilterType.Cohort,
+            operator: PropertyOperator.In,
+            value: 42,
+            ...overrides,
+        }
+        expect(formatPropertyLabel(filter, cohortsById)).toEqual(expected)
     })
 })
 
@@ -626,5 +653,54 @@ describe('resolvePropertyDefinitionId()', () => {
                 () => null
             )
         ).toBeUndefined()
+    })
+})
+
+describe('inlineEquivalentPropertyGroups()', () => {
+    const browser = { key: '$browser', type: PropertyFilterType.Event } as AnyPropertyFilter
+    const os = { key: '$os', type: PropertyFilterType.Event } as AnyPropertyFilter
+    const cohort = { key: 'id', value: 3, type: PropertyFilterType.Cohort } as AnyPropertyFilter
+
+    it.each([
+        {
+            name: 'leaves a flat list alone',
+            values: [browser, cohort],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, cohort],
+        },
+        {
+            name: 'inlines a nested group that joins its values the same way',
+            values: [browser, { type: FilterLogicalOperator.And, values: [cohort, os] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, cohort, os],
+        },
+        {
+            name: 'inlines a single-value nested group whatever its operator',
+            values: [{ type: FilterLogicalOperator.Or, values: [cohort] }],
+            operator: FilterLogicalOperator.And,
+            expected: [cohort],
+        },
+        {
+            name: 'drops an empty nested group',
+            values: [browser, { type: FilterLogicalOperator.Or, values: [] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser],
+        },
+        {
+            name: 'keeps a nested group that joins its values differently',
+            values: [browser, { type: FilterLogicalOperator.Or, values: [cohort, os] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, { type: FilterLogicalOperator.Or, values: [cohort, os] }],
+        },
+        {
+            name: 'inlines through several levels of the same operator',
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: [cohort] }] },
+            ],
+            operator: FilterLogicalOperator.And,
+            expected: [cohort],
+        },
+    ])('$name', ({ values, operator, expected }) => {
+        expect(inlineEquivalentPropertyGroups(values, operator)).toEqual(expected)
     })
 })

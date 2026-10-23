@@ -5,20 +5,15 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { LLMProviderEnumApi, LLMProviderKeyApi } from '../generated/api.schemas'
+
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider =
-    | 'openai'
-    | 'anthropic'
-    | 'gemini'
-    | 'openrouter'
-    | 'fireworks'
-    | 'azure_openai'
-    | 'together_ai'
-    | 'minimax'
-    | 'zeabur'
+export type LLMProvider = LLMProviderEnumApi
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
+export const DEFAULT_SYSTEM_ONE_BASE_URL: string = ''
+export const DEFAULT_SYSTEM_ONE_MODEL: string = ''
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
@@ -29,7 +24,8 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     azure_openai: 'Azure OpenAI',
     together_ai: 'Together AI',
     minimax: 'MiniMax',
-    zeabur: 'Zeabur AI Hub',
+    system_one: 'System One',
+    openai_compatible: 'OpenAI-compatible',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -41,11 +37,23 @@ export function isLLMProvider(value: string): value is LLMProvider {
 /** Normalize a raw provider string to an LLMProvider, or null if unrecognized. */
 export function toLLMProvider(raw: string): LLMProvider | null {
     const normalized = raw.toLowerCase()
+    if (normalized === 'system one') {
+        return 'system_one'
+    }
     if (isLLMProvider(normalized)) {
         return normalized
     }
     console.error(`[AI observability] Unknown LLM provider: "${raw}"`)
     return null
+}
+
+export function normalizeSystemOneBaseUrlForComparison(input: string): string {
+    try {
+        const url = new URL(input.trim())
+        return `${url.origin}${url.pathname.replace(/\/+$/, '')}${url.search}${url.hash}`
+    } catch {
+        return input.trim().replace(/\/+$/, '')
+    }
 }
 
 const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]
@@ -63,6 +71,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
 
     const normalized = provider.trim().toLowerCase()
+    if (normalized === 'system one') {
+        return 'system_one'
+    }
     if (normalized === 'google' || normalized === 'google-ai-studio') {
         return 'gemini'
     }
@@ -75,14 +86,16 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     if (normalized === 'mini max' || normalized === 'mini-max') {
         return 'minimax'
     }
-    if (normalized === 'zeabur ai hub' || normalized === 'zeabur-ai-hub') {
-        return 'zeabur'
+    if (normalized === 'openai-compatible' || normalized === 'openai compatible') {
+        return 'openai_compatible'
     }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
 
-export interface LLMProviderKey {
+export interface LLMProviderKey extends Partial<
+    Pick<LLMProviderKeyApi, 'base_url_display' | 'system_one_model_display'>
+> {
     id: string
     provider: LLMProvider
     name: string
@@ -91,6 +104,7 @@ export interface LLMProviderKey {
     api_key_masked: string
     azure_endpoint_display: string | null
     api_version_display: string | null
+    base_url_display: string | null
     created_at: string
     created_by: {
         id: number
@@ -144,20 +158,22 @@ export interface EvaluationConfig {
     updated_at: string
 }
 
-export interface CreateLLMProviderKeyPayload {
+export interface CreateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
     provider: LLMProvider
     name: string
     api_key: string
     set_as_active?: boolean
     azure_endpoint?: string
     api_version?: string
+    base_url?: string
 }
 
-export interface UpdateLLMProviderKeyPayload {
+export interface UpdateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
     name?: string
     api_key?: string
     azure_endpoint?: string
     api_version?: string
+    base_url?: string
 }
 
 export interface KeyValidationResult {
@@ -166,6 +182,44 @@ export interface KeyValidationResult {
     // Form field the error should be attributed to in the UI (e.g. 'azure_endpoint', 'api_key').
     // Only set for providers that validate multiple inputs — most providers leave it null.
     error_field?: string | null
+}
+
+/** Serializer fields that the edit modal renders an input for. */
+export type EditKeyField = 'name' | 'api_key' | 'azure_endpoint' | 'api_version' | 'base_url'
+
+export interface ProviderKeyFieldError {
+    field: EditKeyField
+    message: string
+}
+
+// An Anthropic key keeps the API it was created for, so only Foundry keys show the endpoint.
+export function isFoundryKey(key: LLMProviderKey): boolean {
+    return key.provider === 'anthropic' && !!key.azure_endpoint_display
+}
+
+function editKeyFieldsFor(key: LLMProviderKey): EditKeyField[] {
+    if (key.provider === 'azure_openai') {
+        return ['name', 'api_key', 'azure_endpoint', 'api_version']
+    }
+    if (isFoundryKey(key)) {
+        return ['name', 'api_key', 'azure_endpoint']
+    }
+    if (key.provider === 'openai_compatible') {
+        return ['name', 'api_key', 'base_url']
+    }
+    return ['name', 'api_key']
+}
+
+/**
+ * Attributes a validation 400 from saving an edited key to the edit modal input that shows it.
+ * Returns null when the modal has no input for the rejected field, so the caller toasts instead.
+ */
+export function getEditKeyFieldError(key: LLMProviderKey, errorObject: unknown): ProviderKeyFieldError | null {
+    if (!(errorObject instanceof ApiError) || errorObject.status !== 400 || !errorObject.detail) {
+        return null
+    }
+    const field = editKeyFieldsFor(key).find((candidate) => candidate === errorObject.attr)
+    return field ? { field, message: errorObject.detail } : null
 }
 
 export interface DependentEvaluation {
@@ -190,6 +244,7 @@ export interface llmProviderKeysLogicValues {
     activeProviderKey: LLMProviderKey | null | undefined
     dependentConfigs: DependentConfigsResponse | null
     dependentConfigsLoading: boolean
+    editKeyFieldError: ProviderKeyFieldError | null
     editingKey: LLMProviderKey | null
     evaluationConfig: EvaluationConfig | null
     evaluationConfigLoading: boolean
@@ -200,6 +255,8 @@ export interface llmProviderKeysLogicValues {
     providerKeys: LLMProviderKey[]
     providerKeysLoading: boolean
     requiresProviderKey: boolean
+    systemOneBaseUrl: string
+    systemOneModel: string
     validatingKeyId: string | null
 }
 
@@ -312,16 +369,19 @@ export interface llmProviderKeysLogicActions {
         provider,
         azure_endpoint,
         api_version,
+        base_url,
     }: {
         api_version?: string
         apiKey: string
         azure_endpoint?: string
+        base_url?: string
         provider: LLMProvider
     }) => {
         apiKey: string
         provider: LLMProvider
         azure_endpoint?: string
         api_version?: string
+        base_url?: string
     }
     preValidateKeyFailure: (
         error: string,
@@ -337,6 +397,7 @@ export interface llmProviderKeysLogicActions {
             provider: LLMProvider
             azure_endpoint?: string
             api_version?: string
+            base_url?: string
         }
     ) => {
         preValidationResult: KeyValidationResult
@@ -345,7 +406,11 @@ export interface llmProviderKeysLogicActions {
             provider: LLMProvider
             azure_endpoint?: string
             api_version?: string
+            base_url?: string
         }
+    }
+    setEditKeyFieldError: (fieldError: ProviderKeyFieldError | null) => {
+        fieldError: ProviderKeyFieldError | null
     }
     setEditingKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
@@ -355,6 +420,12 @@ export interface llmProviderKeysLogicActions {
     }
     setNewKeyModalOpen: (open: boolean) => {
         open: boolean
+    }
+    setSystemOneBaseUrl: (baseUrl: string) => {
+        baseUrl: string
+    }
+    setSystemOneModel: (model: string) => {
+        model: string
     }
     updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
         id: string
@@ -422,14 +493,33 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     path(['products', 'ai_observability', 'settings', 'llmProviderKeysLogic']),
 
     actions({
+        setSystemOneBaseUrl: (baseUrl: string) => ({ baseUrl }),
+        setSystemOneModel: (model: string) => ({ model }),
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setEditKeyFieldError: (fieldError: ProviderKeyFieldError | null) => ({ fieldError }),
         setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
         confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
     }),
 
     reducers({
+        systemOneBaseUrl: [
+            DEFAULT_SYSTEM_ONE_BASE_URL,
+            {
+                setSystemOneBaseUrl: (_, { baseUrl }) => baseUrl,
+                setNewKeyModalOpen: () => DEFAULT_SYSTEM_ONE_BASE_URL,
+                setEditingKey: (_, { key }) => key?.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL,
+            },
+        ],
+        systemOneModel: [
+            DEFAULT_SYSTEM_ONE_MODEL,
+            {
+                setSystemOneModel: (_, { model }) => model,
+                setNewKeyModalOpen: () => DEFAULT_SYSTEM_ONE_MODEL,
+                setEditingKey: (_, { key }) => key?.system_one_model_display ?? DEFAULT_SYSTEM_ONE_MODEL,
+            },
+        ],
         newKeyModalOpen: [
             false,
             {
@@ -440,6 +530,14 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             null as LLMProviderKey | null,
             {
                 setEditingKey: (_, { key }) => key,
+            },
+        ],
+        editKeyFieldError: [
+            null as ProviderKeyFieldError | null,
+            {
+                setEditKeyFieldError: (_, { fieldError }) => fieldError,
+                updateProviderKey: () => null,
+                setEditingKey: () => null,
             },
         ],
         validatingKeyId: [
@@ -481,7 +579,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeysDependentConfigsRetrieve() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.get(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
                     )
@@ -496,11 +594,13 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     provider,
                     azure_endpoint,
                     api_version,
+                    base_url,
                 }: {
                     apiKey: string
                     provider: LLMProvider
                     azure_endpoint?: string
                     api_version?: string
+                    base_url?: string
                 }): Promise<KeyValidationResult> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
@@ -514,7 +614,10 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         if (api_version) {
                             body.api_version = api_version
                         }
-                        // nosemgrep: prefer-codegen-api
+                        if (base_url) {
+                            body.base_url = base_url
+                        }
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeyValidationsCreate() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.create(
                             `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
                             body
@@ -543,7 +646,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsEvaluationConfigRetrieve() from 'products/ai_observability/frontend/generated/api' instead.
                     return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
                 },
             },
@@ -556,7 +659,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsProviderKeysList() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
                     return response.results
                 },
@@ -569,7 +672,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsProviderKeysCreate() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/`,
                         payload
@@ -589,7 +692,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsProviderKeysPartialUpdate() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.update(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`,
                         payload
@@ -611,7 +714,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     const url = replacementKeyId
                         ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
                         : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     await api.delete(url)
                     // If deleted key was active, reload config to reflect change
                     if (values.evaluationConfig?.active_provider_key?.id === id) {
@@ -624,7 +727,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeysValidateCreate() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/validate/`,
                         {}
@@ -665,7 +768,12 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         createProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to create API key: ${error || 'Unknown error'}`)
         },
-        updateProviderKeyFailure: ({ error }) => {
+        updateProviderKeyFailure: ({ error, errorObject }) => {
+            const fieldError = values.editingKey ? getEditKeyFieldError(values.editingKey, errorObject) : null
+            if (fieldError) {
+                actions.setEditKeyFieldError(fieldError)
+                return
+            }
             lemonToast.error(`Failed to update API key: ${error || 'Unknown error'}`)
         },
         deleteProviderKeyFailure: ({ error }) => {

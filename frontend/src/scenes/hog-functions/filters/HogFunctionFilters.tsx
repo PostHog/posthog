@@ -382,14 +382,21 @@ export function HogFunctionFilters({
                                                   : 'Add event matcher'
                                         }
                                         excludedProperties={excludedProperties}
+                                        // Every function type here receives $feature_flag_called at every flag
+                                        // evaluations mode. Transformations run during ingestion, before the step
+                                        // that drops the call from `events`. Site destinations run in the browser.
+                                        // Destinations also consume `realtime_only_events_json`, which carries the
+                                        // call when ingestion does not write it to `events`.
+                                        includeHiddenEvents
                                         allowNonCapturedEvents
                                     />
                                     {selectedFullRefreshView ? (
                                         <LemonBanner type="warning" className="w-full">
                                             <p className="mb-0">
-                                                This view rebuilds its whole table on every run, so every row runs this
-                                                destination again each time. Set the view to update incrementally to run
-                                                only on the rows that changed.{' '}
+                                                This view rebuilds its whole table on every run. A row runs this
+                                                destination again only if its values changed since the last run. In a
+                                                view with more than 200,000 rows, the rows past that limit run it again
+                                                each time. Set the view to update incrementally to avoid this.{' '}
                                                 <Link
                                                     to={urls.sqlEditor({ view_id: selectedFullRefreshView.id })}
                                                     target="_blank"

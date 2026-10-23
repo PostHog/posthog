@@ -7,18 +7,15 @@ import { useAnimatedNumber } from '@posthog/quill-charts'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
+import { type RecalculationPayload, experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { experimentResultsNotificationLogic } from '~/scenes/experiments/experimentResultsNotificationLogic'
 import { useRetryCountdownLabel } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import { Experiment } from '~/types'
 
-import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
-
 /**
  * Status line for an in-flight recalculation. Renders only while a run is actually executing
  * (`cold` / `refreshing`); loading-from-latest and terminal states show nothing — the metric rows
- * carry their own loading and error affordances. Only rendered behind
- * EXPERIMENTS_METRICS_RECALCULATION (see ExperimentView).
+ * carry their own loading and error affordances. ExperimentView renders it once the experiment has metrics.
  */
 export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
     const { recalculationDisplayState, currentRecalculation, liveRowsProgress, metricRetries, nextRetryAt } = useValues(
@@ -55,7 +52,7 @@ function InFlightStatus({
     notifyWhenResultsReady,
     onSubscribe,
 }: {
-    recalculation: ExperimentMetricsRecalculationApi | null
+    recalculation: RecalculationPayload | null
     liveRowsProgress: { recalculationId: string; rowsRead: number; estimatedRows: number } | null
     retryingCount: number
     nextRetryAt: string | null

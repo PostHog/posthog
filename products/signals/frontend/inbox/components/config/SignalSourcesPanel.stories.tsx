@@ -3,19 +3,21 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { useActions } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
+
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 
 import { ERROR_TRACKING_SIGNAL_SOURCE_TYPES } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
 import { SignalSourcesPanel } from './SignalSourcesPanel'
 
 // Every axis the signal sources dialog renders from: which sources are armed
-// (SignalSourceConfig rows), which PostHog tools are on (team opt-ins), and which usage
+// (SignalSourceConfig rows), which PostHog products are on (team opt-ins), and which usage
 // events exist (event definitions). Each control drives one of the three mocks.
 interface PanelState {
     // Armed sources
@@ -27,7 +29,7 @@ interface PanelState {
     aiObservabilityArmed: boolean
     productAnalyticsArmed: boolean
     healthChecksArmed: boolean
-    // Tool enablement (team opt-ins)
+    // Product enablement (team opt-ins)
     exceptionAutocaptureOn: boolean
     sessionRecordingOn: boolean
     conversationsOn: boolean
@@ -37,6 +39,7 @@ interface PanelState {
     hasAnalyticsEvents: boolean
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
+    externalConnections: boolean
 }
 
 function sourceConfig(
@@ -58,6 +61,19 @@ function sourceConfig(
 
 function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
     return [
+        ...(state.externalConnections
+            ? [
+                  sourceConfig(SignalSourceProduct.Github, SignalSourceType.Issue, true),
+                  {
+                      ...sourceConfig(SignalSourceProduct.Jira, SignalSourceType.Issue, false),
+                      config: { steering: 'Prioritize issues affecting sign-in and checkout.' },
+                  },
+                  {
+                      ...sourceConfig(SignalSourceProduct.Sentry, SignalSourceType.Issue, true),
+                      status: 'failed' as SignalSourceConfig['status'],
+                  },
+              ]
+            : []),
         ...ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
             sourceConfig(SignalSourceProduct.ErrorTracking, sourceType, state.errorTrackingArmed)
         ),
@@ -171,6 +187,38 @@ function eventDefinitionsFor(state: PanelState): { name: string; last_seen_at: s
 function PanelHarness(state: PanelState): JSX.Element {
     useStorybookMocks({
         get: {
+            '/api/environments/:team_id/external_data_sources/wizard/': () => [
+                200,
+                {
+                    GitLab: {
+                        name: 'GitLab',
+                        label: 'GitLab',
+                        iconPath: '/static/services/gitlab.svg',
+                        caption: null,
+                        supportsColumnSelection: false,
+                        versions: [],
+                        defaultVersion: '',
+                        deprecatedVersions: [],
+                        fields: [
+                            {
+                                name: 'gitlab_host',
+                                label: 'GitLab instance URL',
+                                type: 'text',
+                                required: true,
+                                secret: false,
+                            },
+                            {
+                                name: 'personal_access_token',
+                                label: 'Personal access token',
+                                type: 'password',
+                                required: true,
+                                secret: true,
+                            },
+                            { name: 'project', label: 'Project', type: 'text', required: true, secret: false },
+                        ],
+                    },
+                },
+            ],
             '/api/environments/:team_id/': () => [
                 200,
                 {
@@ -202,7 +250,26 @@ function PanelHarness(state: PanelState): JSX.Element {
                       ],
             '/api/environments/:team_id/external_data_sources/': () => [
                 200,
-                { count: 0, next: null, previous: null, results: [] },
+                {
+                    count: state.externalConnections ? 3 : 0,
+                    next: null,
+                    previous: null,
+                    results: state.externalConnections
+                        ? ['Github', 'Jira', 'Sentry'].map((source_type, index) => ({
+                              id: `source-${index}`,
+                              source_type,
+                              status: 'Completed',
+                              schemas: [
+                                  {
+                                      id: `schema-${index}`,
+                                      name: 'issues',
+                                      should_sync: true,
+                                      sync_type: 'full_refresh',
+                                  },
+                              ],
+                          }))
+                        : [],
+                },
             ],
         },
     })
@@ -211,9 +278,11 @@ function PanelHarness(state: PanelState): JSX.Element {
     // both remount the panel (the `key`) and refetch the team against the updated mock.
     const stateKey = JSON.stringify(state)
     const { loadCurrentTeam } = teamLogic.actions
+    const { load: loadAvailableSources } = useActions(availableSourcesLogic)
     useEffect(() => {
         loadCurrentTeam()
-    }, [stateKey, loadCurrentTeam])
+        loadAvailableSources()
+    }, [stateKey, loadCurrentTeam, loadAvailableSources])
 
     return (
         <div className="w-[760px] p-6 bg-surface-primary border rounded">
@@ -246,17 +315,18 @@ const meta: Meta<typeof PanelHarness> = {
         hasAnalyticsEvents: true,
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
+        externalConnections: false,
     },
 }
 export default meta
 
 type Story = StoryObj<typeof PanelHarness>
 
-/** Flip any control: armed sources, tool opt-ins, and which usage events exist. */
+/** Flip any control: armed sources, product opt-ins, and which usage events exist. */
 export const Playground: Story = {}
 
-/** Sources armed while every tool is off: each PostHog card warns and offers "Turn it on". */
-export const ArmedButToolsOff: Story = {
+/** Sources armed while every product is off: each PostHog card warns and offers "Turn it on". */
+export const ArmedButProductsOff: Story = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
@@ -271,7 +341,7 @@ export const ArmedButToolsOff: Story = {
     },
 }
 
-/** Nothing armed and every tool off: switches are disabled with the turn-on-the-tool reason. */
+/** Nothing armed and every product off: switches are disabled with the turn-on-the-product reason. */
 export const ArmingBlocked: Story = {
     args: {
         errorTrackingArmed: false,
@@ -290,7 +360,7 @@ export const ArmingBlocked: Story = {
     },
 }
 
-/** Every tool on and every source armed, with data flowing everywhere it can be measured. */
+/** Every product on and every source armed, with data flowing everywhere it can be measured. */
 export const EverythingHealthy: Story = {
     args: {
         errorTrackingArmed: true,
@@ -309,8 +379,8 @@ export const EverythingHealthy: Story = {
     },
 }
 
-/** Tools on but no recent events show the setup link. */
-export const ToolsOnNoRecentData: Story = {
+/** Products on but no recent events show the setup link. */
+export const ProductsOnNoRecentData: Story = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
@@ -327,7 +397,7 @@ export const ToolsOnNoRecentData: Story = {
     },
 }
 
-/** A failed event-definition check shows the retry action without marking tools as off. */
+/** A failed event-definition check shows the retry action without marking products as off. */
 export const EventDefinitionsUnavailable: Story = {
     args: {
         errorTrackingArmed: true,
@@ -356,16 +426,38 @@ export const SourceConfigsUnavailable: Story = {
 
 /** Replay vision opened: user-created scanners as sub-rows, capped at eight, with a filter. */
 export const ReplayVisionExpanded: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Replay vision', { exact: true }))
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Replay vision')
+        await userEvent.click(expandButton)
     },
 }
 
 /** Error tracking opened: a fixed list of signal types, so no filter, no cap, and no New button. */
 export const ErrorTrackingExpanded: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Error tracking', { exact: true }))
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Error tracking')
+        await userEvent.click(expandButton)
+    },
+}
+
+/** Connected tools in the roster, with Jira (synced but off) and two category gaps recommended under it. */
+export const ExternalSourcesConnected: Story = {
+    args: { externalConnections: true },
+}
+
+/** The add-source catalog: every external source by category, with status tags for the ones already in use. */
+export const SourceCatalogOpen: Story = {
+    args: { externalConnections: true },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Add source', { exact: true }))
+    },
+}
+
+/** The connect step inside the catalog, reached by picking a source that is not synced yet. */
+export const SourceCatalogConnectStep: Story = {
+    args: { externalConnections: true },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Add source', { exact: true }))
+        await userEvent.click(await within(document.body).findByLabelText('Connect GitLab'))
     },
 }

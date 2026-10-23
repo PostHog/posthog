@@ -13,11 +13,11 @@ use common_types::TeamId;
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::flags::feature_flag_list::{UndecodableDocument, UndecodableFlags};
+use crate::flags::flag_filters::FlagRequirements;
 use crate::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
     HypercacheFlagsWrapper,
 };
-use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 
 /// Maximum BFS depth when resolving transitive cohort-on-cohort dependencies.
@@ -51,9 +51,7 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let (mut flags, undecodable) =
-        FeatureFlagList::from_pg_keeping_undecodable(pg_reader.clone(), team_id).await?;
-    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    let mut flags = load_supported_flags(pg_reader.clone(), team_id).await?;
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -77,27 +75,72 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
+/// The team's rows minus those this cache cannot carry.
+async fn load_supported_flags(
+    pg_reader: PostgresReader,
+    team_id: TeamId,
+) -> Result<Vec<FeatureFlag>, FlagError> {
+    let (mut flags, undecodable) =
+        FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
+    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    Ok(flags)
+}
+
+/// The flags the service evaluates when the hypercache has no entry for the team. It omits
+/// the same rows as the cache. Its metadata sets `has_unparseable_flags` when it omitted a row
+/// that Python's builder publishes, so the response sets `errorsWhileComputingFlags` and an
+/// SDK keeps that flag's stored value.
+pub(crate) async fn build_fallback_wrapper(
+    pg_reader: PostgresReader,
+    team_id: TeamId,
+) -> Result<HypercacheFlagsWrapper, FlagError> {
+    let (mut flags, undecodable) =
+        FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
+    let has_unparseable_flags = omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    let evaluation_metadata = EvaluationMetadata {
+        has_unparseable_flags,
+        ..compute_flag_dependencies_or_single_stage(team_id, &flags)
+    };
+    Ok(HypercacheFlagsWrapper {
+        flags,
+        cohorts: None,
+        evaluation_metadata,
+    })
+}
+
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
-/// non-v1 and non-object documents whatever their lifecycle, and evaluable v1 objects the
-/// typed decoder rejected. Mirrors Python's `_omit_unsupported_flags()` in
-/// `products/feature_flags/backend/flags_cache.py`, where the rationale lives.
+/// non-v1 documents unless active and their v2 parse succeeded, non-object documents
+/// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
+/// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
+///
+/// Returns true when it omitted an evaluable `UnreadableV1Object` row. Python's builder
+/// publishes such a row unless the row depends on a row that Python also rejects. When it
+/// returns false, Python's builder omits the same rows as this function.
 fn omit_unsupported_flags(
     team_id: TeamId,
     flags: &mut Vec<FeatureFlag>,
     undecodable: &UndecodableFlags,
-) {
+) -> bool {
     let unsupported: HashSet<FeatureFlagId> = flags
         .iter()
         .filter(|flag| {
-            !flag.filters.is_v1()
-                || match undecodable.get(&flag.id) {
-                    Some(UndecodableDocument::NotAnObject) => true,
-                    Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
-                    None => false,
-                }
+            if !flag.filters.is_v1() {
+                return !(is_evaluable(flag) && flag.filters.supported_v2().is_some());
+            }
+            match undecodable.get(&flag.id) {
+                Some(UndecodableDocument::NotAnObject) => true,
+                Some(
+                    UndecodableDocument::MalformedV1Groups
+                    | UndecodableDocument::UnreadableV1Object,
+                ) => is_evaluable(flag),
+                None => false,
+            }
         })
         .map(|flag| flag.id)
         .collect();
+    if unsupported.is_empty() {
+        return false;
+    }
     let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
     for flag in flags.iter() {
         for dependency_id in extract_direct_flag_dependency_ids(flag) {
@@ -113,19 +156,20 @@ fn omit_unsupported_flags(
             }
         }
     }
-    if !excluded.is_empty() {
-        let mut unsupported_flag_ids: Vec<_> = unsupported.iter().copied().collect();
-        unsupported_flag_ids.sort_unstable();
-        let mut dependent_flag_ids: Vec<_> = excluded.difference(&unsupported).copied().collect();
-        dependent_flag_ids.sort_unstable();
-        tracing::warn!(
-            team_id,
-            ?unsupported_flag_ids,
-            ?dependent_flag_ids,
-            "Omitted flags the service cache cannot carry"
-        );
-    }
+    let mut unsupported_flag_ids: Vec<_> = unsupported.iter().copied().collect();
+    unsupported_flag_ids.sort_unstable();
+    let mut dependent_flag_ids: Vec<_> = excluded.difference(&unsupported).copied().collect();
+    dependent_flag_ids.sort_unstable();
+    tracing::warn!(
+        team_id,
+        ?unsupported_flag_ids,
+        ?dependent_flag_ids,
+        "Omitted flags the service cache cannot carry"
+    );
     flags.retain(|flag| !excluded.contains(&flag.id));
+    unsupported
+        .iter()
+        .any(|id| undecodable.get(id) == Some(&UndecodableDocument::UnreadableV1Object))
 }
 
 /// Keep the flags worth caching: evaluable ones, plus unevaluable ones that another
@@ -137,8 +181,7 @@ fn omit_unsupported_flags(
 fn retain_evaluable_and_referenced_flags(flags: &mut Vec<FeatureFlag>) {
     let referenced_ids: HashSet<FeatureFlagId> = flags
         .iter()
-        .flat_map(active_flag_properties)
-        .filter_map(|p| p.get_feature_flag_id())
+        .flat_map(|flag| active_flag_requirements(flag).flag_ids)
         .collect();
     flags.retain(|flag| is_evaluable(flag) || referenced_ids.contains(&flag.id));
 }
@@ -154,24 +197,19 @@ fn blank_inactive_filters(flags: &mut [FeatureFlag]) {
     }
 }
 
-/// Yields all property filters from an active, non-deleted flag's filter groups.
-fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
-    let groups = if is_evaluable(flag) {
-        flag.filters.groups.as_slice()
+fn active_flag_requirements(flag: &FeatureFlag) -> FlagRequirements {
+    if is_evaluable(flag) {
+        flag.filters.requirements()
     } else {
-        &[]
-    };
-    groups.iter().flat_map(|g| g.properties.iter().flatten())
+        FlagRequirements::default()
+    }
 }
 
 /// Extract direct flag dependency IDs from a single flag's filters.
-///
-/// Scans `filters.groups[*].properties` for `type == "flag"` properties and
-/// parses their `key` as an integer flag ID. Inactive/deleted flags return
-/// empty deps to match Python's `_extract_direct_dependency_ids()`.
 fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlagId> {
-    active_flag_properties(flag)
-        .filter_map(|p| p.get_feature_flag_id())
+    active_flag_requirements(flag)
+        .flag_ids
+        .into_iter()
         .collect()
 }
 
@@ -179,9 +217,27 @@ fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlag
 pub fn extract_cohort_ids_from_flag_filters(flags: &[FeatureFlag]) -> HashSet<CohortId> {
     flags
         .iter()
-        .flat_map(active_flag_properties)
-        .filter_map(|p| p.get_cohort_id())
+        .flat_map(|flag| active_flag_requirements(flag).cohort_ids)
         .collect()
+}
+
+/// Computes evaluation metadata for flags read straight from Postgres. On a graph error, it
+/// places every flag in one stage so that the flags still evaluate.
+///
+/// `compute_flag_dependencies` returns no error for flag input, because `remove_all_cycles`
+/// removes every cycle before the stage computation runs. The fallback guards against a later
+/// change to the graph code. In one stage, a dependent can evaluate before its dependency. It
+/// also does not see a failure raised during that stage. In both cases its `flag_evaluates_to`
+/// condition reads as a non-match. A dependency that failed before evaluation, such as in
+/// persons DB preparation, still fails its dependents with `dependency_failed`.
+pub(crate) fn compute_flag_dependencies_or_single_stage(
+    team_id: TeamId,
+    flags: &[FeatureFlag],
+) -> EvaluationMetadata {
+    compute_flag_dependencies(flags).unwrap_or_else(|e| {
+        tracing::warn!(team_id, "Falling back to single-stage flag metadata: {e}");
+        EvaluationMetadata::single_stage(flags)
+    })
 }
 
 /// Compute flag dependency metadata via the shared `DependencyGraph` framework.
@@ -232,6 +288,7 @@ pub fn compute_flag_dependencies(flags: &[FeatureFlag]) -> Result<EvaluationMeta
         dependency_stages: result.stages,
         flags_with_missing_deps: result.nodes_with_missing_deps,
         transitive_deps,
+        ..Default::default()
     })
 }
 
@@ -315,7 +372,9 @@ async fn load_cohorts_with_deps(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flags::config_v2::Subject;
     use crate::flags::flag_models::{FeatureFlagRow, FlagFilters, FlagPropertyGroup};
+    use crate::flags::test_helpers::v2_filters_referencing;
     use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
     use crate::utils::test_utils::TestContext;
     use test_case::test_case;
@@ -411,6 +470,27 @@ mod tests {
         flag.deleted = deleted;
         let deps = extract_direct_flag_dependency_ids(&flag);
         assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_v2_references_reach_cohort_and_dependency_extraction() {
+        let mut v2 = make_flag(1, "v2_flag", true, vec![]);
+        v2.filters = v2_filters_referencing(&[Subject::Cohort(42), Subject::Flag(2)], None);
+        let mut flags = vec![
+            v2.clone(),
+            make_flag(2, "referenced", false, vec![]),
+            make_flag(3, "unreferenced", false, vec![]),
+        ];
+
+        assert_eq!(extract_direct_flag_dependency_ids(&v2), HashSet::from([2]));
+        assert_eq!(
+            extract_cohort_ids_from_flag_filters(&flags),
+            HashSet::from([42])
+        );
+        retain_evaluable_and_referenced_flags(&mut flags);
+        assert_eq!(flags.iter().map(|f| f.id).collect::<Vec<_>>(), vec![1, 2]);
+        let metadata = compute_flag_dependencies(&flags).unwrap();
+        assert_eq!(metadata.dependency_stages, vec![vec![2], vec![1]]);
     }
 
     // -------------------------------------------------------------------------
@@ -876,6 +956,29 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
+    // omit_unsupported_flags tests
+    // -------------------------------------------------------------------------
+
+    #[test_case(true, true ; "active unreadable row is omitted and reported")]
+    #[test_case(false, false ; "inactive unreadable row is kept and not reported")]
+    fn test_omit_reports_an_omitted_row_python_publishes(active: bool, expect_reported: bool) {
+        let mut flags = vec![
+            make_flag(1, "unreadable", active, vec![]),
+            make_flag(2, "healthy", true, vec![group_with_properties(vec![])]),
+            make_flag(3, "not-an-object", true, vec![]),
+        ];
+        let undecodable = UndecodableFlags::from([
+            (1, UndecodableDocument::UnreadableV1Object),
+            (3, UndecodableDocument::NotAnObject),
+        ]);
+
+        let reported = omit_unsupported_flags(1, &mut flags, &undecodable);
+
+        assert_eq!(reported, expect_reported);
+        assert_eq!(flags.iter().any(|f| f.id == 1), !expect_reported);
+    }
+
+    // -------------------------------------------------------------------------
     // retain_evaluable_and_referenced_flags tests
     // -------------------------------------------------------------------------
 
@@ -1153,6 +1256,10 @@ mod tests {
         let wrapper = build_flags_cache(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to build flags cache");
+        let fallback = build_fallback_wrapper(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to load flags");
+        assert!(!fallback.evaluation_metadata.has_unparseable_flags);
 
         let rows = fixture["flags"].as_array().unwrap();
         let published: HashMap<i32, &FeatureFlag> =
@@ -1169,9 +1276,11 @@ mod tests {
             if flag["expect"] != "kept" {
                 continue;
             }
-            let filters = serde_json::to_value(&published[&ids[key]].filters).unwrap();
+            let filters = serde_json::to_value(published[&ids[key]]).unwrap()["filters"].take();
             if flag["blanked"] == true {
                 assert_eq!(filters, serde_json::json!({"groups": []}), "{key}");
+            } else if flag["filters"]["version"] == 2 {
+                assert_eq!(filters, flag["filters"], "{key}");
             } else {
                 // Group count and payloads rather than the whole document, because a
                 // JSONB round trip renders `rollout_percentage` as a float.

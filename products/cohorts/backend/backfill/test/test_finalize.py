@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 from unittest import mock
+from unittest.mock import MagicMock
 
 from django.core.cache import cache
 from django.db import connection
@@ -16,7 +17,10 @@ from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 
 from products.cohorts.backend.backfill.finalize import _STAMP_BY_KIND, FLAGS_CACHE_TASK, finalize_backfill_runs
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
+from products.cohorts.backend.facade.ready_signals import realtime_cohort_ready
 from products.cohorts.backend.models.backfill import (
+    CohortBackfillChunk,
+    CohortBackfillChunkStatus,
     CohortBackfillKind,
     CohortBackfillRun,
     CohortBackfillRunCohort,
@@ -168,11 +172,19 @@ class TestBackfillFinalizer(BaseTest):
         self, _name: str, outcomes: list[str], expected_status: str, stamped_indices: list[int]
     ) -> None:
         run, cohorts = self._make_run(outcomes)
+        ready_receiver = MagicMock()
+        realtime_cohort_ready.connect(ready_receiver, dispatch_uid="test_outcome_matrix")
+        self.addCleanup(realtime_cohort_ready.disconnect, dispatch_uid="test_outcome_matrix")
 
         finalize_backfill_runs()
 
         run.refresh_from_db()
         self.assertEqual(run.status, expected_status)
+        # Workflow runs parked on a cohort wake on this signal, so it fires for exactly the stamped cohorts.
+        self.assertEqual(
+            sorted(call.kwargs["cohort_id"] for call in ready_receiver.call_args_list),
+            sorted(cohorts[index].pk for index in stamped_indices),
+        )
         for index, cohort in enumerate(cohorts):
             cohort.refresh_from_db()
             participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run, cohort=cohort)
@@ -182,6 +194,33 @@ class TestBackfillFinalizer(BaseTest):
             else:
                 self.assertIsNone(cohort.last_backfill_events_at)
                 self.assertIsNone(participation.stamped_at)
+
+    @parameterized.expand(
+        [
+            ("trailing_day_pending", CohortBackfillChunkStatus.PENDING, CohortBackfillRunStatus.TRAILING),
+            ("trailing_day_confirmed", CohortBackfillChunkStatus.CONFIRMED, CohortBackfillRunStatus.COMPLETED),
+        ]
+    )
+    def test_run_stamps_readiness_and_trails_while_a_trailing_day_is_unconfirmed(
+        self, _name: str, trailing_status: str, expected_status: str
+    ) -> None:
+        run, cohorts = self._make_run(["completed"])
+        CohortBackfillChunk.objects.for_team(self.team.id).create(
+            run=run,
+            team_id=self.team.id,
+            day=timezone.now().date(),
+            status=trailing_status,
+            claimable_after=timezone.now() + timedelta(hours=1),
+        )
+
+        result = finalize_backfill_runs()
+
+        run.refresh_from_db()
+        cohorts[0].refresh_from_db()
+        self.assertEqual(run.status, expected_status)
+        self.assertEqual(result.completed, int(expected_status == CohortBackfillRunStatus.COMPLETED))
+        self.assertEqual(result.trailing, int(expected_status == CohortBackfillRunStatus.TRAILING))
+        self.assertIsNotNone(cohorts[0].last_backfill_events_at)
 
     def test_unobserved_run_is_untouched(self) -> None:
         run, cohorts = self._make_run(["completed"], observed=False)

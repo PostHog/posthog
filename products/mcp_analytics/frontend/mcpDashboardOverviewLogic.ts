@@ -19,6 +19,7 @@ import {
     HogQLQueryResponse,
     MCPHarnessBreakdownItem,
     MCPModelBreakdownItem,
+    MCPProtocolVersionBreakdownItem,
     MCPToolCallBreakdownItem,
     MCPToolCallsAndErrorsItem,
     NodeKind,
@@ -28,6 +29,7 @@ import { AnyPropertyFilter, IntervalType } from '~/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import { mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -61,13 +63,16 @@ ORDER BY bucket
 // Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
 // Counted over the doubled window like the KPI query, then split into the selected period
 // and its equal-length predecessor with a single conditional uniq so the comparison is a
-// true distinct-person count (summing per-bucket distinct users would over-count anyone
+// true distinct-user count (summing per-bucket distinct users would over-count anyone
 // active on more than one day). `__CUR_START__` is the selected-period boundary, injected
 // as a timezone-aware toDateTime at call time.
+// Users are counted by distinct_id, not person_id. HogQL resolves person_id through a join
+// over every person override of the project, and on large projects that join runs out of
+// memory. A person with several distinct_ids counts once per distinct_id.
 const USERS_QUERY = `
 SELECT
-    uniqIf(person_id, timestamp >= __CUR_START__) AS current_users,
-    uniqIf(person_id, timestamp < __CUR_START__) AS prior_users
+    uniqIf(distinct_id, timestamp >= __CUR_START__) AS current_users,
+    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
@@ -128,7 +133,7 @@ LIMIT 50
 // converts, shifting every bucket away from the wall-clock keys it joins and compares against.
 // Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
 // backend runners (dashboard_series.py, tool_quality_tables.py, tool_tables.py).
-const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
+export const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
 
 export interface BucketRow {
     bucket: string
@@ -395,6 +400,7 @@ export interface mcpDashboardOverviewLogicValues {
     harnessRowsLoading: boolean
     hasFilterInteraction: boolean
     hasModelData: boolean
+    hasProtocolVersionData: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
     kpiIncompleteTail: boolean
@@ -403,6 +409,8 @@ export interface mcpDashboardOverviewLogicValues {
     modelRows: ModelRow[]
     modelRowsLoading: boolean
     notableSessions: NotableSession[]
+    protocolVersionRows: MCPProtocolVersionBreakdownItem[]
+    protocolVersionRowsLoading: boolean
     queryFilters: HogQLFilters
     sessionRows: SessionRow[]
     sessionRowsLoading: boolean
@@ -502,6 +510,21 @@ export interface mcpDashboardOverviewLogicActions {
         modelRows: ModelRow[]
         payload?: void
     }
+    loadProtocolVersionRows: (_: void) => void
+    loadProtocolVersionRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadProtocolVersionRowsSuccess: (
+        protocolVersionRows: MCPProtocolVersionBreakdownItem[],
+        payload?: void
+    ) => {
+        protocolVersionRows: MCPProtocolVersionBreakdownItem[]
+        payload?: void
+    }
     loadSessionRows: (_: void) => void
     loadSessionRowsFailure: (
         error: string,
@@ -593,6 +616,9 @@ export interface mcpDashboardOverviewLogicActions {
     markFilterInteraction: () => {
         value: true
     }
+    openToolReport: (tool: string) => {
+        tool: string
+    }
     reloadAll: () => {
         value: true
     }
@@ -615,6 +641,7 @@ export interface mcpDashboardOverviewLogicMeta {
             sessionRowsLoading: boolean,
             harnessRowsLoading: boolean,
             modelRowsLoading: boolean,
+            protocolVersionRowsLoading: boolean,
             activityRowsLoading: boolean,
             toolDailyRowsLoading: boolean
         ) => boolean
@@ -637,6 +664,7 @@ export interface mcpDashboardOverviewLogicMeta {
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
         hasModelData: (modelRows: ModelRow[]) => boolean
+        hasProtocolVersionData: (protocolVersionRows: MCPProtocolVersionBreakdownItem[]) => boolean
         intentClusterCount: (totalClusterCount: number) => KPIMetric
     }
 }
@@ -665,6 +693,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         reloadAll: true,
         markFilterInteraction: true,
+        openToolReport: (tool: string) => ({ tool }),
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
@@ -834,6 +863,22 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
+        protocolVersionRows: [
+            [] as MCPProtocolVersionBreakdownItem[],
+            {
+                loadProtocolVersionRows: async (_: void, breakpoint): Promise<MCPProtocolVersionBreakdownItem[]> => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
+                    const response = (await api.query({
+                        kind: NodeKind.MCPProtocolVersionBreakdownQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                    })) as { results?: MCPProtocolVersionBreakdownItem[] }
+                    breakpoint()
+                    return response?.results ?? []
+                },
+            },
+        ],
         activityRows: [
             [] as ActivityRow[],
             {
@@ -886,6 +931,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 s.sessionRowsLoading,
                 s.harnessRowsLoading,
                 s.modelRowsLoading,
+                s.protocolVersionRowsLoading,
                 s.activityRowsLoading,
                 s.toolDailyRowsLoading,
             ],
@@ -943,6 +989,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.modelRows],
             (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.total_calls > 0),
         ],
+        hasProtocolVersionData: [
+            (s) => [s.protocolVersionRows],
+            (protocolVersionRows: MCPProtocolVersionBreakdownItem[]): boolean => protocolVersionRows.length > 0,
+        ],
         intentClusterCount: [
             // The snapshot only stores the top clusters by call volume — report
             // the run's true count, not the length of the truncated list.
@@ -960,6 +1010,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     listeners(({ actions, values }) => ({
         setDateFilter: () => {
             actions.reloadAll()
+        },
+        openToolReport: ({ tool }) => {
+            router.actions.push(mcpToolReportUrl(tool, values.dateFilter))
         },
         setFilterTestAccounts: () => {
             actions.markFilterInteraction()
@@ -985,6 +1038,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             actions.loadSessionRows()
             actions.loadHarnessRows()
             actions.loadModelRows()
+            actions.loadProtocolVersionRows()
             actions.loadActivityRows()
             actions.loadToolDailyRows()
         },

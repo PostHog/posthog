@@ -12,7 +12,9 @@ import {
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -29,11 +31,13 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
@@ -54,6 +58,12 @@ import { SandboxComposerSurfaces, Thread } from './Thread'
 const ReportAiPanel = lazyWithRetry(() =>
     import('products/signals/frontend/inbox/components/detail/ReportAiPanel').then((module) => ({
         default: module.ReportAiPanel,
+    }))
+)
+
+const ScoutAiPanel = lazyWithRetry(() =>
+    import('products/signals/frontend/inbox/components/config/scouts/ScoutAiPanel').then((module) => ({
+        default: module.ScoutAiPanel,
     }))
 )
 
@@ -102,9 +112,31 @@ export function Max({ tabId }: MaxProps): JSX.Element {
     const chatId = selectedChatId(searchParams)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
+    const { todayRailEnabled } = useValues(todayShellLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
     if (!taskId && sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
+        if (todayRailEnabled) {
+            return (
+                <Empty className="h-full">
+                    <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                            <IconSidePanel />
+                        </EmptyMedia>
+                        <EmptyTitle>This chat is open in the side panel</EmptyTitle>
+                        <EmptyDescription>
+                            It stays open while you move around the app. You can also move it back here.
+                        </EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                        <Button variant="outline" onClick={() => closeSidePanel()} data-attr="ai-move-chat-here">
+                            <IconArrowLeft />
+                            Move it here
+                        </Button>
+                    </EmptyContent>
+                </Empty>
+            )
+        }
         return (
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
@@ -131,9 +163,15 @@ export function Max({ tabId }: MaxProps): JSX.Element {
 export interface MaxInstanceProps {
     sidePanel?: boolean
     tabId?: string
+    /** Replaces the side panel header. Pass `null` when the host draws its own header. */
+    header?: JSX.Element | null
 }
 
-export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
+export const MaxInstance = React.memo(function MaxInstance({
+    sidePanel,
+    tabId,
+    header: headerOverride,
+}: MaxInstanceProps): JSX.Element {
     // `sidePanel` here is presentational (side panel chrome/layout) and is independent of the logic
     // identity we bind: a tabId identifies a scene tab (or a Storybook instance rendered with side
     // panel chrome), while the real side panel — which has no tabId — binds the side panel panelId.
@@ -168,11 +206,26 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { closeSidePanel } = useActions(sidePanelLogic)
 
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const openInContextPanel = (): void => {
+        openSidePanelMax(conversationId ?? undefined)
+    }
+
+    const copyChatLink = (): void => {
+        copyToClipboard(
+            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+            'conversation sharing link'
+        )
+    }
+
     const isNewView = effectivePhaiView === 'new'
     const isReportChat = !!sidePanel && selectedTabOptions === REPORT_AI_PANEL
-    const isTaskView = isNewView || isReportChat
+    const isScoutChat = !!sidePanel && selectedTabOptions === SCOUT_AI_PANEL
+    const isEntityChat = isReportChat || isScoutChat
+    const isTaskView = isNewView || isEntityChat
     const headerBackDisabled = isTaskView ? !panelCanGoBack : backButtonDisabled
-    const headerTitle = isReportChat ? 'PostHog AI' : chatTitle || 'PostHog AI'
+    const headerTitle = isEntityChat ? 'PostHog AI' : chatTitle || 'PostHog AI'
 
     const openAsMainFocusUrl = mainFocusUrl({
         isNewView: isTaskView,
@@ -188,6 +241,10 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 {isReportChat ? (
                     <Suspense fallback={<Spinner />}>
                         <ReportAiPanel panelId={MAX_SIDE_PANEL_ID} />
+                    </Suspense>
+                ) : isScoutChat ? (
+                    <Suspense fallback={<Spinner />}>
+                        <ScoutAiPanel panelId={MAX_SIDE_PANEL_ID} />
                     </Suspense>
                 ) : isNewView ? (
                     // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
@@ -257,7 +314,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{headerTitle}</h3>
                     </Tooltip>
                 </div>
-                {!isReportChat && conversationId && !conversationHistoryVisible && !threadVisible && (
+                {!isEntityChat && conversationId && !conversationHistoryVisible && !threadVisible && (
                     <LemonButton
                         size="small"
                         icon={<IconPlus />}
@@ -267,7 +324,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         tooltipPlacement="bottom"
                     />
                 )}
-                {!isReportChat && conversationId && (
+                {!isEntityChat && conversationId && (
                     <ButtonPrimitive
                         onClick={() => {
                             copyToClipboard(
@@ -285,9 +342,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
                     sandbox conversation, so the menu stays hidden on LangGraph threads. */}
                 {(isTaskView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
-                {/* Report mode renders the runner whichever view is selected, so in it the toggle would
+                {/* Report and scout modes render the runner whichever view is selected, so in it the toggle would
                     only flip the persisted default for the user's next PostHog AI session. */}
-                {!isReportChat && <PhaiViewToggle variant="primitive" />}
+                {!isEntityChat && <PhaiViewToggle variant="primitive" />}
                 <Link
                     buttonProps={{
                         iconOnly: true,
@@ -313,8 +370,12 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
             content must stay clamped to the panel height — without `min-h-0` its `min-height: auto`
             grows it to fit the whole thread and no scroller ever engages. The legacy view is the
             opposite: it relies on this container growing so the outer viewport scrolls it. */}
-            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isTaskView && 'min-h-0')}>
-                {header}
+            <SidePanelContentContainer
+                // A host that draws its own header also draws the frame, so the focus ring would double its edges.
+                className={cn(headerOverride !== undefined && 'focus-within:ring-0')}
+                contentClassName={cn('flex flex-col flex-1', isTaskView && 'min-h-0')}
+            >
+                {headerOverride !== undefined ? headerOverride : header}
                 {content}
             </SidePanelContentContainer>
         </>
@@ -324,35 +385,45 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 name={null}
                 resourceType={{ type: 'chat' }}
                 actions={
-                    <>
-                        {tabId && conversationId ? (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                sideIcon={<IconShare />}
-                                onClick={() => {
-                                    copyToClipboard(
-                                        urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
-                                        'conversation sharing link'
-                                    )
-                                }}
-                            >
-                                Copy link to chat
-                            </LemonButton>
-                        ) : undefined}
-                        {tabId ? (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                sideIcon={<IconOpenSidebar />}
-                                onClick={() => {
-                                    openSidePanelMax(conversationId ?? undefined)
-                                }}
-                            >
-                                Open in context panel
-                            </LemonButton>
-                        ) : undefined}
-                    </>
+                    todayRailNav ? (
+                        <>
+                            {tabId && conversationId ? (
+                                <Button variant="outline" onClick={copyChatLink}>
+                                    Copy link to chat
+                                    <IconShare />
+                                </Button>
+                            ) : undefined}
+                            {tabId ? (
+                                <Button variant="outline" onClick={openInContextPanel}>
+                                    Open in context panel
+                                    <IconOpenSidebar />
+                                </Button>
+                            ) : undefined}
+                        </>
+                    ) : (
+                        <>
+                            {tabId && conversationId ? (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    sideIcon={<IconShare />}
+                                    onClick={copyChatLink}
+                                >
+                                    Copy link to chat
+                                </LemonButton>
+                            ) : undefined}
+                            {tabId ? (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    sideIcon={<IconOpenSidebar />}
+                                    onClick={openInContextPanel}
+                                >
+                                    Open in context panel
+                                </LemonButton>
+                            ) : undefined}
+                        </>
+                    )
                 }
             />
             <div className="grow flex flex-col">{content}</div>

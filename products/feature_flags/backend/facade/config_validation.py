@@ -7,19 +7,22 @@ detectors read, or ``ConfigValidationError`` carrying every field error in a fix
 (root fields, then each rule's fields in rule order), so the same document always yields
 the same list. Nothing here reads or writes the database, assigns ids or seeds, checks
 permissions, or mutates the input: a validated config says the document is well formed
-and admitted, not that the caller may store it. The later trusted write path resolves
+and admitted, not that the caller may store it. The cache builders call this too, so it
+should admit exactly what the flags service's parser admits; restrictions on what a writer
+may store live in ``config_writes.check_writer_rules``. The later trusted write path resolves
 request input into the final document, calls ``rule_warnings.review_config`` (which
 validates through this module and reports warnings) and persists under the existing row
 lock. No production caller exists yet.
 
-Admitted family: person-assigned boolean flags with targeted_release and
-percentage_rollout rules whose targeting uses person properties. Everything else the
-published contract describes (string/number/object values, experiment rules, group
-assignment, cohort/group/flag properties) is rejected with the ``unsupported`` code, so a
-canonical fixture is never relabelled as malformed and no partially checked document is
-accepted. Shape errors use the other codes. The canonical shape is the harness config
-schema 1.0.0 in contract package 2.0.0; the semantic constraints (unique rule ids, two
-decimal places, byte limits) come from its literal registry.
+Admitted family: person-assigned flags of every return type with targeted_release,
+percentage_rollout and experiment rules whose targeting uses person properties. An experiment
+rule names no Experiment (an Experiment points at its rule by rule id) and may carry a holdout
+that belongs to the rule. Everything else the published contract describes (group assignment,
+cohort/group/flag properties) is rejected with the ``unsupported`` code, so a canonical
+fixture is never relabelled as malformed and no partially checked document is accepted. Shape
+errors use the other codes. The canonical shape is the harness config schema in contract
+package 6.0.0; the semantic constraints (unique rule ids and variant keys, two decimal places,
+weights totalling 100, byte limits) come from its literal registry.
 """
 
 import re
@@ -28,7 +31,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import field
 from decimal import Decimal
-from typing import Any, Literal, get_args
+from typing import Any, Literal, TypeGuard, get_args
 
 from posthog.hogql.property import parse_semver
 
@@ -43,13 +46,18 @@ MAX_RULES = 100
 MAX_PREDICATES_PER_RULE = 100
 MAX_SEED_LENGTH = 400
 MAX_PERCENTAGE_DECIMALS = 2
+MAX_SAFE_INTEGER = 2**53 - 1
+MAX_OBJECT_DEPTH = 20
+MIN_VARIANTS = 2
+MAX_VARIANTS = 20
 
 ConfigErrorCode = Literal["required", "invalid", "unknown_field", "not_unique", "unsupported", "limit_exceeded"]
 RolloutMissPolicy = Literal["continue", "return_default"]
-AdmittedRuleType = Literal["targeted_release", "percentage_rollout"]
 
 RETURN_TYPES: tuple[str, ...] = get_args(FlagReturnType)
 RULE_TYPES: tuple[str, ...] = get_args(RuleType)
+# Rule types that assign by hash: they carry a rollout and a server-owned seed.
+RANDOMIZED_RULE_TYPES: tuple[str, ...] = ("percentage_rollout", "experiment")
 ROLLOUT_MISS_POLICIES: tuple[RolloutMissPolicy, ...] = get_args(RolloutMissPolicy)
 ASSIGNMENT_ALGORITHM = "sha1_60_v1"
 PERSON_ASSIGNMENT = "person"
@@ -119,14 +127,27 @@ _V1_ONLY_ROOT_FIELDS = frozenset(
 )
 _COMMON_RULE_FIELDS = frozenset({"id", "rule_type", "targeting", "description", "metadata", "value"})
 _ROLLOUT_RULE_FIELDS = frozenset({"rollout_percentage", "on_rollout_miss", "assignment_algorithm", "seed", "assign_by"})
+_EXPERIMENT_ONLY_FIELDS = frozenset({"paused", "variants", "holdout"})
 _RULE_FIELDS: dict[str, frozenset[str]] = {
     "targeted_release": _COMMON_RULE_FIELDS,
     "percentage_rollout": _COMMON_RULE_FIELDS | _ROLLOUT_RULE_FIELDS,
+    "experiment": (_COMMON_RULE_FIELDS - {"value"}) | _ROLLOUT_RULE_FIELDS | _EXPERIMENT_ONLY_FIELDS,
 }
+_VARIANT_FIELDS = frozenset({"key", "weight", "value"})
+_HOLDOUT_FIELDS = frozenset({"seed", "exclusion_percentage"})
+_VARIANT_KEY = re.compile(r"^[a-zA-Z0-9_-]+$")
 _PROPERTY_FIELDS = frozenset(
     {"key", "value", "type", "operator", "group_type_index", "negation", "cohort_name", "group_key_names", "label"}
 )
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_SEMVER_PRERELEASE_ID = r"(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+# SemVer 2.0.0, as the flags service's semver parser reads it; numbers are unsigned 64-bit.
+_STRICT_SEMVER = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    rf"(?:-{_SEMVER_PRERELEASE_ID}(?:\.{_SEMVER_PRERELEASE_ID})*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+)
+_MAX_SEMVER_NUMBER = 2**64 - 1
 
 
 @frozen
@@ -135,13 +156,14 @@ class ConfigError:
     # Presentation text. Never carries property values, seeds or metadata: the path in
     # ``attr`` identifies the field and the code identifies the problem.
     detail: str
-    # Dotted path from the flag's ``filters`` field, e.g. ``filters.rules[2].seed``.
-    attr: str
+    # Dotted path from the flag's ``filters`` field, e.g. ``filters.rules[2].seed``; None for a repeated key.
+    attr: str | None
 
 
 class ConfigValidationError(ValueError):
     def __init__(self, errors: list[ConfigError]) -> None:
-        super().__init__(f"{errors[0].attr}: {errors[0].detail}")
+        first = errors[0]
+        super().__init__(first.detail if first.attr is None else f"{first.attr}: {first.detail}")
         self.errors = tuple(errors)
 
 
@@ -181,22 +203,40 @@ class Predicate:
 
 
 @frozen
+class ValidatedVariant:
+    key: str
+    weight: Decimal
+    value: str  # canonical JSON text, see ``canonical_value``
+
+
+@frozen
+class ValidatedHoldout:
+    """A holdout that belongs to its rule; it has no id of its own."""
+
+    exclusion_percentage: Decimal
+    seed: str = field(repr=False)
+
+
+@frozen
 class ValidatedRule:
     id: str
-    rule_type: AdmittedRuleType
+    rule_type: RuleType
     predicates: frozenset[Predicate]
-    value: bool
+    value: str | None  # canonical JSON text, see ``canonical_value``; None for an experiment rule
     rollout_percentage: Decimal | None = None
     on_rollout_miss: RolloutMissPolicy | None = None
     # Assignment seeds must not reach logs or tracebacks; the detectors only compare them.
     seed: str | None = field(default=None, repr=False)
+    paused: bool = False
+    variants: tuple[ValidatedVariant, ...] = ()
+    holdout: ValidatedHoldout | None = None
 
 
 @frozen
 class ValidatedConfig:
-    """An admitted person-assigned boolean config; the family is fixed, so only the evaluated fields vary."""
+    """An admitted person-assigned config; the family is fixed, so only the evaluated fields vary."""
 
-    default_value: bool | None
+    default_value: str | None  # canonical JSON text; None is a null default
     rules: tuple[ValidatedRule, ...]  # stored order, which is evaluation order
 
 
@@ -227,20 +267,19 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
         v1_detail = "Config version 1 fields are not allowed in a config version 2 document."
         errors.append(_unknown_field(f"filters.{name}", v1_detail if name in _V1_ONLY_ROOT_FIELDS else None))
 
-    return_type_ok = _field(document, "return_type", "filters", errors, _one_of(RETURN_TYPES))
-    boolean_family = return_type_ok and document["return_type"] == "boolean"
-    if return_type_ok and not boolean_family:
-        errors.append(
-            ConfigError(
-                code="unsupported",
-                detail=f"Flags returning a {document['return_type']} are not available yet. Only boolean is available.",
-                attr="filters.return_type",
-            )
-        )
+    value_check = None
+    if _field(document, "return_type", "filters", errors, _one_of(RETURN_TYPES)):
+        value_check = _VALUE_CHECKS[document["return_type"]]
     if "default_value" not in document:
         errors.append(_required("filters.default_value"))
-    elif boolean_family and not _is_bool_or_none(document["default_value"]):
-        errors.append(ConfigError(code="invalid", detail="Must be true, false or null.", attr="filters.default_value"))
+    elif value_check is not None and document["default_value"] is not None:
+        accepts, detail = value_check
+        if not accepts(document["default_value"]):
+            errors.append(
+                ConfigError(
+                    code="invalid", detail=f"{detail.removesuffix('.')}, or null.", attr="filters.default_value"
+                )
+            )
     if _field(document, "aggregation_group_type_index", "filters", errors, (_is_int, "Must be an integer."), False):
         errors.append(
             ConfigError(
@@ -251,7 +290,7 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
         )
 
     rules: list[ValidatedRule] = []
-    if _field(document, "rules", "filters", errors, (lambda v: isinstance(v, list), "Must be an array.")):
+    if _field(document, "rules", "filters", errors, _ARRAY_CHECK):
         if len(document["rules"]) > MAX_RULES:
             errors.append(
                 ConfigError(
@@ -261,7 +300,7 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
         else:
             seen_ids: set[str] = set()
             for index, rule in enumerate(document["rules"]):
-                validated = _validate_rule(rule, f"filters.rules[{index}]", boolean_family, limits, errors)
+                validated = _validate_rule(rule, f"filters.rules[{index}]", value_check, limits, errors)
                 if validated is None:
                     continue
                 if validated.id in seen_ids:
@@ -275,11 +314,32 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
 
     if errors:
         raise ConfigValidationError(errors)
-    return ValidatedConfig(default_value=document["default_value"], rules=tuple(rules))
+    default = document["default_value"]
+    return ValidatedConfig(default_value=None if default is None else canonical_value(default), rules=tuple(rules))
+
+
+def canonical_value(value: object) -> str:
+    """JSON text that is equal for two values exactly when they are equal JSON values.
+
+    Plain Python equality is not JSON equality (``True == 1``) and objects are unhashable,
+    so validated values carry this form. Integral floats print as integers, so ``1.0`` and
+    ``-0.0`` read as ``1`` and ``0``.
+    """
+    return json.dumps(_integral_floats_as_ints(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _integral_floats_as_ints(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, Mapping):
+        return {key: _integral_floats_as_ints(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_integral_floats_as_ints(item) for item in value]
+    return value
 
 
 def _validate_rule(
-    rule: object, path: str, boolean_family: bool, limits: ValidationLimits, errors: list[ConfigError]
+    rule: object, path: str, value_check: "_Check | None", limits: ValidationLimits, errors: list[ConfigError]
 ) -> ValidatedRule | None:
     if not isinstance(rule, Mapping):
         errors.append(ConfigError(code="invalid", detail="Must be an object.", attr=path))
@@ -287,15 +347,9 @@ def _validate_rule(
     if not _field(rule, "rule_type", path, errors, _one_of(RULE_TYPES)):
         return None
     rule_type = rule["rule_type"]
-    if rule_type not in _RULE_FIELDS:
-        errors.append(
-            ConfigError(code="unsupported", detail="Experiment rules are not available yet.", attr=f"{path}.rule_type")
-        )
-        return None
     for name in rule:
         if name not in _RULE_FIELDS[rule_type]:
-            rollout_only = "Only percentage_rollout rules have this field."
-            errors.append(_unknown_field(f"{path}.{name}", rollout_only if name in _ROLLOUT_RULE_FIELDS else None))
+            errors.append(_unknown_field(f"{path}.{name}", _UNKNOWN_RULE_FIELD_DETAILS.get((rule_type, name))))
 
     before = len(errors)
     _field(rule, "id", path, errors, (lambda v: isinstance(v, str) and bool(_UUID.fullmatch(v)), "Must be a UUID."))
@@ -303,32 +357,117 @@ def _validate_rule(
     _field(rule, "description", path, errors, (lambda v: isinstance(v, str), "Must be a string."), False)
     if "metadata" in rule:
         _validate_metadata(rule["metadata"], f"{path}.metadata", limits, errors)
-    if boolean_family:
-        _field(rule, "value", path, errors, (lambda v: isinstance(v, bool), "Must be true or false."))
+    if value_check is not None and rule_type != "experiment":
+        _field(rule, "value", path, errors, value_check)
 
     rollout: Decimal | None = None
-    if rule_type == "percentage_rollout":
-        rollout = _validate_percentage(rule, path, errors)
+    if rule_type in RANDOMIZED_RULE_TYPES:
+        rollout = _validate_percentage(rule, "rollout_percentage", path, errors)
         _field(rule, "on_rollout_miss", path, errors, _one_of(ROLLOUT_MISS_POLICIES))
         _field(rule, "assignment_algorithm", path, errors, _one_of((ASSIGNMENT_ALGORITHM,)))
-        seed_ok = (
-            lambda v: isinstance(v, str) and 1 <= len(v) <= MAX_SEED_LENGTH,
-            f"Must be between 1 and {MAX_SEED_LENGTH} characters.",
-        )
-        _field(rule, "seed", path, errors, seed_ok)
+        _field(rule, "seed", path, errors, _SEED_CHECK)
         _field(rule, "assign_by", path, errors, _one_of((PERSON_ASSIGNMENT,)), False)
+    variants: tuple[ValidatedVariant, ...] = ()
+    holdout: ValidatedHoldout | None = None
+    if rule_type == "experiment":
+        _field(rule, "paused", path, errors, _VALUE_CHECKS["boolean"])
+        variants = _validate_variants(rule, path, value_check, errors)
+        if "holdout" in rule:
+            holdout = _validate_holdout(rule["holdout"], f"{path}.holdout", errors)
 
-    if len(errors) > before or predicates is None or not boolean_family:
+    if len(errors) > before or predicates is None or value_check is None:
         return None
     return ValidatedRule(
         id=rule["id"],
         rule_type=rule_type,
         predicates=predicates,
-        value=rule["value"],
+        value=None if rule_type == "experiment" else canonical_value(rule["value"]),
         rollout_percentage=rollout,
         on_rollout_miss=rule["on_rollout_miss"] if rollout is not None else None,
         seed=rule["seed"] if rollout is not None else None,
+        paused=rule.get("paused", False),
+        variants=variants,
+        holdout=holdout,
     )
+
+
+_ROLLOUT_ONLY = "Only percentage_rollout and experiment rules have this field."
+_UNKNOWN_RULE_FIELD_DETAILS: dict[tuple[str, str], str] = {
+    **{("targeted_release", name): _ROLLOUT_ONLY for name in _ROLLOUT_RULE_FIELDS},
+    ("experiment", "value"): "Experiment rules return the values of their variants.",
+}
+_SEED_CHECK: "_Check" = (
+    lambda v: isinstance(v, str) and 1 <= len(v) <= MAX_SEED_LENGTH,
+    f"Must be between 1 and {MAX_SEED_LENGTH} characters.",
+)
+_ARRAY_CHECK: "_Check" = (lambda v: isinstance(v, list), "Must be an array.")
+_VARIANT_KEY_CHECK: "_Check" = (
+    lambda v: isinstance(v, str) and bool(_VARIANT_KEY.fullmatch(v)),
+    "Must be letters, digits, hyphens or underscores.",
+)
+
+
+def _validate_variants(
+    rule: Mapping[str, Any], path: str, value_check: "_Check | None", errors: list[ConfigError]
+) -> tuple[ValidatedVariant, ...]:
+    if not _field(rule, "variants", path, errors, _ARRAY_CHECK):
+        return ()
+    items, path = rule["variants"], f"{path}.variants"
+    if len(items) > MAX_VARIANTS:
+        errors.append(
+            ConfigError(code="limit_exceeded", detail=f"At most {MAX_VARIANTS} variants are allowed.", attr=path)
+        )
+        return ()
+    if len(items) < MIN_VARIANTS:
+        errors.append(ConfigError(code="invalid", detail=f"At least {MIN_VARIANTS} variants are required.", attr=path))
+        return ()
+    variants: list[ValidatedVariant] = []
+    seen_keys: set[str] = set()
+    for index, variant in enumerate(items):
+        validated = _validate_variant(variant, f"{path}[{index}]", value_check, seen_keys, errors)
+        if validated is not None:
+            variants.append(validated)
+    # Sum only a fully validated list: without a valid return type no variant validates.
+    if len(variants) == len(items) and sum(variant.weight for variant in variants) != 100:
+        errors.append(ConfigError(code="invalid", detail="Variant weights must total exactly 100.", attr=path))
+    return tuple(variants)
+
+
+def _validate_variant(
+    variant: object, path: str, value_check: "_Check | None", seen_keys: set[str], errors: list[ConfigError]
+) -> ValidatedVariant | None:
+    if not isinstance(variant, Mapping):
+        errors.append(ConfigError(code="invalid", detail="Must be an object.", attr=path))
+        return None
+    before = len(errors)
+    for name in variant:
+        if name not in _VARIANT_FIELDS:
+            errors.append(_unknown_field(f"{path}.{name}"))
+    if _field(variant, "key", path, errors, _VARIANT_KEY_CHECK):
+        if variant["key"] in seen_keys:
+            errors.append(ConfigError(code="not_unique", detail="Variant keys must be unique.", attr=f"{path}.key"))
+        seen_keys.add(variant["key"])
+    weight = _validate_percentage(variant, "weight", path, errors)
+    if value_check is not None:
+        _field(variant, "value", path, errors, value_check)
+    if len(errors) > before or weight is None or value_check is None:
+        return None
+    return ValidatedVariant(key=variant["key"], weight=weight, value=canonical_value(variant["value"]))
+
+
+def _validate_holdout(holdout: object, path: str, errors: list[ConfigError]) -> ValidatedHoldout | None:
+    if not isinstance(holdout, Mapping):
+        errors.append(ConfigError(code="invalid", detail="Must be an object.", attr=path))
+        return None
+    before = len(errors)
+    for name in holdout:
+        if name not in _HOLDOUT_FIELDS:
+            errors.append(_unknown_field(f"{path}.{name}"))
+    _field(holdout, "seed", path, errors, _SEED_CHECK)
+    exclusion = _validate_percentage(holdout, "exclusion_percentage", path, errors)
+    if len(errors) > before or exclusion is None:
+        return None
+    return ValidatedHoldout(exclusion_percentage=exclusion, seed=holdout["seed"])
 
 
 def _validate_targeting(rule: Mapping[str, Any], path: str, errors: list[ConfigError]) -> frozenset[Predicate] | None:
@@ -339,7 +478,7 @@ def _validate_targeting(rule: Mapping[str, Any], path: str, errors: list[ConfigE
     for name in targeting:
         if name != "properties":
             errors.append(_unknown_field(f"{path}.{name}"))
-    if not _field(targeting, "properties", path, errors, (lambda v: isinstance(v, list), "Must be an array.")):
+    if not _field(targeting, "properties", path, errors, _ARRAY_CHECK):
         return None
     properties = targeting["properties"]
     if len(properties) > MAX_PREDICATES_PER_RULE:
@@ -434,14 +573,28 @@ def _property_value_error(operator: str, value: Any) -> str | None:
         return "Must be a number or a string."
     if operator in _LIST_VALUE_OPERATORS and not isinstance(value, list):
         return "Must be an array."
-    if operator in _SEMVER_OPERATORS:
-        if not isinstance(value, str):
-            return "Must be a semver string."
-        try:
-            parse_semver(value.rstrip(".*") if operator == "semver_wildcard" else value)
-        except (ValueError, IndexError):
-            return "Must be a semver string."
+    if operator in _SEMVER_OPERATORS and not (
+        isinstance(value, str) and _is_semver(value.rstrip(".*") if operator == "semver_wildcard" else value)
+    ):
+        return "Must be a semver string."
     return None
+
+
+def _is_semver(value: str) -> bool:
+    """The flags service's check: numeric major, minor and patch, and a version its semver
+    parser reads once missing components are padded and leading zeros stripped. ``parse_semver``
+    alone also admits values that parser rejects, such as ``1.2.3.4`` and ``1.2.3-``.
+    """
+    try:
+        parse_semver(value)
+    except (ValueError, IndexError):
+        return False
+    version = value.strip()
+    core_end = next((index for index, char in enumerate(version) if char in "-+"), len(version))
+    core = version[:core_end].split(".")
+    parts = [(part.lstrip("0") or "0") if part.isascii() and part.isdigit() else part for part in core]
+    match = _STRICT_SEMVER.fullmatch(".".join(parts + ["0"] * (3 - len(parts))) + version[core_end:])
+    return match is not None and all(int(number) <= _MAX_SEMVER_NUMBER for number in match.groups())
 
 
 def _validate_metadata(metadata: object, path: str, limits: ValidationLimits, errors: list[ConfigError]) -> None:
@@ -455,11 +608,11 @@ def _validate_metadata(metadata: object, path: str, limits: ValidationLimits, er
         errors.append(ConfigError(code="limit_exceeded", detail="The rule metadata is too large.", attr=path))
 
 
-def _validate_percentage(rule: Mapping[str, Any], path: str, errors: list[ConfigError]) -> Decimal | None:
-    if not _field(rule, "rollout_percentage", path, errors, (_is_number, "Must be a finite number.")):
+def _validate_percentage(obj: Mapping[str, Any], name: str, path: str, errors: list[ConfigError]) -> Decimal | None:
+    if not _field(obj, name, path, errors, (_is_number, "Must be a finite number.")):
         return None
-    value = rule["rollout_percentage"]
-    path = f"{path}.rollout_percentage"
+    value = obj[name]
+    path = f"{path}.{name}"
     if not 0 <= value <= 100:
         errors.append(ConfigError(code="invalid", detail="Must be between 0 and 100.", attr=path))
         return None
@@ -509,6 +662,33 @@ def _unknown_field(attr: str, detail: str | None = None) -> ConfigError:
     return ConfigError(code="unknown_field", detail=detail or "Unknown field.", attr=attr)
 
 
+def _is_safe_number(value: object) -> bool:
+    return _is_number(value) and -MAX_SAFE_INTEGER <= value <= MAX_SAFE_INTEGER
+
+
+def _is_object_value(value: object) -> bool:
+    return isinstance(value, Mapping) and _is_nested_value(value, depth=1)
+
+
+def _is_nested_value(value: object, *, depth: int) -> bool:
+    """Depth counts object and array containers, with the returned object at level 1."""
+    if isinstance(value, Mapping | list):
+        items = value.values() if isinstance(value, Mapping) else value
+        return depth <= MAX_OBJECT_DEPTH and all(_is_nested_value(item, depth=depth + 1) for item in items)
+    return value is None or isinstance(value, bool | str) or _is_safe_number(value)
+
+
+_VALUE_CHECKS: dict[str, _Check] = {
+    "boolean": (lambda v: isinstance(v, bool), "Must be true or false."),
+    "string": (lambda v: isinstance(v, str) and v != "", "Must be a non-empty string."),
+    "number": (_is_safe_number, f"Must be a number from -{MAX_SAFE_INTEGER} to {MAX_SAFE_INTEGER}."),
+    "object": (
+        _is_object_value,
+        f"Must be an object at most {MAX_OBJECT_DEPTH} levels deep with numbers from -{MAX_SAFE_INTEGER} to {MAX_SAFE_INTEGER}.",
+    ),
+}
+
+
 def _is_bool_or_none(value: object) -> bool:
     return value is None or isinstance(value, bool)
 
@@ -517,7 +697,7 @@ def _is_int(value: object) -> bool:
     return not isinstance(value, bool) and isinstance(value, int)
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[int | float]:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
     return -sys.float_info.max <= value <= sys.float_info.max

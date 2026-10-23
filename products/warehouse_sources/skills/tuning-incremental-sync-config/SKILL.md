@@ -45,16 +45,16 @@ chosen at creation time there.
 
 From the partial-update endpoint:
 
-| Field                    | Values                                                                                           | Notes                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| `sync_type`              | `full_refresh`, `incremental`, `append`, `cdc`, `webhook`                                        | Source must support the target type — check via incremental-fields |
-| `incremental_field`      | Column name from the source                                                                      | Must appear in `incremental_fields` list for the schema            |
-| `incremental_field_type` | `datetime`, `date`, `timestamp`, `integer`, `numeric`, `objectid`                                | Must match the column's real type                                  |
-| `primary_key_columns`    | Array of column names                                                                            | Required for CDC. Used for upsert dedup on incremental             |
-| `cdc_table_mode`         | `consolidated`, `cdc_only`, `both`                                                               | Only meaningful when sync_type=cdc                                 |
-| `sync_frequency`         | `1min`, `5min`, `15min`, `30min`, `1hour`, `6hour`, `12hour`, `24hour`, `7day`, `30day`, `never` | Applies to all non-CDC types                                       |
-| `sync_time_of_day`       | `HH:MM:SS`                                                                                       | When sync_frequency is daily/weekly-scale                          |
-| `should_sync`            | `true` / `false`                                                                                 | Pause the schema without deleting it                               |
+| Field                    | Values                                                                                   | Notes                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `sync_type`              | `full_refresh`, `incremental`, `append`, `cdc`, `webhook`                                | Source must support the target type — check via incremental-fields |
+| `incremental_field`      | Column name from the source                                                              | Must appear in `incremental_fields` list for the schema            |
+| `incremental_field_type` | `datetime`, `date`, `timestamp`, `integer`, `numeric`, `objectid`                        | Must match the column's real type                                  |
+| `primary_key_columns`    | Array of column names                                                                    | Required for CDC. Used for upsert dedup on incremental             |
+| `cdc_table_mode`         | `consolidated`, `cdc_only`, `both`                                                       | Only meaningful when sync_type=cdc                                 |
+| `sync_frequency`         | `5min`, `15min`, `30min`, `1hour`, `6hour`, `12hour`, `24hour`, `7day`, `30day`, `never` | How often the table syncs. CDC: how often changes load, `7day` max |
+| `sync_time_of_day`       | `HH:MM:SS`                                                                               | When sync_frequency is daily/weekly-scale                          |
+| `should_sync`            | `true` / `false`                                                                         | Pause the schema without deleting it                               |
 
 ## Workflow
 
@@ -150,8 +150,9 @@ When the change invalidates data, the clean flow is:
 2. Warn the user this is destructive
 3. `external-data-schemas-resync` to wipe and re-import under the new config
 
-Or equivalently, `external-data-schemas-delete-data` → `external-data-schemas-reload`. `delete-data` + `reload` is
-cleaner when the table is large and the user wants to start from zero.
+Or `external-data-schemas-delete-data` → `external-data-schemas-partial-update` with `should_sync: true` →
+`external-data-schemas-reload`. `delete-data` turns syncing off, so the update must turn it on again, or the
+schedule stays paused after the reload.
 
 ### Step 5 — Trigger and confirm
 

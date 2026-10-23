@@ -4,19 +4,17 @@ import { useEffect } from 'react'
 import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
+import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
+import { ActivitySceneHeader } from 'scenes/activity/ActivitySceneHeader'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, PropertyOperator } from '~/types'
 
@@ -26,7 +24,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { buildLiveEventsAgentContext } from '../activityAgentContext'
 import { LiveBotPanel } from './LiveBotPanel'
 import { LiveEventsFeed } from './LiveEventsFeed'
-import { LIVE_EVENTS_SUPPORTED_OPERATORS, liveEventsLogic } from './liveEventsLogic'
+import { liveEventsLogic } from './liveEventsLogic'
 import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
 const LIVE_EVENTS_POLL_INTERVAL_MS = 1500
@@ -40,7 +38,6 @@ export const scene: SceneExport = {
 export function LiveEventsTable(): JSX.Element {
     const { events, streamPaused, filters } = useValues(liveEventsLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useAttachedContext(buildLiveEventsAgentContext(filters))
 
@@ -55,24 +52,29 @@ export function LiveEventsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
-            <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
-                Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
-                <Link to="https://posthog.com/docs/activity#terminal-live-events-posthog-live" target="_blank">
-                    Learn more
-                </Link>
-            </LemonBanner>
-            <SceneTitleSection
+            <ActivitySceneHeader
+                activeKey={ActivityTab.LiveEvents}
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
-                resourceType={{
-                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
-                }}
+                iconType={sceneConfigurations[Scene.LiveEvents].iconType}
+                banner={
+                    <LemonBanner
+                        type="info"
+                        className="mb-4"
+                        icon={<IconTerminal />}
+                        dismissKey="livestream-tui-banner"
+                    >
+                        Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
+                        <Link to="https://posthog.com/docs/activity#terminal-live-events-posthog-live" target="_blank">
+                            Learn more
+                        </Link>
+                    </LemonBanner>
+                }
             />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex gap-2">
                     <LiveUserCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} showUpdatedTimeInTooltip={false} />
-                    <LiveRecordingsCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} />
+                    <LiveRecordingsCount />
                 </div>
 
                 <div className="flex gap-2">
@@ -96,11 +98,7 @@ export function LiveEventsTable(): JSX.Element {
                         propertyFilters={filters.properties ?? []}
                         onChange={(properties) => setFilters({ ...filters, properties })}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        operatorAllowlist={
-                            featureFlags[FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]
-                                ? LIVE_EVENTS_SUPPORTED_OPERATORS
-                                : [PropertyOperator.Exact]
-                        }
+                        operatorAllowlist={[PropertyOperator.Exact]}
                         buttonText="Filter by property"
                     />
                     <LemonButton

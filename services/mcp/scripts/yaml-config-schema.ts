@@ -7,10 +7,17 @@
  */
 import { z } from 'zod'
 
+import { INGESTED_DATA_KINDS } from '../src/lib/no-data-guard'
+
 export const ToolConfigSchema = z
     .object({
         operation: z.string(),
         enabled: z.boolean(),
+        /**
+         * Why the tool stays off. Scaffold sync removes an `enabled: false` entry without one as a
+         * leftover stub, so every disabled entry records a decision. Rejected on an enabled tool.
+         */
+        disabled_reason: z.string().trim().min(1).optional(),
         scopes: z.array(z.string()).optional(),
         annotations: z
             .object({
@@ -29,6 +36,11 @@ export const ToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * Override the file-level `category` for this tool. Use it when a tool belongs to another
+         * product than the file, so `$mcp_tool_category` groups it under that product.
+         */
+        category: z.string().trim().min(1).optional(),
         /**
          * One-line selection hint injected into the system prompt catalog.
          * Describes *when to pick this tool*, not what it does. Currently only
@@ -99,7 +111,7 @@ export const ToolConfigSchema = z
                          * Mutually exclusive with `input_schema` and `schema_ref` (those
                          * fully replace the schema; cast composes with the existing one).
                          */
-                        cast: z.enum(['string-int', 'boolean-string']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string', 'object-json-string']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
@@ -137,8 +149,26 @@ export const ToolConfigSchema = z
          * two optional fields).
          */
         validators: z.array(z.string()).optional(),
+        /**
+         * Conditional requirements: when the key param has a non-null value, each listed param
+         * needs a non-null value too. Codegen adds them to the advertised schema as the
+         * `x-required-when-set` annotation, and the compact `info` / `schema` summary lists them
+         * next to `required`, so a caller sees them even when the full schema overflows the
+         * budget. The annotation does not validate anything, so the backend enforces the rule.
+         * Standard `dependentRequired` does not fit: it fires on a present key, even a null one.
+         */
+        required_when_set: z.record(z.string(), z.array(z.string())).optional(),
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
+        /**
+         * Module with custom request logic, relative to `src/tools/` and without extension
+         * (e.g. `featureFlags/updateFeatureFlagHooks`). Its default export is an object with
+         * `beforeRequest`, `afterResponse` and `onError`; see `ToolHooks` in `src/tools/tool-hooks.ts`.
+         */
+        hooks: z
+            .string()
+            .regex(/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/, 'hooks must be a path like "featureFlags/myToolHooks"')
+            .optional(),
         /**
          * When true or a string, the tool issues PATCH instead of DELETE.
          * `true` sends `{ deleted: true }` (for ForbidDestroyModel endpoints).
@@ -182,6 +212,10 @@ export const ToolConfigSchema = z
          * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
          * name reports the successor instead of reading as an unknown tool.
          */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
+        /** Ingested data the tool reads. A project without events gets install guidance from these tools. */
+        reads_ingested_data: z.enum(INGESTED_DATA_KINDS).optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
@@ -302,6 +336,10 @@ export const ToolConfigSchema = z
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
     })
+    .refine((data) => !(data.enabled && data.disabled_reason !== undefined), {
+        message: '`disabled_reason` applies only to `enabled: false`. Remove it from the enabled tool.',
+        path: ['disabled_reason'],
+    })
     // A list response encodes as a TOON table: one header of shared keys, then one row per
     // item. Dropping a `null` that only some rows carry breaks that uniformity and forces the
     // expanded per-key form, so the response grows instead of shrinking.
@@ -318,6 +356,13 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.confirmed_action && data.ui_app), {
         message:
             '`confirmed_action` cannot be combined with `ui_app` yet — the codegen does not wrap the generated -execute factory with withUiApp. Drop one or extend buildConfirmedActionFactories to opt in.',
+        path: ['confirmed_action'],
+    })
+    // The confirmed-action codegen builds its own prepare/execute handlers, so hooks would
+    // wrap neither of them.
+    .refine((data) => !(data.confirmed_action && data.hooks), {
+        message:
+            '`confirmed_action` cannot be combined with `hooks` yet — the prepare and execute handlers are not wrapped.',
         path: ['confirmed_action'],
     })
 
@@ -423,6 +468,8 @@ const CustomUiAppSchema = z
         app_name: z.string(),
         /** Short description for the MCP resource. Required for custom apps. */
         description: z.string(),
+        /** Additional CSP resource sources required by this app. */
+        resource_domains: z.array(z.string()).optional(),
         /** Reusable view component that lets the render-ui umbrella app mount this custom app. */
         render_ui: z
             .object({
@@ -434,6 +481,8 @@ const CustomUiAppSchema = z
                 view_prop: z.string(),
                 /** TypeScript type for the tool result. Omit when the component accepts unknown. */
                 data_type: z.string().optional(),
+                /** Prop name that receives the host's link opener, for a view that opens links. */
+                link_prop: z.string().optional(),
             })
             .strict()
             .optional(),
@@ -477,11 +526,13 @@ export interface ResolvedCustomUiApp {
     type: 'custom'
     app_name: string
     description: string
+    resource_domains?: string[]
     render_ui?: {
         component_import: string
         view_component: string
         view_prop: string
         data_type?: string
+        link_prop?: string
     }
 }
 
@@ -577,6 +628,10 @@ export const QueryWrapperToolConfigSchema = z
          * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
          * name reports the successor instead of reading as an unknown tool.
          */
+        /** Hide the tool whenever this flag is on, independent of `feature_flag`; see `hidden_when_flag_on` in toolDefinitions. */
+        hidden_when_flag_on: z.string().optional(),
+        /** Ingested data the tool reads. A project without events gets install guidance from these tools. */
+        reads_ingested_data: z.enum(INGESTED_DATA_KINDS).optional(),
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),

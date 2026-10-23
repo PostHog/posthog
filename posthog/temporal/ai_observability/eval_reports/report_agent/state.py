@@ -35,7 +35,7 @@ class EvalReportAgentState(TypedDict):
     true_is_failure: bool
     output_config: dict[str, Any]
     detector_evaluation_ids: list[str]
-    numeric_output_configs: dict[str, dict[str, Any]]
+    evaluation_output_configs: dict[str, dict[str, Any]]
     period_start: str
     period_end: str
     previous_period_start: str

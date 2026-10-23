@@ -48,6 +48,11 @@ def escape_hogql_identifier(identifier: str | int) -> str:
         return str(identifier)
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+    return quote_hogql_identifier(identifier)
+
+
+def quote_hogql_identifier(identifier: str) -> str:
+    """Quote an identifier without validating whether it is safe to interpolate into SQL."""
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
@@ -272,7 +277,8 @@ def escape_duckdb_identifier(v: str) -> str:
 
 
 def escape_trino_identifier(v: str) -> str:
-    for character, label in (("%", "%"), ("?", "?"), ("\0", "NUL")):
+    # "?" is allowed because convert_pyformat_placeholders does not read inside quoted identifiers.
+    for character, label in (("%", "%"), ("\0", "NUL")):
         if character in v:
             raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "{label}" character')
     return '"' + v.replace('"', '""') + '"'

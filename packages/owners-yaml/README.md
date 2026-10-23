@@ -19,6 +19,7 @@ So don't read the files to find an owner. Ask the resolver: `owners who <path>` 
 GitHub's `CODEOWNERS` can stay in place for required approvals.
 
 The format is defined in [SPEC.md](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md).
+The website at [owners-yaml.posthog.dev](https://owners-yaml.posthog.dev) walks through setup with commands you can copy.
 PostHog's monorepo uses it for about 30 teams.
 The same files route review requests, give every agent-opened pull request one accountable owner, and send daily digests, flaky-test reports, and alerts to the right team channel.
 
@@ -67,7 +68,7 @@ uvx owners-yaml --help        # run it once without installing
 The package installs two identical commands, `owners` and `owners-yaml`.
 An unrelated project on PyPI is named `owners`, so always write `owners-yaml` when you install or run it: `uvx owners` fetches that other package.
 After `uv tool install owners-yaml`, the `owners` command on your PATH is this one.
-In CI, pin the version (`owners-yaml==0.2.1`), because a new release can change how paths resolve.
+In CI, pin the version (`owners-yaml==0.3.0`), because a new release can change how paths resolve.
 
 Requirements: Python 3.10 or later, PyYAML, and click.
 The commands read tracked files through `git`. Outside a git worktree, pass `--repo-root` and they read the files from disk.
@@ -111,6 +112,21 @@ rules:
 Resolve the new directory itself, not a file inside it: `owners resolve --json products/new-thing` returns `"additions": ["team-architecture"]`, and a deeper path does not.
 The owners of additions from every file on the walk add up, so a nested file cannot drop what an ancestor declared.
 The format only names these owners. A review bot or CI check decides from the change set what counts as an addition and what to do with the list.
+Point the resolver at the tree before the change, and it names the new part for you: a path the tree does not hold carries `added`, for example `"added": {"path": "products/new-thing", "additions": ["team-architecture"]}` for `products/new-thing/app.py`. That also covers a new file in an existing directory, and a file that a change replaces with a directory.
+
+`sensitive: true` marks paths where a small change can change behavior far outside the change, such as a CI baseline or a list of exemptions:
+
+```yaml
+version: 1
+owners: team-platform
+rules:
+  - match: '/ci/allowlist.txt'
+    sensitive: true
+```
+
+The nearest value wins, as for `status`, and a nearer file that changes the owners keeps it.
+A review bot can then request the owners of `ci/allowlist.txt` for a one-line change that it would otherwise skip as minor.
+It never makes a review required. An alias file can set it too.
 
 The root file can also hold repository settings:
 
@@ -128,7 +144,7 @@ teams:
 ```
 
 `alias_files` names the other files that count as ownership files, such as a package manifest that already lists owners.
-Only the `owners` field of such a file is read, and an `owners.yaml` next to it wins.
+Only the `owners` and `sensitive` fields of such a file are read, and an `owners.yaml` next to it wins.
 The default is `[product.yaml]`, so a repository that never declares the setting still reads its product manifests.
 A declared list replaces the default, and `alias_files: []` turns alias files off.
 A reader that fetches files over a network should set `alias_files: []` in a repository that has no alias files, so it does not probe two names per directory.
@@ -171,7 +187,7 @@ To list what nobody owns, run `owners unowned`. Paths under `owners: null` are l
 ### Lint in CI
 
 ```console
-$ uvx owners-yaml==0.2.1 lint
+$ uvx owners-yaml==0.3.0 lint
 ⚠ coverage: 0 of 5 tracked file(s) resolve to unowned
 
 ✓ owners.yaml lint passed (1 warning(s))
@@ -179,7 +195,8 @@ $ uvx owners-yaml==0.2.1 lint
 
 `lint` fails on schema errors, a directory with two ownership files, `owners.yaml` files in reserved locations, and a rule that names a directory without the trailing `/`.
 Write `docs/` for a directory, because `docs` also matches a file called `docs`.
-It warns about rule patterns that match no tracked file, and it reports coverage.
+It warns about rule patterns that match no tracked file, fields it does not know, and sensitive paths without owners, and it reports coverage.
+From the release after 0.3.0, an unknown field is a warning and not an error, so a file that uses a field from a later release still passes that `lint`. Version 0.3.0 and earlier still fail on it.
 Pass the changed ownership files as arguments to check only those.
 
 Plain `lint` does not know which teams exist, so it accepts a slug for a team that was renamed or deleted.
@@ -208,7 +225,7 @@ Submodules can change between minor releases.
 From any language, pipe paths to the JSON entrypoint. `uvx` fetches the package from PyPI, so the machine needs only `uv`:
 
 ```bash
-echo "billing/api/invoices.py" | uvx --from owners-yaml==0.2.1 python -m owners_yaml --repo-root path/to/repo
+echo "billing/api/invoices.py" | uvx --from owners-yaml==0.3.0 python -m owners_yaml --repo-root path/to/repo
 ```
 
 The entrypoint imports only PyYAML. A tool that already has the source can run it with no install: `PYTHONPATH=path/to/packages/owners-yaml python3 -m owners_yaml`.
@@ -300,6 +317,7 @@ Moving an existing CODEOWNERS file into `owners.yaml` files is a one-time migrat
 
 ## Project
 
+- [Website](https://owners-yaml.posthog.dev)
 - [Changelog](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/CHANGELOG.md)
 - [Specification](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md)
 - [Issues](https://github.com/PostHog/posthog/issues)
@@ -310,12 +328,12 @@ Run its tests with `uv run --no-project --with pyyaml --with click --with pytest
 To release, bump `version` in `pyproject.toml`, add the matching section to `CHANGELOG.md`, merge, then tag `master`:
 
 ```bash
-git tag owners-yaml-v0.2.1 && git push origin owners-yaml-v0.2.1
+git tag owners-yaml-v0.3.0 && git push origin owners-yaml-v0.3.0
 ```
 
 The tag starts [`publish-owners-yaml.yml`](https://github.com/PostHog/posthog/blob/master/.github/workflows/publish-owners-yaml.yml).
 It checks that the tag matches the version, builds and tests the wheel, and publishes to PyPI with trusted publishing.
 It then creates a GitHub release from the changelog section.
-To retry a failed run, dispatch the workflow on the same tag: `gh workflow run publish-owners-yaml.yml --ref owners-yaml-v0.2.1`.
+To retry a failed run, dispatch the workflow on the same tag: `gh workflow run publish-owners-yaml.yml --ref owners-yaml-v0.3.0`.
 
 MIT licensed.

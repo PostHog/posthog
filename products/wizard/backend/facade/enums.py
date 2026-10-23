@@ -8,6 +8,8 @@ the implementation (logic.py, models.py).
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class WizardSessionRunPhase(StrEnum):
     IDLE = "idle"
@@ -26,12 +28,20 @@ class WizardSessionTaskStatus(StrEnum):
     CANCELED = "canceled"
 
 
-class WizardRunStatus(StrEnum):
-    CREATED = "created"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+# Each label repeats its value, because the API documents these choices as plain values.
+class WizardTaskStatus(LabeledStrEnum):
+    CREATED = "created", "created"
+    RUNNING = "running", "running"
+    COMPLETED = "completed", "completed"
+    FAILED = "failed", "failed"
+
+
+class WizardRunStatus(LabeledStrEnum):
+    CREATED = "created", "created"
+    RUNNING = "running", "running"
+    COMPLETED = "completed", "completed"
+    FAILED = "failed", "failed"
+    CANCELLED = "cancelled", "cancelled"
 
 
 class WizardRunDispatchStatus(StrEnum):
@@ -39,12 +49,12 @@ class WizardRunDispatchStatus(StrEnum):
     DISPATCHED = "dispatched"
 
 
-class WizardRunStage(StrEnum):
-    DISPATCHING = "dispatching"
-    PROVISIONING = "provisioning"
-    PREPARING_WORKSPACE = "preparing_workspace"
-    EXECUTING_WIZARD = "executing_wizard"
-    CREATING_ARTIFACTS = "creating_artifacts"
+class WizardRunStage(LabeledStrEnum):
+    DISPATCHING = "dispatching", "dispatching"
+    PROVISIONING = "provisioning", "provisioning"
+    PREPARING_WORKSPACE = "preparing_workspace", "preparing_workspace"
+    EXECUTING_WIZARD = "executing_wizard", "executing_wizard"
+    CREATING_ARTIFACTS = "creating_artifacts", "creating_artifacts"
 
 
 class WizardWorkerCleanupStatus(StrEnum):

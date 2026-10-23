@@ -8,12 +8,10 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
+import { mockSourceMetadata, pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { SignalReport, SignalRun } from '../../types'
-import { PullRequestsTab } from './PullRequestsTab'
 import { ReportsTab } from './ReportsTab'
-import { ReportsTabLegacy } from './ReportsTabLegacy'
 import { RunsTab } from './RunsTab'
 
 // Stories for the inbox tab bodies. The Reports tab loads each report state via `reportListLogic`,
@@ -58,6 +56,9 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
             '/api/projects/:id/signals/reports/available_reviewers': () => [200, []],
             '/api/projects/:id/signals/scout/configs': () => [200, []],
         },
+        post: {
+            '/api/projects/:id/signals/reports/source_metadata/': mockSourceMetadata(reports),
+        },
     })
 }
 
@@ -82,7 +83,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true, [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
 }
@@ -128,27 +129,6 @@ export const RunsEmpty: Story = {
     render: () => (
         <div className="bg-primary min-h-screen">
             <RunsTab runs={[]} loading={false} />
-        </div>
-    ),
-}
-
-// The flat tabs with the redesign flag off: one list per tab under the search and filter bar.
-export const ReportsLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    decorators: [reportsListDecorator(reportTabReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <ReportsTabLegacy />
-        </div>
-    ),
-}
-
-export const PullRequestsLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    decorators: [reportsListDecorator(pullRequestReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <PullRequestsTab />
         </div>
     ),
 }

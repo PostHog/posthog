@@ -1,8 +1,12 @@
+import { CustomFacetSourceType } from 'lib/components/FacetRail/customFacetsLogic'
+import { FacetOption } from 'lib/components/FacetRail/Facet'
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+
 import { UniversalFiltersGroup } from '~/types'
 
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 
-import { FacetOption } from './Facet'
 import {
     SERVICE_NAME_FILTER,
     SEVERITY_LEVEL_FILTER,
@@ -223,6 +227,41 @@ export const FACETS: FacetConfig[] = [
 ]
 
 /**
+ * Return each resource attribute key and alias for these facets once.
+ * The presence probe uses these exact keys. Other resource keys cannot hide a facet.
+ */
+export function presenceProbeKeys(facets: FacetConfig[]): string[] {
+    const keys = facets.flatMap((facet) =>
+        facet.source.type === 'resourceAttribute' ? [facet.source.key, ...(facet.source.aliasKeys ?? [])] : []
+    )
+    return Array.from(new Set(keys))
+}
+
+/** The endpoint uses seven days when the request has no date range. */
+export const PRESENCE_DEFAULT_LOOKBACK_DAYS = 7
+
+/**
+ * Return the probe window for a selected range.
+ * Return null to use the endpoint's default seven-day window.
+ * If the selection starts before that window, use its range to include older keys.
+ * This limits the read to the selected range.
+ */
+export function presenceProbeWindow(range: {
+    date_from?: string | null
+    date_to?: string | null
+}): { date_from: string; date_to?: string } | null {
+    const from = range.date_from
+    if (!from) {
+        return null
+    }
+    const start = dayjs(from).isValid() ? dayjs(from) : dateStringToDayJs(from)
+    if (!start || !start.isBefore(dayjs().subtract(PRESENCE_DEFAULT_LOOKBACK_DAYS, 'day'))) {
+        return null
+    }
+    return range.date_to ? { date_from: from, date_to: range.date_to } : { date_from: from }
+}
+
+/**
  * Resolve the configured facets against the resource-attribute keys a tenant actually emits.
  * Column facets always pass through. A resource-attribute facet is kept only if the tenant emits its
  * current key or one of its aliases, and its source is rewritten onto whichever spelling is present so
@@ -244,58 +283,6 @@ export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string
     }
     return resolved
 }
-
-/**
- * Filter facets by a free-text query matching the field name or its group (case-insensitive
- * substring) — powers the rail's "search facets" box. A blank query returns everything, so
- * `facetsByGroup` then drops any group left with no matching facets for free.
- */
-export function filterFacetsByName(facets: FacetConfig[], query: string): FacetConfig[] {
-    const needle = query.trim().toLowerCase()
-    if (!needle) {
-        return facets
-    }
-    return facets.filter(
-        (facet) => facet.title.toLowerCase().includes(needle) || facet.group.toLowerCase().includes(needle)
-    )
-}
-
-/**
- * Ensure every selected (included or excluded) value of a dynamic facet renders even when absent
- * from the fetched list —
- * a filter from a URL or saved view can reference a value with no matches in the current scope
- * (or one below the top-N cutoff), and without a visible row it can't be seen or toggled off.
- * Missing values are prepended with a zero count. An active type-ahead search still applies to
- * injected rows, matching the server-side substring semantics of the fetched ones.
- */
-export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[], search?: string): FacetOption[] {
-    const needle = (search ?? '').trim().toLowerCase()
-    const fetchedValues = new Set(fetched.map((option) => option.value))
-    // Dedupe: callers pass included+excluded concatenated, and a value hand-edited into both
-    // polarities appears in both — without this it would inject a duplicate-keyed row.
-    const missing = Array.from(new Set(selected))
-        .filter((value) => !fetchedValues.has(value))
-        .filter((value) => !needle || value.toLowerCase().includes(needle))
-        .map((value) => ({ value, label: value, count: 0 }))
-    return missing.length > 0 ? [...missing, ...fetched] : fetched
-}
-
-/** Group facets by `group`, preserving first-appearance order of both groups and facets. */
-export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] {
-    const groups: [string, FacetConfig[]][] = []
-    for (const facet of facets) {
-        const existing = groups.find(([group]) => group === facet.group)
-        if (existing) {
-            existing[1].push(facet)
-        } else {
-            groups.push([facet.group, [facet]])
-        }
-    }
-    return groups
-}
-
-/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
-export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
 
 /** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
 export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {

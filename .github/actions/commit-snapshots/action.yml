@@ -71,6 +71,8 @@ runs:
                       for file in $(git apply --numstat "$patch" | cut -f3); do
                         if git apply --check --include="$file" "$patch" 2>/dev/null; then
                           git apply --index --include="$file" "$patch"
+                        elif git apply --reverse --check --include="$file" "$patch" 2>/dev/null; then
+                          echo "Skipping $file from $patch (already applied)"
                         elif [[ "$file" == *.ambr ]] && [ -f "$file" ] \
                           && grep -F -A1 -- "diff --git a/$file b/$file" "$patch" | grep -q '^new file mode'; then
                           extract_dir=$(mktemp -d)
@@ -80,7 +82,9 @@ runs:
                           git add -- "$file"
                           echo "Merged $file from $patch"
                         else
-                          echo "::warning::$file in $patch could not be applied — skipping that file"
+                          # marker: snapshot-conflict-exit. ci-backend.yml refuses a PR head whose copy of this action lacks it.
+                          echo "::error::$file in $patch could not be applied. Rebase onto master and push again."
+                          exit 1
                         fi
                       done
                     fi

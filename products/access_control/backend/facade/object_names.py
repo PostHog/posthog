@@ -12,7 +12,8 @@ from typing import cast
 
 from django.apps import apps
 from django.core.exceptions import FieldDoesNotExist
-from django.db.models import Model
+from django.db.models import BooleanField, F, Model, Value
+from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
 from posthog.exceptions_capture import capture_exception
@@ -54,6 +55,8 @@ class ResolvedObjectName:
     name: str | None
     # Insights link by short_id rather than pk, so the frontend needs it alongside the name
     short_id: str | None = None
+    # True when the object is soft-deleted. Rules on such objects stay stored but are not listed
+    deleted: bool = False
 
 
 @cache
@@ -154,34 +157,44 @@ def _display_model_for_known_resource(resource: str) -> DisplayModel | None:
 def resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, ResolvedObjectName]:
     """Map {resource_id -> display info} for one resource type, empty when we can't name its objects.
 
-    Queries through _base_manager so rules pointing at soft-deleted objects still resolve: those are
-    exactly the rows someone opens this page to clean up. Tenant isolation holds via team_id.
+    Queries through _base_manager so a rule on a soft-deleted object still resolves, with `deleted`
+    set, instead of falling back to a bare id. Tenant isolation holds via team_id.
     """
     display = display_model(resource) if resource_ids else None
     if display is None:
         return {}
     try:
         rows = display.model._base_manager.filter(team_id=team_id, pk__in=resource_ids)
+        # Not every model has a deleted column, and on some it is nullable, so normalize to a bool
+        if model_has_field(display.model, "deleted"):
+            rows = rows.annotate(is_deleted=Coalesce(F("deleted"), Value(False)))
+        else:
+            rows = rows.annotate(is_deleted=Value(False, output_field=BooleanField()))
         if resource == "insight":
             # Insight.name is nullable and saved insights often carry only derived_name, and insight
             # URLs address short_ids rather than the pk rules store
             return {
-                str(pk): ResolvedObjectName(name=name or derived_name, short_id=short_id)
-                for pk, name, derived_name, short_id in rows.values_list("pk", "name", "derived_name", "short_id")
+                str(pk): ResolvedObjectName(name=name or derived_name, short_id=short_id, deleted=deleted)
+                for pk, name, derived_name, short_id, deleted in rows.values_list(
+                    "pk", "name", "derived_name", "short_id", "is_deleted"
+                )
             }
         if resource == "ticket":
             # A bare number doesn't read as an object; match the ticket page's own title
             return {
-                str(pk): ResolvedObjectName(name=f"Ticket: {number}")
-                for pk, number in rows.values_list("pk", "ticket_number")
+                str(pk): ResolvedObjectName(name=f"Ticket: {number}", deleted=deleted)
+                for pk, number, deleted in rows.values_list("pk", "ticket_number", "is_deleted")
             }
         if model_has_field(display.model, "short_id"):
             # Notebooks and other short_id models link by short_id, like insights
             return {
-                str(pk): ResolvedObjectName(name=name, short_id=short_id)
-                for pk, name, short_id in rows.values_list("pk", display.name_field, "short_id")
+                str(pk): ResolvedObjectName(name=name, short_id=short_id, deleted=deleted)
+                for pk, name, short_id, deleted in rows.values_list("pk", display.name_field, "short_id", "is_deleted")
             }
-        return {str(pk): ResolvedObjectName(name=name) for pk, name in rows.values_list("pk", display.name_field)}
+        return {
+            str(pk): ResolvedObjectName(name=name, deleted=deleted)
+            for pk, name, deleted in rows.values_list("pk", display.name_field, "is_deleted")
+        }
     except Exception as e:
         # A resource_id of the wrong shape for the model's pk, or a model that moved. The rules list
         # falls back to raw ids, but report it: one failure usually breaks the whole resource type

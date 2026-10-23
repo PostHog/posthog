@@ -122,11 +122,13 @@ class TestGetEventSummary:
         summary = _get_event_summary(event)
         assert "ERROR" in summary
 
-    @pytest.mark.parametrize("score", [0, 7.25])
-    def test_numeric_evaluation_summary(self, score: float) -> None:
+    @pytest.mark.parametrize(
+        "output_type,score", [("numeric", 0), ("numeric", 7.25), ("categorical", []), ("categorical", ["resolved"])]
+    )
+    def test_typed_evaluation_summary(self, output_type: str, score: float | list[str]) -> None:
         event = {
             "event": "$ai_evaluation",
-            "properties": {"$ai_evaluation_result_type": "numeric", "$ai_evaluation_numeric_result": score},
+            "properties": {"$ai_evaluation_result_type": output_type, f"$ai_evaluation_{output_type}_result": score},
         }
         assert _get_event_summary(event) == f"evaluation ({score})"
 
@@ -195,6 +197,25 @@ class TestGetEventSummary:
         }
         summary = _get_event_summary(event)
         assert "Factual accuracy (llm_judge, false)" in summary
+
+    @parameterized.expand(
+        [
+            ("generation", "$ai_generation", {"$ai_span_name": 42, "$ai_model": 4}, "42 (4)"),
+            ("generation_model_fallback", "$ai_generation", {"$ai_model": 4}, "4 (4)"),
+            ("span", "$ai_span", {"$ai_span_name": 42, "$ai_is_error": True}, "42 (ERROR)"),
+            ("embedding", "$ai_embedding", {"$ai_span_name": 42, "$ai_model": 4}, "42 (4)"),
+            (
+                "evaluation",
+                "$ai_evaluation",
+                {"$ai_evaluation_name": 42, "$ai_evaluation_runtime": 1, "$ai_evaluation_result": True},
+                "42 (1, true)",
+            ),
+        ]
+    )
+    def test_non_string_names_are_coerced(
+        self, _name: str, event_type: str, properties: dict[str, Any], expected: str
+    ) -> None:
+        assert _get_event_summary({"event": event_type, "properties": properties}) == expected
 
     def test_unknown_event_type(self):
         """Should return event type for unknown events."""

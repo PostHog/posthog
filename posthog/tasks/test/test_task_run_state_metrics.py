@@ -219,12 +219,14 @@ class TestCaptureTaskRunStateMetrics(TestCase):
     def test_emits_runs_terminal_1h_grouped_by_status_and_origin(self) -> None:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
-        # 2 completed Slack runs + 1 failed User run in the last hour, plus 1 old completed run (outside 1h).
+        # 2 completed Slack runs + 1 failed User run in the last hour, plus 2 old completed runs (outside 1h).
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
         self._make_task_run(origin=Task.OriginProduct.USER_CREATED, status=TaskRun.Status.FAILED)
         old = self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
         TaskRun.objects.filter(pk=old.pk).update(updated_at=timezone.now() - timedelta(hours=2))
+        touched = self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
+        TaskRun.objects.filter(pk=touched.pk).update(completed_at=timezone.now() - timedelta(hours=2))
 
         registry = self._run_with_registry()
 

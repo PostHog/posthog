@@ -1,10 +1,20 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
 from posthog.models.user_push_token import UserPushToken
-from posthog.push_notifications import send_push_to_user
+from posthog.push_notifications import mobile_push_delivery_allowed, send_push_to_user
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
+from products.signals.backend.models import SignalReport
 
 
 class TestUserPushTokenEndpoints(APIBaseTest):
@@ -195,6 +205,48 @@ class TestPushNotifications(APIBaseTest):
         self.assertEqual(payload[0]["data"], {"taskId": "t1", "taskRunId": "r1"})
 
     @patch("posthog.push_notifications.requests.post")
+    def test_send_push_retries_mixed_expo_projects_per_device(self, mock_post):
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[a]", platform="ios")
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[b]", platform="ios")
+
+        class _MixedProjectResponse:
+            status_code = 400
+
+            def json(self_inner):
+                return {"errors": [{"code": "PUSH_TOO_MANY_EXPERIENCE_IDS"}]}
+
+        mock_post.side_effect = [
+            _MixedProjectResponse(),
+            self._stub_response(ok=["a"]),
+            self._stub_response(ok=["b"]),
+        ]
+
+        accepted = send_push_to_user(self.user, title="posthog", body="task finished")
+
+        self.assertEqual(accepted, 2)
+        self.assertEqual([len(call.kwargs["json"]) for call in mock_post.call_args_list], [2, 1, 1])
+        self.assertEqual(
+            {call.kwargs["json"][0]["to"] for call in mock_post.call_args_list[1:]},
+            {"ExponentPushToken[a]", "ExponentPushToken[b]"},
+        )
+
+    @patch("posthog.push_notifications.logger.warning")
+    @patch("posthog.push_notifications.requests.post")
+    def test_send_push_does_not_log_rejected_token(self, mock_post, mock_warning):
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[private]", platform="ios")
+
+        class _RejectedResponse:
+            status_code = 400
+
+            def json(self_inner):
+                return {"errors": [{"code": "INVALID_PUSH_TOKEN", "details": "ExponentPushToken[private]"}]}
+
+        mock_post.return_value = _RejectedResponse()
+
+        self.assertEqual(send_push_to_user(self.user, title="t", body="b"), 0)
+        self.assertNotIn("ExponentPushToken[private]", str(mock_warning.call_args_list))
+
+    @patch("posthog.push_notifications.requests.post")
     def test_send_push_prunes_invalid_tokens(self, mock_post):
         UserPushToken.objects.create(user=self.user, token="ExponentPushToken[a]", platform="ios")
         UserPushToken.objects.create(user=self.user, token="ExponentPushToken[b]", platform="android")
@@ -255,3 +307,72 @@ class TestPushNotifications(APIBaseTest):
         self.assertEqual(accepted, 0)
         # Token preserved — only DeviceNotRegistered prunes.
         self.assertTrue(UserPushToken.objects.filter(token="ExponentPushToken[a]").exists())
+
+
+class TestReportPushDelivery(BaseTest):
+    @parameterized.expand(
+        [
+            ("member", True),
+            ("project_denied", False),
+            ("inactive", False),
+            ("removed_member", False),
+            ("organization_admin", True),
+            ("reports_denied", False),
+            ("role_granted", True),
+            ("role_denied", False),
+        ]
+    )
+    @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True)
+    def test_report_delivery_checks_only_recipient_access(self, state: str, allowed: bool, _flag: object) -> None:
+        self.organization.available_product_features = [
+            {"key": feature, "name": feature}
+            for feature in [AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        membership.level = (
+            OrganizationMembership.Level.ADMIN if state == "organization_admin" else OrganizationMembership.Level.MEMBER
+        )
+        membership.save()
+        User.objects.create_and_join(self.organization, "other-recipient@example.com", None)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Example report")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        if state.startswith("role_"):
+            role = Role.objects.create(organization=self.organization, name="Report readers")
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=membership)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                role=role,
+                access_level="member" if state == "role_granted" else "none",
+            )
+        else:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="none" if state in {"project_denied", "organization_admin"} else "member",
+            )
+        if state == "inactive":
+            User.objects.filter(id=self.user.id).update(is_active=False)
+        elif state == "removed_member":
+            membership.delete()
+        elif state == "reports_denied":
+            AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+
+        with CaptureQueriesContext(connection) as queries:
+            result = mobile_push_delivery_allowed(
+                self.user,
+                {"type": "report", "project_id": self.team.id, "report_id": str(report.id)},
+            )
+
+        self.assertEqual(result, allowed)
+        membership_queries = [
+            query["sql"] for query in queries if 'FROM "posthog_organizationmembership"' in query["sql"]
+        ]
+        for query in membership_queries:
+            self.assertIn(f'"user_id" = {self.user.id}', query)

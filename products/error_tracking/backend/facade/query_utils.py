@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
+from posthog.dataclasses import frozen
+from posthog.utils import relative_date_parse
+
+from products.error_tracking.backend.facade.contracts import IssueTrendDirection
+
 MAX_NORMALIZED_TEXT_CHARS = 1000
+MAX_STACK_FRAMES = 50
+# The issue detail tool returns the full description, so list rows keep only a preview.
+MAX_LIST_DESCRIPTION_CHARS = 300
 
 ISSUE_FIELDS = [
     "id",
@@ -43,7 +53,8 @@ def normalize_volume_resolution(volume_resolution: int) -> int:
     return max(volume_resolution, 1)
 
 
-CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
+CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_release"]
+RELEASE_EVENT_SELECTS = ["properties.$exception_release"]
 DEFAULT_EVENT_CONTEXT_INCLUDES = ["exception", "environment", "navigation", "correlation"]
 EVENT_CONTEXT_PROPERTY_SELECTS = {
     "exception": [
@@ -67,7 +78,7 @@ EVENT_CONTEXT_PROPERTY_SELECTS = {
         "properties.$app_version",
         "properties.$device_type",
     ],
-    "release": ["properties.$exception_releases"],
+    "release": ["properties.$exception_release"],
     "navigation": ["properties.$current_url", "properties.$screen_name", "properties.$referrer"],
     "correlation": [
         "properties.$session_id",
@@ -86,6 +97,29 @@ EVENT_SEARCH_PROPERTIES = ["properties.$exception_types", "properties.$exception
 PROPERTY_COLUMN_NAMES = {
     select.removeprefix("properties.") for select in [*CONTEXT_EVENT_SELECTS, *EVENT_PROPERTY_SELECTS]
 }
+
+ISSUE_BREAKDOWN_TOP_VALUES = 5
+ISSUE_BREAKDOWN_MAX_DAYS = 30
+MAX_BREAKDOWN_VALUE_CHARS = 200
+# Ask for more values than the response returns: NULL and empty values can take a slot, and they are dropped.
+ISSUE_BREAKDOWN_QUERY_VALUES = ISSUE_BREAKDOWN_TOP_VALUES + 2
+# Dimension name in the response -> event property. All of them have materialized columns. A property without one
+# makes the query read the whole properties blob, which holds the exception payload. On a high-volume issue that
+# multiplies the bytes read by about 40, for example with $trace_id or $exception_handled.
+ISSUE_BREAKDOWN_DIMENSIONS = {
+    "path": "$pathname",
+    "url": "$current_url",
+    "screen": "$screen_name",
+    "browser": "$browser",
+    "os": "$os",
+    "library": "$lib",
+    "library_version": "$lib_version",
+    "app_version": "$app_version",
+}
+ISSUE_BREAKDOWN_SESSION_PROPERTY = "$session_id"
+ISSUE_BREAKDOWN_PROPERTIES = [*ISSUE_BREAKDOWN_DIMENSIONS.values(), ISSUE_BREAKDOWN_SESSION_PROPERTY]
+# Labels the breakdowns query uses for a missing value.
+BREAKDOWN_EMPTY_VALUES = {"", "$$_posthog_breakdown_null_$$"}
 
 
 def build_event_selects(includes: list[str]) -> list[str]:
@@ -126,21 +160,19 @@ def add_event_filter(filters: list[dict[str, object]], key: str, operator: str, 
 
 def add_release_filter(filters: list[dict[str, object]], release: str) -> None:
     escaped_release = escape_hogql_string(release)
-    releases_json = "ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')"
     filters.append(
         {
             "type": "hogql",
-            "key": f"position(toString(properties.$exception_releases), {escaped_release}) > 0",
+            "key": f"position(toString(properties.$exception_release), {escaped_release}) > 0",
         }
     )
     filters.append(
         {
             "type": "hogql",
             "key": (
-                f"arrayExists(r -> (r.1 = {escaped_release} "
-                f"OR JSONExtractString(r.2, 'version') = {escaped_release} "
-                f"OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = {escaped_release}), "
-                f"JSONExtractKeysAndValuesRaw({releases_json}))"
+                f"{escaped_release} IN (toString(properties.$exception_release.id), "
+                "toString(properties.$exception_release.version), "
+                "toString(properties.$exception_release.metadata.git.commit_id))"
             ),
         }
     )
@@ -189,6 +221,19 @@ def pick_fields(record: dict[str, object], fields: list[str]) -> dict[str, objec
     return {field: record[field] for field in fields if field in record}
 
 
+def build_list_issue(issue: dict[str, object], include_volume: bool) -> dict[str, object]:
+    row = pick_fields(issue, LIST_ISSUE_FIELDS)
+    if "description" in row:
+        row["description"] = truncate_text(row["description"], MAX_LIST_DESCRIPTION_CHARS)
+    aggregations = as_record(row.get("aggregations"))
+    if aggregations is not None and not include_volume:
+        # The query always computes one volume bucket, which only repeats the occurrence count.
+        row["aggregations"] = {
+            key: value for key, value in aggregations.items() if key not in {"volumeRange", "volume_buckets"}
+        }
+    return row
+
+
 def to_number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
@@ -210,11 +255,11 @@ def parse_jsonish(value: object) -> object:
     return parsed
 
 
-def truncate_text(value: object) -> object:
-    if not isinstance(value, str) or len(value) <= MAX_NORMALIZED_TEXT_CHARS:
+def truncate_text(value: object, max_chars: int = MAX_NORMALIZED_TEXT_CHARS) -> object:
+    if not isinstance(value, str) or len(value) <= max_chars:
         return value
     suffix = f"… [truncated from {len(value)} chars]"
-    return f"{value[: MAX_NORMALIZED_TEXT_CHARS - len(suffix)]}{suffix}"
+    return f"{value[: max_chars - len(suffix)]}{suffix}"
 
 
 def as_record(value: object) -> dict[str, object] | None:
@@ -262,8 +307,14 @@ def normalize_stacktrace(
         if isinstance(raw_frames, list)
         else None
     )
+    frames_omitted = 0
+    if frames is not None and len(frames) > MAX_STACK_FRAMES:
+        # Frames run from the outermost call to the frame that raised, so keep the end of the list. A deep
+        # recursion can otherwise return thousands of frames that repeat the same few lines.
+        frames_omitted = len(frames) - MAX_STACK_FRAMES
+        frames = frames[-MAX_STACK_FRAMES:]
     base_stacktrace = strip_non_raw_fields(stacktrace_record)
-    return compact_dict({**base_stacktrace, "frames": frames})
+    return compact_dict({**base_stacktrace, "frames": frames, "frames_omitted": frames_omitted or None})
 
 
 def normalize_exception(
@@ -318,7 +369,7 @@ def normalize_error_property(
 ) -> object:
     if name == "$exception_list":
         return normalize_exception_list(value, include_stacktrace, only_app_frames, include_code_variables)
-    if name in {"$exception_releases", "$cymbal_errors"}:
+    if name in {"$exception_release", "$cymbal_errors"}:
         return parse_jsonish(value)
     if name == "$exception_handled" and isinstance(value, str) and value.lower() in {"true", "false"}:
         return value.lower() == "true"
@@ -361,6 +412,35 @@ def map_event_row(
         else:
             event[column] = value
     return event
+
+
+def dedupe_repeated_stacktraces(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Replace a stack trace that the page already returned with a reference to the first copy.
+
+    Events of one issue usually share one stack, so a page of sampled events otherwise repeats the same frames once
+    for each event. The reference names the event and the index of the exception in its `$exception_list`, because
+    one event can hold several exceptions with different stacks, and two of them can share a stack. Stacks that
+    differ in any frame, or in code variables, stay in full.
+    """
+    first_copy_by_stack: dict[str, dict[str, object]] = {}
+    for event in events:
+        event_uuid = event.get("uuid")
+        properties = as_record(event.get("properties"))
+        exceptions = properties.get("$exception_list") if properties else None
+        if not isinstance(exceptions, list):
+            continue
+        for index, exception in enumerate(exceptions):
+            exception_record = as_record(exception)
+            stacktrace = as_record(exception_record.get("stacktrace")) if exception_record else None
+            if exception_record is None or stacktrace is None or not stacktrace.get("frames"):
+                continue
+            key = json.dumps(stacktrace, sort_keys=True, default=str)
+            first_copy = first_copy_by_stack.get(key)
+            if first_copy is not None:
+                exception_record["stacktrace"] = dict(first_copy)
+            elif isinstance(event_uuid, str):
+                first_copy_by_stack[key] = {"same_as_event": event_uuid, "same_as_exception": index}
+    return events
 
 
 def map_context_event_properties(data: dict[str, object]) -> dict[str, object]:
@@ -423,14 +503,8 @@ def build_top_in_app_frame(issue: dict[str, object], event_properties: dict[str,
     )
 
 
-def extract_latest_release(event_properties: dict[str, object]) -> dict[str, object]:
-    releases = event_properties.get("$exception_releases")
-    release_values = (
-        releases if isinstance(releases, list) else list(releases.values()) if isinstance(releases, dict) else []
-    )
-    records = [record for value in release_values if (record := as_record(value)) is not None]
-    records.sort(key=lambda record: str(record.get("timestamp") or record.get("created_at") or ""), reverse=True)
-    release = records[0] if records else None
+def extract_release(event_properties: dict[str, object]) -> dict[str, object]:
+    release = as_record(event_properties.get("$exception_release"))
     if release is None:
         return {}
     metadata = as_record(release.get("metadata"))
@@ -439,12 +513,129 @@ def extract_latest_release(event_properties: dict[str, object]) -> dict[str, obj
         {
             "version": release.get("version"),
             "project": release.get("project"),
-            "timestamp": release.get("timestamp") or release.get("created_at"),
+            "timestamp": release.get("timestamp"),
             "commit_id": git.get("commit_id") if git else None,
             "branch": git.get("branch") if git else None,
             "repo_name": git.get("repo_name") if git else None,
         }
     )
+
+
+# A late event can carry a timestamp before first_seen, but no first event is after it.
+FIRST_EVENT_LOOKBACK = timedelta(days=1)
+# EventsQuery bounds are exclusive, so the window ends just after first_seen.
+FIRST_EVENT_LOOKAHEAD = timedelta(seconds=1)
+
+
+def parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+@frozen
+class EventWindow:
+    after: str
+    before: str
+
+
+def first_event_window(first_seen: datetime | None) -> EventWindow | None:
+    if first_seen is None:
+        return None
+    return EventWindow(
+        after=(first_seen - FIRST_EVENT_LOOKBACK).isoformat(),
+        before=(first_seen + FIRST_EVENT_LOOKAHEAD).isoformat(),
+    )
+
+
+@frozen
+class BreakdownRange:
+    date_from: datetime
+    date_to: datetime
+    # True when the limit made the range shorter than the request.
+    range_limited: bool
+
+
+def resolve_breakdown_range(date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime) -> BreakdownRange:
+    """Resolve the breakdown range and limit it to the last ISSUE_BREAKDOWN_MAX_DAYS days before its end.
+
+    The breakdown aggregates every matching event, so its cost grows with the range. The limit keeps the cost
+    bounded.
+    """
+    raw_date_to = date_range.get("date_to")
+    date_to = relative_date_parse(str(raw_date_to), timezone_info, now=now) if raw_date_to else now
+    raw_date_from = date_range.get("date_from")
+    date_from = (
+        relative_date_parse(str(raw_date_from), timezone_info, now=now)
+        if raw_date_from and raw_date_from != "all"
+        else None
+    )
+    earliest = date_to - timedelta(days=ISSUE_BREAKDOWN_MAX_DAYS)
+    if date_from is None or date_from < earliest:
+        return BreakdownRange(date_from=earliest, date_to=date_to, range_limited=True)
+    return BreakdownRange(date_from=date_from, date_to=date_to, range_limited=False)
+
+
+def breakdown_query_date_range(
+    date_range: dict[str, object], timezone_info: ZoneInfo, now: datetime
+) -> tuple[dict[str, str | None], bool]:
+    """Build the date range for the breakdowns query and say whether the 30-day limit made it shorter.
+
+    A range within the limit keeps the requested strings, so a relative range such as -7d gives the same query, and
+    the same cache key, on every call. A relative date_to is sent resolved: the breakdowns query reads it forward.
+    """
+    resolved = resolve_breakdown_range(date_range, timezone_info, now)
+    raw_date_from = date_range.get("date_from")
+    return {
+        "date_from": resolved.date_from.isoformat() if resolved.range_limited else str(raw_date_from),
+        "date_to": resolved.date_to.isoformat() if date_range.get("date_to") else None,
+    }, resolved.range_limited
+
+
+def as_count(value: object) -> int:
+    # The breakdowns query returns counts as floats.
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0
+
+
+def breakdown_values(results: dict[str, object], prop: str, limit: int) -> list[dict[str, object]]:
+    property_result = as_record(results.get(prop))
+    raw_values = property_result.get("values") if property_result else None
+    values: list[dict[str, object]] = []
+    for item in raw_values if isinstance(raw_values, list) else []:
+        record = as_record(item)
+        value = record.get("value") if record else None
+        count = record.get("count") if record else None
+        if not isinstance(value, str) or value in BREAKDOWN_EMPTY_VALUES:
+            continue
+        values.append({"value": truncate_text(value, MAX_BREAKDOWN_VALUE_CHARS), "count": as_count(count)})
+    return values[:limit]
+
+
+def map_issue_breakdown(results: dict[str, object]) -> dict[str, object]:
+    """Map ErrorTrackingBreakdownsQuery results to the compact breakdown of the issue tool."""
+    totals = [
+        as_count(record.get("total_count"))
+        for prop in ISSUE_BREAKDOWN_PROPERTIES
+        if (record := as_record(results.get(prop))) is not None
+    ]
+    top_values = {
+        name: breakdown_values(results, prop, ISSUE_BREAKDOWN_TOP_VALUES)
+        for name, prop in ISSUE_BREAKDOWN_DIMENSIONS.items()
+    }
+    # The URL only matters when there is no path: backend SDKs set $current_url but not $pathname.
+    if top_values["path"]:
+        top_values["url"] = []
+    sessions = breakdown_values(results, ISSUE_BREAKDOWN_SESSION_PROPERTY, ISSUE_BREAKDOWN_TOP_VALUES)
+    return {
+        # Each event adds one row for each property, so every property has the same total.
+        "occurrences": max(totals, default=0),
+        "sample_session_ids": [session["value"] for session in sessions],
+        # Leave out empty dimensions: backend SDKs send no browser or OS, and web SDKs send no screen name.
+        "top_values": {name: items for name, items in top_values.items() if items},
+    }
 
 
 def build_impact(issue: dict[str, object]) -> dict[str, object]:
@@ -458,29 +649,77 @@ def build_impact(issue: dict[str, object]) -> dict[str, object]:
     )
 
 
-def build_sparkline(issue: dict[str, object]) -> list[float] | None:
+def volume_bucket_records(issue: dict[str, object]) -> list[dict[str, object]]:
+    aggregations = as_record(issue.get("aggregations")) or {}
+    volume_buckets = aggregations.get("volume_buckets")
+    if not isinstance(volume_buckets, list):
+        return []
+    return [record for bucket in volume_buckets if (record := as_record(bucket)) is not None]
+
+
+def build_sparkline(issue: dict[str, object], volume_resolution: int) -> list[float] | None:
     aggregations = as_record(issue.get("aggregations")) or {}
     volume_range = aggregations.get("volumeRange")
+    values: list[float] = []
     if isinstance(volume_range, list):
-        numeric_values: list[float] = []
         for value in volume_range:
             numeric_value = to_number(value)
             if numeric_value is None:
                 return None
-            numeric_values.append(numeric_value)
-        return numeric_values
-    volume_buckets = aggregations.get("volume_buckets")
-    if isinstance(volume_buckets, list):
-        numeric_values = []
-        for bucket in volume_buckets:
-            record = as_record(bucket)
-            if record is None:
-                continue
-            value = to_number(record.get("value"))
-            if value is not None:
-                numeric_values.append(value)
-        return numeric_values or None
-    return None
+            values.append(numeric_value)
+    else:
+        values = [
+            value for record in volume_bucket_records(issue) if (value := to_number(record.get("value"))) is not None
+        ]
+    if len(values) == volume_resolution * 2:
+        # trend_volume_resolution doubled the count, so add each pair of buckets back together.
+        values = [first + second for first, second in zip(values[::2], values[1::2])]
+    return values or None
+
+
+# The fewest volume buckets that split the date range into two halves.
+TREND_VOLUME_RESOLUTION = 2
+TREND_CHANGE_FRACTION = 0.25
+
+
+def trend_volume_resolution(volume_resolution: int) -> int:
+    # An odd count has no bucket edge at the midpoint of the date range.
+    return volume_resolution * 2 if volume_resolution % 2 else volume_resolution
+
+
+def trend_direction(
+    previous: int, current: int, first_seen: datetime | None, current_from: object
+) -> IssueTrendDirection:
+    current_from_at = parse_timestamp(current_from)
+    if previous == 0 and current > 0 and first_seen and current_from_at and first_seen >= current_from_at:
+        return IssueTrendDirection.NEW
+    change = current - previous
+    if change and abs(change) >= previous * TREND_CHANGE_FRACTION:
+        return IssueTrendDirection.INCREASING if change > 0 else IssueTrendDirection.DECREASING
+    return IssueTrendDirection.STABLE
+
+
+def build_trend(issue: dict[str, object], first_seen: datetime | None) -> dict[str, object] | None:
+    buckets = volume_bucket_records(issue)
+    half = len(buckets) // 2
+    if half == 0:
+        return None
+    # With an odd bucket count the middle bucket is left out, so both halves cover the same time.
+    previous_buckets, current_buckets = buckets[:half], buckets[-half:]
+    previous = int(sum(to_number(bucket.get("value")) or 0 for bucket in previous_buckets))
+    current = int(sum(to_number(bucket.get("value")) or 0 for bucket in current_buckets))
+    current_from = current_buckets[0].get("label")
+    return compact_dict(
+        {
+            "direction": trend_direction(previous, current, first_seen, current_from).value,
+            "current_occurrences": current,
+            "previous_occurrences": previous,
+            "change_percent": round((current - previous) / previous * 100) if previous else None,
+            "previous_from": previous_buckets[0].get("label"),
+            "previous_to": buckets[half].get("label"),
+            "current_from": current_from,
+        }
+    )
 
 
 def build_issue_where(issue_id: str) -> list[str]:

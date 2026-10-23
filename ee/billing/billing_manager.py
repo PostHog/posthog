@@ -25,7 +25,9 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -95,6 +97,21 @@ class BillingServiceOpenInvoicesError(Exception):
     def __init__(self, message: str):
         self.message = message
         super().__init__(message)
+
+
+class BillingManagedByPartnerError(PermissionDenied):
+    def __init__(self, partner: OAuthApplication) -> None:
+        partner_name = partner.name.strip() or "your partner"
+        super().__init__(
+            f"Billing for this organization is managed by {partner_name}. "
+            f"Contact {partner_name} to change your plan or payment details."
+        )
+
+
+def raise_if_billing_managed_by_partner(organization: Organization) -> None:
+    partner = get_billing_lock_partner(organization)
+    if partner is not None:
+        raise BillingManagedByPartnerError(partner)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:
@@ -203,6 +220,10 @@ def build_billing_token(
     if service_action:
         payload["service_action"] = service_action
 
+    paying_partner = get_billing_lock_partner(organization)
+    if paying_partner:
+        payload["payer_partner_id"] = str(paying_partner.id)
+
     encoded_jwt = jwt.encode(
         payload,
         license_secret,
@@ -210,6 +231,28 @@ def build_billing_token(
     )
 
     return encoded_jwt
+
+
+DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION = "deactivated_organizations"
+
+
+def build_billing_system_token(license: License, service_action: str) -> str:
+    """JWT for billing's /api/internal/* endpoints: license-signed, org-less, action-scoped.
+
+    Billing's internal endpoints reject tokens that carry an organization_id claim, so unlike
+    build_billing_token this deliberately omits the organization.
+    """
+    license_id = license.key.split("::")[0]
+    license_secret = license.key.split("::")[1]
+
+    payload = {
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=15),
+        "id": license_id,
+        "aud": "posthog:license-key",
+        "service_action": service_action,
+    }
+
+    return jwt.encode(payload, license_secret, algorithm="HS256")
 
 
 def _compute_webhook_signature(secret: str, timestamp: int, body: bytes) -> str:
@@ -278,14 +321,29 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
     raise BillingQueryRejected()
 
 
+class BillingServiceResponseError(Exception):
+    """Billing answered with a status code the caller does not accept."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        # The message and the body keep the positions callers already read: see
+        # `_raise_billing_error` in ee/api/billing.py, which parses the status out of the message.
+        super().__init__(f"Billing service returned bad status code: {status_code}", "body:", body)
+        self.status_code = status_code
+        self.body = body
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
-            response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+            body: Any = res.json()
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            # A body that is not JSON, such as the empty body of a proxy timeout, is still the
+            # answer the caller has to report. Read it as text, so the decode failure does not
+            # become the reported cause of the error.
+            body = res.text
+
+        raise BillingServiceResponseError(res.status_code, body)
 
 
 def _parse_funding_status(data: object) -> OrganizationFundingStatus:
@@ -856,6 +914,23 @@ class BillingManager:
     def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "forecast/")
 
+    def get_organization_export(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> requests.Response:
+        """Stream a usage or spend CSV from billing's organization export route, with the export
+        timeout. Returns the response rather than parsed data, so the file streams through."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/export/",
+            headers=self.organization_api_headers(organization, grants),
+            params=self._to_query_params(params),
+            timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
+            stream=True,
+        )
+        # A 404 here means billing lacks the route, so it stays a server error rather than "not found".
+        _raise_for_organization_error(res, map_not_found=False)
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res
+
     def get_organization_invoices(
         self,
         organization: Organization,
@@ -961,6 +1036,41 @@ class BillingManager:
 
         return res.json()
 
+    def _system_auth_headers(self, service_action: str) -> dict[str, str]:
+        if not self.license:  # mypy
+            raise Exception("No license found")
+        return {"Authorization": f"Bearer {build_billing_system_token(self.license, service_action)}"}
+
+    def set_organizations_deactivated(self, organization_ids: list[str], deactivated: bool) -> dict[str, Any]:
+        """Set or remove billing's forecast-exclusion flag for these organizations.
+
+        Billing returns 200 for every handled outcome. The default valid_codes would swallow
+        404 (endpoint not deployed) and 401 (auth failure) as success, so the caller would
+        record a sync that never happened, hence the explicit (200,).
+        """
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/internal/deactivated-organizations",
+            headers=self._system_auth_headers(DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION),
+            json={"organization_ids": organization_ids, "deactivated": deactivated},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
+
+    def get_deactivated_organizations(self) -> list[str]:
+        """Organization ids billing currently excludes from the revenue forecast."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/internal/deactivated-organizations",
+            headers=self._system_auth_headers(DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION),
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()["deactivated_organization_ids"]
+
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/trials/activate",
@@ -996,7 +1106,10 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
+            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
         """
+        raise_if_billing_managed_by_partner(organization)
+
         # Validate that organization has the integration if billing_provider is specified
         if billing_provider:
             from posthog.models import OrganizationIntegration
@@ -1017,9 +1130,21 @@ class BillingManager:
             json=data,
         )
 
-        handle_billing_service_error(res)
+        handle_billing_service_error(res, valid_codes=(200, 201))
 
         return res.json()
+
+    def authorize_with_shared_payment_token(self, organization: Organization, shared_payment_token: str) -> None:
+        raise_if_billing_managed_by_partner(organization)
+
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers=self.get_auth_headers(organization),
+            json={"shared_payment_token": shared_payment_token},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200, 201))
 
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(

@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
     SessionRecordingPlayerMode,
@@ -41,11 +42,18 @@ export default function ObservationRecording({
     playerKey,
     sessionRecordingId,
     pendingSeek,
+    unavailable,
 }: {
     playerKey: string
     sessionRecordingId: string
     pendingSeek: { ms: number; trigger: number } | null
+    /** Shown instead of the player once the recording turns out to be gone, since observations outlive recordings. */
+    unavailable: React.ReactNode
 }): JSX.Element {
+    const { isNotFound } = useValues(sessionRecordingMetaLogic({ sessionRecordingId, playerKey }))
+    if (isNotFound) {
+        return <>{unavailable}</>
+    }
     return (
         <>
             <SessionRecordingPlayer

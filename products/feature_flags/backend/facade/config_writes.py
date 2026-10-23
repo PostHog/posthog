@@ -1,62 +1,102 @@
-"""Writer admission and server-owned identity for config version 2 updates.
+"""Writer admission and server-owned identity for config version 2 writes.
 
-Three things a v2 update needs that the pure validator deliberately does not do:
+Four things a v2 write needs that the pure validator deliberately does not do:
 
-- **Admission.** ``v2_update_limits`` is the closed seam the writer asks before it looks at
-  a request. It answers ``None`` in every deployed configuration, so no v2 write is
-  reachable in production through any entrypoint. The production admission requirements
-  are documented in ``docs/internal/feature-flags/api-writes.md``.
-- **Identity.** Rule ids and assignment seeds are server-owned and identify rules, not
-  list positions. ``resolve_identity`` echoes back existing identity, allocates it for
-  genuinely new rules, and rejects a client that tries to choose it.
+- **Admission.** ``v2_write_limits`` and ``v2_creation_enabled`` are the writer policy: two
+  internal feature flags evaluated for the project, both off by default. Nothing else grants
+  admission. Disabling and soft-deleting an existing v2 row need neither, which the serializer
+  decides; the operation matrix is in ``docs/internal/feature-flags/api-writes.md``.
+- **Identity.** Rule ids, assignment seeds and holdout seeds are server-owned and identify
+  rules, not list positions. ``resolve_identity`` echoes back existing identity, allocates it
+  for genuinely new rules, and rejects a client that tries to choose it.
 - **Comparison.** ``review_update`` validates both documents' shape and semantics, so
   warnings describe the real before/proposed pair and unsupported stored families are
   rejected. Byte limits apply only to the candidate so oversized rows can be reduced.
+- **Writer-only rules.** ``check_writer_rules`` rejects what readers accept but a writer may
+  not store. It runs on the submitted document and on a stored one being enabled, never on
+  the stored side of an update, so tightening a rule never blocks replacing a stored row. A
+  rule may also accept what the stored document already holds.
 
 Deliberately free of Django ORM and DRF imports: the endpoint owns HTTP error shapes and
 the row lock, this module owns the document.
 """
 
+import re
 import sys
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
 
+import structlog
+
+from posthog.dataclasses import frozen
+from posthog.ph_client import feature_enabled_or_false
+
 from products.feature_flags.backend.facade.config_validation import (
+    RANDOMIZED_RULE_TYPES,
     ConfigError,
     ConfigValidationError,
+    ValidatedConfig,
     ValidationLimits,
     validate_config,
 )
 from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
+from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
 
-# The trusted writer policy for admitted v2 updates. ``None`` denies every one of them and
-# is the only value any deployed configuration has: per-team admission is not implemented,
-# and the per-rule metadata byte bound has no agreed production value (see api-writes.md).
-# Tests patch this attribute to exercise the dormant path; nothing reads a request field,
-# a serializer context flag, staff status or a missing user as permission to write v2.
-V2_UPDATE_LIMITS: ValidationLimits | None = None
+logger = structlog.get_logger(__name__)
 
-_SEEDED_RULE_TYPE = "percentage_rollout"
+# Internal feature flags, targeted at the ``project`` group by id. Both off means closed.
+V2_WRITES_FLAG = "feature-flag-rules-v2-writes"
+V2_CREATION_FLAG = "feature-flag-rules-v2-creation"
+
+_RESERVED_STRING_VALUES_TEXT = '$false, $true or "null"'
 
 
-def v2_update_limits() -> ValidationLimits | None:
-    """Trusted limits for an admitted v2 update, or ``None`` when the write is denied.
+def _flag_enabled(key: str, team_id: int) -> bool:
+    # Local evaluation only, so a write never waits on a remote call; an unresolved flag reads as closed.
+    try:
+        return feature_enabled_or_false(
+            key,
+            f"team-{team_id}",
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("feature_flag_rules_v2_flag_evaluation_failed", flag=key, team_id=team_id, exc_info=True)
+        return False
 
-    A lower deployment filter-size limit always wins over the policy's, matching the cap
-    the v1 write path and the Rust reader both enforce.
+
+def v2_write_limits(team_id: int) -> ValidationLimits | None:
+    """Trusted limits for a v2 write on ``team_id``'s flags, or ``None`` when the project is not admitted.
+
+    Admission is the ``feature-flag-rules-v2-writes`` flag for the project alone: no request
+    field, serializer context flag, staff status or missing user opens it.
+
+    ``max_config_bytes`` is the deployment filter-size limit the v1 write path and the Rust
+    reader both enforce. ``max_metadata_bytes`` is pilot scope: its default is sized for the
+    known pilot documents; revisit it before users can author v2 documents through the editor
+    or the wider API.
     """
-    limits = V2_UPDATE_LIMITS
-    if limits is None:
+    if not _flag_enabled(V2_WRITES_FLAG, team_id):
         return None
     return ValidationLimits(
-        max_config_bytes=min(limits.max_config_bytes, settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES),
-        max_metadata_bytes=limits.max_metadata_bytes,
+        max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES,
+        max_metadata_bytes=settings.FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES,
     )
+
+
+def v2_creation_enabled(team_id: int) -> bool:
+    """Whether ``team_id`` may create a new v2 flag: both the writes and the creation flag are on.
+
+    Turning the creation flag off leaves existing rows updatable and enableable in admitted projects.
+    """
+    return _flag_enabled(V2_CREATION_FLAG, team_id) and _flag_enabled(V2_WRITES_FLAG, team_id)
 
 
 def reject_duplicate_json_keys(body: bytes) -> None:
@@ -72,7 +112,7 @@ def reject_duplicate_json_keys(body: bytes) -> None:
         for key, value in pairs:
             if key in result:
                 raise ConfigValidationError(
-                    [ConfigError(code="invalid", detail=f"Must not repeat the key {json.dumps(key)}.", attr="filters")]
+                    [ConfigError(code="invalid", detail=f"Must not repeat the key {json.dumps(key)}.", attr=None)]
                 )
             result[key] = value
         return result
@@ -82,9 +122,7 @@ def reject_duplicate_json_keys(body: bytes) -> None:
     except ConfigValidationError:
         raise
     except ValueError as exc:
-        raise ConfigValidationError(
-            [ConfigError(code="invalid", detail="Must not repeat a key.", attr="filters")]
-        ) from exc
+        raise ConfigValidationError([ConfigError(code="invalid", detail="Must not repeat a key.", attr=None)]) from exc
 
 
 def resolve_identity(submitted: object, *, stored: Mapping[str, Any]) -> dict[str, Any]:
@@ -148,28 +186,40 @@ def _resolve_rule(
         claimed.add(rule["id"])
         current = stored_rules[rule["id"]]
 
-    if rule.get("rule_type") != _SEEDED_RULE_TYPE:
-        # A rule that is not randomized carries no seed; changing type away from a rollout
-        # drops it, and changing type towards one allocates a fresh one below.
+    if rule.get("rule_type") not in RANDOMIZED_RULE_TYPES:
+        # A rule that is not randomized carries no seed; changing type away from a randomized
+        # type drops it, and changing type towards one allocates a fresh one below.
         return resolved
-    stored_seed = current.get("seed") if current is not None and current.get("rule_type") == _SEEDED_RULE_TYPE else None
+    # A rule keeps its seed while it stays randomized, so a rollout that becomes an experiment rule keeps who is enrolled.
+    stored = current if current is not None and current.get("rule_type") in RANDOMIZED_RULE_TYPES else {}
+    resolved["seed"] = _resolve_seed(rule, stored.get("seed"), path, errors)
+    holdout = rule.get("holdout")
+    # Only experiment rules have a holdout; the validator reports one on any other rule as an unknown field.
+    if rule["rule_type"] == "experiment" and isinstance(holdout, Mapping):
+        stored_holdout = stored.get("holdout")
+        stored_seed = stored_holdout.get("seed") if isinstance(stored_holdout, Mapping) else None
+        resolved["holdout"] = {**holdout, "seed": _resolve_seed(holdout, stored_seed, f"{path}.holdout", errors)}
+    return resolved
+
+
+def _resolve_seed(submitted: Mapping[str, Any], stored_seed: object, path: str, errors: list[ConfigError]) -> object:
+    """The stored seed when the client omits or echoes it, a fresh one when nothing is stored."""
     if not isinstance(stored_seed, str):
-        if "seed" in rule:
+        if "seed" in submitted:
             errors.append(
                 ConfigError(code="invalid", detail="Assignment seeds are server-assigned.", attr=f"{path}.seed")
             )
-        resolved["seed"] = str(uuid4())
-    elif "seed" not in rule or rule["seed"] == stored_seed:
-        resolved["seed"] = stored_seed
-    else:
-        errors.append(
-            ConfigError(
-                code="invalid",
-                detail="Cannot be changed; resetting assignment is a separate operation.",
-                attr=f"{path}.seed",
-            )
+        return str(uuid4())
+    if "seed" not in submitted or submitted["seed"] == stored_seed:
+        return stored_seed
+    errors.append(
+        ConfigError(
+            code="invalid",
+            detail="Cannot be changed; resetting assignment is a separate operation.",
+            attr=f"{path}.seed",
         )
-    return resolved
+    )
+    return submitted["seed"]
 
 
 def review_update(
@@ -179,22 +229,143 @@ def review_update(
 
     A stored document this milestone cannot validate is rejected rather than overwritten:
     replacing it with a generic admitted document would erase semantics no detector here
-    can judge.
+    can judge. An empty ``stored`` is a create, which has no current document to compare.
     """
-    try:
-        # Stored rows may predate lower byte caps; validate their semantics without
-        # preventing a replacement that brings them back within the write limits.
-        current = validate_config(
-            stored, limits=ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
-        )
-    except ConfigValidationError as exc:
+    # Stored rows may predate lower byte caps; validate their semantics without
+    # preventing a replacement that brings them back within the write limits.
+    unbounded = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
+    current = _validated_stored(stored, limits=unbounded, operation="updated") if stored else None
+    # Checked first, so a changed type is not reported as values that do not match it.
+    if (
+        current is not None
+        and isinstance(document, Mapping)
+        and "return_type" in document
+        and document["return_type"] != stored["return_type"]
+    ):
         raise ConfigValidationError(
             [
                 ConfigError(
-                    code="unsupported",
-                    detail="This flag's stored configuration cannot be updated through this API.",
-                    attr="filters",
+                    code="invalid", detail="Cannot be changed after the flag is created.", attr="filters.return_type"
                 )
             ]
-        ) from exc
-    return review_config(document, limits=limits, current=current).warnings
+        )
+    warnings = review_config(document, limits=limits, current=current).warnings
+    assert isinstance(document, Mapping)  # review_config rejects anything else
+    check_writer_rules(document, stored=stored)
+    return warnings
+
+
+def validate_stored(stored: Mapping[str, Any], *, limits: ValidationLimits) -> None:
+    """Reject enabling a stored document that no longer validates under the current limits or writer rules.
+
+    Enabling is what makes the document reachable by evaluation, so a row written under an
+    older contract or a larger byte limit must be edited back into validity first.
+    """
+    _validated_stored(stored, limits=limits, operation="enabled", writer_rules=True)
+
+
+def _validated_stored(
+    stored: Mapping[str, Any], *, limits: ValidationLimits, operation: str, writer_rules: bool = False
+) -> ValidatedConfig:
+    try:
+        config = validate_config(stored, limits=limits)
+        if writer_rules:
+            check_writer_rules(stored, stored=stored)
+        return config
+    except ConfigValidationError as exc:
+        detail = f"This flag's stored configuration cannot be {operation} through this API."
+        raise ConfigValidationError([ConfigError(code="unsupported", detail=detail, attr="filters")]) from exc
+
+
+def check_writer_rules(document: Mapping[str, Any], *, stored: Mapping[str, Any]) -> None:
+    """Reject a document ``validate_config`` admitted that a writer still may not store.
+
+    Readers never apply these. Each entry in ``_WRITER_RULES`` reads the validated document
+    and the validated stored document it replaces (empty on create, itself when enabling)
+    and yields its field errors.
+    """
+    errors = [error for rule in _WRITER_RULES for error in rule(document, stored)]
+    if errors:
+        raise ConfigValidationError(errors)
+
+
+def _reserved_string_values(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
+    # The flag serves a string value as its variant, so this rule reserves the keys v1 reserves as variant keys.
+    if document["return_type"] != "string":
+        return
+    held = {stored["default_value"], *(value for _, value in _rule_values(stored))} if stored else set()
+    detail = f"a non-empty string other than {_RESERVED_STRING_VALUES_TEXT}"
+    if is_reserved_variant_key(document["default_value"], held=held):
+        yield ConfigError(code="invalid", detail=f"Must be null or {detail}.", attr="filters.default_value")
+    for attr, value in _rule_values(document):
+        if is_reserved_variant_key(value, held=held):
+            yield ConfigError(code="invalid", detail=f"Must be {detail}.", attr=attr)
+
+
+def _rule_values(document: Mapping[str, Any]) -> Iterator[tuple[str, Any]]:
+    """Each rule value and experiment-rule variant value in ``document``, with its attr."""
+    for index, rule in enumerate(document["rules"]):
+        yield f"filters.rules[{index}].value", rule.get("value")
+        for variant_index, variant in enumerate(rule.get("variants") or ()):
+            yield f"filters.rules[{index}].variants[{variant_index}].value", variant["value"]
+
+
+def _reserved_variant_keys(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
+    # A variant key does not depend on the return type, so v1's variant-key reservation applies to every flag.
+    # A held key keeps one experiment's continuity, so only the rule that holds it keeps it.
+    held_by_rule = {rule["id"]: _variant_keys(rule) for rule in stored["rules"]} if stored else {}
+    for index, rule in enumerate(document["rules"]):
+        held = held_by_rule.get(rule["id"], set())
+        for variant_index, variant in enumerate(rule.get("variants") or ()):
+            if is_reserved_variant_key(variant["key"], held=held):
+                yield ConfigError(
+                    code="invalid",
+                    detail=f'The variant key "{variant["key"]}" is reserved. Choose another key.',
+                    attr=f"filters.rules[{index}].variants[{variant_index}].key",
+                )
+
+
+def _variant_keys(rule: Mapping[str, Any]) -> set[str]:
+    return {variant["key"] for variant in rule.get("variants") or ()}
+
+
+def _compilable_patterns(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
+    """New ``regex`` and ``not_regex`` patterns must compile with Python's ``re``, as v1 writes must.
+
+    The flags service compiles with fancy_regex, which accepts some patterns ``re`` rejects, so
+    like v1 this keeps any pattern the stored document already holds; enabling adds none.
+    """
+    held = {regex.pattern for regex in _regex_patterns(stored)} if stored else set()
+    for regex in _regex_patterns(document):
+        if regex.pattern not in held and not _compiles(regex.pattern):
+            yield ConfigError(code="invalid", detail="Must be a valid regular expression.", attr=regex.attr)
+
+
+@frozen
+class _RegexPattern:
+    attr: str
+    pattern: str
+
+
+def _regex_patterns(document: Mapping[str, Any]) -> Iterator[_RegexPattern]:
+    for rule_index, rule in enumerate(document["rules"]):
+        for index, prop in enumerate(rule["targeting"]["properties"]):
+            if prop.get("operator") in ("regex", "not_regex"):
+                yield _RegexPattern(
+                    attr=f"filters.rules[{rule_index}].targeting.properties[{index}].value", pattern=prop["value"]
+                )
+
+
+def _compiles(pattern: str) -> bool:
+    try:
+        re.compile(pattern)
+    except (re.error, ValueError, OverflowError, RecursionError):
+        return False
+    return True
+
+
+_WRITER_RULES: tuple[Callable[[Mapping[str, Any], Mapping[str, Any]], Iterator[ConfigError]], ...] = (
+    _reserved_string_values,
+    _reserved_variant_keys,
+    _compilable_patterns,
+)

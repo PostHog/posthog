@@ -11,6 +11,7 @@ This will be refactored incrementally in subsequent PRs to match the product arc
 import json
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import Any, Literal, cast
 
 from django.conf import settings
@@ -43,7 +44,13 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import (
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_scout_sandbox_request,
+    is_service_auth,
+    posthog_feature_flag_enabled,
+)
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -56,11 +63,16 @@ from posthog.rate_limit import (
     SessionEventDeltasBurstRateThrottle,
     SessionEventDeltasSustainedRateThrottle,
 )
+from posthog.scopes import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
@@ -68,6 +80,8 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -85,6 +99,16 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
 )
+from products.experiments.backend.presentation.scout_writes import (
+    is_true,
+    refuse_scout_cleanup_pr,
+    refuse_scout_experiment_copy_to_project,
+    refuse_scout_experiment_delete,
+    refuse_scout_experiment_migrate,
+    refuse_scout_live_flag_config_change,
+    refuse_scout_ship_variant_without_flag_write,
+    update_carries_flag_config,
+)
 from products.experiments.backend.presentation.serializers import (
     ArchiveExperimentSerializer,
     CopyExperimentToProjectSerializer,
@@ -94,9 +118,13 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthInputsSerializer,
+    ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
-    ExperimentMetricsRecalculationSerializer,
+    ExperimentMetricsRecalculationJobSerializer,
+    ExperimentMetricsRecalculationLatestSerializer,
+    ExperimentMetricsRecalculationRunSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
     ExperimentSessionBucketResponseSerializer,
@@ -121,6 +149,7 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -131,7 +160,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance_from_stats,
 )
 from products.experiments.backend.session_buckets import (
-    SessionBucket,
+    ExperimentSessionBucket,
     SessionBucketUnavailable,
     finalize_session_bucket,
     get_experiment_session_bucket,
@@ -148,9 +177,6 @@ from products.experiments.backend.setup_context import (
     EXPERIMENT_SETUP_CONTEXT_FLAG,
     SetupContextInputs,
     build_setup_context,
-)
-from products.experiments.backend.temporal.models import (
-    ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -322,7 +348,7 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         name="search",
         location=OpenApiParameter.QUERY,
         type=str,
-        description="Free-text search applied to the experiment name (case-insensitive).",
+        description="Free-text search applied to the experiment name and its feature flag key (case-insensitive).",
         required=False,
     ),
     OpenApiParameter(
@@ -494,12 +520,29 @@ class EnterpriseExperimentsViewSet(
         return ExperimentSerializer
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
+            self._check_scout_update(request)
         # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
         # and retry precisely; the default exception handler would flatten it to a plain string.
         try:
             return super().update(request, *args, **kwargs)
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
+
+    def _check_scout_update(self, request: Request) -> None:
+        # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
+        if is_true(request.data.get("deleted", False)):
+            refuse_scout_experiment_delete(True)
+        if update_carries_flag_config(
+            request.data, legacy_flag_config_keys=ExperimentService.FEATURE_FLAG_CONFIG_KEYS
+        ) and not self._token_can_write_feature_flag(request):
+            experiment: Experiment = self.get_object()
+            refuse_scout_live_flag_config_change(
+                True,
+                can_write_feature_flag=False,
+                flag_is_live=not experiment.is_draft
+                or (experiment.feature_flag is not None and experiment.feature_flag.active),
+            )
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -518,6 +561,10 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
+        if self.action in ("health", "health_inputs"):
+            # The facade reads the experiment again with the joins its checks need, so the object lookup
+            # here only checks access.
+            queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
             # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
@@ -756,6 +803,9 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        refuse_scout_cleanup_pr(
+            is_scout_sandbox_request(request), open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"]
+        )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -800,9 +850,15 @@ class EnterpriseExperimentsViewSet(
         Returns 400 if the experiment is in draft state, the variant_key is not found
         on the flag, or the experiment has no linked feature flag.
         """
+        refuse_scout_ship_variant_without_flag_write(
+            is_scout_sandbox_request(request), can_write_feature_flag=self._token_can_write_feature_flag(request)
+        )
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        refuse_scout_cleanup_pr(
+            is_scout_sandbox_request(request), open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"]
+        )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -884,6 +940,137 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Health check findings for this experiment: problems in its configuration and its feature flag
+        that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
+        each check, so a check that found no problem can be told from one that did not apply or could
+        not read an input.
+
+        The checks here read the experiment, its flag, its linked metrics, and the changes of the
+        flag's variant split since launch. The checks that read exposure counts come with the
+        exposure query. The split-change check compares the split changes with the exposures only
+        for exposure criteria that name an event without property filters. When the split changed
+        after launch and the criteria have filters or an action, or an API key lacks `query:read`,
+        it returns an info finding with the subcode `not_checked` and the cause in
+        `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+        flag and, with an API key, `activity_log:read`) gets that finding for every running
+        experiment, because the changes are not read.
+
+        Two checks read whether the project received an event from its event definitions: a
+        definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
+        not received. A name whose definition was deleted since launch, or in the last day for a
+        draft, is not checked, because ingestion writes the definition again only when the event
+        arrives. `metric_event_not_ingested` names each metric that
+        reads an event the project never received, in the `evidence` keys `metric_N`,
+        `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
+        exposure event the project never received (`exposure_event_not_ingested`), and a
+        `$feature_flag` filter on the flag call events that requires another flag
+        (`filter_on_another_flag`). An event not received is info before launch, in the first 24
+        hours after launch, and when only secondary metrics read it, and a warning otherwise.
+        `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
+
+        The severity of the `some_conditions_pinned` finding follows the largest share that the
+        users of the pinned release conditions make up among the users who got one variant from
+        the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
+        the flag's calls that name the matched condition, not the experiment's exposure criteria:
+        info up to 5%, warning above, and no finding under 1% when at least half of the calls
+        that returned a variant name a condition. The finding is info when the share is unknown,
+        and `evidence.reason` says why: `not_measured` (for example an API key without
+        `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
+        `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
+        the caller's own assignment). A pin to a variant with 0% in the split adds an info,
+        because that variant's results show only the pinned users, unless the experiment
+        excludes the variant from the analysis.
+
+        Two findings say that the variants are assigned outside PostHog, as info. A running
+        experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
+        `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
+        flag version that are no local evaluation, from an hour after the window starts. When
+        every condition that includes users pins the variant whose key one property holds,
+        `assigned_by_property` replaces `all_conditions_pinned`.
+
+        A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
+        is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
+        check reports `not_checked` when the organization's flag calls skip the events table,
+        and when the project has no active flag, because the web SDK then requests no flags.
+
+        A running experiment whose flag is disabled gets `paused_from_experiment`, as info, when
+        its latest pause or resume since launch is a pause of the experiment. Otherwise it gets
+        `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
+        history gets the warning, because the pause is not read. A draft whose flag is already
+        active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+
+        A running experiment whose first primary metric is a funnel gets the info
+        `early_significance` (subcode `below_detectable_effect`) when a significant variant's
+        difference is smaller than the smallest difference its sample can detect, while that
+        sample is below the one the running time estimate plans for the minimum detectable
+        effect. It reads the metric's current stored result, the one the results page shows
+        after its last calculation, and the running time calculator's formula.
+        """
+        experiment: Experiment = self.get_object()
+        health = get_experiment_health(
+            team_id=self.team_id,
+            experiment_id=experiment.id,
+            reader_access=self._health_reader_access(request, experiment),
+        )
+        return Response(ExperimentHealthSerializer(health).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthInputsSerializer,
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["experiment:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def health_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Staff only. The inputs that the health checks read for this reader, to debug why a finding shows or not:
+        the context of the checks in `health`, the exposure query's answer that the exposure checks read, and facts
+        about the project from the setup context's providers (the team's experiment defaults and which SDKs call
+        flags). The exposure answer comes from the cache. When it is missing or stale, a calculation starts in the
+        background and `exposures.status` says so.
+        """
+        if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request)):
+            raise PermissionDenied("Only staff users can read the health check inputs.")
+        experiment: Experiment = self.get_object()
+        inputs = get_experiment_health_inputs(
+            team_id=self.team_id,
+            experiment_id=experiment.id,
+            reader_access=self._health_reader_access(request, experiment),
+            user=cast(User, request.user),
+        )
+        return Response(ExperimentHealthInputsSerializer(inputs).data)
+
+    def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
+        # The split history is flag history, which `activity` keeps behind the flag's own access controls and
+        # `activity_log:read`. It also queries events, which a scoped token reaches only with `query:read`.
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        missing_scopes = (
+            set()
+            if scopes is None or "*" in scopes
+            else set(scopes_not_covered(scopes, ["activity_log:read", "query:read"]))
+        )
+        can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
+            experiment.feature_flag, required_level="viewer"
+        )
+        restrictions = get_restricted_properties_with_group_type_index_for_team(
+            user=cast(User, request.user), team_id=self.team_id
+        )
+        return ExperimentHealthReaderAccess(
+            can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
+            can_query_events="query:read" not in missing_scopes,
+            denied_event_properties=split_restricted_property_names(restrictions).event,
+        )
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,
@@ -1077,10 +1264,10 @@ class EnterpriseExperimentsViewSet(
         Move a legacy experiment onto the new experiments engine.
 
         Creates a new experiment with the same configuration and its metrics converted
-        to the new format, and returns it. The legacy experiment is left untouched and
-        keeps its results, so the project ends up with two experiments. Both point at
-        the same feature flag, so no new rollout is needed and users keep the variant
-        they already have.
+        to the new format, and returns it. Legacy experiments no longer show results,
+        so this is how to get results for one. The legacy experiment is left untouched,
+        so the project ends up with two experiments. Both point at the same feature
+        flag, so no new rollout is needed and users keep the variant they already have.
 
         Legacy shared metrics used by the experiment are converted as part of the same
         call. Each one gets a new shared metric, and the new experiment links to that.
@@ -1090,6 +1277,7 @@ class EnterpriseExperimentsViewSet(
 
         Returns 400 if the experiment already uses the new engine.
         """
+        refuse_scout_experiment_migrate(is_scout_sandbox_request(request))
         experiment: Experiment = self.get_object()
 
         if not experiment_has_legacy_metrics(experiment):
@@ -1223,6 +1411,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Copy an experiment into another project in the same organization as a new draft."""
+        refuse_scout_experiment_copy_to_project(is_scout_sandbox_request(request))
         source_experiment: Experiment = self.get_object()
 
         if experiment_has_legacy_metrics(source_experiment):
@@ -1361,8 +1550,14 @@ class EnterpriseExperimentsViewSet(
     @extend_schema(
         request=RecalculateMetricsRequestSerializer,
         responses={
-            200: ExperimentMetricsRecalculationSerializer,
-            201: ExperimentMetricsRecalculationSerializer,
+            200: ExperimentMetricsRecalculationJobSerializer,
+            201: ExperimentMetricsRecalculationJobSerializer,
+            429: OpenApiResponse(
+                description=(
+                    "A manual trigger arrived less than five minutes after the latest completed run finished. "
+                    "Retry-After carries the seconds until the next run is allowed."
+                )
+            ),
         },
     )
     @action(
@@ -1375,7 +1570,10 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. The response payload intentionally does not
+        already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+        a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+        `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+        minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1397,44 +1595,20 @@ class EnterpriseExperimentsViewSet(
         # the idempotent-reuse path without inspecting the HTTP status code.
         is_existing = result.get("is_existing", False)
 
-        if not is_existing:
-            recalculation_id = str(result["id"])
-            try:
-                temporal = sync_connect()
-                asyncio.run(
-                    temporal.start_workflow(
-                        "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(
-                            recalculation_id=recalculation_id,
-                            fairness_key=str(experiment.team.organization_id),
-                        ),
-                        id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
-                    )
-                )
-            except Exception:
-                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
-                # response leg), so only roll back a row that is still PENDING with no query_to. A row past
-                # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
-                # where only discovery ran, the rollback wins deliberately: the mark_started and
-                # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
-                # failed POST starts the replacement.
-                ExperimentMetricsRecalculation.objects.filter(
-                    team=self.team,
-                    id=recalculation_id,
-                    status=ExperimentMetricsRecalculation.Status.PENDING,
-                    query_to__isnull=True,
-                ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                raise
+        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
+        if not is_existing and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
+            start_metrics_recalculation_workflow(
+                str(result["id"]),
+                team_id=experiment.team_id,
+                organization_id=str(experiment.team.organization_id),
+            )
 
         return Response(
-            ExperimentMetricsRecalculationSerializer(result).data,
+            ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if is_existing else 201,
         )
 
-    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
     @action(
         methods=["GET"],
         detail=True,
@@ -1449,7 +1623,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_recalculation(recalc, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1457,12 +1631,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            if active_run is not None:
-                fallback["active_run"] = active_run
-            return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+            return Response(_serialize_latest(fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_recalculation(active, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -1481,7 +1653,7 @@ class EnterpriseExperimentsViewSet(
                 ),
             )
         ],
-        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+        responses={200: ExperimentMetricsRecalculationRunSerializer, 404: None},
     )
     @action(
         methods=["GET"],
@@ -1497,7 +1669,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(_serialize_recalculation(recalc))
+        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -1790,7 +1962,7 @@ class EnterpriseExperimentsViewSet(
                 # property-level access control.
                 user=cast(User, request.user),
                 experiment=experiment,
-                bucket=SessionBucket(request.validated_data["bucket"]),
+                bucket=ExperimentSessionBucket(request.validated_data["bucket"]),
                 metric_uuids=request.validated_data["metric_uuids"],
                 variant=request.validated_data["variant"],
                 limit=request.validated_data["limit"],
@@ -1886,10 +2058,14 @@ class EnterpriseExperimentsViewSet(
             return False
 
 
-def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
+def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     results = get_run_results(recalc)
     payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
+    return payload
+
+
+def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
-    return ExperimentMetricsRecalculationSerializer(payload).data
+    return ExperimentMetricsRecalculationLatestSerializer(payload).data

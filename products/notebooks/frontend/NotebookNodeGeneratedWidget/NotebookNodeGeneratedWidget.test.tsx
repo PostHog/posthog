@@ -646,6 +646,10 @@ describe('NotebookNodeGeneratedWidget', () => {
         }
         expect(screen.queryByText('Open reusable widget')).toBeNull()
         fireEvent.click(screen.getByLabelText('More actions'))
+        fireEvent.click(screen.getByText('Add to dashboard'))
+        expect(await screen.findByText('Add widget to dashboard')).toBeTruthy()
+        fireEvent.click(screen.getByText('Cancel'))
+        fireEvent.click(screen.getByLabelText('More actions'))
         expect(screen.queryByText('Open reusable widget') !== null).toBe(isReusable)
         if (isReusable) {
             expect(screen.getByText('Open reusable widget').closest('a')?.getAttribute('href')).toContain(
@@ -778,8 +782,11 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        expect(await screen.findByText(/preview is no longer available/)).toBeTruthy()
-        fireEvent.click(screen.getByText('View source'))
+        const unavailablePreview = await screen.findByText(/preview is no longer available/)
+        fireEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByText('Add to dashboard')).toBeNull()
+        fireEvent.click(screen.getByLabelText('More actions'))
+        fireEvent.click(within(unavailablePreview.parentElement!).getByText('View source'))
 
         await waitFor(() =>
             expect(notebooksWidgetSource).toHaveBeenCalledWith(

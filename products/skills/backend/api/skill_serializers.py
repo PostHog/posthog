@@ -12,8 +12,9 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
+from ..activity_logging import log_skill_activity
 from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
-from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
+from ..models.skills import MAX_SKILL_CATEGORY_LENGTH, LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
     MAX_DISPLAY_NAME_LENGTH,
@@ -21,6 +22,7 @@ from .community_publish_services import (
     MAX_TAG_LENGTH,
     OPTIONAL_GITHUB_HANDLE_PATTERN,
 )
+from .community_skill_serializers import CommunitySkillScoutConfigSerializer
 from .skill_services import (
     MAX_SKILL_NAME_LENGTH,
     RESERVED_SKILL_NAMES,
@@ -831,6 +833,9 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
                         for f in files
                     ]
                 )
+            log_skill_activity(
+                team=team, user=request.user, item_id=str(skill.pk), skill_name=skill.name, activity="created"
+            )
             # `is not None`, not truthiness: an explicit empty list means "create with no owners"
             # and must not fall through to the creator-owns default (matching the update path).
             if owner_uuids is not None:
@@ -841,7 +846,7 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
                         {"owners": f"User '{err.user_uuid}' is not a member of this project."},
                         code="invalid_owner",
                     )
-                set_skill_owners(team, skill.name, owner_users)
+                set_skill_owners(team, skill.name, owner_users, acting_user=request.user)
             else:
                 # Creator owns by default — durable, not reconstructed from version history.
                 seed_skill_owner(team, skill.name, request.user)
@@ -1067,6 +1072,24 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
     expected_version = serializers.IntegerField(
         min_value=1,
         help_text="Skill version that the publisher reviewed. The request returns 409 if the latest version changed.",
+    )
+    expected_category = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_SKILL_CATEGORY_LENGTH,
+        help_text=(
+            "Category of the skill the publisher reviewed. Registering a skill as a scout changes its "
+            "category without raising its version, so the version alone would let a skill reviewed as "
+            "an ordinary one publish as a scout. The request returns 409 if the category changed. "
+            "Omit it to skip that check."
+        ),
+    )
+    scout_config = CommunitySkillScoutConfigSerializer(
+        required=False,
+        help_text=(
+            "Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project "
+            "with its cadence intact. Rejected for a skill that is not a scout."
+        ),
     )
     display_name = serializers.RegexField(
         DISPLAY_NAME_PATTERN,

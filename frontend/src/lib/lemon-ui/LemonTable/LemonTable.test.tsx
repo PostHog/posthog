@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -36,6 +36,89 @@ describe('LemonTable', () => {
     afterEach(cleanup)
 
     const renderedOrder = (): string[] => screen.getAllByTestId('cell-name').map((el) => el.textContent ?? '')
+
+    it.each([false, true])('windows wide tables horizontally with row virtualization %s', (virtualized) => {
+        const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(180)
+        const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+        const columns = Array.from({ length: 1801 }, (_, index) => ({
+            title: `Column ${index}`,
+            key: `column-${index}`,
+            render: (_: unknown, record: { id: number }): string => `${record.id}:${index}`,
+        }))
+        const data = [{ id: 1 }, { id: 2 }]
+        try {
+            const { container, rerender } = render(
+                <LemonTable
+                    columns={columns}
+                    dataSource={data}
+                    virtualizedColumnWidth={192}
+                    allowContentScroll
+                    virtualized={virtualized}
+                />
+            )
+            const table = container.querySelector('table')!
+            const scroll = container.querySelector('.ScrollableShadows__inner')!
+            expect(table).toHaveAttribute('aria-colcount', '1801')
+            expect(screen.getByText('1:0')).toBeVisible()
+            expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+
+            fireEvent.scroll(scroll, { target: { scrollLeft: 900 * 192 } })
+            expect(screen.queryByText('1:0')).not.toBeInTheDocument()
+            expect(screen.getByText('2:900').closest('td')).toHaveAttribute('aria-colindex', '901')
+            expect(screen.getByText('Column 900').closest('th')).toHaveAttribute('aria-colindex', '901')
+            expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+
+            fireEvent.scroll(scroll, { target: { scrollLeft: 1801 * 192 - 800 } })
+            expect(screen.getByText('1:1800')).toBeVisible()
+            expect(screen.getByText('2:1800')).toBeVisible()
+
+            rerender(<LemonTable columns={columns.slice(0, 2)} dataSource={data} />)
+            expect(table).not.toHaveAttribute('aria-colcount')
+            expect(screen.getByText('1:0')).toBeVisible()
+            expect(screen.getByText('2:1')).toBeVisible()
+            expect(container.querySelectorAll('tbody td')).toHaveLength(4)
+        } finally {
+            cleanup()
+            height.mockRestore()
+            width.mockRestore()
+        }
+    })
+
+    it('does not rerender retained virtualized cells when scrolling', () => {
+        const height = jest
+            .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+            .mockImplementation(function (this: HTMLElement): number {
+                return this.tagName === 'TR' ? 36 : 180
+            })
+        const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+        const renderCell = jest.fn((value: string | number | undefined): string => String(value))
+        const data = Array.from({ length: 100 }, (_, id) => ({ id, name: `Row ${id}` }))
+
+        try {
+            const { container } = render(
+                <LemonTable
+                    rowKey="id"
+                    dataSource={data}
+                    columns={[{ title: 'Name', dataIndex: 'name', render: renderCell }]}
+                    allowContentScroll
+                    virtualized
+                />
+            )
+            const initialCells = new Set(renderCell.mock.calls.map(([value]) => value))
+            expect(initialCells.size).toBeGreaterThan(0)
+            expect(initialCells.size).toBeLessThan(data.length)
+            renderCell.mockClear()
+
+            fireEvent.scroll(container.querySelector('.ScrollableShadows__inner')!, { target: { scrollTop: 180 } })
+
+            expect(renderCell).toHaveBeenCalled()
+            expect(renderCell.mock.calls.every(([value]) => !initialCells.has(value))).toBe(true)
+        } finally {
+            cleanup()
+            height.mockRestore()
+            width.mockRestore()
+        }
+    })
 
     it.each([
         [true, ['alpha', 'gamma', 'beta']],
@@ -233,5 +316,63 @@ describe('LemonTable', () => {
         const groupingRow = document.querySelector('tr.LemonTable__row--grouping')!
         const spannedColumns = Array.from(groupingRow.querySelectorAll('th')).reduce((sum, th) => sum + th.colSpan, 0)
         expect(spannedColumns).toBe(3)
+    })
+
+    describe('sticky header', () => {
+        const renderWithWidths = (props: { stickyHeader?: boolean }, tableWidth: number, viewportWidth = 500): void => {
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? viewportWidth : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} {...props} />)
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('pins the header when the table fits its container', () => {
+            renderWithWidths({ stickyHeader: true }, 400)
+            expect(document.querySelector('.LemonTable')).toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('keeps horizontal scrolling instead when the table is wider than its container', () => {
+            renderWithWidths({ stickyHeader: true }, 800)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('switches between pinning and horizontal scrolling when the table or its container resizes', () => {
+            const resizeCallbacks: (() => void)[] = []
+            jest.spyOn(globalThis, 'ResizeObserver').mockImplementation((callback: ResizeObserverCallback) => {
+                resizeCallbacks.push(() => callback([], {} as ResizeObserver))
+                return { observe: () => null, unobserve: () => null, disconnect: () => null } as ResizeObserver
+            })
+            let tableWidth = 400
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? 500 : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} stickyHeader />)
+            const table = document.querySelector('.LemonTable')
+            expect(table).toHaveClass('LemonTable--sticky-header')
+            expect(resizeCallbacks.length).toBeGreaterThan(0)
+
+            tableWidth = 800
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).not.toHaveClass('LemonTable--sticky-header')
+
+            tableWidth = 400
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('does not pin the header by default', () => {
+            renderWithWidths({}, 400)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
     })
 })

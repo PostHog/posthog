@@ -207,17 +207,40 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### PostHog knowledge sources')
         })
 
-        it('loads skills before checking business knowledge and docs', () => {
+        it('loads skills before checking business knowledge, repositories, and docs', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription({
                 skillsEnabled: true,
                 docsSearchEnabled: true,
                 businessKnowledgeSearchEnabled: true,
+                businessKnowledgeRepoSearchEnabled: true,
             })
 
             expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
-            expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(result.indexOf('docs-search'))
+            expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(
+                result.indexOf('`call business-knowledge-repositories-search <json_input>`')
+            )
+            expect(result.indexOf('business-knowledge-repositories-search')).toBeLessThan(
+                result.indexOf('`call docs-search')
+            )
+            expect(result).toContain('Code or doc misses')
             expect(result.length).toBeLessThanOrEqual(2048)
+        })
+    })
+
+    describe('repository search guidance', () => {
+        it.each([
+            { name: 'repo search without knowledge search', bk: false, repo: true, expected: false },
+            { name: 'knowledge search without repo search', bk: true, repo: false, expected: false },
+            { name: 'both', bk: true, repo: true, expected: true },
+        ])('names repository search only when both tools are advertised: $name', ({ bk, repo, expected }) => {
+            const tools = [
+                { name: 'docs-search', category: 'Docs' },
+                ...(bk ? [{ name: 'business-knowledge-documents-search', category: 'Business knowledge' }] : []),
+                ...(repo ? [{ name: 'business-knowledge-repositories-search', category: 'Business knowledge' }] : []),
+            ]
+            const result = new InstructionsFormatter().buildToolsInstructions({ ...fullCtx, tools })
+            expect(result.includes('`business-knowledge-repositories-search`')).toBe(expected)
         })
     })
 
@@ -498,17 +521,94 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('**Dashboard**')
         })
 
-        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        // The SQL and Python guidance names `notebooks-add-cell`, so it must stay out of prompts
         // for clients that aren't advertised the cell tools.
-        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+        it.each(surfaces)('$name gates the SQL and Python sections on the notebook cell tools', ({ render }) => {
             const formatter = new InstructionsFormatter()
             const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### SQL in an analysis')
+            expect(cellsOn).toContain("cell_type: 'sql'")
             expect(cellsOn).toContain('### Python in an analysis')
             expect(cellsOn).toContain("cell_type: 'python'")
 
+            // A connection can carry the cell tools without execute-sql, which needs another scope.
+            const sqlSection = (text: string): string =>
+                text.slice(text.indexOf('### SQL in an analysis'), text.indexOf('### Python in an analysis'))
+            expect(sqlSection(cellsOn)).toContain('`execute-sql`')
+            const withoutExecuteSql = render(formatter, {
+                ...fullCtx,
+                notebookCellsEnabled: true,
+                tools: fullCtx.tools?.filter(({ name }) => name !== 'execute-sql'),
+            })
+            expect(sqlSection(withoutExecuteSql)).not.toContain('execute-sql')
+
             const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### SQL in an analysis')
             expect(cellsOff).not.toContain('### Python in an analysis')
             expect(cellsOff).toBe(render(formatter, fullCtx))
+        })
+    })
+
+    describe('activity history guidance', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+            inline: boolean
+        }[] = [
+            { name: 'tools', render: (f, ctx) => f.buildToolsInstructions(ctx), inline: true },
+            { name: 'exec', render: (f, ctx) => f.buildExecCommandReference(ctx), inline: true },
+            {
+                name: 'Claude analytics guide',
+                render: (f, ctx) =>
+                    f.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                inline: true,
+            },
+            {
+                name: 'Claude without guides',
+                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx, { learnEnabled: false }),
+                inline: true,
+            },
+            {
+                name: 'Claude with guides',
+                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx),
+                inline: false,
+            },
+        ]
+
+        it.each(
+            surfaces.flatMap((surface) =>
+                [
+                    { capability: 'neither reader', tools: [], history: false, sql: false },
+                    { capability: 'SQL only', tools: ['execute-sql'], history: false, sql: false },
+                    {
+                        capability: 'activity reader only',
+                        tools: ['advanced-activity-logs-list'],
+                        history: true,
+                        sql: false,
+                    },
+                    {
+                        capability: 'both readers',
+                        tools: ['advanced-activity-logs-list', 'execute-sql'],
+                        history: true,
+                        sql: true,
+                    },
+                ].map((capability) => ({ ...surface, ...capability }))
+            )
+        )('$name exposes only supported history procedures: $capability', ({ render, inline, tools, history, sql }) => {
+            const result = render(new InstructionsFormatter(), {
+                ...fullCtx,
+                tools: tools.map((name) => ({ name, category: 'Platform Features' })),
+            })
+
+            expect(result.includes('### Activity history')).toBe(inline && history)
+            expect(result.includes('`system.activity_logs`')).toBe(inline && sql)
+            if (inline && history) {
+                expect(result).toContain('`start_date`, `end_date`')
+                expect(result).toContain('`page_size: 10`')
+                expect(result).toContain('`clients: ["scout:<skill_name>"]`')
+                expect(result).toContain('If access is denied, stop using this reader')
+                expect(result).toContain('Other advertised, authorized history readers, including per-object readers')
+            }
         })
     })
 

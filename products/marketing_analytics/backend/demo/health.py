@@ -48,7 +48,7 @@ UNCONNECTED_PLATFORMS: frozenset[str] = frozenset({"RedditAds"})
 # suppresses, so they reach `events_only` and draw no suggestion. That's the mirror of
 # Reddit and the pair is the point of the fixture. Named here so the dry-run summary can
 # count them — deriving `events_only` from PLATFORM_STATES alone silently misses them.
-ORGANIC_ONLY_PLATFORMS: frozenset[str] = frozenset({"PinterestAds"})
+ORGANIC_ONLY_PLATFORMS: frozenset[str] = frozenset({"OpenAIAds", "PinterestAds"})
 
 
 def _create_job(
@@ -115,10 +115,10 @@ def stage_schemas_and_jobs(
         if source is None:  # deliberately unconnected
             continue
         for schema_name in schema_names:
-            schema_status: str | None = ExternalDataSchemaStatus.COMPLETED
+            schema_status: str | None = str(ExternalDataSchemaStatus.COMPLETED)
             should_sync = True
             if state == "tables_failed" and schema_name == schema_names[-1]:
-                schema_status = ExternalDataSchemaStatus.FAILED
+                schema_status = str(ExternalDataSchemaStatus.FAILED)
             if state == "tables_disabled" and schema_name == schema_names[-1]:
                 should_sync = False
             if state == "never":

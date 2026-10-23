@@ -1,7 +1,6 @@
 """Test module covering the workflow used for batch exporting to BigQuery."""
 
 import uuid
-import asyncio
 import datetime as dt
 
 import pytest
@@ -10,24 +9,22 @@ import unittest.mock
 from django.conf import settings
 
 import pytest_asyncio
-from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
     BackfillDetails,
-    BatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportPersonsModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
-    BigQueryInsertInputs,
     insert_into_bigquery_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -37,7 +34,15 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
+)
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    NeverFinishingActivity,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
@@ -97,7 +102,7 @@ async def test_bigquery_export_workflow(
     ateam,
     table_id,
     use_json_type,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -107,14 +112,13 @@ async def test_bigquery_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the configured BigQuery table.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: AnyBatchExportModel | None = None
     sort_key = "event"
 
-    if isinstance(model, BatchExportModel):
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
         if batch_export_model.name == "persons":
             sort_key = "person_id"
@@ -122,7 +126,7 @@ async def test_bigquery_export_workflow(
             sort_key = "session_id"
 
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = BigQueryBatchExportInputs(
@@ -130,7 +134,6 @@ async def test_bigquery_export_workflow(
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **bigquery_batch_export.destination.config,
     )
@@ -197,7 +200,7 @@ async def test_bigquery_export_workflow_without_events(
     ateam,
     table_id,
     use_json_type,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     data_interval_start,
     data_interval_end,
 ):
@@ -205,15 +208,14 @@ async def test_bigquery_export_workflow_without_events(
 
     The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = BigQueryBatchExportInputs(
@@ -221,7 +223,6 @@ async def test_bigquery_export_workflow_without_events(
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **bigquery_batch_export.destination.config,
     )
@@ -265,7 +266,7 @@ async def test_bigquery_export_workflow_without_events(
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("use_json_type", [True], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 async def test_bigquery_export_workflow_backfill_earliest_persons(
     ateam,
     bigquery_client,
@@ -483,11 +484,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
         **bigquery_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_bigquery_activity_from_stage")
-    async def never_finish_activity(_: BigQueryInsertInputs) -> str:
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_bigquery_activity_from_stage")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -496,7 +493,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                never_finish_activity,
+                never_finish.defn,
                 insert_into_internal_stage_activity,
                 finish_batch_export_run,
             ],
@@ -510,7 +507,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
 
-            await asyncio.sleep(5)
+            await never_finish.wait_until_started()
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

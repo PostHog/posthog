@@ -17,7 +17,8 @@ export interface EvalSummary {
 }
 
 export function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
-    const sorted = [...runs].sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())
+    const producedAt = (run: EvaluationRun): number => dayjs(run.start_time ?? run.timestamp).valueOf()
+    const sorted = [...runs].sort((a, b) => producedAt(b) - producedAt(a))
     const byEvalId = new Map<string, EvalSummary>()
     for (const run of sorted) {
         const existing = byEvalId.get(run.evaluation_id)
@@ -58,7 +59,7 @@ export function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.El
                 {dayjs(latestRun.timestamp).fromNow()}
                 {runCount > 1 && <> &middot; {pluralize(runCount, 'run', 'runs', true)} total</>}
             </div>
-            {latestRun.reasoning && <div className="text-sm">{latestRun.reasoning}</div>}
+            <div className="text-sm">{latestRun.reasoning || 'No reasoning provided'}</div>
         </div>
     )
 }
@@ -100,6 +101,9 @@ export function EvalResultBadges({
             {summaries.map((summary) => {
                 const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
                     trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
+                    categoryOptions: evaluations?.find(
+                        (evaluation) => evaluation.id === summary.latestRun.evaluation_id
+                    )?.output_config.options,
                     passingRule: evaluations?.find((evaluation) => evaluation.id === summary.latestRun.evaluation_id)
                         ?.output_config.passing_rule,
                 })

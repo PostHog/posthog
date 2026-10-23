@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
+use personhog_common::h2_window::{Http2Windows, WindowSize};
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{
     PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
@@ -15,14 +16,17 @@ pub struct Config {
     pub grpc_address: SocketAddr,
 
     /// Per-partition person-cache capacity in bytes. Entries are weighed
-    /// by their approximate serialized size, so this bounds memory, not
+    /// by their stored size, so this bounds memory, not
     /// entry count. Sized against full ownership: a lone survivor owns
     /// every partition, so the worst-case cache footprint is this value
-    /// times the partition count — 16 MiB × 16 partitions = 256 MiB —
-    /// and in-memory size can run a small multiple of serialized weight
-    /// for key-dense documents.
+    /// times the partition count (16 MiB × 16 partitions = 256 MiB).
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
+
+    /// Trades CPU on every cache read and write for more persons per byte.
+    /// The codec's samples, dictionary and per-thread contexts sit outside the capacity bound.
+    #[envconfig(default = "false")]
+    pub cache_properties_compression_enabled: bool,
 
     /// How long a fencing transaction window admits joining writes
     /// before committing, when it does not fill first (see
@@ -77,6 +81,12 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
 
+    #[envconfig(default = "0")]
+    pub grpc_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_connection_window_bytes: WindowSize,
+
     /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
     #[envconfig(default = "134217728")]
     pub grpc_max_send_message_size: usize,
@@ -130,9 +140,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    #[envconfig(default = "personhog_updates")]
-    pub kafka_person_state_topic: String,
-
     // ── Warming ──────────────────────────────────────────────────
     /// Consumer group name used by the writer pod. The leader queries this
     /// group's committed offsets during warming: any Kafka message at or
@@ -141,14 +148,6 @@ pub struct Config {
     /// reads.
     #[envconfig(default = "personhog-writer")]
     pub writer_consumer_group: String,
-
-    /// How many offsets to rewind past the writer's committed offset when
-    /// warming. Pure safety margin — any non-negative value is correct, but
-    /// a larger value is more forgiving of momentary races between the
-    /// writer's commit and our observation of it. Bounded above by Kafka's
-    /// earliest available offset.
-    #[envconfig(default = "1000")]
-    pub warm_lookback_offsets: i64,
 
     /// Timeout for the OffsetFetch round-trip that asks the writer's
     /// consumer group for its committed offset.
@@ -444,54 +443,6 @@ impl Config {
         (self.fencing_budget() / (FENCING_TXN_CALLS + 1)).max(MIN_TXN_TIMEOUT)
     }
 
-    /// The producer queue each fenced producer gets, in MiB.
-    ///
-    /// The shared producer's queue is sized for one client; the fenced
-    /// path creates one producer *per owned partition*, so inheriting
-    /// that figure multiplies it by the partition count. A lone survivor
-    /// owning every partition would be entitled to the whole product,
-    /// which for the deployed shape is several gigabytes against a pod
-    /// sized for one — a client spreading large property updates across
-    /// partitions while Kafka is slow could fill the independent queues
-    /// and exhaust the leader.
-    ///
-    /// So the budget is the aggregate, divided. The floor keeps a
-    /// high-partition-count deployment from starving any single producer
-    /// below a workable depth; it trades the guarantee for a bound that
-    /// is still far under the un-divided figure. Each share must still
-    /// hold one window of records; raise the aggregate if it cannot.
-    pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
-        // The floor cannot be unconditional: above roughly fifty
-        // partitions it would start multiplying again, and the aggregate
-        // this exists to bound would scale with partition count exactly
-        // as it did before. So it applies only while it stays inside the
-        // aggregate, and past that point the division wins and each
-        // producer gets a shallow queue — which is the honest answer for
-        // a deployment with more partitions than a producer's worth of
-        // memory to give them.
-        // No floor. One was tried and was dead code: inside a guard that
-        // only admits it when `MIN * partitions <= aggregate`, the
-        // division already yields at least `MIN`, so the `max` never
-        // fired. Applying it *outside* such a guard is worse — it
-        // multiplies back up, which is the defect this division exists to
-        // remove. The honest bound is the aggregate, and one MiB is the
-        // smallest queue librdkafka will take.
-        (self.kafka.kafka_producer_queue_mib / self.fenced_producers(partitions)).max(1)
-    }
-
-    /// The same division for the message-count limit, which bounds the
-    /// queue independently of record size.
-    pub fn fencing_queue_messages(&self, partitions: u32) -> u32 {
-        (self.kafka.kafka_producer_queue_messages / self.fenced_producers(partitions)).max(1)
-    }
-
-    /// Producers the aggregate queue budget is divided among: one per
-    /// lane per partition.
-    fn fenced_producers(&self, partitions: u32) -> u32 {
-        let lanes = u32::try_from(self.fencing_lanes.max(1)).unwrap_or(u32::MAX);
-        partitions.max(1).saturating_mul(lanes)
-    }
-
     /// How long fence acquisition may take.
     ///
     /// Deliberately not the transaction timeout. That one is sized so
@@ -777,6 +728,13 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
         }
+    }
+
+    pub fn grpc_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.grpc_initial_stream_window_bytes,
+            self.grpc_initial_connection_window_bytes,
+        )
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {
@@ -1090,8 +1048,8 @@ mod fencing_timescale_tests {
         let shared_messages = config.kafka.kafka_producer_queue_messages;
 
         for partitions in [1, 8, 16, 50, 64, 256, 1024, 4096] {
-            let per_partition_mib = config.fencing_queue_mib(partitions);
-            let per_partition_messages = config.fencing_queue_messages(partitions);
+            let per_partition_mib = queue_mib(&config, partitions);
+            let per_partition_messages = queue_messages(&config, partitions);
             assert!(
                 per_partition_mib <= shared_mib,
                 "partitions={partitions}: a single fenced producer must never be entitled \
@@ -1203,18 +1161,28 @@ mod fencing_timescale_tests {
         }
     }
 
+    fn queue_mib(config: &Config, partitions: u32) -> u32 {
+        let producers = crate::fencing::fenced_producer_count(partitions, config.fencing_lanes);
+        crate::fencing::queue_share(config.kafka.kafka_producer_queue_mib, producers)
+    }
+
+    fn queue_messages(config: &Config, partitions: u32) -> u32 {
+        let producers = crate::fencing::fenced_producer_count(partitions, config.fencing_lanes);
+        crate::fencing::queue_share(config.kafka.kafka_producer_queue_messages, producers)
+    }
+
     #[test]
     fn a_high_partition_count_still_leaves_a_workable_queue() {
         let config = fenced(30);
         // The budget is divided among every fenced producer, four lanes
         // per partition at the default, and never rounds to a value
         // librdkafka would reject.
-        assert_eq!(config.fencing_queue_mib(16), 6);
-        assert_eq!(config.fencing_queue_messages(16), 156_250);
-        assert!(config.fencing_queue_mib(1024) >= 1);
-        assert!(config.fencing_queue_messages(1024) >= 1);
+        assert_eq!(queue_mib(&config, 16), 6);
+        assert_eq!(queue_messages(&config, 16), 156_250);
+        assert!(queue_mib(&config, 1024) >= 1);
+        assert!(queue_messages(&config, 1024) >= 1);
         assert!(
-            config.fencing_queue_mib(0) >= 1,
+            queue_mib(&config, 0) >= 1,
             "partitions=0 must not divide by zero"
         );
     }

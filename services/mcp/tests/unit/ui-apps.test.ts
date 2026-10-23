@@ -156,6 +156,27 @@ describe('ui-apps', () => {
             expect(registration._meta['openai/widgetCSP'].resource_domains).toContain('https://mcp.posthog.com')
         })
 
+        it('allows Visual Review artifacts without widening other app CSPs', async () => {
+            const { registerUiAppResources } = await import('@/resources/ui-apps')
+            const server = createMockServer()
+            const context = createMockContext({ MCP_APPS_BASE_URL: 'https://mcp.posthog.com' })
+
+            await registerUiAppResources(server as any, context as any)
+
+            const visualReviewRegistration = server.registerResource.mock.calls.find(
+                (call: unknown[]) => call[1] === URI_MAP['visual-review-snapshots']
+            )
+            const debugRegistration = server.registerResource.mock.calls.find(
+                (call: unknown[]) => call[1] === URI_MAP.debug
+            )
+            const artifactSource =
+                'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'
+
+            expect(visualReviewRegistration![2]._meta.ui.csp.resourceDomains).toContain(artifactSource)
+            expect(visualReviewRegistration![2]._meta['openai/widgetCSP'].resource_domains).toContain(artifactSource)
+            expect(debugRegistration![2]._meta.ui.csp.resourceDomains).not.toContain(artifactSource)
+        })
+
         it('includes analytics URL in CSP when set', async () => {
             const { registerUiAppResources } = await import('@/resources/ui-apps')
             const server = createMockServer()
@@ -254,6 +275,21 @@ describe('ui-apps', () => {
             if (!queryResultsConfig.render_ui) {
                 throw new Error('Expected query results to configure render-ui dispatch')
             }
+            const storyConfig = resolveCustomApp({
+                type: 'custom',
+                app_name: 'Chart Walkthrough',
+                description: 'A walkthrough of a chart',
+                render_ui: {
+                    component_import: '../components/InsightStory',
+                    view_component: 'InsightStory',
+                    view_prop: 'data',
+                    data_type: 'InsightStoryData',
+                    link_prop: 'openLink',
+                },
+            })
+            if (!storyConfig.render_ui) {
+                throw new Error('Expected the walkthrough to configure render-ui dispatch')
+            }
 
             const code = generateDispatchModule([
                 {
@@ -271,6 +307,11 @@ describe('ui-apps', () => {
                     config: { ...queryResultsConfig, render_ui: queryResultsConfig.render_ui },
                 },
                 {
+                    appKey: 'insight-story',
+                    type: 'custom',
+                    config: { ...storyConfig, render_ui: storyConfig.render_ui },
+                },
+                {
                     appKey: 'survey-list',
                     type: 'list',
                     config: resolveListApp(
@@ -284,6 +325,9 @@ describe('ui-apps', () => {
             expect(code).toContain("'survey': ({ data }) => <SurveyView survey={data as SurveyData} />")
             expect(code).toContain("import { Component } from '../components/Component'")
             expect(code).toContain("'query-results': ({ data }) => <Component data={data} />")
+            expect(code).toContain(
+                "'insight-story': ({ data, openLink }) => <InsightStory data={data as InsightStoryData} openLink={openLink} />"
+            )
             expect(code).toContain(
                 "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
             )

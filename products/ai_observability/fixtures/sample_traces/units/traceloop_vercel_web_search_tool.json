@@ -1,0 +1,166 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Trading-desk copilot pulls live crypto prices via web search",
+  "scenario": "A quant research desk's Marketwise copilot (gpt-5.4 via OpenAI's web_search tool, instrumented through Vercel AI SDK / OpenTelemetry) is asked for a morning briefing on BTC, ETH and SOL prices, volume and implied volatility, runs live web searches, and returns a structured price/volume table.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_span": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/traceloop",
+      "opentelemetry/vercel-ai"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gpt-5.4"
+    ],
+    "content_types": [
+      "search",
+      "text",
+      "tool_call",
+      "tool_call_response"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_cache_read_cost_usd": 0.001184,
+        "$ai_cache_read_tokens_cost_usd": 0.001184,
+        "$ai_ingestion_source": "otel",
+        "$ai_input_cost_usd": 0.0123075,
+        "$ai_input_tokens_cost_usd": 0.0123075,
+        "$ai_output_cost_usd": 0.0058200000000000005,
+        "$ai_output_tokens_cost_usd": 0.0058200000000000005,
+        "$ai_parent_id": "df1dc8786f1be92a",
+        "$ai_session_id": "8b2a306b-91e8-728d-d335-a8071e5e08b2",
+        "$ai_span_id": "61c5eada903fdfe5",
+        "$ai_span_name": "fetch_realtime_market_data_via_web_search",
+        "$ai_total_cost_usd": 0.029311500000000004,
+        "$ai_trace_id": "6e2a3362b3c6a470de81744f6d6221c8",
+        "$ai_web_search_cost_usd": 0.01,
+        "$geoip_disable": true,
+        "$session_id": "6c29f3a9-0054-73ce-8f47-6f0181b27243",
+        "tenant": "quant-research-desk",
+        "app.genai.usage.cache_creation_tokens_ephemeral_5m": 0,
+        "app.genai.usage.cache_read_tokens_total": 4736,
+        "service.name": "market-copilot",
+        "rule": "guard_VIKRmthUw",
+        "$ai_input_tokens": 4923,
+        "$ai_output_tokens": 388,
+        "$ai_model": "gpt-5.4",
+        "$ai_provider": "openai",
+        "$ai_latency": 5.161984732,
+        "$ai_lib": "opentelemetry/traceloop",
+        "$ai_tools_called": "web_search",
+        "$ai_tool_call_count": 1,
+        "$ai_input": [
+          {
+            "parts": [
+              {
+                "content": "You are Marketwise, a research copilot for a quantitative trading desk. You answer questions about spot and futures prices, trading volume and short-term volatility for the symbols the desk follows. Always use the web_search tool to pull the latest data before answering; never answer from memory, since prices move by the minute and a stale number is worse than no number to put in front of a trader. When you get results back, summarize the key figures in a short table (symbol, price, 24h volume, and a one-line read on direction) before adding any commentary. Flag clearly when a figure is delayed or from a secondary source rather than the primary exchange feed, and say so in plain terms rather than a footnote nobody reads. Keep the tone plain and factual: this is used for a morning briefing, not marketing copy, so avoid hedge-fund buzzwords and avoid predicting direction unless asked directly. If the desk asks about more than three symbols in one message, group the smaller-cap names together at the end of the table so the majors stay easy to scan first.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "parts": [
+              {
+                "content": "hey can you pull the latest numbers for BTC ETH and SOL for the morning note? specifically want spot price, 24h volume and if you can get it the implied vol on the near-dated options, we had a few LPs asking about SOL vol this morning and I want to have a number ready before the 9am call. last time the desk sheet had ETH volume way off from what coinmetrics showed so please sanity check against at least one other source if the numbers look weird, thanks. also if the SOL vol number seems stale flag it rather than just printing whatever the first result says, we got burned by that last week and I had to walk it back in the standup. one more thing, can you note whether volume looks higher or lower than yesterday's same-time reading, doesn't need to be exact just directionally right, and keep the whole thing short enough that I can paste it straight into the note without editing, ideally just the table plus one line each",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "parts": [
+              {
+                "content": "Checking live prices now.",
+                "type": "text"
+              },
+              {
+                "arguments": {
+                  "queries": [
+                    "BTC-USD spot price, 24 hour trading volume and near dated implied volatility, major exchanges, September 2026",
+                    "ETH-USD spot price and 24 hour trading volume, cross check against a second data source",
+                    "SOL-USD spot price and near dated options implied volatility, most recent reading"
+                  ],
+                  "query": "BTC-USD spot price, 24 hour trading volume and near dated implied volatility, major exchanges, September 2026",
+                  "type": "search"
+                },
+                "id": "ws_ypKaFubKeAnrqg6kVapUV2e3yX4nd6mzTbrdLsYSSlQDFwlx6f",
+                "name": "web_search",
+                "type": "tool_call"
+              }
+            ],
+            "role": "assistant-with-tools"
+          },
+          {
+            "parts": [
+              {
+                "result": {
+                  "status": "completed"
+                },
+                "type": "tool_call_response"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "parts": [
+              {
+                "content": "{\"implied_volatility_pct\": [0.638846, 0.747011, 0.824349, 0.988921, 1.103337, 0.888862, 0.912247, 1.365853, 1.338344, 1.476052, 1.742102, 1.62819], \"bid_ask_spread_bps\": [4.943487, 7.685421, 6.29116, 9.38323, 7.174857, 8.324037, 8.808553, 7.949058, 10.182928, 12.353088, 7.487334, 8.668649], \"trade_imbalance_pct\": [2.753494, 4.147559, 3.388309, 3.032246, 4.946266, 3.368585, 5.55667, 3.297089, 5.684922, 6.19754, 5.273635, 4.080804], \"ohlcv_by_symbol\": {\"BTC-USD-FUTURES\": {\"v1h\": 2949188, \"v24h\": 2927488, \"volAvg\": 3150000, \"priceOpen\": 0.638846, \"priceHigh24h\": 1.102648, \"priceClose\": 1.62819}, \"ETH-USD-SWAP\": {\"v1h\": 2203378, \"v24h\": 3617538, \"volAvg\": 2800000, \"priceOpen\": 4.943487, \"priceHigh24h\": 8.324037, \"priceClose\": 8.668649}, \"SOL-USD-PERP\": {\"v1h\": 2556586, \"v24h\": 2706089, \"volAvg\": 2730000, \"priceOpen\": 2.753494, \"priceHigh24h\": 3.368585, \"priceClose\": 4.080804}}}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "b5c33b32362d7147",
+        "$ai_session_id": "8b2a306b-91e8-728d-d335-a8071e5e08b2",
+        "$ai_span_id": "df1dc8786f1be92a",
+        "$ai_span_name": "vercel_ai_generate_text_with_tools",
+        "$ai_trace_id": "6e2a3362b3c6a470de81744f6d6221c8",
+        "$geoip_disable": true,
+        "$session_id": "6c29f3a9-0054-73ce-8f47-6f0181b27243",
+        "task_type": "search",
+        "tenant": "quant-research-desk",
+        "service.name": "market-copilot",
+        "rule": "guard_VIKRmthUw",
+        "$ai_latency": 5.162333492,
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_input_state": {
+          "prompt": "search"
+        },
+        "$ai_output_state": {
+          "status": "completed"
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

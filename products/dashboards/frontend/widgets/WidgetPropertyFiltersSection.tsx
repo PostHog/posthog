@@ -1,16 +1,19 @@
 import { QuickFilterSelector } from 'lib/components/QuickFilters/QuickFilterSelector'
 
+import type { QuickFilterContext } from '~/queries/schema/schema-general'
 import type { QuickFilter } from '~/types'
 
 import type { WidgetFilterConfigEntry, WidgetFilterConfigRecord } from '../generated/widget-configs.zod'
 
 export type WidgetPropertyFiltersSectionProps = {
+    context: QuickFilterContext
     filterDefinitions: QuickFilter[]
     widgetFilters: WidgetFilterConfigRecord
     onWidgetFiltersChange: (widgetFilters: WidgetFilterConfigRecord) => void
 }
 
 export function WidgetPropertyFiltersSection({
+    context,
     filterDefinitions,
     widgetFilters,
     onWidgetFiltersChange,
@@ -24,8 +27,8 @@ export function WidgetPropertyFiltersSection({
                 return (
                     <QuickFilterSelector
                         key={filter.id}
-                        label={filter.name}
-                        options={filter.options}
+                        filter={filter}
+                        context={context}
                         selectedOptionId={selectedOptionId}
                         onChange={(option) => {
                             const next = { ...widgetFilters }

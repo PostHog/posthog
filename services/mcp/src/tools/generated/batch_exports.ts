@@ -35,6 +35,18 @@ const batchExportCreate = (): ToolBase<ReturnType<typeof BatchExportCreateSchema
         if (params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
         }
+        if (params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
+        }
+        if (params.primary_key !== undefined) {
+            body['primary_key'] = params.primary_key
+        }
+        if (params.version_key !== undefined) {
+            body['version_key'] = params.version_key
+        }
+        if (params.incremental_mode !== undefined) {
+            body['incremental_mode'] = params.incremental_mode
+        }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone
         }
@@ -119,6 +131,18 @@ const batchExportUpdate = (): ToolBase<ReturnType<typeof BatchExportUpdateSchema
         if (params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
         }
+        if (params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
+        }
+        if (params.primary_key !== undefined) {
+            body['primary_key'] = params.primary_key
+        }
+        if (params.version_key !== undefined) {
+            body['version_key'] = params.version_key
+        }
+        if (params.incremental_mode !== undefined) {
+            body['incremental_mode'] = params.incremental_mode
+        }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone
         }
@@ -165,6 +189,7 @@ const batchExportsList = (): ToolBase<
                     'id',
                     'name',
                     'model',
+                    'incremental_mode',
                     'destination',
                     'interval',
                     'paused',
@@ -180,11 +205,8 @@ const batchExportsList = (): ToolBase<
 })
 
 const FileDownloadBatchExportsCancelCreateSchema = () => {
-    const FileDownloadBatchExportsCancelCreateBody = orvalSchemas.FileDownloadBatchExportsCancelCreateBody()
     const FileDownloadBatchExportsCancelCreateParams = orvalSchemas.FileDownloadBatchExportsCancelCreateParams()
-    return FileDownloadBatchExportsCancelCreateParams.omit({ project_id: true }).extend(
-        FileDownloadBatchExportsCancelCreateBody.shape
-    )
+    return FileDownloadBatchExportsCancelCreateParams.omit({ project_id: true })
 }
 
 const fileDownloadBatchExportsCancelCreate = (): ToolBase<
@@ -198,32 +220,9 @@ const fileDownloadBatchExportsCancelCreate = (): ToolBase<
         params: z.infer<ReturnType<typeof FileDownloadBatchExportsCancelCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.file !== undefined) {
-            body['file'] = params.file
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.include !== undefined) {
-            body['include'] = params.include
-        }
-        if (params.exclude !== undefined) {
-            body['exclude'] = params.exclude
-        }
-        if (params.hogql_query !== undefined) {
-            body['hogql_query'] = params.hogql_query
-        }
-        if (params.data_interval_start !== undefined) {
-            body['data_interval_start'] = params.data_interval_start
-        }
-        if (params.data_interval_end !== undefined) {
-            body['data_interval_end'] = params.data_interval_end
-        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/${encodeURIComponent(String(params.id))}/cancel/`,
-            body,
         })
         return result
     },
@@ -251,6 +250,9 @@ const fileDownloadBatchExportsCountRowsCreate = (): ToolBase<
         }
         if (params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
+        }
+        if (params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
         }
         if (params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
@@ -301,6 +303,9 @@ const fileDownloadBatchExportsCreate = (): ToolBase<
         }
         if ('hogql_query' in params && params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
+        }
+        if ('hogql_modifiers' in params && params.hogql_modifiers !== undefined) {
+            body['hogql_modifiers'] = params.hogql_modifiers
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

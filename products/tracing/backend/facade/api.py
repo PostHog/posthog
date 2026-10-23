@@ -17,7 +17,7 @@ Do NOT:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from posthog.schema import (
     CachedTraceSpansAttributeBreakdownQueryResponse,
@@ -34,6 +34,11 @@ from posthog.schema import (
     TraceSpansSymbolStatsQueryResponse,
 )
 
+from products.tracing.backend.ai_events import (
+    MAX_AI_EVENTS_PER_TRACE as _MAX_AI_EVENTS_PER_TRACE,
+    TraceAiEvents,
+    fetch_trace_ai_events as _fetch_trace_ai_events,
+)
 from products.tracing.backend.attribute_breakdown_query_runner import (
     FACET_COLUMNS as _FACET_COLUMNS,
     run_attribute_breakdown_query as _run_attribute_breakdown_query,
@@ -53,10 +58,16 @@ from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
 )
 from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
+from products.tracing.backend.service_health_query_runner import (
+    run_service_health_query as _run_service_health_query,
+    service_health_byte_cap_message as _service_health_byte_cap_message,
+)
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
 
+from .contracts import ServiceHealthParams
+
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 # Allowlisted top-level span columns for the "span" breakdown type. Re-exported so the
@@ -66,6 +77,9 @@ FACET_COLUMNS = _FACET_COLUMNS
 # Cap on the ids one error-count request may ask about, per id kind. Re-exported so the
 # presentation layer can bound its request serializer without reaching into the lookup module.
 MAX_IDS_PER_LOOKUP = _MAX_IDS_PER_LOOKUP
+
+# Cap on the AI events one trace lookup returns. Re-exported so the response can state it.
+MAX_AI_EVENTS_PER_TRACE = _MAX_AI_EVENTS_PER_TRACE
 
 
 # --- Converters (model -> frozen dataclass) ---
@@ -240,3 +254,21 @@ def count_session_exceptions(
     A session with no such exceptions is absent from the result rather than present with a zero.
     """
     return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)
+
+
+def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> TraceAiEvents:
+    """List the LLM analytics events whose `$ai_trace_id` is the trace id, as lowercase hex or as
+    the hyphenated UUID the LLM gateway writes, earliest start first, capped with `has_more` set
+    past the cap. The events side of the
+    trace-to-AI-events join, which the caller finishes. The user's property access rules apply to
+    the returned columns.
+    """
+    return _fetch_trace_ai_events(team=team, user=user, trace_id=trace_id)
+
+
+def run_service_health_query(*, team: "Team", params: ServiceHealthParams) -> dict[str, Any]:
+    return _run_service_health_query(team=team, params=params)
+
+
+def service_health_byte_cap_message(*, team: "Team", params: ServiceHealthParams) -> str:
+    return _service_health_byte_cap_message(team=team, params=params)

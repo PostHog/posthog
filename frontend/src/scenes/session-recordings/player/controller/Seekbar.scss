@@ -76,10 +76,20 @@
             cursor: pointer;
             background-color: var(--color-accent);
             border-radius: 2px;
-            opacity: 0.75;
-            transition: opacity 150ms ease;
+            opacity: 0.45;
+            transition:
+                opacity 150ms ease,
+                width 150ms ease,
+                margin-left 150ms ease;
 
-            &:hover {
+            &--flagged {
+                opacity: 0.85;
+            }
+
+            &:hover,
+            &--hovered {
+                width: 5px;
+                margin-left: -2.5px;
                 opacity: 1;
             }
         }

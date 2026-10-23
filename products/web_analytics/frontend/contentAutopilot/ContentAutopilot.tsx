@@ -9,12 +9,13 @@ import {
     LemonDialog,
     LemonSelect,
     LemonSkeleton,
-    LemonTag,
+    LemonTabs,
 } from '@posthog/lemon-ui'
 
+import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
-import { ContentAutopilotProposalSection } from './ContentAutopilotProposalSection'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
 export const ContentAutopilot = (): JSX.Element => {
@@ -22,8 +23,10 @@ export const ContentAutopilot = (): JSX.Element => {
         profile,
         activeRun,
         siteRuns,
-        newContentProposals,
-        pageImprovementProposals,
+        draftRows,
+        readyDraftCount,
+        latestRunErrors,
+        workspaceTab,
         onboardingOpen,
         siteProfiles,
         siteProfilesLoading,
@@ -34,29 +37,25 @@ export const ContentAutopilot = (): JSX.Element => {
         workspaceErrors,
         workspaceInitialized,
         profileDataLoaded,
+        visibleOpportunities,
     } = useValues(contentAutopilotLogic)
-    const { beginOnboarding, startRun, cancelRun, selectProfile, selectProposal, loadWorkspace } =
+    const { beginOnboarding, cancelRun, selectProfile, loadWorkspace, setWorkspaceTab } =
         useActions(contentAutopilotLogic)
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
-    const runDisabledReason = !profileDataLoaded
-        ? 'Wait for this site to finish loading'
-        : activeRun
-          ? 'A content run is already in progress for this site'
-          : undefined
     const confirmCancelRun = (): void => {
         if (!activeRun) {
             return
         }
         LemonDialog.open({
-            title: 'Cancel this content run?',
-            description: 'PostHog will stop processing this run. Completed proposals will remain available.',
+            title: 'Stop drafting?',
+            description: 'PostHog stops after the draft it is writing now. Finished drafts stay available.',
             primaryButton: {
-                children: 'Cancel run',
+                children: 'Stop drafting',
                 status: 'danger',
                 onClick: () => cancelRun(activeRun.id),
             },
-            secondaryButton: { children: 'Keep running' },
+            secondaryButton: { children: 'Keep drafting' },
         })
     }
 
@@ -70,8 +69,8 @@ export const ContentAutopilot = (): JSX.Element => {
                 <div>
                     <h1 className="m-0">Content autopilot</h1>
                     <p className="m-0 mt-1 text-muted max-w-3xl">
-                        Turn site, search, referral, and crawler signals into reviewable content. PostHog never
-                        publishes or merges automatically.
+                        Find questions AI assistants answer without citing your site, and draft the pages that fix it.
+                        Nothing is published until you download a draft and ship it yourself.
                     </p>
                 </div>
                 {profile && !onboardingOpen ? (
@@ -87,15 +86,6 @@ export const ContentAutopilot = (): JSX.Element => {
                         />
                         <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={beginOnboarding}>
                             Add site
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlusSmall />}
-                            onClick={startRun}
-                            loading={runMutationLoading}
-                            disabledReason={runDisabledReason}
-                        >
-                            Create content
                         </LemonButton>
                     </div>
                 ) : null}
@@ -116,78 +106,49 @@ export const ContentAutopilot = (): JSX.Element => {
                 <ContentAutopilotSetup onboarding />
             ) : (
                 <>
-                    {!profile.search_console_enabled ? (
-                        <LemonBanner type="warning">
-                            Google Search Console is not enabled. Recommendations use available Web analytics data and
-                            are labeled as lower confidence.
-                        </LemonBanner>
-                    ) : null}
-
                     {!profileDataLoaded ? (
                         <LemonSkeleton className="h-72 w-full" />
                     ) : (
                         <>
-                            {activeRun ? (
-                                <LemonCard hoverEffect={false} className="p-4 flex items-center justify-between gap-3">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <h3 className="m-0">Researching content opportunities</h3>
-                                            <LemonTag type="completion">{activeRun.run_status}</LemonTag>
-                                        </div>
-                                        <p className="m-0 mt-1 text-muted">
-                                            PostHog is analyzing current data, ranking opportunities, and validating
-                                            drafts.
-                                        </p>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={confirmCancelRun}
-                                        loading={runMutationLoading}
-                                    >
-                                        Cancel run
-                                    </LemonButton>
-                                </LemonCard>
-                            ) : lastRun?.run_status === 'failed' ? (
-                                <LemonBanner type="error">
-                                    The latest run failed.{' '}
-                                    {lastRun.errors.map(({ message }) => message).join(' ') ||
-                                        'Start another run to retry.'}
+                            {latestRunErrors.length > 0 ? (
+                                <LemonBanner type={lastRun?.run_status === 'failed' ? 'error' : 'warning'}>
+                                    {latestRunErrors.join(' ')}
                                 </LemonBanner>
                             ) : null}
 
-                            {newContentProposals.length === 0 && pageImprovementProposals.length === 0 ? (
-                                <LemonCard hoverEffect={false} className="p-8 text-center">
-                                    <h2>No proposals yet</h2>
-                                    <p className="text-muted max-w-xl mx-auto">
-                                        Start a run to research one new article and up to five focused page
-                                        improvements.
-                                    </p>
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={startRun}
-                                        loading={runMutationLoading}
-                                        disabledReason={runDisabledReason}
-                                    >
-                                        Create content
-                                    </LemonButton>
-                                </LemonCard>
-                            ) : (
-                                <>
-                                    <ContentAutopilotProposalSection
-                                        title="New content"
-                                        description="Original articles for topics people search for that do not have a dedicated page."
-                                        proposals={newContentProposals}
-                                        onReview={selectProposal}
-                                    />
-                                    <ContentAutopilotProposalSection
-                                        title="Page improvements"
-                                        description="Focused metadata, linking, and content changes."
-                                        proposals={pageImprovementProposals}
-                                        onReview={selectProposal}
-                                    />
-                                </>
-                            )}
+                            <LemonTabs
+                                activeKey={workspaceTab}
+                                onChange={setWorkspaceTab}
+                                data-attr="content-autopilot-workspace-tabs"
+                                rightSlot={
+                                    activeRun ? (
+                                        <LemonButton
+                                            type="tertiary"
+                                            status="danger"
+                                            size="small"
+                                            onClick={confirmCancelRun}
+                                            loading={runMutationLoading}
+                                            data-attr="content-autopilot-stop-drafting"
+                                        >
+                                            Stop drafting
+                                        </LemonButton>
+                                    ) : null
+                                }
+                                tabs={[
+                                    {
+                                        key: 'opportunities',
+                                        label: `Opportunities (${visibleOpportunities.length})`,
+                                        content: <ContentAutopilotOpportunities />,
+                                    },
+                                    {
+                                        key: 'drafts',
+                                        label: readyDraftCount
+                                            ? `Drafts (${readyDraftCount} ready to review)`
+                                            : `Drafts (${draftRows.length})`,
+                                        content: <ContentAutopilotDrafts />,
+                                    },
+                                ]}
+                            />
                         </>
                     )}
 

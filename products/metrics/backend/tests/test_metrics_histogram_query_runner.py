@@ -1,12 +1,20 @@
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import MetricsHistogramQuery
+from posthog.schema import (
+    DashboardFilter,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
+    MetricsHistogramQuery,
+    MetricsQueryFilter,
+    MetricsVariableValue,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -28,11 +36,11 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _seed_histogram(self, points_with_counts, temporality="delta", bounds=None, **kwargs):
+        kwargs.setdefault("metric_type", "histogram")
         for timestamp, counts in points_with_counts:
             seed_metric(
                 team_id=self.team.id,
                 metric_name="latency",
-                metric_type="histogram",
                 aggregation_temporality=temporality,
                 histogram_bounds=bounds or self.BOUNDS,
                 histogram_counts=counts,
@@ -56,7 +64,29 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         return MetricsHistogramQueryRunner(query=query, team=self.team).calculate()
 
-    def test_returns_a_time_by_bound_grid(self):
+    def test_dashboard_variables_apply_and_saved_metric_filters_do_not(self):
+        own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
+        dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
+        runner = MetricsHistogramQueryRunner(
+            query=MetricsHistogramQuery(metricName="latency", filters=[own_filter], interval="$window"), team=self.team
+        )
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricFilters=[dashboard_filter],
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ],
+            )
+        )
+
+        self.assertEqual(runner.query.filters, [own_filter])
+        assert runner.query.variables is not None and runner.query.variables["window"].values == ["1m"]
+
+    @parameterized.expand([("fixed", "minute"), ("variable", "$window")])
+    def test_returns_a_time_by_bound_grid(self, _name: str, interval: str) -> None:
         self._seed_histogram(
             [
                 (self.anchor + dt.timedelta(seconds=0), [10, 10, 10, 0]),
@@ -65,7 +95,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response = self._run()
+        response = self._run(interval=interval, variables={"window": MetricsVariableValue(values=["1m"])})
 
         self.assertEqual(response.bounds, self.BOUNDS)
         # One column per minute bucket across the 3-minute window.
@@ -85,6 +115,18 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run()
         self.assertEqual(response.bounds, [])
         self.assertEqual(response.counts, [])
+
+    # The viewer latches the OTel type at pick time and sends it as `metricType` — the
+    # runner must filter on it, or one metric name stored as two types (a histogram and
+    # an exponential histogram) blends into one heatmap.
+    def test_metric_type_filters_to_that_type(self):
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])])
+        self._seed_histogram([(self.anchor, [5, 5, 5, 0])], metric_type="exponential_histogram")
+
+        response = self._run(metricType="exponential_histogram")
+
+        second_minute = [response.counts[b][1] for b in range(len(self.BOUNDS))]
+        self.assertEqual(second_minute, [5, 5, 5])
 
     def test_rejects_mixed_bucket_layouts(self):
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], bounds=[0.1, 0.5, 1.0])
@@ -109,7 +151,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.times), 3)
 
     def test_weekly_buckets_keep_their_counts(self):
-        monday = dt.datetime(2026, 9, 7, 0, 0, 0, tzinfo=dt.UTC)
+        monday = dt.datetime(2026, 9, 14, 0, 0, 0, tzinfo=dt.UTC)
         self._seed_histogram([(monday + dt.timedelta(hours=3), [4, 4, 4, 0])])
 
         response = self._run(
@@ -127,16 +169,31 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([response.counts[b][0] for b in range(len(self.BOUNDS))], [4, 4, 4])
 
     def test_rejects_a_cell_count_above_the_budget(self):
-        with self.assertRaises(Exception) as ctx:
-            self._run(
-                dateRange={
-                    "date_from": (self.anchor - dt.timedelta(days=30)).isoformat(),
-                    "date_to": self.anchor.isoformat(),
-                    "explicitDate": True,
-                },
-                interval="minute",
-            )
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])])
+        with patch("products.metrics.backend.hogql_queries.metrics_histogram_query_runner.MAX_GRID_CELLS", 1):
+            with self.assertRaises(Exception) as ctx:
+                self._run(interval="minute")
         self.assertIn("interval", str(ctx.exception).lower())
+
+    def test_grid_follows_a_coarsened_interval(self):
+        self._seed_histogram([(self.anchor - dt.timedelta(minutes=10), [10, 10, 10, 0])])
+        response = self._run(
+            dateRange={
+                "date_from": (self.anchor - dt.timedelta(days=30)).isoformat(),
+                "date_to": self.anchor.isoformat(),
+                "explicitDate": True,
+            },
+            interval="minute",
+        )
+        # One-minute buckets over 30 days exceed the bucket limit, so the runner uses six-hour buckets.
+        first, second = (dt.datetime.fromisoformat(t) for t in response.times[:2])
+        self.assertEqual(second - first, dt.timedelta(hours=6))
+
+    def test_unresolved_variable_is_explained_without_a_query(self):
+        with patch("products.metrics.backend.hogql_queries.metrics_histogram_query_runner.execute_hogql_query") as run:
+            with self.assertRaisesRegex(ExposedHogQLError, r"\$job"):
+                self._run(filters=[MetricsQueryFilter(key="job", op="eq", value="$job")])
+        run.assert_not_called()
 
     def test_invalid_range_surfaces_as_client_error_not_500(self):
         with self.assertRaises(ExposedHogQLError):

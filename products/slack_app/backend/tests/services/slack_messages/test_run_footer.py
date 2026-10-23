@@ -5,12 +5,15 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.apps import apps
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
+from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     load_run_footer,
@@ -19,7 +22,6 @@ from products.slack_app.backend.services.slack_messages import (
 )
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
-DESKTOP_URL = "https://us.posthog.com/code/task/2?unfurl=false"
 
 
 class TestRunFooter(SimpleTestCase):
@@ -27,25 +29,25 @@ class TestRunFooter(SimpleTestCase):
         [
             (
                 "everything",
-                RunFooter(TASK_URL, DESKTOP_URL, "claude-opus-5", "high"),
+                RunFooter(TASK_URL, "claude-opus-5", "high", project="Fernwood staging"),
                 "slack://app?team=T1&id=A1&tab=home",
-                f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>"
-                " · *Claude Opus 5* [High] · <slack://app?team=T1&id=A1&tab=home|Configure>",
+                f"<{TASK_URL}|View session> · *Claude Opus 5* [High]"
+                " · Project: *Fernwood staging* · <slack://app?team=T1&id=A1&tab=home|Configure>",
             ),
             (
-                "links_only",
-                RunFooter(TASK_URL, DESKTOP_URL),
+                "link_only",
+                RunFooter(TASK_URL),
                 None,
-                f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>",
+                f"<{TASK_URL}|View session>",
             ),
             ("model_without_effort", RunFooter(model="claude-opus-5"), None, "*Claude Opus 5*"),
             # A workspace connected to several projects answers from one of them, and the
             # answer looks the same whichever it was, so the footer has to name it.
             (
-                "project_precedes_the_model",
+                "model_precedes_the_project",
                 RunFooter(model="claude-opus-5", project="Fernwood staging"),
                 None,
-                "Project: *Fernwood staging* · *Claude Opus 5*",
+                "*Claude Opus 5* · Project: *Fernwood staging*",
             ),
             # A project name is tenant text with no character validation, and the footer
             # rides under every reply. Unescaped, `<!channel>` broadcasts to everyone in
@@ -55,6 +57,12 @@ class TestRunFooter(SimpleTestCase):
                 RunFooter(project="<!channel> & <https://evil/|View on web>"),
                 None,
                 "Project: *&lt;!channel&gt; &amp; &lt;https://evil/|View on web&gt;*",
+            ),
+            (
+                "plan_follows_the_model",
+                RunFooter(model="claude-opus-5", plan="Your ChatGPT plan", project="Fernwood staging"),
+                None,
+                "*Claude Opus 5* · Your ChatGPT plan · Project: *Fernwood staging*",
             ),
             (
                 "configure_only",
@@ -87,8 +95,7 @@ class TestRunFooter(SimpleTestCase):
 class TestLoadRunFooter(SimpleTestCase):
     @patch("products.tasks.backend.facade.run_config.parse_run_state")
     @patch("products.tasks.backend.facade.api.get_task_run")
-    def test_describes_the_run_links_included(self, mock_get_run, mock_parse) -> None:
-        # Whether the reader may open the links is asked later, where the reader is known.
+    def test_describes_the_run(self, mock_get_run, mock_parse) -> None:
         task_id = uuid4()
         mock_get_run.return_value = SimpleNamespace(
             id=uuid4(), task_id=task_id, team_id=1, state={}, created_by_id=None
@@ -97,13 +104,87 @@ class TestLoadRunFooter(SimpleTestCase):
 
         footer = load_run_footer("run-1", integration_id=None)
 
-        assert f"/code/task/{task_id}" in (footer.desktop_url or "")
         assert f"/tasks/{task_id}" in (footer.task_url or "")
         assert footer.model == "claude-opus-5"
+
+    @parameterized.expand(
+        [
+            ("posthog_credits", {}, None),
+            (
+                "the_owner_is_speaking",
+                {
+                    "runtime_adapter": "codex",
+                    "codex_model_access": "own-subscription",
+                    "codex_subscription_user_id": 7,
+                    "slack_actor_user_id": 7,
+                },
+                "Your ChatGPT plan",
+            ),
+            (
+                "no_known_speaker",
+                {"runtime_adapter": "codex", "codex_model_access": "own-subscription", "codex_subscription_user_id": 7},
+                "ChatGPT plan",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_names_the_plan_that_pays_for_the_run(
+        self, _name: str, state: dict, expected: str | None, mock_get_run
+    ) -> None:
+        mock_get_run.return_value = SimpleNamespace(
+            id=uuid4(), task_id=uuid4(), team_id=1, state=state, created_by_id=None
+        )
+
+        assert load_run_footer("run-1", integration_id=None).plan == expected
 
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
         assert load_run_footer("run-1", integration_id=None) == RunFooter()
+
+
+class TestLoadRunFooterJoinedThread(TestCase):
+    @parameterized.expand(
+        [
+            ("well_formed_id", "U0CREATOR1", "<@U0CREATOR1>'s ChatGPT plan"),
+            # The id lands in mrkdwn unescaped, so anything else must not become markup.
+            ("malformed_id", "U1> <!channel", "ChatGPT plan"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_a_joiners_reply_mentions_the_creator_whose_plan_pays(
+        self, _name: str, creator_slack_user_id: str, expected: str, mock_get_run
+    ) -> None:
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="team")
+        creator = User.objects.create(email="creator@example.com")
+        integration = Integration.objects.create(team=team, kind="slack", integration_id="T1", config={})
+        Task = apps.get_model("tasks", "Task")
+        task = Task.objects.create(
+            team=team, title="t", description="d", origin_product=Task.OriginProduct.SLACK, created_by=creator
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=team,
+            integration=integration,
+            slack_workspace_id="T1",
+            channel="C1",
+            thread_ts="1.0",
+            task=task,
+            task_run=apps.get_model("tasks", "TaskRun").objects.create(task=task, team=team),
+            mentioning_slack_user_id=creator_slack_user_id,
+        )
+        mock_get_run.return_value = SimpleNamespace(
+            id=uuid4(),
+            task_id=task.id,
+            team_id=team.id,
+            created_by_id=None,
+            state={
+                "runtime_adapter": "codex",
+                "codex_model_access": "own-subscription",
+                "codex_subscription_user_id": creator.id,
+                "slack_actor_user_id": creator.id + 1,
+            },
+        )
+
+        assert load_run_footer("run-1", integration_id=integration.id).plan == expected
 
 
 class TestViewerHasCodeAccess(SimpleTestCase):

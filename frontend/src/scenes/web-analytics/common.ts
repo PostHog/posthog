@@ -8,6 +8,7 @@ import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
 
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { hogqlQuery } from '~/queries/query'
 import {
     BreakdownFilter,
@@ -21,9 +22,9 @@ import {
 import { hogql } from '~/queries/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
-/** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_NULL_DISPLAY in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
-/** Matches BREAKDOWN_REFERRER_PREFIX in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_REFERRER_PREFIX in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
 
 export interface WebTileLayout {
@@ -526,7 +527,7 @@ export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): Br
 
 export const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
 
-export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
+export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = pageCollectionId('web-analytics')
 
 export const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
 export const INITIAL_DATE_FROM = '-7d' as string | null
@@ -617,6 +618,12 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+/** Operators that compare raw paths, mapped to the operators that clean both sides before they compare. */
+export const cleanedPathOperators: Partial<Record<PropertyOperator, PropertyOperator>> = {
+    [PropertyOperator.Exact]: PropertyOperator.IsCleanedPathExact,
+    [PropertyOperator.IsNot]: PropertyOperator.IsCleanedPathNotExact,
+}
 
 /**
  * Pick the operator for an exact match on a breakdown value. With path cleaning on, the value is a

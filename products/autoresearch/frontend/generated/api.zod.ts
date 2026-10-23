@@ -29,6 +29,12 @@ export const autoresearchCreateBodyCadenceDaysMax = 365
 
 export const autoresearchCreateBodyIterationBudgetMax = 500
 
+export const autoresearchCreateBodyIterationsPerRunMax = 50
+
+export const autoresearchCreateBodyAgentModelMax = 100
+
+export const autoresearchCreateBodyAgentReasoningEffortMax = 20
+
 export const autoresearchCreateBodySuccessAucMin = 0
 export const autoresearchCreateBodySuccessAucMax = 1
 
@@ -99,7 +105,40 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(autoresearchCreateBodyIterationBudgetMax)
         .optional()
-        .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
+        .describe('Deprecated: scheduled training no longer reads it. Use iterations_per_run.'),
+    iterations_per_run: zod
+        .number()
+        .min(1)
+        .max(autoresearchCreateBodyIterationsPerRunMax)
+        .optional()
+        .describe(
+            'Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.'
+        ),
+    research_interval_days: zod
+        .union([
+            zod
+                .union([zod.literal(7), zod.literal(14), zod.literal(30), zod.literal(60), zod.literal(90)])
+                .describe('\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'
+        ),
+    agent_model: zod
+        .string()
+        .max(autoresearchCreateBodyAgentModelMax)
+        .nullish()
+        .describe(
+            "Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it."
+        ),
+    agent_reasoning_effort: zod
+        .string()
+        .max(autoresearchCreateBodyAgentReasoningEffortMax)
+        .nullish()
+        .describe(
+            "Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run."
+        ),
     success_auc: zod
         .number()
         .min(autoresearchCreateBodySuccessAucMin)
@@ -118,6 +157,12 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
+        ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 
@@ -182,7 +227,7 @@ export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod
             .min(1)
             .max(autoresearchTrainingRunsCreateBodyIterationBudgetMax)
             .optional()
-            .describe("Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted."),
+            .describe("Iteration budget for this run. Defaults to the pipeline's iterations_per_run if omitted."),
     })
     .describe('Input for opening an agent-driven training run.')
 
@@ -242,11 +287,29 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */
  * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
  * @summary Complete a training run
  */
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax = 200
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin = 0
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax = 30
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax = 500
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax = 500
+
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
 
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
+
+export const autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax = 600
+
+export const autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax = 80
+
+export const autoresearchTrainingRunsCompleteCreateBodyNextStepsMax = 5
+
+export const autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault = ``
 
 export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .object({
@@ -257,7 +320,49 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
                 'Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.'
             ),
         model_explanation: zod
-            .looseObject({})
+            .object({
+                top_features: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax
+                                )
+                                .describe('Feature column name, as returned by the feature SQL.'),
+                            importance: zod
+                                .number()
+                                .min(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin
+                                )
+                                .describe(
+                                    'Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.'
+                                ),
+                            direction: zod
+                                .enum(['positive', 'negative'])
+                                .describe('\* `positive` - Positive\n\* `negative` - Negative')
+                                .describe(
+                                    "'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.\n\n\* `positive` - Positive\n\* `negative` - Negative"
+                                ),
+                        })
+                    )
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax)
+                    .optional()
+                    .describe('At most 30 features, strongest first.'),
+                method: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax)
+                    .optional()
+                    .describe(
+                        "Short description of how the importances were computed, e.g. 'permutation importance on holdout'."
+                    ),
+                note: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax)
+                    .optional()
+                    .describe('Optional caveat shown under the chart.'),
+            })
+            .describe('Global feature importances for the model card.')
             .optional()
             .describe('Global feature importance \/ directionality bundle for the champion model card.'),
         recommended_next: zod
@@ -273,6 +378,28 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
             .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
             .describe(
                 'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
+            ),
+        reader_summary: zod
+            .string()
+            .max(autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax)
+            .nullish()
+            .describe('One or two plain sentences for people on what this run learned. Max 600 characters.'),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
+        next_steps: zod
+            .array(zod.string().max(autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax))
+            .max(autoresearchTrainingRunsCompleteCreateBodyNextStepsMax)
+            .nullish()
+            .describe('Short next steps for people, at most 5 items of a few words each (max 80 characters per item).'),
+        report_notebook_short_id: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault)
+            .describe(
+                'Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion.'
             ),
     })
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
@@ -292,6 +419,8 @@ export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax = 1
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax = 2000
+
+export const autoresearchTrainingRunsIterationsCreateBodySummaryMax = 300
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
@@ -354,6 +483,19 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .max(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax)
             .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)
             .describe("Agent's plain-English rationale for this iteration. Max 2000 characters."),
+        summary: zod
+            .string()
+            .max(autoresearchTrainingRunsIterationsCreateBodySummaryMax)
+            .nullish()
+            .describe(
+                'One plain sentence for people on what this experiment tried and what happened. Max 300 characters.'
+            ),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
         agent_confidence: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
@@ -402,6 +544,12 @@ export const autoresearchUpdateBodyTrainingLookbackDaysMax = 730
 export const autoresearchUpdateBodyCadenceDaysMax = 365
 
 export const autoresearchUpdateBodyIterationBudgetMax = 500
+
+export const autoresearchUpdateBodyIterationsPerRunMax = 50
+
+export const autoresearchUpdateBodyAgentModelMax = 100
+
+export const autoresearchUpdateBodyAgentReasoningEffortMax = 20
 
 export const autoresearchUpdateBodySuccessAucMin = 0
 export const autoresearchUpdateBodySuccessAucMax = 1
@@ -473,7 +621,40 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(autoresearchUpdateBodyIterationBudgetMax)
         .optional()
-        .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
+        .describe('Deprecated: scheduled training no longer reads it. Use iterations_per_run.'),
+    iterations_per_run: zod
+        .number()
+        .min(1)
+        .max(autoresearchUpdateBodyIterationsPerRunMax)
+        .optional()
+        .describe(
+            'Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.'
+        ),
+    research_interval_days: zod
+        .union([
+            zod
+                .union([zod.literal(7), zod.literal(14), zod.literal(30), zod.literal(60), zod.literal(90)])
+                .describe('\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'
+        ),
+    agent_model: zod
+        .string()
+        .max(autoresearchUpdateBodyAgentModelMax)
+        .nullish()
+        .describe(
+            "Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it."
+        ),
+    agent_reasoning_effort: zod
+        .string()
+        .max(autoresearchUpdateBodyAgentReasoningEffortMax)
+        .nullish()
+        .describe(
+            "Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run."
+        ),
     success_auc: zod
         .number()
         .min(autoresearchUpdateBodySuccessAucMin)
@@ -492,6 +673,12 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
+        ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 
@@ -514,6 +701,12 @@ export const autoresearchPartialUpdateBodyTrainingLookbackDaysMax = 730
 export const autoresearchPartialUpdateBodyCadenceDaysMax = 365
 
 export const autoresearchPartialUpdateBodyIterationBudgetMax = 500
+
+export const autoresearchPartialUpdateBodyIterationsPerRunMax = 50
+
+export const autoresearchPartialUpdateBodyAgentModelMax = 100
+
+export const autoresearchPartialUpdateBodyAgentReasoningEffortMax = 20
 
 export const autoresearchPartialUpdateBodySuccessAucMin = 0
 export const autoresearchPartialUpdateBodySuccessAucMax = 1
@@ -585,7 +778,40 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(autoresearchPartialUpdateBodyIterationBudgetMax)
         .optional()
-        .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
+        .describe('Deprecated: scheduled training no longer reads it. Use iterations_per_run.'),
+    iterations_per_run: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyIterationsPerRunMax)
+        .optional()
+        .describe(
+            'Experiments the agent may try in each training run (1-50). Each experiment costs agent time and queries, so a higher value costs more per run. Scheduled runs and Train now use it. Default: 5.'
+        ),
+    research_interval_days: zod
+        .union([
+            zod
+                .union([zod.literal(7), zod.literal(14), zod.literal(30), zod.literal(60), zod.literal(90)])
+                .describe('\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'
+        ),
+    agent_model: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyAgentModelMax)
+        .nullish()
+        .describe(
+            "Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it."
+        ),
+    agent_reasoning_effort: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyAgentReasoningEffortMax)
+        .nullish()
+        .describe(
+            "Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run."
+        ),
     success_auc: zod
         .number()
         .min(autoresearchPartialUpdateBodySuccessAucMin)
@@ -605,6 +831,27 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
         ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
+        ),
+})
+
+/**
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
+ * @summary Start a training run
+ */
+export const autoresearchTrainCreateBodyIterationBudgetMax = 500
+
+export const AutoresearchTrainCreateBody = /* @__PURE__ */ zod.object({
+    iteration_budget: zod
+        .number()
+        .min(1)
+        .max(autoresearchTrainCreateBodyIterationBudgetMax)
+        .optional()
+        .describe("Iterations for this training run. Defaults to the pipeline's iterations_per_run."),
 })
 
 /**
@@ -626,7 +873,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
             '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         )
         .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
+            'Template to resolve. The templates endpoint lists each one with its description. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         ),
     target_event: zod
         .string()
@@ -643,7 +890,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreateBodyTargetEventDefault = ``

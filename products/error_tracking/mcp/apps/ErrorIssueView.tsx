@@ -3,9 +3,63 @@ import type { ReactElement } from 'react'
 import { DescriptionList, formatDate } from '@posthog/mcp-ui'
 import { Badge, Button, Card, CardContent } from '@posthog/quill'
 
+import type {
+    ErrorTrackingIssueSummaryApi,
+    IssueSummaryCategoryEnumApi,
+    IssueSummaryStatusEnumApi,
+} from '../../frontend/generated/api.schemas'
+
 export interface ExternalIssue {
     external_url: string
     integration?: { display_name?: string }
+}
+
+export interface ErrorIssueBreakdownValue {
+    value: string
+    count: number
+}
+
+export interface ErrorIssueBreakdown {
+    date_from: string
+    date_to: string
+    range_limited: boolean
+    occurrences: number
+    sample_session_ids: string[]
+    top_values: Partial<Record<ErrorIssueBreakdownDimension, ErrorIssueBreakdownValue[]>>
+}
+
+export type ErrorIssueBreakdownDimension =
+    | 'path'
+    | 'url'
+    | 'screen'
+    | 'browser'
+    | 'os'
+    | 'library'
+    | 'library_version'
+    | 'app_version'
+
+const breakdownLabels: Record<ErrorIssueBreakdownDimension, string> = {
+    path: 'Paths',
+    url: 'URLs',
+    screen: 'Screens',
+    browser: 'Browsers',
+    os: 'OS',
+    library: 'Libraries',
+    library_version: 'Library versions',
+    app_version: 'App versions',
+}
+
+export function formatBreakdownValues(values: ErrorIssueBreakdownValue[] | undefined): string {
+    return (values ?? []).map(({ value, count }) => `${value} (${count})`).join(', ')
+}
+
+const summaryCategoryLabels: Record<IssueSummaryCategoryEnumApi, string> = {
+    own_code: 'Own code',
+    third_party: 'Third party',
+    network: 'Network',
+    bots: 'Bots',
+    expected: 'Expected',
+    unclear: 'Unclear',
 }
 
 export interface ErrorIssueData {
@@ -16,6 +70,9 @@ export interface ErrorIssueData {
     first_seen?: string
     assignee?: { id: string; type: string } | null
     external_issues?: ExternalIssue[]
+    breakdown?: ErrorIssueBreakdown
+    summary?: ErrorTrackingIssueSummaryApi
+    summary_status?: IssueSummaryStatusEnumApi
     _posthogUrl?: string
 }
 
@@ -48,6 +105,32 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                     {issue.description && <span className="text-sm text-muted-foreground">{issue.description}</span>}
                 </div>
 
+                {issue.summary && (
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-semibold">Summary</span>
+                                    {issue.summary.category && (
+                                        <Badge>{summaryCategoryLabels[issue.summary.category]}</Badge>
+                                    )}
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                    Written by AI. Check it against the details below.
+                                </span>
+                                <DescriptionList
+                                    items={[
+                                        { label: 'What happened', value: issue.summary.what_happened },
+                                        { label: 'Likely cause (hypothesis)', value: issue.summary.likely_cause },
+                                        { label: 'Who is affected', value: issue.summary.who_is_affected },
+                                        { label: 'Next step', value: issue.summary.suggested_next_step },
+                                    ]}
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
                 <Card>
                     <CardContent>
                         <DescriptionList
@@ -62,6 +145,33 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                         />
                     </CardContent>
                 </Card>
+
+                {issue.breakdown && (
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">
+                                    Breakdown of {issue.breakdown.occurrences} events
+                                    {issue.breakdown.range_limited ? ' (last 30 days of the range)' : ''}
+                                </span>
+                                <DescriptionList
+                                    items={[
+                                        ...(Object.keys(breakdownLabels) as ErrorIssueBreakdownDimension[]).map(
+                                            (dimension) => ({
+                                                label: breakdownLabels[dimension],
+                                                value: formatBreakdownValues(issue.breakdown?.top_values[dimension]),
+                                            })
+                                        ),
+                                        {
+                                            label: 'Sample session IDs',
+                                            value: issue.breakdown.sample_session_ids.join(', '),
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {issue.external_issues && issue.external_issues.length > 0 && (
                     <Card>

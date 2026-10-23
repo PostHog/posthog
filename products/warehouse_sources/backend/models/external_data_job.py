@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.types import ExternalDataJobPipelineVers
 
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
 
@@ -41,7 +41,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
-    pipeline_version = models.CharField(max_length=400, choices=PipelineVersion, null=True, blank=True)
+    pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
     # The destinations this run delivers to, snapshotted when the run started so a config
     # change mid-run cannot alter where an in-flight run lands or what it bills. Empty means
@@ -90,6 +90,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["created_at"],
                 condition=Q(status=ExternalDataJobStatus.RUNNING),
                 name="idx_extdatajob_running",
+            ),
+            # Serves the source sync-history list (the `jobs` action): equality on pipeline
+            # ordered by created_at DESC with LIMIT. The polling settings tab reads it every
+            # few seconds. Without it the FK index walks every job of the source and sorts.
+            models.Index(
+                fields=["pipeline", "-created_at"],
+                name="idx_extdatajob_pipe_created",
             ),
         ]
 

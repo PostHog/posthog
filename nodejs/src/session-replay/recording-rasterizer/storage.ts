@@ -4,7 +4,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
-import { Readable } from 'stream'
+import { Readable, Transform } from 'stream'
 import { pipeline } from 'stream/promises'
 
 import { config } from './config'
@@ -124,15 +124,56 @@ export async function uploadToS3(
     return target
 }
 
+export function parseS3Uri(uri: string): { bucket: string; key: string } {
+    const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(uri)
+    if (!match) {
+        throw new RasterizationError(`Not an S3 URI: ${uri}`, false, 'INVALID_INPUT')
+    }
+    return { bucket: match[1], key: match[2] }
+}
+
+/** Fails the download once more than `maxBytes` arrive, for a response that sent no Content-Length to check first. */
+export function byteLimit(maxBytes: number): Transform {
+    let seen = 0
+    return new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+            seen += chunk.length
+            if (seen > maxBytes) {
+                callback(
+                    new RasterizationError(`S3 object too large: over ${maxBytes} bytes`, false, 'RECORDING_TOO_LARGE')
+                )
+                return
+            }
+            callback(null, chunk)
+        },
+    })
+}
+
 /** Fetch one object to a local path. The thumbnail activity reads the analysis MP4 this way. */
-export async function downloadFromS3(bucket: string, key: string, localPath: string): Promise<void> {
+export async function downloadFromS3(
+    bucket: string,
+    key: string,
+    localPath: string,
+    options: { maxBytes?: number; signal?: AbortSignal } = {}
+): Promise<void> {
     try {
-        const res = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+        const res = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }), {
+            abortSignal: options.signal,
+        })
         if (!res.Body) {
             throw new RasterizationError(`S3 object is empty: s3://${bucket}/${key}`, false, 'S3_DOWNLOAD_EMPTY')
         }
+        if (options.maxBytes !== undefined && (res.ContentLength ?? 0) > options.maxBytes) {
+            ;(res.Body as Readable).destroy()
+            throw new RasterizationError(
+                `S3 object too large: ${res.ContentLength} bytes (limit ${options.maxBytes})`,
+                false,
+                'RECORDING_TOO_LARGE'
+            )
+        }
         // Streamed, not buffered: thumbnail extraction reads several tens-of-megabytes MP4s at once.
-        await pipeline(res.Body as Readable, fs.createWriteStream(localPath))
+        const stages: NodeJS.ReadWriteStream[] = options.maxBytes !== undefined ? [byteLimit(options.maxBytes)] : []
+        await pipeline([res.Body as Readable, ...stages, fs.createWriteStream(localPath)], { signal: options.signal })
     } catch (err) {
         if (err instanceof RasterizationError) {
             throw err

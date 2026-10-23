@@ -27,6 +27,9 @@ export interface ExceptionData {
     stacktrace?: {
         type?: string
         frames?: StackFrame[]
+        frames_omitted?: number
+        same_as_event?: string
+        same_as_exception?: number
     }
 }
 
@@ -144,6 +147,11 @@ function ExceptionSection({ exception, index }: { exception: ExceptionData; inde
                                 {inAppCount > 0 && (
                                     <span className="text-xs text-muted-foreground">({inAppCount} in-app)</span>
                                 )}
+                                {exception.stacktrace?.frames_omitted ? (
+                                    <span className="text-xs text-muted-foreground">
+                                        ({exception.stacktrace.frames_omitted} older frames not shown)
+                                    </span>
+                                ) : null}
                             </div>
                             <div className="rounded-lg border overflow-hidden">
                                 <Accordion multiple defaultValue={getDefaultExpanded(displayFrames)}>

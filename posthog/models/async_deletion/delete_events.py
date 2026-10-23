@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Callable
+from uuid import UUID
 
 from clickhouse_driver.errors import SocketTimeoutError
 from prometheus_client import Counter
@@ -7,7 +8,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.models.event.deletion import events_data_tables_via_sync_execute, events_read_tables_via_sync_execute
-from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 logger.setLevel("DEBUG")
@@ -56,9 +57,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         event_tables = events_data_tables_via_sync_execute()
 
         def run_batch(batch: list[tuple[str, AsyncDeletion]], args: dict, swallow_timeouts: bool) -> None:
-            # The predicate is rebuilt per table: group deletions reference the `$group_N` column,
-            # which is MATERIALIZED on the legacy table but an ALIAS on the JSON table — and
-            # mutations cannot reference ALIAS columns, so the JSON table reads the subcolumn.
+            # The predicate is rebuilt per table: group deletions reference the `$group_N` column on
+            # the legacy table but the `properties.$group_N` subcolumn on the JSON table.
             for table in event_tables:
                 conditions = [self._condition(deletion, suffix, table=table)[0] for suffix, deletion in batch]
                 query = f"DELETE FROM {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {' OR '.join(conditions)}"
@@ -127,24 +127,34 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
     def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
         if deletion_type == DeletionType.Team:
-            team_ids_with_data = self._verify_by_column("team_id", async_deletions)
+            team_ids_with_data = self._verify_by_column(lambda _table: "team_id", async_deletions)
             return [row for row in async_deletions if (row.team_id,) not in team_ids_with_data]
         elif deletion_type in (DeletionType.Person, DeletionType.Group):
-            columns = f"team_id, {self._column_name(async_deletions[0])}"
-            with_data = {(team_id, str(key)) for team_id, key in self._verify_by_column(columns, async_deletions)}
+            with_data = {
+                (team_id, str(key))
+                for team_id, key in self._verify_by_column(
+                    lambda table: f"team_id, {self._column_name(async_deletions[0], table)}", async_deletions
+                )
+            }
             return [row for row in async_deletions if (row.team_id, row.key) not in with_data]
         else:
             return []
 
-    def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
-        conditions, args = self._conditions(async_deletions)
+    def _verify_by_column(
+        self, distinct_columns: Callable[[str], str], async_deletions: list[AsyncDeletion]
+    ) -> set[tuple[int | str | UUID, ...]]:
         # A deletion is only verified once the rows are gone from every events table.
-        rows_with_data: set[tuple[Any, ...]] = set()
+        rows_with_data: set[tuple[int | str | UUID, ...]] = set()
         for table in events_read_tables_via_sync_execute():
+            conditions, args = [], {}
+            for i, row in enumerate(async_deletions):
+                condition, arg = self._condition(row, str(i), table=table)
+                conditions.append(condition)
+                args.update(arg)
             # nosemgrep: clickhouse-fstring-param-audit - distinct_columns hardcoded, conditions internal
             clickhouse_result = sync_execute(
                 f"""
-                SELECT DISTINCT {distinct_columns}
+                SELECT DISTINCT {distinct_columns(table)}
                 FROM {table}
                 WHERE {" OR ".join(conditions)}
                 """,
@@ -158,10 +168,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         assert async_deletion.deletion_type in (DeletionType.Person, DeletionType.Group)
         if async_deletion.deletion_type == DeletionType.Person:
             return "person_id"
-        if table == EVENTS_JSON_DATA_TABLE:
-            # `$group_N` is an ALIAS column on the JSON data table and mutations cannot reference
-            # ALIAS columns — read the backing JSON subcolumn directly instead.
-            return f"ifNull(properties.`$group_{async_deletion.group_type_index}`, '')"
+        if table in (EVENTS_JSON_DATA_TABLE, DISTRIBUTED_EVENTS_JSON_TABLE):
+            return f"properties.`$group_{async_deletion.group_type_index}`"
         return f"$group_{async_deletion.group_type_index}"
 
     def _condition(self, async_deletion: AsyncDeletion, suffix: str, table: str | None = None) -> tuple[str, dict]:

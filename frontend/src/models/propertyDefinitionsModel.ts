@@ -597,6 +597,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.setOptionsSearchInput(propertyKey, newInput || '')
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
                     constructValuesEndpoint(
                         endpoint,

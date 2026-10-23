@@ -399,6 +399,14 @@ impl Client for ReadWriteClient {
         self.writer.zadd(k, member, score).await
     }
 
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        self.writer.zadd_nx(k, member, score).await
+    }
+
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError> {
+        self.writer.zrem(k, member).await
+    }
+
     async fn set_with_format(
         &self,
         k: String,

@@ -12,8 +12,8 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
+from posthog.hogql.placeholders import replace_placeholders
 
-from posthog.cdp.validation import compile_hog
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     ExecuteLLMJudgeInputs,
@@ -29,6 +29,7 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     SessionFetchOutcome,
     _count_session_events,
     _SessionEventCount,
+    _sum_session_payload_bytes,
     build_session_hog_globals,
     execute_session_hog_eval_activity,
     execute_session_llm_judge_activity,
@@ -45,6 +46,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
 )
 
 from products.ai_observability.backend.hog import compile_ai_observability_hog
+from products.cdp.backend.validation import compile_hog
 
 FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -234,6 +236,20 @@ class TestCountSessionEvents:
         assert result.event_count == 7
         assert result.first_seen == first_seen
         assert mock_query_ai_events.call_args.kwargs["fall_back_to_events"] is False
+
+    @pytest.mark.parametrize(
+        "fetch, rows",
+        [(_count_session_events, [[7, datetime(2026, 7, 1, tzinfo=UTC)]]), (_sum_session_payload_bytes, [[100]])],
+    )
+    def test_reads_the_session_traces_with_global_in(self, fetch, rows):
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
+            return_value=Mock(results=rows),
+        ) as mock_query_ai_events:
+            fetch(Mock(), "s-1", FROZEN_NOW, FROZEN_NOW)
+
+        kwargs = mock_query_ai_events.call_args.kwargs
+        assert "globalIn(trace_id, (SELECT" in replace_placeholders(kwargs["query"], kwargs["placeholders"]).to_hogql()
 
 
 class TestRunHogEvalOverRecentSessions:
@@ -477,8 +493,28 @@ class TestFetchSessionForEvaluation:
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize("runtime", ["hog", "llm_judge"])
     @pytest.mark.parametrize("target", ["generation", "trace", "session"])
-    @pytest.mark.parametrize("score", [0.25, None])
-    def test_numeric_outputs_across_targets(self, runtime: str, target: str, score: float | None) -> None:
+    @pytest.mark.parametrize(
+        "output_type,score",
+        [
+            ("numeric", 0.25),
+            ("numeric", None),
+            ("categorical", ["resolved"]),
+            ("categorical", []),
+            ("categorical", None),
+        ],
+    )
+    def test_outputs_across_targets(
+        self, runtime: str, target: str, output_type: str, score: float | list[str] | None
+    ) -> None:
+        output_config = {
+            "allows_na": True,
+            **(
+                {"min": 0, "max": 1}
+                if output_type == "numeric"
+                else {"options": [{"key": "resolved", "label": "Resolved"}], "selection_mode": "multiple"}
+            ),
+        }
+        result_key = "score" if output_type == "numeric" else "categories"
         trace = _trace("trace-1", cost=0, latency=0)
         evaluation = {
             "id": "numeric-eval",
@@ -487,14 +523,14 @@ class TestExecuteSessionActivities:
             "evaluation_config": {
                 "prompt": "Rate quality",
                 "bytecode": compile_ai_observability_hog(
-                    "return null" if score is None else "return 0.25",
+                    "return null" if score is None else f"return {score!r}",
                     "destination",
                 ),
             },
-            "output_type": "numeric",
-            "output_config": {"min": 0, "max": 1, "allows_na": True},
+            "output_type": output_type,
+            "output_config": output_config,
         }
-        schema = get_output_type_config(True, output_type="numeric").response_format
+        schema = get_output_type_config(True, output_type=output_type, output_config=output_config).response_format
         with (
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
@@ -514,7 +550,7 @@ class TestExecuteSessionActivities:
                 is_byok=False,
             )
             client.return_value.complete.return_value = Mock(
-                parsed=schema.model_validate({"reasoning": "Quality", "score": score}),
+                parsed=schema.model_validate({"reasoning": "Quality", result_key: score}),
                 usage=None,
             )
             if target == "generation":
@@ -544,15 +580,16 @@ class TestExecuteSessionActivities:
                     if runtime == "hog"
                     else execute_session_llm_judge_activity(session_inputs)
                 )
-        assert result["result_type"] == "numeric"
+        assert result["result_type"] == output_type
         assert "verdict" not in result
         assert result["applicable"] is (score is not None)
         if score is None:
-            assert "score" not in result
+            assert result_key not in result
         else:
-            assert result["score"] == score
-            assert result["score_min"] == 0
-            assert result["score_max"] == 1
+            assert result.get(result_key) == score
+            if output_type == "numeric":
+                assert result["score_min"] == 0
+                assert result["score_max"] == 1
 
     @pytest.mark.parametrize(
         "skip_reason",

@@ -44,3 +44,25 @@ Warehouse series, warehouse property menus, and the data quality check editor ex
 After that request, catalog reloads also restore complete fields for consumers of the shared store.
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
+
+In PostHog Warehouse, sidebar search accepts `status:failed`, `status:running`, and `status:completed` to filter materialized views by their latest run status.
+The Models tab accepts the same status tokens and combines them with its name and lineage search syntax.
+The funnel menu beside search inserts and removes the same tokens. Select multiple statuses to include views matching any of them. **Failed** includes views paused after repeated failures.
+Status tokens combine with a name search, and matching views retain their folders and expandable columns. The funnel button highlights while a status filter is active.
+Status filters do not apply to direct connections. **Clear filters**, removing every status token, or locating a table restores the unfiltered tree.
+
+## Saved-query writes
+
+The saved-query API accepts `sync_frequency` on create and update.
+Create applies the cadence after creating the DAG node, in the same transaction, so a refused cadence leaves no saved query behind.
+An omitted cadence leaves the target unchanged on update; explicit `null` and `"never"` both clear it.
+Invalid cadence values return 400.
+
+`edited_history_id` protects query updates from concurrent edits and is ignored on create.
+`soft_update` skips column inference and external table discovery on create and update, and skips the revision conflict check on update.
+Query validation and revision updates still run.
+
+`deleted` is read-only.
+Use DELETE to remove a saved query so DAG cleanup, join cleanup, materialization cleanup, and name release run together.
+Create does not upsert deleted rows.
+A deleted row whose name was not released still reserves that name and needs separate cleanup.

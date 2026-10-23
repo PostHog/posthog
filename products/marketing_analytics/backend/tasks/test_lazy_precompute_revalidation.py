@@ -5,7 +5,8 @@ from posthog.schema import DateRange, MarketingAnalyticsTableQuery
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags
 
-from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
+from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import BACKGROUND_WARMING_TRIGGERS
 from products.marketing_analytics.backend.tasks.lazy_precompute_revalidation import (
     revalidate_marketing_analytics_precompute,
 )
@@ -33,19 +34,20 @@ class TestMarketingLazyPrecomputeRevalidation(BaseTest):
         # It must build (to_query) but NOT execute (run): a full run of this userless, access-control-
         # bypassed runner would write an all-sources response into the shared per-team result cache, which
         # a warehouse-restricted user could then read.
-        tags_at_build = {}
+        tags_at_build: dict[str, object] = {}
         runner = mock.MagicMock()
 
         def capture(**_kwargs):
+            tags_at_build["refresher"] = is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
             tags_at_build["feature"] = get_query_tag_value("feature")
-            tags_at_build["trigger"] = get_query_tag_value("trigger")
             return runner
 
         get_runner.side_effect = capture
 
         revalidate_marketing_analytics_precompute(team_id=self.team.pk, query=self.query)
 
-        assert tags_at_build == {"feature": Feature.CACHE_WARMUP, "trigger": REVALIDATION_TRIGGER}
+        # CACHE_WARMUP would route the INSERTs to the read-only cache_warmup ClickHouse user.
+        assert tags_at_build == {"refresher": True, "feature": Feature.PREAGGREGATION}
         runner.to_query.assert_called_once_with()
         runner.run.assert_not_called()
 

@@ -24,7 +24,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dateFilterToText, dateStringToComponents } from 'lib/utils/dateFilters'
 import { clamp } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
@@ -50,7 +49,12 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
-import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
+import {
+    CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP,
+    EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON,
+    MATCHING_ESTIMATE_TOOLTIP,
+} from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -358,6 +362,7 @@ export function FeatureFlagReleaseConditions({
                                 }`}
                                 propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                 logicalRowDivider
+                                logicalRowDividerTooltip={CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP}
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
@@ -450,7 +455,7 @@ export function FeatureFlagReleaseConditions({
                                         return (
                                             <div
                                                 role="status"
-                                                className="basis-full flex items-start gap-2 mt-1 text-secondary"
+                                                className="basis-full flex items-start gap-2 mt-1 min-h-[calc(3lh_+_0.25rem)] text-secondary"
                                             >
                                                 <IconErrorOutline className="text-danger text-base shrink-0 mt-0.5" />
                                                 <BlastRadiusErrorMessage
@@ -477,8 +482,8 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     if (affected === undefined || affected < 0 || total === undefined) {
                                         return (
-                                            <div className="basis-full flex items-center mt-1">
-                                                <Spinner />
+                                            <div className="basis-full mt-1 text-secondary">
+                                                <BlastRadiusSkeleton targetName={pluralName} />
                                             </div>
                                         )
                                     }

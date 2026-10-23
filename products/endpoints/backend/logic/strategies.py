@@ -12,9 +12,12 @@ Everything that branches on ``query["kind"]`` belongs here, behind the shared
 stay kind-agnostic.
 """
 
+import re
 import abc
+import math
 import dataclasses
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Optional
 
@@ -25,6 +28,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import DashboardFilter, EndpointRunRequest, HogQLVariable, PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -70,20 +74,59 @@ def add_where_condition(select_query: ast.SelectQuery, condition: ast.Expr) -> N
         select_query.where = condition
 
 
+def coerce_filter_value(value: object, column_type: str | None) -> object:
+    if value is None or isinstance(value, bool) or not column_type:
+        return value
+
+    while column_type.endswith(")"):
+        for wrapper in ("Nullable(", "LowCardinality("):
+            if column_type.startswith(wrapper):
+                column_type = column_type[len(wrapper) : -1]
+                break
+        else:
+            break
+
+    if column_type == "String" or column_type.startswith("FixedString("):
+        return str(value)
+
+    if not isinstance(value, str):
+        return value
+
+    integer_type = re.fullmatch(r"(U?)Int(8|16|32|64|128|256)", column_type)
+    if integer_type and re.fullmatch(r"[+-]?\d+", value):
+        integer_value = int(value)
+        bits = int(integer_type.group(2))
+        minimum = 0 if integer_type.group(1) else -(2 ** (bits - 1))
+        maximum = 2**bits - 1 if integer_type.group(1) else 2 ** (bits - 1) - 1
+        return integer_value if minimum <= integer_value <= maximum else value
+
+    if column_type in {"Float32", "Float64"}:
+        try:
+            float_value = float(value)
+            if math.isfinite(float_value) and Decimal(value) == Decimal(str(float_value)):
+                return float_value
+        except (InvalidOperation, ValueError, OverflowError):
+            pass
+
+    return value
+
+
 def apply_where_filter(
     select_query: ast.SelectQuery,
     column: str,
-    value: str,
+    value: object,
     op: ast.CompareOperationOp = ast.CompareOperationOp.Eq,
     value_wrapper_fns: list[str] | None = None,
     bucket_fn: str | None = None,
+    column_type: str | None = None,
 ) -> None:
     """Add a comparison filter to WHERE clause.
 
     When bucket_fn is set (range variables), wrap the filter value with the
     bucket function so the comparison matches the bucketed column values.
     """
-    right_expr: ast.Expr = ast.Constant(value=value)
+    constant_value = value if value_wrapper_fns or bucket_fn else coerce_filter_value(value, column_type)
+    right_expr: ast.Expr = ast.Constant(value=constant_value)
     for fn in reversed(value_wrapper_fns or []):
         right_expr = ast.Call(name=fn, args=[right_expr])
     if bucket_fn:
@@ -310,6 +353,7 @@ class EndpointQueryStrategy(abc.ABC):
 
     supports_pagination: ClassVar[bool] = False
     supports_ducklake: ClassVar[bool] = False
+    materialized_limit_context: ClassVar[LimitContext | None] = None
 
     def __init__(self, endpoint: Endpoint, version: EndpointVersion, team: Team):
         self.endpoint = endpoint
@@ -444,8 +488,11 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
         try:
             parsed = parse_select(query_str)
             if isinstance(parsed, ast.SelectQuery):
+                output_names = [column["name"] for column in self.version.columns or []]
                 columns = (
-                    transform_select_for_materialized_table(list(parsed.select), self.team) if parsed.select else None
+                    transform_select_for_materialized_table(list(parsed.select), output_names)
+                    if parsed.select
+                    else None
                 )
                 limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
                 has_group_by = bool(parsed.group_by)
@@ -462,8 +509,10 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
     ) -> tuple[ast.SelectQuery, int | None]:
         """Build the base SELECT query against a materialized table.
 
-        Wraps aggregate columns with their reaggregate_fn (e.g. sum("count()"))
-        when needed to preserve SQL semantics. This happens in two cases:
+        Wraps aggregate columns with their reaggregate_fn and aliases the result back
+        to the declared column name (e.g. sum("impressions") AS "impressions"), so a
+        materialized read returns the same keys as an inline read. This happens in two
+        cases:
 
         1. Range variables (bucket_fn != None): multiple materialized rows must
            be collapsed back into one aggregate per group.
@@ -489,14 +538,19 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
                 reagg_select: list[ast.Expr] = []
                 for col in original_select:
                     if col.is_aggregate and col.reaggregate_fn:
-                        reagg_select.append(ast.Call(name=col.reaggregate_fn, args=[col.expr]))
+                        reagg_select.append(
+                            ast.Alias(
+                                alias=col.name,
+                                expr=ast.Call(name=col.reaggregate_fn, args=[col.expr]),
+                            )
+                        )
                     else:
-                        reagg_select.append(col.expr)
+                        reagg_select.append(col.labeled_expr)
                         if not col.is_aggregate:
                             group_by_columns.append(col.expr)
                 select_columns = reagg_select
             else:
-                select_columns = [col.expr for col in original_select]
+                select_columns = [col.labeled_expr for col in original_select]
 
         select_query = ast.SelectQuery(
             select=select_columns,
@@ -529,6 +583,11 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
         for mat_var in self.materialized_variables:
             var_value = data.variables.get(mat_var.code_name)
             if var_value is not None:
+                column_type = (
+                    self.version.saved_query.get_clickhouse_column_type(mat_var.code_name)
+                    if self.version.saved_query
+                    else None
+                )
                 apply_where_filter(
                     select_query,
                     mat_var.code_name,
@@ -536,6 +595,7 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
                     op=mat_var.operator,
                     value_wrapper_fns=mat_var.value_wrapper_fns,
                     bucket_fn=mat_var.bucket_fn,
+                    column_type=column_type,
                 )
         return None
 
@@ -602,6 +662,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
     """
 
     BREAKDOWN_SUPPORTED_QUERY_TYPES: ClassVar[frozenset[str]] = BREAKDOWN_SUPPORTED_QUERY_TYPES
+    materialized_limit_context = LimitContext.SAVED_QUERY
     # Query types with a materialized-response transformer
     INSIGHT_TRANSFORM_TYPES: ClassVar[set[str]] = {"TrendsQuery", "LifecycleQuery", "RetentionQuery"}
 

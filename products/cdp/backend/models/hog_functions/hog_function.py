@@ -1,13 +1,15 @@
 import enum
 from collections.abc import Iterable
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
-from django.db import models
-from django.db.models import QuerySet
+from django.db import models, transaction
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter
@@ -96,7 +98,7 @@ TYPES_THAT_CAN_RERUN = (
 DRAFT_ONLY_UPDATE_FIELDS = frozenset({"draft", "draft_updated_at", "draft_encrypted_inputs"})
 
 
-DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error"}
+DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract"}
 
 
 def _is_draft_only_save(update_fields: Optional[Iterable[str]]) -> bool:
@@ -171,6 +173,17 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     # draft's secrets are promoted to `encrypted_inputs` on publish and dropped on discard, without
     # ever touching the live values.
     draft_encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+
+    # Not serialized. A recent value means a Terraform state still manages this function.
+    last_terraform_read_at = models.DateTimeField(null=True, blank=True)
+
+    def record_terraform_read(self) -> None:
+        # Every `terraform plan` reads every managed function, so write at most once a day. A queryset
+        # update skips the save signals and leaves updated_at, which base_updated_at compares, alone.
+        now = timezone.now()
+        HogFunction.objects.filter(pk=self.pk).filter(
+            Q(last_terraform_read_at__isnull=True) | Q(last_terraform_read_at__lt=now - timedelta(days=1))
+        ).update(last_terraform_read_at=now)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["HogFunction"]:
@@ -263,23 +276,24 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
         return self.status
 
-    def move_secret_inputs(self):
+    def move_secret_inputs(self) -> None:
         # Moves any secret inputs to the encrypted_inputs var
         raw_inputs = self.inputs or {}
         raw_encrypted_inputs = self.encrypted_inputs or {}
 
         final_inputs = {}
         final_encrypted_inputs = {}
+        secret_keys = {schema["key"] for schema in self.inputs_schema or [] if schema.get("secret")}
 
         for schema in self.inputs_schema or []:
             value = raw_inputs.get(schema["key"])
             encrypted_value = raw_encrypted_inputs.get(schema["key"])
 
-            if not schema.get("secret"):
-                final_inputs[schema["key"]] = value
-            else:
+            if schema["key"] in secret_keys:
                 # We either store the incoming value if given or the encrypted value
                 final_encrypted_inputs[schema["key"]] = value or encrypted_value
+            elif schema["key"] not in raw_encrypted_inputs:
+                final_inputs[schema["key"]] = value
 
         self.inputs = final_inputs
         self.encrypted_inputs = final_encrypted_inputs
@@ -289,7 +303,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         return absolute_uri(f"/project/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
 
     def _compile_filters(self) -> dict:
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         compiled = compile_filters_bytecode(self.filters, self.team)
         if not compiled.get("bytecode_error"):
@@ -313,6 +327,11 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         # filters no longer describe.
         if previous_bytecode is not None and _raw_filters(compiled) == _raw_filters(previous):
             compiled["bytecode"] = previous_bytecode
+            # The stamp belongs to the bytecode it was compiled with, so it travels with it.
+            if "bytecode_contract" in previous:
+                compiled["bytecode_contract"] = previous["bytecode_contract"]
+            else:
+                compiled.pop("bytecode_contract", None)
             logger.warning(
                 "hog_function_filters_kept_previous_bytecode",
                 hog_function_id=str(self.pk),
@@ -377,7 +396,8 @@ def action_saved(sender, instance: Action, created, **kwargs):
 def team_saved(sender, instance: Team, created, **kwargs):
     from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_affected_hog_functions.delay(team_id=instance.id)
+    team_id = instance.id
+    transaction.on_commit(lambda: refresh_affected_hog_functions.delay(team_id=team_id))
 
 
 @receiver(post_save, sender="cohorts.Cohort")
@@ -416,11 +436,11 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
 
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    from posthog.cdp.templates.hog_function_template import sync_template_to_db
     from posthog.plugins.plugin_server_api import get_hog_function_templates
 
     from products.cdp.backend.api.hog_function import HogFunctionSerializer
     from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+    from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
     if settings.DISABLE_MMDB or not created:
         return

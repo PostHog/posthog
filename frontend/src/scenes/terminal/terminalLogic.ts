@@ -2,7 +2,6 @@ import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, re
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -20,6 +19,7 @@ import { PosthogFilesystem } from './posthogFilesystem'
 import { TerminalAI } from './terminalAI'
 import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
+import { TerminalNetplay } from './terminalNetplay'
 import { TerminalRuntime } from './terminalRuntime'
 import { TerminalSession } from './TerminalSession'
 
@@ -272,7 +272,6 @@ export const terminalLogic = kea<terminalLogicType>([
             const target = new URL(url, window.location.origin)
             const targetProjectId = getProjectIdentifierInPath(target.pathname)
             if (
-                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL] &&
                 target.origin === window.location.origin &&
                 (targetProjectId === null || targetProjectId === String(values.currentTeamId)) &&
                 removeProjectIdIfPresent(target.pathname) === urls.projectFiles()
@@ -314,6 +313,11 @@ export const terminalLogic = kea<terminalLogicType>([
         },
         [terminalDockLogic.actionTypes.setDockOpen]: ({ open }) => {
             if (open) {
+                actions.followFolder()
+            }
+        },
+        setRequestedFolder: ({ folder }) => {
+            if (folder !== null) {
                 actions.followFolder()
             }
         },
@@ -434,7 +438,17 @@ export const terminalLogic = kea<terminalLogicType>([
                 return
             }
             cache.projectId = projectId
-            const runtime = new TerminalRuntime((bytes) => cache.session?.view.write(bytes), actions.setDisplayOpen)
+            const runtime = new TerminalRuntime(
+                (bytes) => cache.session?.view.write(bytes),
+                actions.setDisplayOpen,
+                (message) => {
+                    if (!controller.signal.aborted) {
+                        actions.setError(message)
+                        actions.setStatus('error')
+                        disposables.dispose('terminal')
+                    }
+                }
+            )
             cache.runtime = runtime
             cache.session.view.clear()
             runtime.resize(cache.session.view.cols, cache.session.view.rows)
@@ -549,7 +563,8 @@ export const terminalLogic = kea<terminalLogicType>([
                             }, 'clock-sync')
                         }
                     },
-                    folder ?? undefined
+                    folder ?? undefined,
+                    new TerminalNetplay(String(projectId), controller.signal)
                 )
                 if (controller.signal.aborted) {
                     return

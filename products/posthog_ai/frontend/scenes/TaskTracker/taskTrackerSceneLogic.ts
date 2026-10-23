@@ -1,26 +1,36 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
     type ClaudeTaskRunCreateSchemaApi,
     type CodexTaskRunCreateSchemaApi,
+    InitialPermissionModeEnumApi,
     type LegacyDesktopAccessResponseApi,
+    type TasksTaskDefaultsApi,
+    ModelAccessEnumApi,
     type ModelChoiceApi,
     TaskOriginProductEnumApi,
     ReasoningEffortEnumApi,
-    type TaskWriteApi,
+    type SandboxCustomImageDTOApi,
+    type SandboxEnvironmentDTOApi,
+    type TaskCreateApi,
     TaskExecutionModeEnumApi,
     type WarmTaskRequestApi,
     WarmTaskRequestOriginProductEnumApi,
@@ -30,6 +40,13 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import {
+    CodexBillingUnresolvedError,
+    codexBillingLogic,
+    codexModelAccessForRun,
+    usesChatGptPlan,
+} from '../../logics/codexBillingLogic'
+import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import type { ComposerOverride } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
@@ -39,6 +56,7 @@ import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import type { ActiveCreation } from '../../logics/runnerPanelLogic'
+import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
@@ -48,6 +66,10 @@ import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
+import { rememberAttachmentPreview } from '../../utils/attachmentPreviews'
+import type { PendingAttachment } from '../../utils/attachments'
+import { type CloudTargetIds, cloudTargetIds, isMissingCloudTarget } from '../../utils/cloudTargets'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -55,14 +77,17 @@ import {
     getRuntimeAdapterForModel,
     resolveEffortForModel,
 } from '../../utils/composerModels'
-import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
+import { DEFAULT_COMPOSER_MODE, getModesForRuntimeAdapter, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
 export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
+class CloudTargetUnresolvedError extends Error {}
+
 export interface TaskCreateForm {
     description: string
+    seedContextItems?: AttachedContextItem[]
     repositoryConfig: RepositoryConfig
     /** null = no explicit pick; the run launches with the server-resolved default (user preference
      * over project default, else the built-in composer default). An explicit pick applies to this
@@ -70,6 +95,7 @@ export interface TaskCreateForm {
     model: string | null
     reasoningEffort: ReasoningEffortEnumApi | null
     permissionMode: PermissionMode
+    cloudTarget?: string | null
 }
 
 // The slice of the repo picker we remember across visits. Branch is deliberately excluded — on restore we
@@ -86,6 +112,12 @@ export interface TaskTrackerSceneLogicProps {
     contextItems?: AttachedContextItem[]
     composerOverride?: ComposerOverride
     welcomeHeadlines?: string[]
+    /** Tasks channel that owns every task this composer creates. */
+    channelId?: string
+    /** Repository the composer starts from instead of the last-used one. The user can still change it. */
+    initialRepositoryConfig?: PersistedRepositoryConfig
+    /** Called with the created task's id after its run starts, so the host can open or list it. */
+    onTaskCreated?: (taskId: string) => void
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
@@ -115,7 +147,8 @@ function buildWarmRequest(
     // The displayed selection, not the raw form pick: a partially pinned form still warms on
     // exactly the triple the submit will send.
     displayModel: string,
-    displayEffort: ReasoningEffortEnumApi
+    displayEffort: ReasoningEffortEnumApi,
+    cloudTarget: CloudTargetIds
 ): WarmTaskRequestApi | null {
     const { repositoryConfig, model, reasoningEffort, permissionMode } = form
     if (repositoryConfig.repository && !repositoryConfig.branch) {
@@ -126,6 +159,7 @@ function buildWarmRequest(
         github_integration: repositoryConfig.integrationId ?? null,
         branch: repositoryConfig.branch ?? null,
         origin_product: WarmTaskRequestOriginProductEnumApi.PosthogAi,
+        ...cloudTarget,
     }
     // An untouched selection warms without the triple, mirroring the submit: the backend
     // resolves the stored default for provisioning and matching alike, so both sides agree
@@ -166,24 +200,32 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
     composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
+    defaultCloudTargetSaving: boolean // taskDefaultsLogic
+    taskDefaults: TasksTaskDefaultsApi | null // taskDefaultsLogic
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultRuntimeAdapter: string | null // taskRunDefaultsLogic
+    defaultsResolved: boolean // taskRunDefaultsLogic
     warmLease: WarmLease | null // taskWarmLogic
     repositories: string[] // tasksLogic
     taskListParams: TaskListParams // tasksLogic
     tasks: Task[] // tasksLogic
     overrideHeadlines: string[] | null // welcomeOverrideLogic
     activeSuggestionGroup: SuggestionGroup | null
+    autoPublishCloudRuns: boolean
+    cloudTargetEnabled: boolean
     composerAdapter: string
     consentBlocked: boolean
+    customImages: SandboxCustomImageDTOApi[] | null
     desktopAccess: LegacyDesktopAccessResponseApi | null
     desktopAccessLoading: boolean
     displayEffort: ReasoningEffortEnumApi
@@ -191,12 +233,18 @@ export interface taskTrackerSceneLogicValues {
     displayModel: string
     effectiveComposerOverride: ComposerOverride | null
     effectiveRepositoryConfig: RepositoryConfig
+    favoriteCloudTarget: string | null
     hasDesktopAccess: boolean
     headlineSeed: number
     isDefaultSelection: boolean
     isSubmittingTask: boolean
     newTaskData: TaskCreateForm
+    permissionModePicked: boolean
     persistedRepositoryConfig: PersistedRepositoryConfig
+    sandboxEnvironments: SandboxEnvironmentDTOApi[] | null
+    selectedCloudTarget: string | null
+    selectedCloudTargetIds: CloudTargetIds
+    startsInPlanMode: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -208,6 +256,15 @@ export interface taskTrackerSceneLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    addFiles: (files: File[]) => {
+        files: File[]
+    } // composerAttachmentsLogic
+    removeAttachments: (ids: string[]) => {
+        ids: string[]
+    } // composerAttachmentsLogic
+    setUploading: (uploading: boolean) => {
+        uploading: boolean
+    } // composerAttachmentsLogic
     consumeSeed: () => {
         value: true
     } // composerSeedLogic
@@ -236,6 +293,20 @@ export interface taskTrackerSceneLogicActions {
     toggleHistory: () => {
         value: true
     } // runnerPanelLogic
+    saveDefaultCloudTarget: (
+        cloudTarget: string | null,
+        previous: string | null
+    ) => {
+        cloudTarget: string | null
+        previous: string | null
+    } // taskDefaultsLogic
+    loadMyConfigSuccess: (
+        myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi,
+        payload?: any
+    ) => {
+        myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi
+        payload?: any
+    } // taskRunDefaultsLogic
     consumeWarm: (
         submission: WarmSubmission,
         runId: string | null
@@ -270,6 +341,16 @@ export interface taskTrackerSceneLogicActions {
     applyComposerSeed: () => {
         value: true
     }
+    applyDefaultPermissionMode: () => {
+        value: true
+    }
+    applyPrefill: (
+        prompt: string,
+        mode?: PermissionMode
+    ) => {
+        mode: PermissionMode | undefined
+        prompt: string
+    }
     applySuggestion: (item: SuggestionItem) => {
         item: SuggestionItem
     }
@@ -297,14 +378,30 @@ export interface taskTrackerSceneLogicActions {
     maybeAutoSelectIntegration: () => {
         value: true
     }
+    noteNewTaskDraft: () => {
+        value: true
+    }
     openExistingTask: (task: Task) => {
         task: Task
+    }
+    pickCloudTarget: (cloudTarget: string | null) => {
+        cloudTarget: string | null
+    }
+    pickPermissionMode: (permissionMode: PermissionMode) => {
+        permissionMode: PermissionMode
     }
     resetNewTaskData: () => {
         value: true
     }
     setActiveSuggestionGroup: (group: SuggestionGroup | null) => {
         group: SuggestionGroup | null
+    }
+    setCloudTargets: (
+        environments: SandboxEnvironmentDTOApi[] | null,
+        images: SandboxCustomImageDTOApi[] | null
+    ) => {
+        environments: SandboxEnvironmentDTOApi[] | null
+        images: SandboxCustomImageDTOApi[] | null
     }
     setHeadlineSeed: (seed: number) => {
         seed: number
@@ -324,6 +421,9 @@ export interface taskTrackerSceneLogicActions {
     submitNewTaskSuccess: () => {
         value: true
     }
+    toggleFavoriteCloudTarget: (cloudTarget: string) => {
+        cloudTarget: string
+    }
     updateActiveCreationRun: (
         runId: string,
         handoff?: RunContinuationHandoff
@@ -337,6 +437,8 @@ export interface taskTrackerSceneLogicActions {
 export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        startsInPlanMode: (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null) => boolean
+        autoPublishCloudRuns: (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null) => boolean
         hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number, arg: string[] | undefined) => string
         effectiveComposerOverride: (
@@ -361,6 +463,19 @@ export interface taskTrackerSceneLogicMeta {
             effectiveComposerOverride: ComposerOverride | null
         ) => RepositoryConfig
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
+        favoriteCloudTarget: (taskDefaults: TasksTaskDefaultsApi | null) => string | null
+        cloudTargetEnabled: (
+            featureFlags: FeatureFlagsSet,
+            effectiveComposerOverride: ComposerOverride | null
+        ) => boolean
+        selectedCloudTarget: (
+            cloudTargetEnabled: boolean,
+            newTaskData: TaskCreateForm,
+            favoriteCloudTarget: string | null,
+            sandboxEnvironments: SandboxEnvironmentDTOApi[] | null,
+            customImages: SandboxCustomImageDTOApi[] | null
+        ) => string | null
+        selectedCloudTargetIds: (selectedCloudTarget: string | null) => CloudTargetIds
     }
 }
 
@@ -406,10 +521,20 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // the resume endpoint for a task that doesn't exist yet.
             taskWarmLogic({ panelId: props.panelId }),
             ['warmLease'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['stagedAttachments'],
             taskRunDefaultsLogic,
-            ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
+            ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter', 'defaultsResolved'],
+            taskDefaultsLogic,
+            ['taskDefaults', 'defaultCloudTargetSaving'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
+            taskRunDefaultsLogic,
+            ['loadMyConfigSuccess'],
+            taskDefaultsLogic,
+            ['saveDefaultCloudTarget'],
             runnerPanelLogic(props),
             ['setActiveCreation', 'clearActiveCreation', 'setStartupDraft', 'toggleHistory', 'setHistoryExpanded'],
             tasksLogic,
@@ -424,18 +549,23 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['consumeSeed', 'setSeed'],
             taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['addFiles', 'removeAttachments', 'setUploading'],
         ],
     })),
 
     actions({
         setNewTaskData: (data: Partial<TaskCreateForm>) => ({ data }),
         resetNewTaskData: true,
+        applyDefaultPermissionMode: true,
+        pickPermissionMode: (permissionMode: PermissionMode) => ({ permissionMode }),
         submitNewTask: true,
         submitNewTaskSuccess: true,
         submitNewTaskFailure: (error: string) => ({ error }),
         maybeAutoSelectIntegration: true,
         setActiveSuggestionGroup: (group: SuggestionGroup | null) => ({ group }),
         applySuggestion: (item: SuggestionItem) => ({ item }),
+        applyPrefill: (prompt: string, mode?: PermissionMode) => ({ prompt, mode }),
         setHeadlineSeed: (seed: number) => ({ seed }),
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
         openExistingTask: (task: Task) => ({ task }),
@@ -446,14 +576,43 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         clearConsentBlock: true,
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
         applyComposerSeed: true,
+        noteNewTaskDraft: true,
+        pickCloudTarget: (cloudTarget: string | null) => ({ cloudTarget }),
+        toggleFavoriteCloudTarget: (cloudTarget: string) => ({ cloudTarget }),
+        setCloudTargets: (
+            environments: SandboxEnvironmentDTOApi[] | null,
+            images: SandboxCustomImageDTOApi[] | null
+        ) => ({ environments, images }),
     }),
 
     reducers({
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
-                setNewTaskData: (state, { data }) => ({ ...state, ...data }),
+                setNewTaskData: (state, { data }) => ({
+                    ...state,
+                    ...data,
+                    seedContextItems:
+                        'seedContextItems' in data
+                            ? data.seedContextItems
+                            : data.description !== undefined && data.description !== state.description
+                              ? undefined
+                              : state.seedContextItems,
+                }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
+                pickPermissionMode: (state, { permissionMode }) => ({ ...state, permissionMode }),
+                pickCloudTarget: (state, { cloudTarget }) => ({ ...state, cloudTarget }),
+                applyDefaultPermissionMode: (state) => ({
+                    ...state,
+                    permissionMode: InitialPermissionModeEnumApi.Plan,
+                }),
+            },
+        ],
+        permissionModePicked: [
+            false,
+            {
+                pickPermissionMode: () => true,
+                resetNewTaskData: () => false,
             },
         ],
         isSubmittingTask: [
@@ -479,6 +638,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             { persist: true, storageKey: LAST_REPOSITORY_CONFIG_STORAGE_KEY },
             {
                 setPersistedRepositoryConfig: (_, { config }) => config,
+            },
+        ],
+        sandboxEnvironments: [
+            null as SandboxEnvironmentDTOApi[] | null,
+            {
+                setCloudTargets: (_, { environments }) => environments,
+            },
+        ],
+        customImages: [
+            null as SandboxCustomImageDTOApi[] | null,
+            {
+                setCloudTargets: (_, { images }) => images,
             },
         ],
         activeSuggestionGroup: [
@@ -509,6 +680,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     selectors({
+        startsInPlanMode: [
+            (s) => [s.featureFlags, s.taskDefaults],
+            (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && !!taskDefaults?.start_in_plan_mode,
+        ],
+        autoPublishCloudRuns: [
+            (s) => [s.featureFlags, s.taskDefaults],
+            (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && !!taskDefaults?.auto_publish_cloud_runs,
+        ],
         hasDesktopAccess: [
             (s) => [s.desktopAccess],
             (desktopAccess: LegacyDesktopAccessResponseApi | null): boolean => desktopAccess?.has_access ?? false,
@@ -577,6 +758,36 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             (s) => [s.newTaskData],
             (newTaskData: TaskCreateForm): boolean => !newTaskData.model && !newTaskData.reasoningEffort,
         ],
+        favoriteCloudTarget: [
+            (s) => [s.taskDefaults],
+            (taskDefaults: TasksTaskDefaultsApi | null): string | null => taskDefaults?.default_cloud_target ?? null,
+        ],
+        cloudTargetEnabled: [
+            (s) => [s.featureFlags, s.effectiveComposerOverride],
+            (featureFlags: FeatureFlagsSet, composerOverride: ComposerOverride | null): boolean =>
+                (!!featureFlags[FEATURE_FLAGS.PHAI_QUILL] || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) &&
+                !composerOverride?.hideRepositorySelector,
+        ],
+        selectedCloudTarget: [
+            (s) => [s.cloudTargetEnabled, s.newTaskData, s.favoriteCloudTarget, s.sandboxEnvironments, s.customImages],
+            (
+                cloudTargetEnabled: boolean,
+                newTaskData: TaskCreateForm,
+                favoriteCloudTarget: string | null,
+                environments: SandboxEnvironmentDTOApi[] | null,
+                images: SandboxCustomImageDTOApi[] | null
+            ): string | null => {
+                if (!cloudTargetEnabled) {
+                    return null
+                }
+                const picked = newTaskData.cloudTarget !== undefined ? newTaskData.cloudTarget : favoriteCloudTarget
+                return picked && !isMissingCloudTarget(picked, environments, images) ? picked : null
+            },
+        ],
+        selectedCloudTargetIds: [
+            (s) => [s.selectedCloudTarget],
+            (selectedCloudTarget: string | null): CloudTargetIds => cloudTargetIds(selectedCloudTarget),
+        ],
     }),
 
     listeners(({ actions, values, cache, props }) => ({
@@ -590,11 +801,21 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // picker populated rather than blank.
         resetNewTaskData: () => {
             actions.maybeAutoSelectIntegration()
+            if (values.startsInPlanMode) {
+                actions.applyDefaultPermissionMode()
+            }
+        },
+        loadMyConfigSuccess: () => {
+            if (values.startsInPlanMode && !values.permissionModePicked) {
+                actions.applyDefaultPermissionMode()
+            }
+            actions.noteNewTaskDraft()
         },
         // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
-            if (data.repositoryConfig?.repository) {
+            // A host default owns this composer's starting repo, so picks made here keep the shared memory intact.
+            if (data.repositoryConfig?.repository && !props.initialRepositoryConfig) {
                 const { integrationId, repository } = data.repositoryConfig
                 actions.setPersistedRepositoryConfig({ integrationId, repository })
             }
@@ -605,16 +826,45 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // Consent gates warming as it gates submitting (see `submitNewTask`): a warm boots a cloud
             // sandbox and clones the selected repository, so it must not run before the organization
             // accepts AI data processing.
-            if (!values.activeCreation && values.dataProcessingAccepted) {
-                const request = buildWarmRequest(
-                    { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
-                    values.catalogue,
-                    values.displayModel,
-                    values.displayEffort
-                )
-                if (request) {
-                    actions.noteDraft(values.newTaskData.description.trim().length > 0, request)
-                }
+            actions.noteNewTaskDraft()
+        },
+        // A run on the ChatGPT plan can't use a warm sandbox, so switching the billing re-decides the warm.
+        [codexBillingLogic.actionTypes.setPreferredCodexModelAccess]: () => {
+            actions.noteNewTaskDraft()
+        },
+        pickCloudTarget: ({ cloudTarget }) => {
+            posthog.capture('task composer environment picked', {
+                kind: cloudTarget?.split(':')[0] ?? 'default',
+            })
+            actions.noteNewTaskDraft()
+        },
+        toggleFavoriteCloudTarget: ({ cloudTarget }) => {
+            if (values.defaultCloudTargetSaving) {
+                return
+            }
+            const next = values.favoriteCloudTarget === cloudTarget ? null : cloudTarget
+            posthog.capture('task composer environment starred', { starred: next !== null })
+            actions.saveDefaultCloudTarget(next, values.favoriteCloudTarget)
+            actions.noteNewTaskDraft()
+        },
+        setCloudTargets: () => {
+            actions.noteNewTaskDraft()
+        },
+        noteNewTaskDraft: () => {
+            if (values.activeCreation || !values.dataProcessingAccepted) {
+                return
+            }
+            const request = buildWarmRequest(
+                { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
+                values.catalogue,
+                values.displayModel,
+                values.displayEffort,
+                values.selectedCloudTargetIds
+            )
+            if (request) {
+                // An empty draft releases the warm, and so does the ChatGPT plan, which boots cold.
+                const hasText = values.newTaskData.description.trim().length > 0
+                actions.noteDraft(hasText && !usesChatGptPlan(values.composerAdapter), request)
             }
         },
         // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
@@ -627,9 +877,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (githubIntegrations.length === 0) {
                 return
             }
-            // Restore the last-used repo only if its integration is still connected. Branch is left unset so
-            // GitHubBranchCombobox re-selects the repo's actual default branch.
-            const { integrationId, repository } = values.persistedRepositoryConfig
+            // Restore the host default or the last-used repo only if its integration is still connected. Branch
+            // is left unset so GitHubBranchCombobox re-selects the repo's actual default branch.
+            const initial = props.initialRepositoryConfig
+            const { integrationId, repository } = initial?.repository
+                ? { integrationId: initial.integrationId ?? githubIntegrations[0].id, repository: initial.repository }
+                : values.persistedRepositoryConfig
             if (integrationId && githubIntegrations.some((integration) => integration.id === integrationId)) {
                 actions.setNewTaskData({ repositoryConfig: { integrationId, repository } })
                 return
@@ -646,8 +899,14 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
         // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
         // typing (the component focuses the textarea in that case).
+        applyPrefill: ({ prompt, mode }) => {
+            if (mode && getModesForRuntimeAdapter(values.composerAdapter).includes(mode)) {
+                actions.pickPermissionMode(mode)
+            }
+            actions.applySuggestion({ content: prompt, requiresUserInput: true })
+        },
         applySuggestion: ({ item }) => {
-            actions.setNewTaskData({ description: item.content })
+            actions.setNewTaskData({ description: item.content, seedContextItems: undefined })
             if (!item.requiresUserInput) {
                 actions.submitNewTask()
             }
@@ -666,6 +925,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             const description = values.newTaskData.description.trim()
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
+            const composerAdapter = values.composerAdapter
 
             if (!description) {
                 lemonToast.error('Description is required')
@@ -680,6 +940,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             cache.submittingTask = disposables
             const projectId = String(values.currentProjectId)
             const warmSubmission: WarmSubmission = { projectId, lease: null }
+            let warmConsumed = false
             actions.prepareSubmit(warmSubmission)
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
@@ -688,7 +949,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // pane renders, and survives across the React swap into the detail page (which adopts the same
             // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
             const streamKey = `draft-${uuid()}`
-            const seededContext = props.contextItems ?? values.contextItems
+            const seededContext = [
+                ...(props.contextItems ?? values.contextItems),
+                ...(values.newTaskData.seedContextItems ?? []),
+            ]
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             const interaction = runInteractionLogic({
@@ -701,6 +965,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 currentMode: permissionMode,
                 currentRuntimeAdapter:
                     values.isDefaultSelection && !values.defaultRuntimeAdapter ? null : values.composerAdapter,
+                currentCodexModelAccess: usesChatGptPlan(composerAdapter) ? ModelAccessEnumApi.OwnSubscription : null,
                 contextItems: props.contextItems,
             })
             cache.disposables.add(
@@ -719,14 +984,58 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
             cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
-            stream.actions.startOptimisticRun(description)
+            const sending = values.stagedAttachments
+            stream.actions.startOptimisticRun(
+                description,
+                sending.map(({ file }) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
+            )
 
             try {
+                const codexModelAccess = await codexModelAccessForRun(async () => {
+                    if (values.isDefaultSelection && !values.defaultsResolved) {
+                        await taskRunDefaultsLogic.asyncActions.loadMyConfig()
+                        if (!values.defaultsResolved) {
+                            return null
+                        }
+                    }
+                    return values.composerAdapter
+                })
+                const onChatGptPlan = codexModelAccess === ModelAccessEnumApi.OwnSubscription
+                // Files can only be uploaded against something that already exists. A warm lease names a task
+                // and a run, so they go onto that run and ride its activation. Without one there is nothing
+                // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
+                const attachedFiles = sending.map(({ file }) => file)
+                const warmLease = warmSubmission.lease
+                const suppressWarmReuse = attachedFiles.length > 0 && !warmLease
+                let pendingUserArtifactIds: string[] = []
+                if (attachedFiles.length > 0) {
+                    actions.setUploading(true)
+                    if (warmLease) {
+                        pendingUserArtifactIds = await uploadRunAttachments(
+                            projectId,
+                            warmLease.taskId,
+                            warmLease.runId,
+                            attachedFiles
+                        )
+                    }
+                }
+
+                if (values.cloudTargetEnabled && values.newTaskData.cloudTarget === undefined && !values.taskDefaults) {
+                    await taskRunDefaultsLogic.asyncActions.loadMyConfig()
+                    if (!values.taskDefaults) {
+                        throw new CloudTargetUnresolvedError('Default environment is not resolved')
+                    }
+                }
+                const cloudTarget = values.selectedCloudTargetIds
                 const pendingUserMessage = wrapWithPosthogContext(description, seededContext)
+                const autoPublish = values.autoPublishCloudRuns ? { auto_publish: true } : {}
                 const runPayload = {
                     branch: repositoryConfig.branch ?? null,
+                    ...cloudTarget,
                     mode: TaskExecutionModeEnumApi.Interactive,
                     pending_user_message: pendingUserMessage,
+                    ...autoPublish,
+                    ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
                 }
                 // An untouched selection pins nothing: the backend resolves the model triple from the
                 // stored team/user default (correct even while the defaults fetch is in flight or has
@@ -734,7 +1043,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // was provisioned the same way, so provisioning and matching resolve alike. An explicit
                 // pick sends the full displayed selection, runtime derived from the model.
                 let pinnedRequest: ClaudeTaskRunCreateSchemaApi | CodexTaskRunCreateSchemaApi | null = null
-                if (!values.isDefaultSelection) {
+                // A run on the ChatGPT plan pins the displayed Codex model, so the server can't resolve a default
+                // on another harness that the plan can't pay for.
+                if (!values.isDefaultSelection || onChatGptPlan) {
                     const built = buildRunCreateRequest(
                         values.catalogue,
                         values.displayModel,
@@ -748,7 +1059,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     pinnedRequest = built
                 }
                 const runRequest = pinnedRequest ?? buildServerResolvedRunCreateRequest(permissionMode, runPayload)
-                const taskData: TaskWriteApi = {
+                const taskData: TaskCreateApi = {
                     title: '',
                     description,
                     origin_product: TaskOriginProductEnumApi.PosthogAi,
@@ -758,9 +1069,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // Warm-reuse hints. The backend matches these against an idling warm Run and, on a hit,
                     // activates it in place and returns it as `latest_run` — no second Run is created. All of
                     // them are write-only and ignored on a cold create. `branch` must be present as a key
-                    // (even `null`) or reuse is never attempted at all. The model triple is left off when
-                    // the selection is untouched, so the backend resolves it for warm matching too.
-                    branch: runPayload.branch,
+                    // (even `null`) or reuse is never attempted at all — which is how lease-less attachments
+                    // opt out. The model triple is left off when the selection is untouched, so the backend
+                    // resolves it for warm matching too.
+                    // A warm sandbox holds no ChatGPT token, so a run on the plan skips warm reuse and boots cold.
+                    ...(suppressWarmReuse || onChatGptPlan ? {} : { branch: runPayload.branch }),
+                    ...(pendingUserArtifactIds.length > 0 ? { pending_user_artifact_ids: pendingUserArtifactIds } : {}),
                     ...(pinnedRequest
                         ? {
                               runtime_adapter: pinnedRequest.runtime_adapter,
@@ -770,6 +1084,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                           }
                         : { initial_permission_mode: permissionMode }),
                     pending_user_message: pendingUserMessage,
+                    ...autoPublish,
+                    ...cloudTarget,
+                    ...(props.channelId ? { channel: props.channelId } : {}),
                 }
 
                 const newTask = await submitWithWarmRunRetry(
@@ -777,6 +1094,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     disposables
                 )
                 actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
+                warmConsumed = true
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
@@ -795,11 +1113,27 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 let createdRun = newTask.latest_run
                 let runId = createdRun?.id
                 if (!runId) {
+                    // Also covers a warm miss: reaching here after a lease upload means the create did not
+                    // activate that warm run, and a cold create drops its warm hints — including the artifact
+                    // ids — so the files are staged again rather than left on a run nothing will read.
+                    const stagedArtifactIds =
+                        attachedFiles.length > 0
+                            ? await uploadStagedTaskAttachments(projectId, newTask.id, attachedFiles)
+                            : []
                     const runResponse = await submitWithWarmRunRetry(
-                        (options) => tasksRunCreate(projectId, newTask.id, runRequest, options),
+                        (options) =>
+                            tasksRunCreate(
+                                projectId,
+                                newTask.id,
+                                stagedArtifactIds.length > 0
+                                    ? { ...runRequest, pending_user_artifact_ids: stagedArtifactIds }
+                                    : runRequest,
+                                options
+                            ),
                         disposables
                     )
-                    createdRun = runResponse.latest_run
+                    // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+                    createdRun = runResponse.run ?? runResponse.latest_run
                     runId = createdRun?.id
                 }
 
@@ -832,6 +1166,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                                 ? createdRun.state.initial_permission_mode
                                 : interaction.props.currentMode,
                         currentRuntimeAdapter: createdRun?.runtime_adapter ?? interaction.props.currentRuntimeAdapter,
+                        currentCodexModelAccess:
+                            typeof createdRun?.state?.codex_model_access === 'string'
+                                ? createdRun.state.codex_model_access
+                                : (codexModelAccess ?? interaction.props.currentCodexModelAccess),
                     })
                     // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                     // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
@@ -860,15 +1198,26 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (creationIsActive || values.newTaskData.description.trim() === description) {
                     actions.resetNewTaskData()
                 }
+                // Only what this send took. A failure leaves them staged, since the restored draft is resent.
+                actions.removeAttachments(sending.map(({ id }) => id))
                 cache.submittingTask = null
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
+                // Every composer submits through here, so this is the one place that reaches all of them.
+                todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
+                props.onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return
                 }
                 actions.releaseApplyBackTargets(streamKey)
+                // `prepareSubmit` took the lease out of `taskWarmLogic`, so only `consumeWarm` releases it,
+                // and a run that never got a message would hold a warm slot until its idle timeout.
+                if (!warmConsumed) {
+                    actions.consumeWarm(warmSubmission, null)
+                    warmConsumed = true
+                }
                 if (values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
                     const unsent = [
@@ -879,6 +1228,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     if (unsent.length > 0) {
                         actions.setNewTaskData({
                             description: [values.newTaskData.description, ...unsent].join('\n\n'),
+                            seedContextItems: values.newTaskData.seedContextItems,
                         })
                     }
                     actions.clearActiveCreation()
@@ -886,15 +1236,24 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
                 }
+                if (error instanceof CloudTargetUnresolvedError) {
+                    lemonToast.error("Couldn't load your default environment. Please try again.")
+                }
+                if (error instanceof CodexBillingUnresolvedError) {
+                    lemonToast.error("Couldn't confirm your ChatGPT plan for this run. Please try again.")
+                }
                 cache.submittingTask = null
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             } finally {
                 if (cache.submittingTask === disposables) {
                     cache.submittingTask = null
                 }
+                // Drops the spinners off chips that outlived a failed send.
+                actions.setUploading(false)
             }
         },
         openExistingTask: ({ task }) => {
+            actions.setNewTaskData({ seedContextItems: undefined })
             if (task.latest_run) {
                 // No optimistic stream seeding — the run surface bootstraps the thread from the API.
                 actions.setActiveCreation({ streamKey: task.latest_run.id, taskId: task.id, runId: task.latest_run.id })
@@ -940,7 +1299,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
-            actions.setNewTaskData({ description: seed.prompt })
+            actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
+            if (seed.files?.length) {
+                actions.addFiles(seed.files)
+            }
             if (seed.autoSubmit) {
                 actions.submitNewTask()
             }
@@ -954,8 +1316,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
+            if (values.startsInPlanMode && !values.permissionModePicked) {
+                actions.applyDefaultPermissionMode()
+            }
             actions.loadDesktopAccess()
             actions.loadRepositories()
             // Roll a headline seed once per mount (pickHeadline forces index 0 under Storybook for

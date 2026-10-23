@@ -23,7 +23,6 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
     MAX_VIEWS_PER_DIGEST_EMAIL,
     get_members_to_notify_for_pipeline_error,
@@ -51,6 +50,7 @@ from posthog.tasks.email import (
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_team_matview_failure_digest,
+    send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
     send_workflow_email_sending_paused,
     send_workflow_email_sending_warning,
@@ -60,16 +60,30 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
-from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
+from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+
+def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]:
+    batch_export_id = batch_exports_testing.create_batch_export(
+        team_id,
+        name="A batch export",
+        destination_type=BatchExportDestinationType.AWS_S3,
+        destination_config={"bucket_name": "my_production_s3_bucket"},
+    )
+    now = dt.datetime.now()
+    batch_export_run_id = batch_exports_testing.create_batch_export_run(
+        batch_export_id=batch_export_id,
+        status=BatchExportRunStatus.FAILED,
+        data_interval_start=now - dt.timedelta(hours=1),
+        data_interval_end=now,
+    )
+    return batch_export_id, batch_export_run_id
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -420,17 +434,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "Wizard" in mocked_email_messages[0].html_body
 
-    def test_send_provisioning_welcome_with_repository(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        token = password_reset_token_generator.make_token(self.user)
-
-        send_provisioning_welcome(user.id, token, "posthog.com", repository="octocat/hello-world")
-
-        assert len(mocked_email_messages) == 1
-        assert "octocat/hello-world" in mocked_email_messages[0].html_body
-        assert "pull request" in mocked_email_messages[0].html_body
-
     def test_send_provisioning_welcome_without_partner(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
@@ -615,21 +618,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        team_id = cast(Team, user.team).id
+        _, batch_export_run_id = _create_failed_batch_export_run(team_id)
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, team_id)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
@@ -637,44 +629,32 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
+        on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            self.team.pk,
+            destination_type=BatchExportDestinationType.AWS_S3,
+            destination_config={"bucket_name": "my_production_s3_bucket"},
         )
-        with team_scope(team_id=self.team.pk, canonical=True):
-            on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
         now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export_on_demand=on_demand_export,
-            status=BatchExportRun.Status.FAILED,
+        batch_export_run_id = batch_exports_testing.create_batch_export_run(
+            on_demand_id=on_demand_id,
+            status=BatchExportRunStatus.FAILED,
             data_interval_start=now - dt.timedelta(hours=1),
             data_interval_end=now,
         )
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.pk)
 
         assert mocked_email_messages == []
 
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         user2 = self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
         # Should only be sent to user2
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
@@ -683,28 +663,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
 
     def test_send_batch_export_run_failure_with_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         # Default threshold is 1% - failure rate 0.5 exceeds it, so notify
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
 
@@ -714,17 +682,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.5,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.6)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.6)
         assert len(mocked_email_messages) == 2
         assert mocked_email_messages[1].send.call_count == 1
 
         # Test with threshold 0.5 and failure rate 0.4 - should NOT notify
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.4)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.4)
         # Should still be 2 messages (no new message sent)
         assert len(mocked_email_messages) == 2
 
         # Test with threshold 0.5 and failure rate exactly 0.5 - should NOT notify (threshold is exclusive)
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 2
 
         # Test with threshold 0.0 explicitly set - should notify on any failure
@@ -733,25 +701,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.0,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.1)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.1)
         assert len(mocked_email_messages) == 3
         assert mocked_email_messages[2].send.call_count == 1
 
     def test_send_batch_export_run_failure_with_threshold_disabled(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         # Test with plugin_disabled=False - should not notify even with high failure rate
         self.user.partial_notification_settings = {
@@ -759,7 +715,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.5,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=1.0)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=1.0)
         assert len(mocked_email_messages) == 0
 
     def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
@@ -801,6 +757,37 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             == f"external_data_failure_digest_{self.team.pk}_2024-05-15"
         )
         assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
+
+    @parameterized.expand([(True,), (False,)])
+    def test_send_external_data_failure_digest_shows_the_failed_destination(
+        self, MockEmailMessage: MagicMock, names_destination: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        destination_url = "https://app.posthog.com/project/1/data-management/warehouse-destinations?destination=abc"
+
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
+            send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Invoice",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "Analytics PG: connection reset",
+                        "destination_name": "Analytics PG" if names_destination else None,
+                        "destination_url": destination_url if names_destination else None,
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
+                    }
+                ],
+            )
+
+        html_body = mocked_email_messages[0].html_body
+        assert ("Delivery to Analytics PG failed" in html_body) is names_destination
+        assert (destination_url in html_body) is names_destination
+        assert "Analytics PG: connection reset" in html_body
 
     def test_send_external_data_failure_digest_day_rolls_over_at_boundary_hour(
         self, MockEmailMessage: MagicMock
@@ -1089,6 +1076,80 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
 
+    def test_send_warehouse_destination_paused_names_the_error_and_respects_the_opt_out(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        user2 = self._create_user("test2@posthog.com")
+        destination_id = "0190a2b4-0000-0000-0000-000000000001"
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"warehouse_destination:{destination_id}": True},
+        }
+        self.user.save()
+
+        send_warehouse_destination_paused(
+            self.team.id, destination_id, "analytics postgres", "The host name does not exist.", "2026-01-01T00:00:00"
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+        assert "analytics postgres" in message.subject
+        assert "The host name does not exist." in message.html_body
+        assert (
+            f"/project/{self.team.id}/data-management/warehouse-destinations?destination={destination_id}"
+            in message.html_body
+        )
+        assert "Open destination" in message.html_body
+
+    def test_send_warehouse_destination_paused_normalizes_subject_names(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.team.name = "project\nname"
+        self.team.save(update_fields=["name"])
+
+        send_warehouse_destination_paused(
+            self.team.id,
+            "0190a2b4-0000-0000-0000-000000000001",
+            "destination\r\nname",
+            "The host name does not exist.",
+            "2026-01-01T00:00:00",
+        )
+
+        assert mocked_email_messages[0].subject == (
+            "[Alert] Data warehouse destination 'destination name' paused in project 'project name'"
+        )
+
+    def test_send_warehouse_destination_paused_skips_members_without_destination_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("restricted@posthog.com")
+
+        class FakeUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                self.user = user
+
+            access_controls_supported = True
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                assert (resource, level) == ("external_data_source", "viewer")
+                return self.user.email != "restricted@posthog.com"
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_warehouse_destination_paused(
+                self.team.id,
+                "0190a2b4-0000-0000-0000-000000000001",
+                "analytics postgres",
+                "The host name does not exist.",
+                "2026-01-01T00:00:00",
+            )
+
+        assert len(mocked_email_messages) == 1
+        assert [r["recipient"] for r in mocked_email_messages[0].to] == [self.user.email]
+
     def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         hog_function = HogFunction.objects.create(
@@ -1352,28 +1413,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        batch_export_id, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
         user2 = self._create_user("test2@posthog.com")
 
         self.user.partial_notification_settings = {
             "plugin_disabled": True,
-            "pipeline_notifications_disabled": {f"batch_export:{batch_export.id}": True},
+            "pipeline_notifications_disabled": {f"batch_export:{batch_export_id}": True},
         }
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
 
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
@@ -1409,6 +1458,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_hog_functions_digest_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("inactive@example.com", is_active=False)
 
         digest_data = {
             "team_id": self.team.id,
@@ -1443,6 +1493,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == self.user.email
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
@@ -2367,7 +2418,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
 
-    @parameterized.expand(["task", "task_artifact", "desktop_canvas"])
+    @parameterized.expand(["task", "task_artifact", "canvas"])
     def test_send_discussions_mentioned_skips_desktop_comments(self, MockEmailMessage: MagicMock, scope: str) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mentioned_user = User.objects.create_and_join(
@@ -2648,15 +2699,85 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
+        # Pausing keeps `is_materialized` and the table but clears the cadence, so it can't retry.
+        paused = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="paused_orders_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+            table=DataWarehouseTable.objects.create(team=self.team, name="paused_orders_rollup", format="Delta"),
+        )
+        # Tiered views keep their cadence on the node only, with the column empty.
+        tiered = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tiered_daily_active_users",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+        )
+        tiered_node = sync_saved_query_to_dag(tiered)
+        assert tiered_node is not None
+        set_declared_target(tiered_node, dt.timedelta(hours=1))
+        for sq in (paused, tiered):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                last_run_at=timezone.now() - dt.timedelta(hours=1),
+            )
+
+        # A success breaks the streak, so only the three failures after it count.
+        ongoing = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="nightly_revenue_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(days=1),
+            is_materialized=True,
+        )
+        streak_started_at = timezone.now() - dt.timedelta(days=3)
+        for status, run_at in [
+            ("FAILED", timezone.now() - dt.timedelta(days=9)),
+            ("COMPLETED", timezone.now() - dt.timedelta(days=6)),
+            ("FAILED", streak_started_at),
+            ("FAILED", timezone.now() - dt.timedelta(days=2)),
+            ("FAILED", timezone.now() - dt.timedelta(hours=1)),
+        ]:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=ongoing,
+                status=getattr(DataModelingJob.Status, status),
+                error="Code: 60. DB::Exception: Unknown table expression identifier",
+                last_run_at=run_at,
+            )
+
         send_matview_failure_digest()
 
         assert len(mocked_email_messages) == 1
-        html = mocked_email_messages[0].html_body
-        for name, _ in failed_cases + unscheduled_cases:
-            assert name in html
-        assert html.count("Will retry") == len(failed_cases)
-        assert html.count("Not scheduled") == len(unscheduled_cases)
-        assert "action required" not in html
+        message = mocked_email_messages[0]
+        assert message.subject == (
+            f"PostHog: 3 materialized views need action, 4 started failing, 1 is still failing in {self.team.name}"
+        )
+        sections = {s["key"]: [v["name"] for v in s["views"]] for s in message.properties["sections"]}
+        assert list(sections) == ["action", "new", "ongoing"]
+        assert sorted(sections["action"]) == sorted([*(name for name, _ in unscheduled_cases), paused.name])
+        assert sorted(sections["new"]) == sorted([*(name for name, _ in failed_cases), tiered.name])
+        assert sections["ongoing"] == ["nightly_revenue_rollup"]
+        ongoing_row = next(v for v in message.properties["views"] if v["name"] == "nightly_revenue_rollup")
+        assert ongoing_row["failed_runs"] == 3
+        assert ongoing_row["failing_since"] == streak_started_at.strftime("%b %d, %H:%M UTC")
+        # A view with a DAG node opens its node detail; one without falls back to the SQL editor.
+        urls = {v["name"]: v["url"] for v in message.properties["views"]}
+        assert urls[tiered.name].endswith(f"/project/{self.team.id}/models/{tiered_node.id}")
+        assert urls[paused.name].endswith(f"/project/{self.team.id}/sql?open_view={paused.id}")
+
+        html = message.html_body
+        assert html.count("Not scheduled.") == len(unscheduled_cases)
+        assert html.count("Paused.") == 1
+        assert html.count("First failed") == len(failed_cases) + 1
+        assert "3 failed runs" in html
+        assert "select Resume" not in html
 
     @parameterized.expand(
         [
@@ -2702,13 +2823,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "Code: 241. DB::Exception: Memory limit (for query) exceeded",
                 None,
                 "Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                False,
             ),
-            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "..."),
-            ("falls_back_to_the_saved_query_error", "", "Query exceeded timeout limit", "Query exceeded timeout limit"),
+            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "...", False),
+            (
+                "falls_back_to_the_saved_query_error",
+                "",
+                "Query exceeded timeout limit",
+                "Query exceeded timeout limit",
+                False,
+            ),
+            ("suspension_says_so_and_how_to_resume", "boom", None, "boom", True),
         ]
     )
     def test_send_matview_failure_immediate_email_includes_the_error(
-        self, MockEmailMessage: MagicMock, _name: str, job_error: str, latest_error: str | None, expected_error: str
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        job_error: str,
+        latest_error: str | None,
+        expected_error: str,
+        suspended: bool,
     ) -> None:
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2733,11 +2868,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             last_run_at=timezone.now(),
         )
 
-        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id), suspended=suspended)
 
         assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].properties["error"] == expected_error
-        assert expected_error[:80] in mocked_email_messages[0].html_body
+        message = mocked_email_messages[0]
+        assert message.properties["error"] == expected_error
+        assert expected_error[:80] in message.html_body
+        # A distinct key, or the suspension email dedupes against a failure email for the same job.
+        assert message.campaign_key.startswith("matview_suspended_" if suspended else "matview_failure_immediate_")
+        assert ("was suspended" in message.subject) == suspended
+        assert ("select Resume" in message.html_body) == suspended
 
     def test_send_matview_failure_digest_splits_by_view_access(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2898,16 +3038,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         views = mocked_email_messages[0].properties["views"]
         assert [(v["name"], v["suspended"]) for v in views] == expected_rows
-        assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
 
         html = mocked_email_messages[0].html_body
-        assert "Will retry" in html
+        assert "Started failing" in html
         if expected_has_suspended:
-            assert "action required" in html
+            assert "select Resume" in html
             assert "Memory limit (for query) exceeded" in html
             assert "has been suspended after" not in html
         else:
-            assert "action required" not in html
+            assert "select Resume" not in html
             assert "suspended_view" not in html
 
     def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:

@@ -36,6 +36,8 @@ interface ObjectTagsPropsBase {
      * room surrounding table columns get.
      */
     wrap?: boolean
+    compact?: boolean
+    editorFullWidth?: boolean
 }
 
 export type ObjectTagsProps =
@@ -81,6 +83,8 @@ export function ObjectTags({
     maxVisibleTags,
     showOverflowLabel = false,
     wrap = false,
+    compact = false,
+    editorFullWidth = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -103,7 +107,13 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center', wrap && 'min-w-0 max-w-full')}
+            className={clsx(
+                className,
+                'inline-flex gap-0.5 items-center',
+                compact ? 'flex-nowrap min-w-0' : 'flex-wrap',
+                wrap && 'min-w-0 max-w-full',
+                editingTags && editorFullWidth && 'w-full min-w-0'
+            )}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -121,6 +131,7 @@ export function ObjectTags({
                     data-attr="new-tag-input"
                     placeholder={inputPlaceholder}
                     autoFocus
+                    fullWidth={editorFullWidth}
                     popoverClassName="click-outside-block"
                 />
             ) : (
@@ -133,10 +144,17 @@ export function ObjectTags({
                                       key={index}
                                       type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                       onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                                      className={wrap ? 'max-w-full' : undefined}
+                                      size={compact ? 'small' : 'medium'}
+                                      className={compact ? 'min-w-0' : wrap ? 'max-w-full' : undefined}
                                       wrap={wrap}
                                   >
-                                      {tag}
+                                      {compact ? (
+                                          <span className="truncate" title={tag}>
+                                              {tag}
+                                          </span>
+                                      ) : (
+                                          tag
+                                      )}
                                   </LemonTag>
                               )
                           })}

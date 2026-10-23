@@ -1,9 +1,12 @@
 """Dagster job to detach a distinct_id from its person.
 
 Three cleanup phases, all required:
-  1. Postgres — delete posthog_persondistinctid row (stops future ingestion lookups).
-  2. Kafka  — publish is_deleted to person_distinct_id2 (stops ClickHouse lookups).
-  3. Override — insert into person_distinct_id_overrides so the HogQL query layer
+  1. Postgres: tombstone the posthog_persondistinctid row (stops future ingestion lookups).
+     The tombstone version is above both the row's own version and the highest version ClickHouse
+     holds for the distinct id, so the ClickHouse tombstone and override win, and a later re-add
+     revives the row above them instead of starting at version 0 underneath them.
+  2. Kafka: publish is_deleted to person_distinct_id2 at that exact version (stops ClickHouse lookups).
+  3. Override: insert into person_distinct_id_overrides so the HogQL query layer
      immediately re-attributes historical events whose person_id was baked in at
      ingestion time (Person-on-Events). squash_person_overrides later makes it
      permanent and removes the override row.
@@ -27,6 +30,7 @@ Example Dagster launchpad config (run with dry_run: true first!)::
 
 import json
 import uuid
+import shlex
 from datetime import datetime
 
 import dagster
@@ -37,6 +41,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.dags.common import JobOwners
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_PERSON_DISTINCT_ID
+
+KAFKA_DELIVERY_TIMEOUT_SECONDS = 30
 
 
 class DetachDistinctIdConfig(dagster.Config):
@@ -116,21 +122,44 @@ def _count_other_distinct_ids(
     return row["count"] if isinstance(row, dict) else row[0]
 
 
-def _delete_distinct_id_row(
+def _clickhouse_max_version(team_id: int, distinct_id: str) -> int:
+    """Return the highest ClickHouse version of the distinct id across the mapping and override tables, or 0."""
+    rows = sync_execute(
+        """
+        SELECT greatest(
+            (SELECT max(version) FROM person_distinct_id2
+             WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s),
+            (SELECT max(version) FROM person_distinct_id_overrides
+             WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s)
+        )
+        """,
+        {"team_id": team_id, "distinct_id": distinct_id},
+    )
+    return int(rows[0][0])
+
+
+def _tombstone_distinct_id_row(
     cursor: psycopg2.extensions.cursor,
     pdi_id: int,
+    person_pk: int,
+    min_version: int,
 ) -> int:
-    """Lock and delete the posthog_persondistinctid row. Returns version."""
+    """Tombstone the row at ``min_version`` or above while it still belongs to ``person_pk``; return its version."""
     cursor.execute(
-        "SELECT version FROM posthog_persondistinctid WHERE id = %s FOR UPDATE",
-        [pdi_id],
+        """
+        UPDATE posthog_persondistinctid
+        SET is_deleted = true, version = GREATEST(COALESCE(version, 0) + 1, %s)
+        WHERE id = %s AND person_id = %s AND is_deleted = false
+        RETURNING version
+        """,
+        [min_version, pdi_id, person_pk],
     )
     row = cursor.fetchone()
     if row is None:
-        raise RuntimeError(f"posthog_persondistinctid id={pdi_id} disappeared between lookup and delete")
-    version = row["version"] if isinstance(row, dict) else row[0]
-    cursor.execute("DELETE FROM posthog_persondistinctid WHERE id = %s", [pdi_id])
-    return version
+        raise RuntimeError(
+            f"posthog_persondistinctid id={pdi_id} disappeared or moved off person {person_pk} between lookup and tombstone"
+        )
+    return row["version"] if isinstance(row, dict) else row[0]
 
 
 def _publish_deletion_to_kafka(
@@ -142,19 +171,35 @@ def _publish_deletion_to_kafka(
 ) -> None:
     """Publish an is_deleted message so ClickHouse person_distinct_id2 drops the mapping.
 
-    Uses version + 100, matching _delete_ch_distinct_id in posthog/models/person/util.py.
+    ``version`` is the one the Postgres tombstone carries, so a revived mapping lands above it.
     """
-    producer.produce(
+    result = producer.produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
         data={
             "distinct_id": distinct_id,
             "person_id": person_uuid,
             "team_id": team_id,
-            "version": version + 100,
+            "version": version,
             "is_deleted": 1,
         },
     )
-    producer.flush()
+    producer.flush(KAFKA_DELIVERY_TIMEOUT_SECONDS)
+    # flush() counts only messages still queued. A failed delivery leaves the queue, so only its result shows it.
+    result.get(timeout=0)
+
+
+def _undelivered_tombstone_message(team_id: int, distinct_id: str, override_person_uuid: str, version: int) -> str:
+    insert_override = (
+        "from posthog.dags.detach_distinct_id import _insert_ch_override; "
+        f"_insert_ch_override({team_id}, {json.dumps(distinct_id)}, {json.dumps(override_person_uuid)}, {version + 1})"
+    )
+    return (
+        f"Postgres tombstoned distinct_id={distinct_id!r} at version {version}, but Kafka did not deliver the "
+        "ClickHouse tombstone, so the override was not inserted. A rerun of this job cannot find the row. "
+        "Recover with:\n"
+        f"  1. python manage.py sync_persons_to_clickhouse --person-distinct-id --deletes --live-run --team-id {team_id}\n"
+        f"  2. python manage.py shell -c {shlex.quote(insert_override)}"
+    )
 
 
 def _insert_ch_override(
@@ -223,34 +268,45 @@ def detach_distinct_id_op(
         override_target = config.override_person_id or str(uuid.uuid4())
         log.info(f"Override target person_id={override_target}")
 
-        # --- 3. Delete in Postgres ---
+        # --- 3. Tombstone in Postgres ---
         if config.dry_run:
-            log.info("[DRY RUN] Would delete posthog_persondistinctid row")
+            log.info("[DRY RUN] Would tombstone posthog_persondistinctid row")
             log.info("[DRY RUN] Would publish Kafka deletion to person_distinct_id2")
             log.info(f"[DRY RUN] Would insert person_distinct_id_overrides -> {override_target}")
             persons_database.rollback()
             return
 
-        version = _delete_distinct_id_row(cursor, info["pdi_id"])
+        ch_max_version = _clickhouse_max_version(config.team_id, config.distinct_id)
+        version = _tombstone_distinct_id_row(
+            cursor, info["pdi_id"], person_pk=info["person_pk"], min_version=ch_max_version + 1
+        )
         persons_database.commit()
-        log.info(f"Deleted posthog_persondistinctid id={info['pdi_id']} (version={version})")
+        log.info(
+            f"Tombstoned posthog_persondistinctid id={info['pdi_id']} "
+            f"(version={version}, ClickHouse max version={ch_max_version})"
+        )
 
     # --- 4. Sync deletion to ClickHouse via Kafka ---
-    _publish_deletion_to_kafka(
-        kafka_producer,
-        team_id=config.team_id,
-        distinct_id=config.distinct_id,
-        person_uuid=info["person_uuid"],
-        version=version,
-    )
-    log.info(f"Published deletion to {KAFKA_PERSON_DISTINCT_ID} (version={version + 100}, is_deleted=1)")
+    try:
+        _publish_deletion_to_kafka(
+            kafka_producer,
+            team_id=config.team_id,
+            distinct_id=config.distinct_id,
+            person_uuid=info["person_uuid"],
+            version=version,
+        )
+    except Exception as e:
+        raise dagster.Failure(
+            _undelivered_tombstone_message(config.team_id, config.distinct_id, override_target, version)
+        ) from e
+    log.info(f"Published deletion to {KAFKA_PERSON_DISTINCT_ID} (version={version}, is_deleted=1)")
 
     # --- 5. Override: fix person_id baked into historical events (see module docstring) ---
     _insert_ch_override(
         team_id=config.team_id,
         distinct_id=config.distinct_id,
         override_person_uuid=override_target,
-        version=version + 100,
+        version=version + 1,
     )
     log.info(f"Inserted person_distinct_id_overrides: {config.distinct_id!r} -> {override_target}")
 

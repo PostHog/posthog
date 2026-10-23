@@ -59,24 +59,26 @@ class TestFreshserviceSource:
         if "!" in domain or " " in domain:
             mock_validate.assert_not_called()
 
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        inputs = _make_inputs("tickets")
+    @pytest.mark.parametrize(
+        "schema_name, primary_keys, partition_keys",
+        [
+            ("tickets", ["id"], ["created_at"]),
+            ("agents", ["id"], None),
+            # Fan-out children aggregate rows from every parent, so the parent id has to stay in
+            # the key for it to be unique table-wide.
+            ("software_users", ["application_id", "id"], ["created_at"]),
+            ("ticket_time_entries", ["ticket_id", "id"], ["created_at"]),
+        ],
+    )
+    def test_source_for_pipeline_response_shape(
+        self, schema_name: str, primary_keys: list[str], partition_keys: Optional[list[str]]
+    ) -> None:
+        inputs = _make_inputs(schema_name)
         manager = self.source.get_resumable_source_manager(inputs)
 
         response = self.source.source_for_pipeline(self.config, manager, inputs)
 
-        assert response.name == "tickets"
-        assert response.primary_keys == ["id"]
-        # tickets partitions on its stable created_at field.
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    def test_source_for_pipeline_full_refresh_endpoint_has_no_partition(self) -> None:
-        inputs = _make_inputs("agents")
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert response.name == "agents"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        assert response.name == schema_name
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == partition_keys
+        assert response.partition_mode == ("datetime" if partition_keys else None)

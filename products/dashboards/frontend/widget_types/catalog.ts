@@ -1,6 +1,15 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconList, IconLive, IconMessage, IconRewindPlay, IconWarning } from '@posthog/icons'
+import {
+    IconApps,
+    IconFlask,
+    IconList,
+    IconLive,
+    IconMessage,
+    IconNotebook,
+    IconRewindPlay,
+    IconWarning,
+} from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -14,6 +23,7 @@ import {
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
+    notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
@@ -72,6 +82,7 @@ export type DashboardWidgetTileFiltersCatalogConfig = {
 
 /** Product area labels keyed by catalog `groupId`. New groups: add here. */
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
+    notebooks: 'Notebooks',
     activity: 'Activity',
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
@@ -79,6 +90,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     surveys: 'Surveys',
     logs: 'Logs',
     conversations: 'Support',
+    canvas: 'Canvas',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -87,6 +99,7 @@ export function getDashboardWidgetGroupLabel(groupId: string): string {
 
 /** Product icons shown next to group headings in the Add widget picker, keyed by `groupId`. */
 export const DASHBOARD_WIDGET_GROUP_ICONS = {
+    notebooks: IconNotebook,
     activity: IconLive,
     error_tracking: IconWarning,
     session_replay: IconRewindPlay,
@@ -94,6 +107,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     surveys: IconMessage,
     logs: IconList,
     conversations: IconMessage,
+    canvas: IconApps,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -149,6 +163,7 @@ export type DashboardWidgetCatalogEntry = {
     badge?: string
     description: string
     defaultConfig: Record<string, unknown>
+    hideFromPicker?: boolean
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
     productAccess?: DashboardWidgetProductAccess
     headerLayout?: DashboardWidgetHeaderLayout
@@ -170,6 +185,19 @@ export type DashboardWidgetCatalogEntry = {
 
 /** New widget types: add here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_CATALOG = {
+    notebook_widget: {
+        hideFromPicker: true,
+        groupId: 'notebooks',
+        label: 'Notebook widget',
+        description: 'Saved results from a generated notebook widget.',
+        headerMeta: { showDateRange: false },
+        defaultConfig: notebookWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 6, minW: 3, minH: 4 },
+        sharedPlaceholder: {
+            title: 'Notebook widget',
+            message: 'Sign in with access to the source notebook to view this widget.',
+        },
+    },
     conversations_recent_tickets: {
         groupId: 'conversations',
         label: 'Recent tickets',
@@ -400,6 +428,9 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
     const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
 
     for (const [widgetType, entry] of Object.entries(DASHBOARD_WIDGET_CATALOG)) {
+        if ('hideFromPicker' in entry && entry.hideFromPicker) {
+            continue
+        }
         let group = groupsById.get(entry.groupId)
 
         if (!group) {

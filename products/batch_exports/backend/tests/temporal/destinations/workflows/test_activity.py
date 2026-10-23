@@ -1,9 +1,11 @@
 import uuid
+import functools
 import urllib.parse
 
 import pytest
 
-from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import AnyBatchExportModel, BatchExportEventsModel, BatchExportInsertInputs
+from products.batch_exports.backend.temporal.destinations import workflows_batch_export
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     WorkflowsInsertInputs,
     insert_into_workflows_activity_from_stage,
@@ -13,6 +15,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 from products.batch_exports.backend.tests.temporal.destinations.workflows.utils import (
     assert_clickhouse_records_were_handled,
 )
@@ -21,6 +24,15 @@ pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
+
+
+@pytest.fixture
+def no_retry_delay(monkeypatch):
+    monkeypatch.setattr(
+        workflows_batch_export,
+        "make_retryable_with_exponential_backoff",
+        functools.partial(make_retryable_with_exponential_backoff, initial_retry_delay=0, max_delay_jitter=0),
+    )
 
 
 async def _run_activity(
@@ -33,8 +45,7 @@ async def _run_activity(
     data_interval_start,
     data_interval_end,
     sort_key: str,
-    batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     expected_fields=None,
@@ -52,7 +63,6 @@ async def _run_activity(
         backfill_details=None,
         is_backfill=False,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         batch_export_id=batch_export_id,
     )
     workflows_inputs = WorkflowsInsertInputs(
@@ -75,7 +85,6 @@ async def _run_activity(
             backfill_details=None,
             is_workflows=True,
             batch_export_model=workflows_inputs.batch_export.batch_export_model,
-            batch_export_schema=workflows_inputs.batch_export.batch_export_schema,
             destination_default_fields=workflows_default_fields(batch_export_id),
         ),
     )
@@ -87,7 +96,7 @@ async def _run_activity(
         hog_function_id=hog_function_id,
         date_ranges=[(data_interval_start, data_interval_end)],
         team_id=team.pk,
-        batch_export_model=batch_export_model or batch_export_schema,
+        batch_export_model=batch_export_model,
         exclude_events=exclude_events,
         sort_key=sort_key,
         expected_fields=expected_fields,
@@ -116,7 +125,7 @@ async def test_insert_into_workflows_activity_from_stage_posts_data_to_server(
     This configures the activity to POST requests to an aiohttp test server, configured
     in the server fixture.
     """
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     await _run_activity(
         activity_environment,
@@ -149,7 +158,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
     error,
 ):
     """Assert the activity immediately fails on non-retryable error codes."""
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     if error == 404:
         expected = "NotFoundErrorGroup"
@@ -182,7 +191,6 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
             backfill_details=None,
             is_workflows=True,
             batch_export_model=workflows_inputs.batch_export.batch_export_model,
-            batch_export_schema=workflows_inputs.batch_export.batch_export_schema,
             destination_default_fields=workflows_default_fields(batch_export_id),
         ),
     )
@@ -196,6 +204,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
 
 
 @pytest.mark.parametrize("error", [429, 500, 503], indirect=True)
+@pytest.mark.usefixtures("no_retry_delay")
 async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_errors(
     clickhouse_client,
     activity_environment,
@@ -211,7 +220,7 @@ async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_er
     error,
 ):
     """Assert the activity retries requests on retryable error codes."""
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     await _run_activity(
         activity_environment,
@@ -246,7 +255,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_with_empty_url(
     error,
 ):
     """Assert activity fails when an empty URL is passed."""
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     batch_export_id = str(uuid.uuid4())
     batch_export_inputs = BatchExportInsertInputs(
@@ -297,7 +306,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_when_hog_function
     hog_function_id,
 ):
     """When every hog function execution errors, the activity should abort after the threshold trips."""
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     batch_export_id = str(uuid.uuid4())
     batch_export_inputs = BatchExportInsertInputs(
@@ -325,7 +334,6 @@ async def test_insert_into_workflows_activity_from_stage_fails_when_hog_function
             backfill_details=None,
             is_workflows=True,
             batch_export_model=workflows_inputs.batch_export.batch_export_model,
-            batch_export_schema=workflows_inputs.batch_export.batch_export_schema,
             destination_default_fields=workflows_default_fields(batch_export_id),
         ),
     )
@@ -359,7 +367,7 @@ async def test_insert_into_workflows_activity_from_stage_tolerates_hog_function_
     hog_function_error_count,
 ):
     """A small number of hog function errors (well under the threshold) should not fail the run."""
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     result = await _run_activity(
         activity_environment,

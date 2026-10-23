@@ -1,12 +1,14 @@
 import uuid
 import hashlib
 import datetime
+import collections
 from enum import Enum
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import Count, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -50,17 +52,18 @@ from posthog.models.organization_notification_lock import (
     pipeline_lock_for_team,
 )
 from posthog.models.scoping import with_team_scope
-from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.data_modeling.backend.facade.api import (
+    declared_targets_by_saved_query,
+    get_node_ids_for_saved_queries,
     suspended_saved_query_ids_by_team,
     suspension_state_for_saved_query,
 )
@@ -83,6 +86,7 @@ class NotificationSetting(Enum):
     MATERIALIZED_VIEW_SYNC_FAILED_DAILY = "materialized_view_sync_failed_daily"
     MATERIALIZED_VIEW_SYNC_FAILED_IMMEDIATE = "materialized_view_sync_failed_immediate"
     WEB_ANALYTICS_WEEKLY_DIGEST = "web_analytics_weekly_digest"
+    DATA_CATALOG_WEEKLY_DIGEST = "data_catalog_weekly_digest"
 
 
 NotificationSettingType = Literal[
@@ -97,6 +101,7 @@ NotificationSettingType = Literal[
     "materialized_view_sync_failed_daily",
     "materialized_view_sync_failed_immediate",
     "web_analytics_weekly_digest",
+    "data_catalog_weekly_digest",
 ]
 
 
@@ -111,7 +116,7 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
     memberships_to_email = []
     memberships = list(
         OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-            organization_id=team.organization_id
+            organization_id=team.organization_id, user__is_active=True
         )
     )
     # Resolved once, or this is a query per member on every fan-out.
@@ -346,6 +351,9 @@ def should_send_notification(
         return settings.get(notification_type, True)
 
     elif notification_type == NotificationSetting.PROJECT_API_KEY_EXPOSED.value:
+        return settings.get(notification_type, True)
+
+    elif notification_type == NotificationSetting.DATA_CATALOG_WEEKLY_DIGEST.value:
         return settings.get(notification_type, True)
 
     elif notification_type == NotificationSetting.AI_EVALUATION_DISABLED.value:
@@ -584,7 +592,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", repository: str | None = None) -> None:
+def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -597,7 +605,6 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", 
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "partner_name": partner_name,
-            "repository": repository or "",
         },
     )
     message.add_user_recipient(user)
@@ -1085,7 +1092,8 @@ def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, d
 
 
 def send_batch_export_run_failure(
-    batch_export_run_id: str | UUIDT,
+    batch_export_run_id: str | uuid.UUID,
+    team_id: int,
     failure_rate: float = 1.0,
 ) -> None:
     logger = structlog.get_logger(__name__)
@@ -1095,17 +1103,14 @@ def send_batch_export_run_failure(
         logger.warning("Email service is not available")
         return None
 
-    batch_export_run: BatchExportRun = BatchExportRun.objects.select_related(
-        "batch_export__team", "batch_export_on_demand__team"
-    ).get(id=batch_export_run_id)
-    batch_export = batch_export_run.parent
+    run_failure = batch_exports_api.get_run_failure(batch_export_run_id, team_id)
     # On-demand exports do not have a page for this email to link to.
-    if not isinstance(batch_export, BatchExport):
+    if run_failure is None:
         return
 
-    team: Team = batch_export.team
+    team = Team.objects.get(id=run_failure.team_id)
 
-    pipeline_id = f"batch_export:{batch_export.id}"
+    pipeline_id = f"batch_export:{run_failure.export_id}"
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
@@ -1113,20 +1118,22 @@ def send_batch_export_run_failure(
     logger.info("Preparing notification email for batch export run %s", batch_export_run_id)
 
     # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
-    last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
+    last_updated_at_date = run_failure.last_updated_at.strftime("%Y-%m-%d")
 
-    campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
+    campaign_key: str = (
+        f"batch_export_run_email_batch_export_{run_failure.export_id}_last_updated_at_{last_updated_at_date}"
+    )
 
-    subject = f"PostHog: {batch_export.name} batch export run failure"
+    subject = f"PostHog: {run_failure.export_name} batch export run failure"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
         template_name="batch_export_run_failure",
         template_context={
-            "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
+            "time": run_failure.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
-            "id": batch_export.id,
-            "name": batch_export.name,
+            "id": run_failure.export_id,
+            "name": run_failure.export_name,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
@@ -1201,7 +1208,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 
     # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
     # flag opens up the catch-up delivers their currently-failing schemas naturally.
-    # group_properties mirror the warehouse-pipelines-v3 gate (create_job_model.py):
+    # group_properties mirror the warehouse-multi-destination gate (destinations/enablement.py):
     # without them, release conditions on the project/organization group can't match,
     # because the analytics group records are keyed by uuid rather than team_id/org_id.
     if not settings.TEST and not posthoganalytics.feature_enabled(
@@ -1262,8 +1269,114 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
+def _filter_members_by_external_data_source_access(
+    memberships: list[OrganizationMembership], team: Team
+) -> list[OrganizationMembership]:
+    """Drop members who cannot view destinations, which `ExternalDataDestinationViewSet` gates on `external_data_source`.
+
+    Falls back to the unfiltered list when the check fails: not being able to check must not silently stop the email.
+    """
+    if not memberships:
+        return memberships
+    try:
+        if not UserAccessControl(memberships[0].user, team).access_controls_supported:
+            return memberships
+        return [
+            membership
+            for membership in memberships
+            if UserAccessControl(membership.user, team).check_access_level_for_resource(
+                "external_data_source", "viewer"
+            )
+        ]
+    except Exception:
+        logger.exception("Destination access check failed, sending to all subscribed members", team_id=team.id)
+        return memberships
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_warehouse_destination_paused(
+    team_id: int, destination_id: str, destination_name: str, latest_error: str, paused_at: str
+) -> None:
+    """Tell a project that PostHog paused a data warehouse destination after repeated configuration errors.
+
+    The destination stays paused until someone edits it, so one email per pause is enough. The
+    caller passes the details so this module does not read the warehouse product's models.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+
+    memberships_to_email = get_members_to_notify_for_pipeline_error(
+        team, failure_rate=1.0, pipeline_id=f"warehouse_destination:{destination_id}"
+    )
+    memberships_to_email = _filter_members_by_external_data_source_access(memberships_to_email, team)
+    if not memberships_to_email:
+        return
+
+    message = EmailMessage(
+        campaign_key=f"warehouse_destination_paused_{destination_id}_{paused_at}",
+        subject=(
+            f"[Alert] Data warehouse destination '{single_line(destination_name)}' paused in project "
+            f"'{single_line(team.name)}'"
+        ),
+        template_name="warehouse_destination_paused",
+        template_context={
+            "team": team,
+            "destination_name": destination_name,
+            "latest_error": latest_error,
+            "destinations_url": f"{settings.SITE_URL}/project/{team.id}/data-management/warehouse-destinations?destination={destination_id}",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 MAX_VIEWS_PER_DIGEST_EMAIL = 30
 MAX_ERROR_CHARS = 255
+# Most urgent first: this order drives the email layout, the subject line and which rows the cap keeps.
+DIGEST_SECTIONS: dict[str, dict[str, Any]] = {
+    "action": {
+        "title": "Needs action",
+        "description": "These views stopped running. They won't update until you fix them.",
+        "color": "#dc3545",
+        "verbs": ("needs action", "need action"),
+    },
+    "new": {
+        "title": "Started failing",
+        "description": "These started failing in the last 24 hours. They retry on their next scheduled run, so a temporary problem can clear on its own.",
+        "color": "#fd7e14",
+        "verbs": ("started failing", "started failing"),
+    },
+    "ongoing": {
+        "title": "Still failing",
+        "description": "These have failed every run for more than a day. Retrying hasn't fixed them, so they likely need a change.",
+        "color": "#9ca3af",
+        "verbs": ("is still failing", "are still failing"),
+    },
+}
+DIGEST_SECTION_ORDER = tuple(DIGEST_SECTIONS)
+# Older than any job, so a view that never succeeded counts every failure in its streak.
+STREAK_FLOOR_BEFORE_ANY_RUN = datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)
+
+
+def _matview_digest_summary(counts: dict[str, int]) -> str:
+    """Count each section, e.g. "1 materialized view needs action, 3 started failing"."""
+    parts: list[str] = []
+    for key in DIGEST_SECTION_ORDER:
+        count = counts.get(key, 0)
+        if not count:
+            continue
+        verb = DIGEST_SECTIONS[key]["verbs"][count != 1]
+        if not parts:
+            noun = "materialized view" if count == 1 else "materialized views"
+            parts.append(f"{count} {noun} {verb}")
+        else:
+            parts.append(f"{count} {verb}")
+    return ", ".join(parts) or "Materialized view failures"
 
 
 @shared_task(ignore_result=True)
@@ -1350,7 +1463,26 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         return
 
     all_ids = list(set(failed_query_ids + suspended_query_ids))
-    queries = {str(sq.id): sq for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id)}
+    clickhouse_jobs = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("id"), engine=DataModelingJobEngine.CLICKHOUSE, last_run_at__isnull=False
+    )
+    last_success_at = (
+        clickhouse_jobs.filter(status=DataModelingJob.Status.COMPLETED).order_by("-last_run_at").values("last_run_at")
+    )
+    streak_jobs = clickhouse_jobs.filter(status=DataModelingJob.Status.FAILED, last_run_at__gt=OuterRef("streak_floor"))
+    queries: dict[str, DataWarehouseSavedQuery] = {
+        str(sq.id): sq
+        for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id).annotate(
+            streak_floor=Coalesce(Subquery(last_success_at[:1]), Value(STREAK_FLOOR_BEFORE_ANY_RUN)),
+            failing_since=Subquery(streak_jobs.order_by("last_run_at").values("last_run_at")[:1]),
+            failed_runs=Subquery(
+                streak_jobs.order_by().values("saved_query_id").annotate(n=Count("id")).values("n")[:1]
+            ),
+        )
+    }
+    new_failure_cutoff = timezone.now() - datetime.timedelta(hours=24)
+    declared_targets = declared_targets_by_saved_query(team_id, all_ids)
+    node_ids = get_node_ids_for_saved_queries(team_id, all_ids)
 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
@@ -1378,6 +1510,21 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 3] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
+        # `is_materialized` stays True after a pause, so read the cadence and the table instead.
+        # Pausing clears the cadence and keeps the table; reverting clears both.
+        if qid in declared_targets or sq.sync_frequency_interval is not None:
+            schedule = "scheduled"
+        elif sq.table_id is not None:
+            schedule = "paused"
+        else:
+            schedule = "reverted"
+        failing_since: datetime.datetime | None = getattr(sq, "failing_since", None) or run_at
+        if suspended or schedule != "scheduled":
+            section = "action"
+        elif failing_since is None or failing_since >= new_failure_cutoff:
+            section = "new"
+        else:
+            section = "ongoing"
         views.append(
             {
                 "id": str(sq.id),
@@ -1385,12 +1532,12 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "error": error,
                 "last_run_at": run_at.strftime("%b %d, %H:%M UTC") if run_at else "Unknown",
                 "last_run_at_ts": run_at.timestamp() if run_at else 0,
+                "failing_since": failing_since.strftime("%b %d, %H:%M UTC") if failing_since else "Unknown",
+                "failed_runs": getattr(sq, "failed_runs", None) or 1,
+                "section": section,
                 "suspended": suspended,
-                # Reverting clears the schedule, so promising a retry here would be false. `is not
-                # False` keeps a never-written flag on the retrying side, as `exclude(deleted=True)`
-                # does above.
-                "scheduled": sq.is_materialized is not False,
-                "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
+                "schedule": schedule,
+                "url": settings.SITE_URL + matview_view_path(team_id, qid, node_ids.get(qid)),
             }
         )
 
@@ -1398,8 +1545,14 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         logger.warning("No failed or suspended views found")
         return
 
-    # Rows needing action outrank rows that heal themselves, so the cap keeps them.
-    views.sort(key=lambda v: (not v["suspended"], v["scheduled"], -cast(float, v["last_run_at_ts"])))
+    # Rows needing action outrank new failures, which outrank old ones, so the cap keeps them.
+    views.sort(
+        key=lambda v: (
+            DIGEST_SECTION_ORDER.index(v["section"]),
+            not v["suspended"],
+            -cast(float, v["last_run_at_ts"]),
+        )
+    )
     for v in views:
         v.pop("last_run_at_ts", None)
 
@@ -1410,15 +1563,27 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         omitted_count = max(0, len(visible_views) - MAX_VIEWS_PER_DIGEST_EMAIL)
         listed_views = visible_views[:MAX_VIEWS_PER_DIGEST_EMAIL]
 
+        # Count before the cap, so the subject reflects every failing view the reader can see.
+        summary = _matview_digest_summary(collections.Counter(v["section"] for v in visible_views))
+        sections = [
+            {
+                "key": key,
+                "title": DIGEST_SECTIONS[key]["title"],
+                "description": DIGEST_SECTIONS[key]["description"],
+                "color": DIGEST_SECTIONS[key]["color"],
+                "views": [v for v in listed_views if v["section"] == key],
+            }
+            for key in DIGEST_SECTION_ORDER
+        ]
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=f"PostHog: Materialized view failures in {team.name}",
+            subject=f"PostHog: {summary} in {team.name}",
             template_name="matview_failure_digest",
             template_context={
                 "team": team,
                 "views": listed_views,
-                "has_suspended": any(v["suspended"] for v in listed_views),
-                "has_unscheduled": any(not v["suspended"] and not v["scheduled"] for v in listed_views),
+                "sections": [section for section in sections if section["views"]],
+                "summary": summary,
                 "omitted_count": omitted_count,
                 "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
             },
@@ -1437,13 +1602,25 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         )
 
 
+def matview_view_path(team_id: int, saved_query_id: str, node_id: str | None) -> str:
+    """Where a failure email or notification sends the reader: the view's node detail, which shows its runs and error.
+
+    A view with no DAG node has no node detail page, so it falls back to the SQL editor.
+    """
+    if node_id:
+        return f"/project/{team_id}/models/{node_id}"
+    return f"/project/{team_id}/sql?open_view={saved_query_id}"
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_id: str) -> None:
+def send_matview_failure_immediate_email(
+    team_id: int, saved_query_id: str, job_id: str, suspended: bool = False
+) -> None:
     """Email members who asked for a materialization failure email as it happens.
 
-    Dispatched on the first failure of a streak only; the job-scoped campaign key
-    makes redelivery idempotent per recipient.
+    Dispatched on the first failure of a streak, and again when the streak suspends the view;
+    the job-scoped campaign key makes redelivery idempotent per recipient.
     """
 
     if not is_email_available(with_absolute_urls=True):
@@ -1473,18 +1650,27 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
 
     job = DataModelingJob.objects.filter(id=job_id, team_id=team_id).first()
     error = (job.error if job else None) or saved_query.latest_error or ""
+    node_id = get_node_ids_for_saved_queries(team_id, [saved_query.id]).get(str(saved_query.id))
     if len(error) > MAX_ERROR_CHARS:
         error = error[: MAX_ERROR_CHARS - 3] + "..."
 
+    if suspended:
+        campaign_key = f"matview_suspended_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' was suspended in {team.name}"
+    else:
+        campaign_key = f"matview_failure_immediate_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}"
     message = EmailMessage(
-        campaign_key=f"matview_failure_immediate_{saved_query_id}_{job_id}",
-        subject=f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}",
+        campaign_key=campaign_key,
+        subject=subject,
         template_name="saved_query_materialization_failure",
         template_context={
             "team": team,
             "saved_query_name": saved_query.name,
             "saved_query_id": str(saved_query.id),
+            "view_url": settings.SITE_URL + matview_view_path(team_id, str(saved_query.id), node_id),
             "error": error,
+            "suspended": suspended,
         },
     )
     for membership in memberships_to_email:

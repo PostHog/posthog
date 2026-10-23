@@ -16,6 +16,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -26,7 +27,6 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
     _invoke_start_agent_server,
-    _is_agent_shadow_enabled,
     _launch_agent_shadow,
     _LaunchParams,
     _network_enforcement_observation,
@@ -86,6 +86,8 @@ def _context(
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    agent_shadow_enabled: bool = False,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -104,6 +106,8 @@ def _context(
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         claude_model_access=claude_model_access,
+        codex_model_access=codex_model_access,
+        agent_shadow_enabled=agent_shadow_enabled,
         _branch=branch,
     )
 
@@ -306,6 +310,27 @@ def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> 
 
 
 @pytest.mark.parametrize(
+    "is_modal, use_modal_vm_sandbox, expected_runtime",
+    [(True, True, "vm"), (True, False, "gvisor"), (False, True, None)],
+    ids=["modal_vm", "modal_gvisor", "non_modal"],
+)
+def test_invoke_start_agent_server_forwards_sandbox_runtime(
+    mocker, is_modal: bool, use_modal_vm_sandbox: bool, expected_runtime: str | None
+) -> None:
+    sandbox = mocker.Mock(spec=ModalSandbox, id="sandbox-id") if is_modal else mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.return_value = None
+
+    _invoke_start_agent_server(
+        sandbox,
+        _context(use_modal_vm_sandbox=use_modal_vm_sandbox),
+        mocker.Mock(agentsh_domains=None),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
+
+
+@pytest.mark.parametrize(
     ("error", "expected_statuses"),
     [
         (
@@ -377,6 +402,7 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
 )
 async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, activity, boot_path) -> None:
     context = _context()
+    context.origin_product = "review_hog"
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.supports_combined_agent_server_start_and_health.return_value = False
     sandbox.read_agent_server_boot_metrics.return_value = (
@@ -413,6 +439,7 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
     )
     record_step = mocker.patch("products.tasks.backend.temporal.metrics.record_agent_server_step_ms")
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
 
     await activity(
         StartAgentServerInput(
@@ -424,13 +451,21 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         )
     )
 
+    read_labels = next(
+        call.args[0] for call in metric_meter.call_args_list if call.args[0]["step"] == "read_agent_boot_metrics"
+    )
+    assert read_labels["origin_product"] == "review_hog"
+    assert read_labels["runtime"] == "gvisor"
+    assert read_labels["boot_path"] == boot_path
+    assert read_labels["used_snapshot"] == "true"
+
     assert [record.args for record in record_step.call_args_list] == [
         ("agent_server_phase_context_fetch", 40, boot_path),
         ("agent_server_phase_repository_ready", 1200, boot_path),
         ("agent_server_phase_server_total", 1400, boot_path),
     ]
     assert all(
-        record.kwargs == {"used_snapshot": True, "origin_product": None, "runtime": "gvisor"}
+        record.kwargs == {"used_snapshot": True, "origin_product": "review_hog", "runtime": "gvisor"}
         for record in record_step.call_args_list
     )
 
@@ -461,8 +496,8 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
+            codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch(
@@ -489,7 +524,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
     )
 
     assert result.sandbox_url == "https://sandbox.example"
-    sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
+    sandbox.wait_for_agent_server_ready.assert_called_once_with(None, claude_model_access="posthog-gateway")
     if expects_relaunch:
         preparation_meter.return_value.with_additional_attributes.assert_called_once_with(
             {
@@ -541,8 +576,8 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
+            codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
@@ -664,6 +699,26 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
     assert _resolve_protected_base_branch(context) == expected
 
 
+@pytest.mark.parametrize(
+    "stack_base_branch,expected",
+    [
+        # A stacked run starts on the lower layer's head: protect that head as the PR base.
+        ("posthog-self-driving/layer-one-abc123", "posthog-self-driving/layer-one-abc123"),
+        # The marker names another branch, so the run moved on and the open PR lookup decides.
+        ("posthog-self-driving/other-def456", "master"),
+    ],
+)
+def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch, expected) -> None:
+    _mock_github_integration(mocker, pr_base="master")
+    context = _context(
+        github_integration_id=42,
+        repository="PostHog/posthog",
+        branch="posthog-self-driving/layer-one-abc123",
+        state={"stack_base_branch": stack_base_branch},
+    )
+    assert _resolve_protected_base_branch(context) == expected
+
+
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
@@ -692,6 +747,20 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
     mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
     mocker.patch(f"{prefix}.emit_agent_log")
+    mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+
+def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(
+        state={"use_dedicated_stream": True}
+    )
+    release = mocker.patch(f"{prefix}.release_task_run_milestone_claims")
+
+    _prepare_launch(_context(), "read_only", "sandbox-id")
+
+    release.assert_called_once_with("run-id", True)
 
 
 @pytest.mark.parametrize(
@@ -759,7 +828,7 @@ def test_ensure_every_repository_is_on_disk(mocker) -> None:
     )
 
     assert [call.args[0] for call in sandbox.execute.call_args_list] == [
-        f"test -d {sandbox_repo_path('PostHog/posthog')}",
+        f"test -e {sandbox_repo_path('PostHog/posthog')}/.git",
         f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
     ]
 
@@ -777,7 +846,7 @@ def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker)
         _ensure_repository_on_disk(_context(repository="PostHog/posthog"), sandbox)
 
     assert exc_info.value.non_retryable is True
-    assert "never" in str(exc_info.value)
+    assert "no checkout" in str(exc_info.value)
 
 
 def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
@@ -800,8 +869,8 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         protected_base_branch=None,
         event_ingest_token=None,
         task_run_session_token=None,
+        codex_run_token=None,
         event_ingest_url=None,
-        event_ingest_keep_stream_open=False,
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:
@@ -814,43 +883,13 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         assert sandbox.start_agent_server.call_args.kwargs["claude_model_access"] == access
 
 
-def test_agent_shadow_flag_uses_server_side_organization_targeting(mocker) -> None:
-    feature_enabled = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
-        return_value=True,
-    )
-
-    assert _is_agent_shadow_enabled(_context()) is True
-    feature_enabled.assert_called_once_with(
-        "agent-server-shadow-observer",
-        distinct_id="distinct-id",
-        groups={"organization": "organization-id"},
-        group_properties={"organization": {"id": "organization-id"}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-
-
-def test_agent_shadow_flag_fails_closed(mocker) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
-        side_effect=RuntimeError("unavailable"),
-    )
-
-    assert _is_agent_shadow_enabled(_context()) is False
-
-
 def test_agent_shadow_launches_without_credentials(mocker) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    assert _launch_agent_shadow(_context(), sandbox) is True
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is True
     command = sandbox.execute.call_args.args[0]
     assert "/usr/local/bin/agent-shadow" in command
     assert "/usr/bin/env -i /usr/bin/setsid /usr/local/bin/agent-shadow" in command
@@ -860,16 +899,12 @@ def test_agent_shadow_launches_without_credentials(mocker) -> None:
 
 
 def test_agent_shadow_launch_guards_on_marker_not_its_own_command_line(mocker) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    assert _launch_agent_shadow(_context(), sandbox) is True
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is True
     command = sandbox.execute.call_args.args[0]
     assert "pgrep" not in command
     assert "/tmp/agent-shadow-launched" in command
@@ -880,31 +915,28 @@ def test_agent_shadow_launch_recovers_prior_attempt_from_marker(mocker) -> None:
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
         return_value=2,
     )
-    feature_enabled = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=False,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    assert _launch_agent_shadow(_context(), sandbox) is True
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=False), sandbox) is True
     assert "head -c 128 /tmp/agent-shadow-launched" in sandbox.execute.call_args.args[0]
-    feature_enabled.assert_not_called()
 
 
-@pytest.mark.parametrize("exit_code,launched", [(0, True), (1, False)])
-def test_agent_shadow_launch_fails_closed_on_nonzero_exit(mocker, exit_code, launched) -> None:
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
+@pytest.mark.parametrize(
+    "agent_shadow_enabled,exit_code,launched,executed",
+    [(True, 0, True, True), (True, 1, False, True), (False, 0, False, False)],
+)
+def test_agent_shadow_launch_fails_closed_on_nonzero_exit(
+    mocker, agent_shadow_enabled: bool, exit_code: int, launched: bool, executed: bool
+) -> None:
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = False
     sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=exit_code)
 
-    assert _launch_agent_shadow(_context(), sandbox) is launched
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=agent_shadow_enabled), sandbox) is launched
+    assert sandbox.execute.called is executed
 
 
 def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
@@ -912,15 +944,11 @@ def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
         return_value=2,
     )
-    mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
-        return_value=True,
-    )
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.config.snapshot_restored = True
     sandbox.config.snapshot_kind = "filesystem"
 
-    assert _launch_agent_shadow(_context(), sandbox) is False
+    assert _launch_agent_shadow(_context(agent_shadow_enabled=True), sandbox) is False
     sandbox.execute.assert_not_called()
 
 
@@ -1035,11 +1063,22 @@ async def test_collect_agent_shadow_result_reads_after_startup(mocker) -> None:
 
 
 @pytest.mark.django_db
-async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker) -> None:
-    context = _context(sandbox_event_ingest_enabled=True, state={"mcp_builtin_agent_key": "scout"})
+@pytest.mark.parametrize(
+    ("codex_model_access", "expected_codex_run_token"),
+    [("posthog-gateway", None), ("own-subscription", "codex-run-token")],
+)
+async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
+    mocker, codex_model_access, expected_codex_run_token
+) -> None:
+    context = _context(
+        sandbox_event_ingest_enabled=True,
+        state={"mcp_builtin_agent_key": "scout", "runtime_adapter": "codex"},
+        codex_model_access=codex_model_access,
+    )
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.execute.return_value.exit_code = 0
     sandbox.start_agent_server.return_value = 125
     sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
@@ -1080,6 +1119,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         return_value="event-ingest-token",
     )
     mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_codex_subscription_run_token",
+        return_value="codex-run-token",
+    )
+    mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow",
         return_value=True,
     )
@@ -1101,7 +1144,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert result.shadow_launched is True
     shadow_result_reader.assert_not_called()
     create_event_ingest_token.assert_called_once()
-    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
+    assert create_event_ingest_token.call_args.kwargs == {
+        "sandbox_id": "sandbox-id",
+        "stream_generation": context.stream_generation,
+    }
     task_queryset.get.assert_called_once_with(id="task-id")
     get_user_mcp_configs.assert_called_once_with(
         token="oauth-token",
@@ -1121,6 +1167,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is True
     assert result.health_poll_ms == 125
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
+    assert sandbox.start_agent_server.call_args.kwargs["codex_run_token"] == expected_codex_run_token
 
 
 async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mocker) -> None:

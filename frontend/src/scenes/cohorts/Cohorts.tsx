@@ -3,7 +3,8 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -19,8 +20,9 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { openDeleteCohortDialog } from 'scenes/cohorts/DeleteCohortDialog'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -55,6 +57,7 @@ export function Cohorts(): JSX.Element {
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
     const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -177,21 +180,11 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete cohort?',
-                                            description: `Are you sure you want to delete "${cohort.name}"?`,
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () =>
-                                                    deleteCohort({ id: cohort.id, name: cohort.name, deleted: true }),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
+                                        openDeleteCohortDialog({
+                                            cohortId: cohort.id,
+                                            cohortName: cohort.name,
+                                            onConfirm: () =>
+                                                deleteCohort({ id: cohort.id, name: cohort.name, deleted: true }),
                                         })
                                     }}
                                     fullWidth
@@ -274,7 +267,7 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs tabKey="cohorts" />
+            <ActivitySceneTabs activeKey="cohorts" />
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Cohorts].name}
@@ -290,15 +283,26 @@ export function Cohorts(): JSX.Element {
                         interaction="click"
                         scope={Scene.Cohorts}
                     >
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            data-attr="new-cohort"
-                            onClick={() => router.actions.push(urls.cohort('new'))}
-                            tooltip="New cohort"
-                        >
-                            New cohort
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                data-attr="new-cohort"
+                                onClick={() => router.actions.push(urls.cohort('new'))}
+                                tooltip="New cohort"
+                            >
+                                New cohort
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                data-attr="new-cohort"
+                                onClick={() => router.actions.push(urls.cohort('new'))}
+                                tooltip="New cohort"
+                            >
+                                New cohort
+                            </LemonButton>
+                        )}
                     </Shortcut>
                 }
             />

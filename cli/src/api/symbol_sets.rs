@@ -121,7 +121,45 @@ struct StartUploadResponseData {
     /// Standard-endpoint presigned POST, sent when `presigned_url` targets the
     /// S3 transfer-acceleration endpoint. Absent on older servers.
     fallback_presigned_url: Option<PresignedUrl>,
+    /// Presigned PUT, signed for exactly the `content_length` we declared. Preferred over the
+    /// POST form: presigned POST is an AWS S3 extension, and S3-compatible stores that lack it
+    /// (Cloudflare R2 answers `501 NotImplemented`) can accept an upload no other way.
+    /// Absent on servers that predate it.
+    #[serde(default)]
+    presigned_put_url: Option<String>,
+    /// Standard-endpoint presigned PUT, sent when `presigned_put_url` targets the
+    /// S3 transfer-acceleration endpoint.
+    #[serde(default)]
+    fallback_presigned_put_url: Option<String>,
     symbol_set_id: String,
+}
+
+/// One place an attempt can send the chunk to.
+#[derive(Debug, Clone, Copy)]
+enum UploadTarget<'a> {
+    /// Raw bytes to the object key, with a `Content-Length` the signature covers.
+    Put(&'a str),
+    /// A `multipart/form-data` POST policy to the bucket root. AWS S3 only.
+    Post(&'a PresignedUrl),
+}
+
+impl StartUploadResponseData {
+    /// The primary target and its fallback. A server that sent a PUT gets the PUT, because it
+    /// works on every store; the POST form stays for servers that did not.
+    fn upload_targets(&self) -> (UploadTarget<'_>, Option<UploadTarget<'_>>) {
+        match self.presigned_put_url.as_deref() {
+            Some(put_url) => (
+                UploadTarget::Put(put_url),
+                self.fallback_presigned_put_url
+                    .as_deref()
+                    .map(UploadTarget::Put),
+            ),
+            None => (
+                UploadTarget::Post(&self.presigned_url),
+                self.fallback_presigned_url.as_ref().map(UploadTarget::Post),
+            ),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -133,6 +171,10 @@ pub struct PresignedUrl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload_attempt_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload_run_id: Option<String>,
     /// When true, allow overwriting symbol sets whose content has changed.
     #[serde(default)]
     force: bool,
@@ -160,6 +202,8 @@ struct HashedUpload<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
+    upload_attempt_id: String,
+    upload_run_id: String,
 }
 
 /// Upload symbol sets with optional retry on release_id_mismatch error.
@@ -208,6 +252,8 @@ pub fn upload_with_retry_and_concurrency(
         Ok(client) => UploadTransport {
             client,
             accelerated_unreachable: AtomicBool::new(false),
+            // A release-ID retry reuses this transport and belongs to the same CLI run.
+            upload_run_id: uuid::Uuid::now_v7().to_string(),
         },
         Err(e) => return (summary, Err(e)),
     };
@@ -267,13 +313,13 @@ fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
         .context("Failed to initialize symbol set upload thread pool")
 }
 
-/// Shared S3 upload transport for one run: a single client, because reusing its
-/// connection pool avoids paying a TCP + TLS handshake per uploaded chunk, and
-/// the run-wide latch that stops attempts against the accelerated endpoint once
-/// it is known to be unreachable.
+/// Shared S3 upload transport and tracking ID for one run. Reusing the client avoids
+/// a TCP + TLS handshake per chunk; the run-wide latch stops attempts against the
+/// accelerated endpoint once it is known to be unreachable.
 struct UploadTransport {
     client: Client,
     accelerated_unreachable: AtomicBool,
+    upload_run_id: String,
 }
 
 impl UploadTransport {
@@ -343,7 +389,14 @@ fn upload_inner(
 
     for (i, batch) in to_upload.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        let start_response = start_upload(batch, force, skip_on_conflict)?;
+        let upload_attempt_id = uuid::Uuid::now_v7().to_string();
+        let start_response = start_upload(
+            batch,
+            force,
+            skip_on_conflict,
+            &upload_attempt_id,
+            &transport.upload_run_id,
+        )?;
 
         let id_map: HashMap<&str, HashedUpload> = batch
             .iter()
@@ -367,12 +420,8 @@ fn upload_inner(
                         "Got a chunk ID back from posthog that we didn't expect!"
                     ))?;
 
-                    upload_to_s3(
-                        transport,
-                        &data.presigned_url,
-                        data.fallback_presigned_url.as_ref(),
-                        &hashed.upload.data,
-                    )?;
+                    let (target, fallback_target) = data.upload_targets();
+                    upload_to_s3(transport, target, fallback_target, &hashed.upload.data)?;
                     Ok((data.symbol_set_id, hashed.content_hash.to_string()))
                 })
                 .collect()
@@ -384,7 +433,7 @@ fn upload_inner(
         }
         let uploaded = content_hashes.len();
 
-        finish_upload(content_hashes)?;
+        finish_upload(content_hashes, &upload_attempt_id, &transport.upload_run_id)?;
         summary.uploaded += uploaded;
     }
 
@@ -442,12 +491,15 @@ fn bulk_upload_request(
     skip_on_conflict: bool,
 ) -> BulkUploadRequest {
     BulkUploadRequest {
+        upload_attempt_id: None,
+        upload_run_id: None,
         symbol_sets: batch
             .iter()
             .map(|hashed| CreateSymbolSetRequest {
                 chunk_id: hashed.upload.chunk_id.clone(),
                 release_id: hashed.upload.release_id.clone(),
                 content_hash: hashed.content_hash.to_string(),
+                content_length: hashed.upload.data.len() as u64,
             })
             .collect(),
         force,
@@ -509,9 +561,15 @@ fn start_upload(
     batch: &[HashedUpload],
     force: bool,
     skip_on_conflict: bool,
+    upload_attempt_id: &str,
+    upload_run_id: &str,
 ) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
-    let request = bulk_upload_request(batch, force, skip_on_conflict);
+    let request = BulkUploadRequest {
+        upload_attempt_id: Some(upload_attempt_id.to_string()),
+        upload_run_id: Some(upload_run_id.to_string()),
+        ..bulk_upload_request(batch, force, skip_on_conflict)
+    };
 
     let res = retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -587,8 +645,8 @@ impl EndpointRouter {
 
 fn upload_to_s3(
     transport: &UploadTransport,
-    presigned_url: &PresignedUrl,
-    fallback_presigned_url: Option<&PresignedUrl>,
+    presigned_url: UploadTarget<'_>,
+    fallback_presigned_url: Option<UploadTarget<'_>>,
     data: &[u8],
 ) -> Result<()> {
     let mut router = EndpointRouter::default();
@@ -606,19 +664,27 @@ fn upload_to_s3(
         let use_fallback = target_fallback.is_some();
         let target = target_fallback.unwrap_or(presigned_url);
 
-        let mut form = Form::new();
-        for (key, value) in &target.fields {
-            form = form.text(key.clone(), value.clone());
-        }
-        // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
-        // only treat a multipart part as a file upload when Content-Disposition
-        // carries a filename. Without it the part is parsed as a form field, which
-        // is memory-capped, so uploads over a few MB fail with MalformedPOSTRequest.
-        // AWS S3 accepts both forms.
-        let part = Part::bytes(data.to_vec()).file_name("file");
-        form = form.part("file", part);
+        let request = match target {
+            // The body length must match the signed `Content-Length` exactly, so the whole
+            // chunk goes in one owned buffer rather than a stream of unknown length.
+            UploadTarget::Put(url) => transport.client.put(url).body(data.to_vec()),
+            UploadTarget::Post(post) => {
+                let mut form = Form::new();
+                for (key, value) in &post.fields {
+                    form = form.text(key.clone(), value.clone());
+                }
+                // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
+                // only treat a multipart part as a file upload when Content-Disposition
+                // carries a filename. Without it the part is parsed as a form field, which
+                // is memory-capped, so uploads over a few MB fail with MalformedPOSTRequest.
+                // AWS S3 accepts both forms.
+                let part = Part::bytes(data.to_vec()).file_name("file");
+                form = form.part("file", part);
+                transport.client.post(&post.url).multipart(form)
+            }
+        };
 
-        let response = match transport.client.post(&target.url).multipart(form).send() {
+        let response = match request.send() {
             Ok(response) => response,
             Err(e) => {
                 router.record_transport_error(use_fallback);
@@ -643,9 +709,17 @@ fn upload_to_s3(
     Ok(())
 }
 
-fn finish_upload(content_hashes: HashMap<String, String>) -> Result<(), UploadError> {
+fn finish_upload(
+    content_hashes: HashMap<String, String>,
+    upload_attempt_id: &str,
+    upload_run_id: &str,
+) -> Result<(), UploadError> {
     let client = &context().client;
-    let request = BulkUploadFinishRequest { content_hashes };
+    let request = BulkUploadFinishRequest {
+        content_hashes,
+        upload_attempt_id: upload_attempt_id.to_string(),
+        upload_run_id: upload_run_id.to_string(),
+    };
 
     retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -754,6 +828,10 @@ struct CreateSymbolSetRequest {
     chunk_id: String,
     release_id: Option<String>,
     content_hash: String,
+    /// Byte count of the chunk this client will send. The server signs it into a presigned PUT,
+    /// which replaces the presigned POST policy's `content-length-range` condition. Servers that
+    /// predate the field ignore it and answer with a presigned POST only.
+    content_length: u64,
 }
 
 fn retry_policy(duration: u64, factor: u64, max_attempts: usize) -> impl Iterator<Item = Duration> {
@@ -796,7 +874,9 @@ mod tests {
     use std::{
         cell::Cell,
         fmt::Debug,
-        sync::{Arc, Mutex, MutexGuard},
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{mpsc, Arc, Mutex, MutexGuard},
     };
     use tracing::{field::Visit, Event, Subscriber};
     use tracing_subscriber::{layer::Context, prelude::*, registry::Registry, Layer};
@@ -1015,10 +1095,212 @@ mod tests {
     }
 
     #[test]
+    fn upload_ids_correlate_batches_and_finishes_but_not_checks() {
+        let check = bulk_upload_request(&[], false, false);
+        let check_json = serde_json::to_value(&check).unwrap();
+        assert!(check_json.get("upload_attempt_id").is_none());
+        assert!(check_json.get("upload_run_id").is_none());
+
+        let upload_run_id = uuid::Uuid::now_v7().to_string();
+        let attempt_ids = [
+            uuid::Uuid::now_v7().to_string(),
+            uuid::Uuid::now_v7().to_string(),
+        ];
+        assert_ne!(attempt_ids[0], attempt_ids[1]);
+        for upload_attempt_id in attempt_ids {
+            let start = BulkUploadRequest {
+                upload_attempt_id: Some(upload_attempt_id.clone()),
+                upload_run_id: Some(upload_run_id.clone()),
+                ..check.clone()
+            };
+            let finish = BulkUploadFinishRequest {
+                content_hashes: HashMap::new(),
+                upload_attempt_id: upload_attempt_id.clone(),
+                upload_run_id: upload_run_id.clone(),
+            };
+            let start_json = serde_json::to_value(&start).unwrap();
+            let finish_json = serde_json::to_value(&finish).unwrap();
+            assert_eq!(start_json["upload_attempt_id"], upload_attempt_id);
+            assert_eq!(finish_json["upload_attempt_id"], upload_attempt_id);
+            assert_eq!(start_json["upload_run_id"], upload_run_id);
+            assert_eq!(finish_json["upload_run_id"], upload_run_id);
+        }
+    }
+
+    #[test]
     fn start_upload_response_parses_without_fallback_presigned_url() {
         let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
         let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
         assert!(parsed.id_map["chunk"].fallback_presigned_url.is_none());
+    }
+
+    #[test]
+    fn start_upload_response_parses_without_presigned_put_url() {
+        // A server that predates the PUT sends the POST form only, and the client must still
+        // upload rather than fail to parse the response.
+        let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
+        let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
+        let data = &parsed.id_map["chunk"];
+        assert!(data.presigned_put_url.is_none());
+
+        let (target, fallback) = data.upload_targets();
+        assert!(matches!(target, UploadTarget::Post(_)));
+        assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn upload_prefers_the_presigned_put_when_the_server_sends_one() {
+        // Presigned POST is an AWS extension; stores such as Cloudflare R2 refuse it. So the
+        // PUT wins whenever it is offered, and its own fallback comes with it.
+        let json = r#"{"id_map":{"chunk":{
+            "presigned_url":{"url":"https://post.example.com/","fields":{}},
+            "fallback_presigned_url":{"url":"https://post-fallback.example.com/","fields":{}},
+            "presigned_put_url":"https://put.example.com/key",
+            "fallback_presigned_put_url":"https://put-fallback.example.com/key",
+            "symbol_set_id":"id"}}}"#;
+        let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
+
+        let (target, fallback) = parsed.id_map["chunk"].upload_targets();
+        assert!(matches!(
+            target,
+            UploadTarget::Put("https://put.example.com/key")
+        ));
+        assert!(matches!(
+            fallback,
+            Some(UploadTarget::Put("https://put-fallback.example.com/key"))
+        ));
+    }
+
+    /// Serves exactly one HTTP request from a loopback port, answers 200, and hands the request
+    /// head and body back. Object storage is the only thing that ever sees an upload request, so
+    /// this stands in for it to assert what actually goes on the wire.
+    fn serve_one_request() -> (String, mpsc::Receiver<(String, Vec<u8>)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
+        let address = listener.local_addr().expect("read bound address");
+        let (sender, receiver) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept upload connection");
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 8192];
+
+            let head_end = loop {
+                if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break position + 4;
+                }
+                let read = stream.read(&mut chunk).expect("read request head");
+                assert_ne!(read, 0, "connection closed before the request head ended");
+                buffer.extend_from_slice(&chunk[..read]);
+            };
+
+            let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
+            let body_len: usize = head
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().expect("numeric content-length"))
+                })
+                .expect("an upload request always declares its length");
+
+            while buffer.len() < head_end + body_len {
+                let read = stream.read(&mut chunk).expect("read request body");
+                assert_ne!(read, 0, "connection closed before the body ended");
+                buffer.extend_from_slice(&chunk[..read]);
+            }
+
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .expect("write response");
+            sender
+                .send((head, buffer[head_end..head_end + body_len].to_vec()))
+                .expect("hand the request back to the test");
+        });
+
+        (format!("http://{address}"), receiver)
+    }
+
+    fn test_transport() -> UploadTransport {
+        UploadTransport {
+            client: Client::new(),
+            accelerated_unreachable: AtomicBool::new(false),
+            upload_run_id: uuid::Uuid::now_v7().to_string(),
+        }
+    }
+
+    #[test]
+    fn upload_to_s3_puts_the_raw_bytes_under_the_declared_length() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let data = b"symbol set bytes".to_vec();
+        let (base_url, requests) = serve_one_request();
+        let url = format!("{base_url}/symbolsets/chunk");
+
+        upload_to_s3(&test_transport(), UploadTarget::Put(&url), None, &data).unwrap();
+
+        let (head, body) = requests
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the upload reached the server");
+        assert!(head.starts_with("PUT /symbolsets/chunk "), "{head}");
+        // The signature covers content-length, so a body of another size is refused outright.
+        assert!(
+            head.to_lowercase()
+                .contains(&format!("content-length: {}", data.len())),
+            "{head}"
+        );
+        assert_eq!(body, data);
+    }
+
+    #[test]
+    fn upload_to_s3_posts_the_multipart_form_against_an_older_server() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let data = b"symbol set bytes".to_vec();
+        let (base_url, requests) = serve_one_request();
+        let presigned = PresignedUrl {
+            url: format!("{base_url}/"),
+            fields: HashMap::from([("key".to_string(), "symbolsets/chunk".to_string())]),
+        };
+
+        upload_to_s3(
+            &test_transport(),
+            UploadTarget::Post(&presigned),
+            None,
+            &data,
+        )
+        .unwrap();
+
+        let (head, body) = requests
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the upload reached the server");
+        assert!(head.starts_with("POST / "), "{head}");
+        assert!(
+            head.to_lowercase()
+                .contains("content-type: multipart/form-data"),
+            "{head}"
+        );
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("name=\"key\""), "{body}");
+        // Go-based S3 implementations only treat a part as a file when it carries a filename.
+        assert!(body.contains("filename=\"file\""), "{body}");
+        assert!(body.contains("symbol set bytes"), "{body}");
+    }
+
+    #[test]
+    fn start_request_declares_the_chunk_length() {
+        // The server signs this number into the presigned PUT, so it must be the exact body size.
+        let upload = SymbolSetUpload {
+            chunk_id: "chunk".to_string(),
+            release_id: None,
+            data: vec![7; 321],
+            content_hash: None,
+        };
+        let hashed = HashedUpload {
+            upload: &upload,
+            content_hash: "hash",
+        };
+
+        let request = bulk_upload_request(&[hashed], false, false);
+
+        assert_eq!(request.symbol_sets[0].content_length, 321);
     }
 
     #[test]
@@ -1045,10 +1327,11 @@ mod tests {
             crate::invocation_context::InvocationContext::new(config, client)
         });
 
-        let err = finish_upload(HashMap::from([(
-            "symbol-set-id".to_string(),
-            "content-hash".to_string(),
-        )]))
+        let err = finish_upload(
+            HashMap::from([("symbol-set-id".to_string(), "content-hash".to_string())]),
+            "test-attempt",
+            "test-run",
+        )
         .unwrap_err();
         let UploadError::Other(err) = err else {
             panic!("expected UploadError::Other");

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
 from django.test import SimpleTestCase
 
 import jwt
@@ -13,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 from parameterized import parameterized
 
+from posthog.credentials_service.errors import CredentialsServiceUnreachableError, SecretInRecoveryError
 from posthog.ingress.verify.errors import VerifierUnavailable
 from posthog.ingress.verify.jwt import _JWKS_CLIENTS, SIGNING_KEY_FACT, BearerJwt, _jwks_client
 from posthog.ingress.verify.schemes import HmacSha256, HmacSignature, SnsSignature, Verification, VerificationOutcome
@@ -114,6 +116,51 @@ class TestHmacSha256(SimpleTestCase):
             VerificationOutcome.NOT_CONFIGURED,
         )
 
+    @parameterized.expand(
+        [
+            ("dropped_connection", OperationalError("server closed the connection unexpectedly")),
+            ("closed_connection", InterfaceError("connection already closed")),
+            # Slack answers NOT_CONFIGURED with a 403 it does not retry, so an outage must not read as unset.
+            ("credentials_service_unreachable", CredentialsServiceUnreachableError("refused")),
+            ("credentials_service_recovery", SecretInRecoveryError("GITHUB_WEBHOOK_SECRET")),
+        ]
+    )
+    def test_a_failed_secret_read_is_unavailable(self, _name: str, error: Exception) -> None:
+        def secret_getter() -> str:
+            raise error
+
+        scheme = HmacSha256(secret_getter=secret_getter, signature_header="X-Signature")
+
+        self.assertEqual(
+            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()}).outcome,
+            VerificationOutcome.UNAVAILABLE,
+        )
+
+    def test_a_well_formed_delivery_reads_the_secret_once_when_the_read_fails(self) -> None:
+        calls = 0
+
+        def secret_getter() -> str:
+            nonlocal calls
+            calls += 1
+            raise CredentialsServiceUnreachableError("timed out")
+
+        scheme = HmacSha256(secret_getter=secret_getter, signature_header="X-Signature")
+        headers = {"X-Signature": _digest().hex()}
+
+        self.assertFalse(scheme.rejects_headers(headers))
+        self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, VerificationOutcome.UNAVAILABLE)
+        # One read across the header gate and the full check, so an outage costs one timeout.
+        self.assertEqual(calls, 1)
+
+    def test_any_other_failure_reading_the_secret_still_raises(self) -> None:
+        def secret_getter() -> str:
+            raise ValueError("boom")
+
+        scheme = HmacSha256(secret_getter=secret_getter, signature_header="X-Signature")
+
+        with self.assertRaises(ValueError):
+            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()})
+
     def test_v0_timestamp_input_signs_timestamp_with_body(self) -> None:
         timestamp = str(int(time.time()))
         scheme = HmacSha256(
@@ -161,12 +208,12 @@ class TestHmacSha256(SimpleTestCase):
     def test_signature_pattern_rejects_before_the_digest_runs(self) -> None:
         scheme = HmacSha256(
             secret_getter=lambda: SECRET,
-            signature_header="X-Vapi-Signature",
+            signature_header="X-Signature",
             signature_pattern=re.compile(r"^[0-9a-f]{64}$"),
         )
         with patch("hmac.digest") as digest:
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Vapi-Signature": "NOT-A-HEX-DIGEST"}).outcome,
+                scheme.verify(body=BODY, headers={"X-Signature": "NOT-A-HEX-DIGEST"}).outcome,
                 VerificationOutcome.INVALID,
             )
         digest.assert_not_called()

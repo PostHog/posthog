@@ -1,6 +1,7 @@
 import json
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,6 +17,7 @@ from temporalio.worker import Worker
 
 from posthog.hogql import ast
 
+from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
@@ -52,6 +54,7 @@ def _make_config(**overrides: Any) -> SignalSourceTableConfig:
             description=record.get("description", ""),
             weight=0.5,
             extra=record,
+            existing_source_only=record.get("existing_source_only", False),
         ),
         "record_fetcher": data_warehouse_record_fetcher,
         "partition_field": "created_at",
@@ -71,6 +74,7 @@ def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> Ma
         block.text = content
         response.content = [block]
     response.stop_reason = stop_reason
+    response._request_id = None
     return response
 
 
@@ -125,7 +129,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
+        assert "parseDateTimeBestEffort(toString(updated_at)) > {last_synced_at}" in query_arg
 
     @pytest.mark.parametrize(
         "source_config,expected_ids",
@@ -228,7 +232,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
+        assert "parseDateTimeBestEffort(toString(time)) > now() - interval 14 day" in query_arg
 
     @pytest.mark.parametrize(
         "table_name,expected_chain",
@@ -364,6 +368,63 @@ class TestRunSignalPipelineEmitterFailures:
         assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
 
 
+class TestEmissionRetryIdentity:
+    @pytest.mark.asyncio
+    async def test_activity_retries_keep_signal_id_but_later_imports_do_not(self):
+        config = _make_config(record_processed_outputs=False)
+        team = MagicMock(id=1)
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            temporal_activity.in_activity.return_value = True
+            info = temporal_activity.info.return_value
+            info.workflow_run_id = "first-import"
+            info.activity_id = "emit-1"
+            emit.side_effect = RuntimeError("dispatch failed")
+            with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
+                await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            first = emit.call_args.kwargs["signal_id"]
+            emit.side_effect = None
+            info.attempt = 2
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            assert emit.call_args.kwargs["signal_id"] == first
+            info.workflow_run_id = "next-import"
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+            assert emit.call_args.kwargs["signal_id"] != first
+
+    @pytest.mark.asyncio
+    async def test_material_versions_dedupe_across_imports(self):
+        def emitter(team_id, record):
+            return replace(_make_output(source_id=record["id"]), idempotency_key=f"{record['id']}:{record['version']}")
+
+        config = _make_config(emitter=emitter, sync_with_source=True)
+        team = MagicMock(id=1)
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches", return_value={}),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            temporal_activity.in_activity.return_value = True
+            temporal_activity.info.return_value.workflow_run_id = "first-import"
+            temporal_activity.info.return_value.activity_id = "emit-1"
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1", "version": "v1"}], extra={})
+            first = emit.call_args.kwargs
+            temporal_activity.info.return_value.workflow_run_id = "next-import"
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1", "version": "v1"}], extra={})
+            repeated = emit.call_args.kwargs
+            await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1", "version": "v2"}], extra={})
+            changed = emit.call_args.kwargs
+
+        assert repeated["signal_id"] == first["signal_id"]
+        assert repeated["idempotency_key"] == first["idempotency_key"] == "record-1:v1"
+        assert changed["signal_id"] != first["signal_id"]
+        assert changed["idempotency_key"] == "record-1:v2"
+        assert changed["sync_with_source"] is True
+
+
 class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -476,7 +537,11 @@ class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model,expected_output_config",
-        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+        [
+            ("claude-sonnet-5", {"effort": "medium"}),
+            ("claude-sonnet-5-5", {"effort": "medium"}),
+            ("claude-sonnet-4-5", None),
+        ],
     )
     async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
         mock_client = MagicMock()
@@ -495,18 +560,39 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
-        await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+        with (
+            patch(
+                "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+                return_value="system-one-shadow",
+            ),
+            patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
+            patch(
+                "products.signals.backend.system_one_decision.decision_api.decide_when_available",
+                return_value=DecisionResult(
+                    model="jevk5-fp8-0.2",
+                    answers={"actionable": NoulAnswer(probability=0.98)},
+                    input_tokens=1000,
+                ),
+            ) as decide,
+        ):
+            await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
+        decision_request = decide.call_args.args[0]
+        assert headers["X-PostHog-Trace-Id"] == decision_request.trace_id
         # The Go gateway reads labels only from X-PostHog-Properties; the per-key headers are gone.
         # The blob owns ai_product (no product route) and team_id (the customer team the usage
         # report attributes to), since the per-call blob replaces the client default.
         assert "x-posthog-property-ai_stage" not in headers
         assert json.loads(headers["X-PostHog-Properties"]) == {
+            "$ai_prompt_name": "signals-actionability-test_product-test",
             "ai_product": "signals_emission",
             "ai_stage": "actionability",
+            "signals_decision_id": decision_request.trace_id,
+            "source_id": output.source_id,
             "source_product": output.source_product,
             "source_type": output.source_type,
+            "system_one_prompt_source": "bundled",
             "team_id": "7",
         }
 
@@ -514,22 +600,18 @@ class TestCheckActionability:
 class TestFilterActionable:
     @pytest.mark.asyncio
     async def test_filters_non_actionable_outputs(self):
-        outputs = [_make_output(source_id="1"), _make_output(source_id="2"), _make_output(source_id="3")]
+        outputs = [
+            _make_output(source_id="1", description="actionable one"),
+            _make_output(source_id="2", description="non-actionable two"),
+            _make_output(source_id="3", description="actionable three"),
+        ]
         team = MagicMock(id=1)
 
         mock_client = MagicMock()
-        responses = [
-            _make_llm_response("ACTIONABLE"),
-            _make_llm_response("NOT_ACTIONABLE"),
-            _make_llm_response("ACTIONABLE"),
-        ]
-        call_count = 0
 
         async def mock_create(*args, **kwargs):
-            nonlocal call_count
-            resp = responses[call_count]
-            call_count += 1
-            return resp
+            prompt = kwargs["messages"][0]["content"]
+            return _make_llm_response("NOT_ACTIONABLE" if "non-actionable two" in prompt else "ACTIONABLE")
 
         mock_client.messages.create = mock_create
 
@@ -652,7 +734,7 @@ class TestSummarizeLongDescriptions:
 class TestEmitSignals:
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_emit_signal(self):
-        output = _make_output(source_id="42", description="bug report")
+        output = replace(_make_output(source_id="42", description="bug report"), signal_id=str(uuid.uuid4()))
         team = MagicMock()
 
         with (
@@ -670,7 +752,35 @@ class TestEmitSignals:
             description="bug report",
             weight=0.5,
             extra={},
+            idempotency_key=None,
+            signal_id=output.signal_id,
+            sync_with_source=False,
+            source_match_signal_id=None,
+            source_match_report_id=None,
         )
+
+    @pytest.mark.asyncio
+    async def test_passes_source_sync_to_emit_signal(self):
+        output = replace(
+            _make_output(source_id="42", description="updated bug report"),
+            signal_id=str(uuid.uuid4()),
+            idempotency_key="42:material-version",
+        )
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+        ):
+            await _emit_signals(
+                team=MagicMock(),
+                organization=MagicMock(),
+                outputs=[output],
+                extra={},
+                sync_with_source=True,
+            )
+
+        assert emit.call_args.kwargs["idempotency_key"] == "42:material-version"
+        assert emit.call_args.kwargs["sync_with_source"] is True
 
     @pytest.mark.asyncio
     async def test_continues_on_individual_emit_failure(self):
@@ -744,6 +854,45 @@ class TestEmitSignals:
         ):
             with pytest.raises(RuntimeError, match="All 2 signal emissions failed"):
                 await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
+
+
+class TestExistingSourceOnlyOutputs:
+    @pytest.mark.asyncio
+    async def test_terminal_source_only_emits_when_it_already_has_a_report(self):
+        config = _make_config(sync_with_source=True, actionability_prompt="Actionable? {description}")
+        records: list[dict[str, Any]] = [
+            {"id": "open", "state": "open"},
+            {"id": "known-closed", "state": "closed", "existing_source_only": True},
+            {"id": "new-closed", "state": "closed", "existing_source_only": True},
+        ]
+        team = MagicMock(id=1)
+        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        with (
+            patch(
+                f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches",
+                return_value={"known-closed": [MagicMock(signal_id="previous-signal", report_id="existing-report")]},
+            ),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(
+                f"{PIPELINE_MODULE_PATH}.filter_actionable",
+                new_callable=AsyncMock,
+                side_effect=lambda **kwargs: kwargs["outputs"],
+            ) as filter_actionable,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
+            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+        ):
+            result = await run_signal_pipeline(team=team, config=config, records=records, extra={})
+
+        assert result["signals_emitted"] == 2
+        assert {call.kwargs["source_id"] for call in emit.await_args_list} == {"open", "known-closed"}
+        known_call = next(call for call in emit.await_args_list if call.kwargs["source_id"] == "known-closed")
+        assert known_call.kwargs["source_match_signal_id"] == "previous-signal"
+        assert known_call.kwargs["source_match_report_id"] == "existing-report"
+        assert filter_actionable.await_args is not None
+        assert [output.source_id for output in filter_actionable.await_args.kwargs["outputs"]] == ["open"]
+        filtered = [call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"]
+        assert [call.kwargs["properties"]["source_id"] for call in filtered] == ["new-closed"]
+        assert filtered[0].kwargs["properties"]["filter_reason"] == "source_state_without_report"
 
 
 class TestPipelineStageTelemetry:

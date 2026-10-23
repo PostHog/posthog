@@ -2,90 +2,84 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use feature_flags::flags::config_v2::{Outcome, ParseError};
-use feature_flags::flags::evaluate_v2::{Evaluation, EvaluationError, Evaluator};
+use feature_flags::flags::evaluate_v2::{
+    Evaluation, EvaluationError, Evaluator, HashUse, PersonProperties,
+};
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
 use feature_flags::flags::flag_request::MAX_DISTINCT_ID_LEN;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub mod common;
 #[path = "test_rules_v2_evaluation/corpus.rs"]
 mod corpus;
+#[path = "test_rules_v2_evaluation/wire.rs"]
+mod wire;
+
+/// `wire::validate_v3` accepts every wire fixture case marked `valid` and fails every other
+/// case at the layer its `expected_failure.layer` declares.
+#[test]
+fn vendored_response_fixtures_agree_with_the_validator() {
+    let fixtures = corpus::load("fixtures/wire/responses.json");
+    let (mut valid, mut invalid) = (0, 0);
+    for case in fixtures["cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let verdict = wire::validate_v3(&wire::fixture_case(&fixtures, case));
+        if case["expected"] == "valid" {
+            assert_eq!(verdict, Ok(()), "{id}");
+            valid += 1;
+        } else {
+            let (layer, detail) = verdict.expect_err(id);
+            assert_eq!(layer, case["expected_failure"]["layer"], "{id}: {detail}");
+            invalid += 1;
+        }
+    }
+    assert_eq!((valid, invalid), (26, 44));
+}
 
 #[test]
-fn pinned_evaluation_artifact_subset_is_intact() {
-    let source = corpus::load("SOURCE.json");
-    let revision = source["source_revision"].as_str().unwrap();
-    assert_eq!(revision.len(), 40);
-    assert!(revision.bytes().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(source["release_status"], "released");
-    assert_eq!(source["source_release"], "1.8.0");
-    let index = std::fs::read(corpus::root().join("SHA256SUMS")).unwrap();
-    assert_eq!(
-        hex::encode(Sha256::digest(&index)),
-        source["source_sha256sums_digest"]
-    );
-    let digests: BTreeMap<_, _> = std::str::from_utf8(&index)
-        .unwrap()
-        .lines()
-        .map(|line| line.split_once("  ").unwrap())
-        .map(|(digest, path)| (path, digest))
-        .collect();
-    let files: BTreeSet<_> = source["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|path| path.as_str().unwrap())
-        .collect();
-    assert_eq!(files.len(), source["files"].as_array().unwrap().len());
-    for path in files {
-        assert_eq!(
-            hex::encode(Sha256::digest(
-                std::fs::read(corpus::root().join(path)).unwrap()
-            )),
-            digests[path],
-            "{path}"
-        );
-    }
-    let manifest = corpus::load("manifest.json");
-    assert_eq!(manifest["contract"]["version"], source["contract_version"]);
-    assert_eq!(
-        manifest["v2_boolean_evaluation"]["version"],
-        source["v2_boolean_evaluation_version"]
-    );
-    let cases = corpus::cases();
-    let ids: Vec<_> = cases.iter().map(|case| case["id"].clone()).collect();
-    let artifact = manifest["artifacts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|artifact| artifact["path"] == "corpus/v2_boolean_evaluation.json")
-        .unwrap();
-    assert_eq!(json!(ids), artifact["case_ids"]);
-    assert_eq!(
-        ids.iter()
-            .map(Value::to_string)
-            .collect::<BTreeSet<_>>()
-            .len(),
-        ids.len()
-    );
+fn evaluation_corpora_have_unique_ids_and_the_pinned_families() {
     let mut counts = BTreeMap::new();
-    for case in &cases {
-        *counts.entry(case["family"].as_str().unwrap()).or_insert(0) += 1;
+    for (component, cases) in [
+        ("v2_boolean_evaluation", corpus::cases()),
+        ("v2_value_evaluation", corpus::value_cases()),
+        ("v2_experiment_evaluation", corpus::experiment_cases()),
+    ] {
+        let ids: Vec<_> = cases.iter().map(|case| case["id"].clone()).collect();
+        assert_eq!(
+            ids.iter()
+                .map(Value::to_string)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            ids.len()
+        );
+        for case in &cases {
+            *counts
+                .entry((component, case["family"].as_str().unwrap().to_owned()))
+                .or_insert(0) += 1;
+        }
     }
+    let family = |component, family: &str, count| ((component, family.to_owned()), count);
     assert_eq!(
         counts,
         BTreeMap::from([
-            ("ordering", 18),
-            ("properties", 67),
-            ("context", 8),
-            ("errors", 6),
-            ("hashing", 21),
-            ("white_box", 10),
-            ("eligibility", 3),
-            ("parser", 2),
+            family("v2_boolean_evaluation", "ordering", 18),
+            family("v2_boolean_evaluation", "properties", 67),
+            family("v2_boolean_evaluation", "context", 8),
+            family("v2_boolean_evaluation", "errors", 6),
+            family("v2_boolean_evaluation", "hashing", 21),
+            family("v2_boolean_evaluation", "white_box", 10),
+            family("v2_boolean_evaluation", "eligibility", 3),
+            family("v2_boolean_evaluation", "parser", 2),
+            family("v2_value_evaluation", "ordering", 27),
+            family("v2_value_evaluation", "values", 11),
+            family("v2_value_evaluation", "parser", 11),
+            family("v2_experiment_evaluation", "ordering", 20),
+            family("v2_experiment_evaluation", "assignment", 22),
+            family("v2_experiment_evaluation", "values", 9),
+            family("v2_experiment_evaluation", "white_box", 10),
+            family("v2_experiment_evaluation", "parser", 20),
         ])
     );
 }
@@ -94,11 +88,16 @@ fn pinned_evaluation_artifact_subset_is_intact() {
 fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
     let mut executed = 0;
     let mut rejected = 0;
-    for case in corpus::cases() {
+    for case in corpus::cases()
+        .into_iter()
+        .chain(corpus::value_cases())
+        .chain(corpus::experiment_cases())
+    {
         let id = case["id"].as_str().unwrap();
         match case["family"].as_str().unwrap() {
             "white_box" | "eligibility" => continue,
-            "ordering" | "properties" | "context" | "errors" | "hashing" | "parser" => {}
+            "ordering" | "properties" | "context" | "errors" | "hashing" | "values"
+            | "assignment" | "parser" => {}
             other => panic!("unhandled family: {other}"),
         }
         let flag = corpus::read(&case);
@@ -106,8 +105,9 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         let cached = PreparedFlags::seal(vec![flag]);
         let retained = cached[0].filters.non_v1.as_ref().unwrap();
         if case["family"] == "parser" {
+            // A schema rejection: a too-long list is reported as a limit.
             let kind = match retained.parsed_v2.as_ref() {
-                Some(Err(ParseError::Malformed(_))) => "malformed",
+                Some(Err(ParseError::Malformed(_) | ParseError::LimitExceeded(_))) => "malformed",
                 Some(Err(ParseError::Unsupported(_))) | None => "unsupported",
                 other => panic!("{id}: unexpected parse result {other:?}"),
             };
@@ -138,7 +138,9 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         ));
         assert_eq!(serde_json::to_value(&cached[0]).unwrap(), before, "{id}");
         assert_eq!(properties, properties_before);
-        if let Some(evidence) = case.get("hash_evidence") {
+        if let Some(Value::Array(draws)) = case.get("hash_evidence") {
+            assert_experiment_hash_evidence(id, &context, draws);
+        } else if let Some(evidence) = case.get("hash_evidence") {
             let (seed, rollout_percentage) = config
                 .rules
                 .iter()
@@ -171,11 +173,34 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (120, 2));
+    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 20));
+}
+
+fn assert_experiment_hash_evidence(
+    id: &str,
+    context: &feature_flags::flags::evaluate_v2::EvaluationContext<'_>,
+    draws: &[Value],
+) {
+    let hex = |value: f64| format!("{:016x}", value.to_bits());
+    let subject: String = context
+        .person_identifier
+        .chars()
+        .take(MAX_DISTINCT_ID_LEN)
+        .collect();
+    for draw in draws {
+        assert_eq!(subject, draw["identifier"], "{id}");
+        let hash = calculate_hash(
+            draw["prefix"].as_str().unwrap(),
+            &subject,
+            draw["salt"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(hex(hash), draw["hash01_binary64_hex"], "{id}");
+    }
 }
 
 #[tokio::test]
-async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_stays_closed() {
+async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_is_evaluated() {
     use feature_flags::config::DEFAULT_TEST_CONFIG;
     use feature_flags::utils::test_utils::{
         insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client,
@@ -230,11 +255,9 @@ async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_stays_closed(
         .await
         .unwrap();
     assert_eq!(body["flags"]["healthy"]["enabled"], true);
-    assert_eq!(body["flags"]["eligible-v2"]["failed"], true);
-    assert_eq!(
-        body["flags"]["eligible-v2"]["reason"]["code"],
-        "flag_data_parsing_error"
-    );
+    assert_eq!(body["flags"]["eligible-v2"]["enabled"], true);
+    assert!(body["flags"]["eligible-v2"].get("failed").is_none());
+    assert_eq!(body["errorsWhileComputingFlags"], false);
     for case in &cases {
         assert!(body["flags"].get(case["id"].as_str().unwrap()).is_none());
         assert_eq!(case["expected"], json!({"status":"omitted"}));
@@ -247,6 +270,7 @@ fn canonical_white_box_cases_exercise_the_production_ordered_evaluator() {
     let mut count = 0;
     for case in corpus::cases()
         .into_iter()
+        .chain(corpus::experiment_cases())
         .filter(|case| case["family"] == "white_box")
     {
         let flag = corpus::read(&case);
@@ -261,7 +285,7 @@ fn canonical_white_box_cases_exercise_the_production_ordered_evaluator() {
             )
             .unwrap(),
         );
-        let result = evaluator.evaluate_with_hash(&context, |_, _| Ok(hash));
+        let result = evaluator.evaluate_with_hash(&context, |_, _, _| Ok(hash));
         assert_eq!(
             corpus::result_json(result),
             case["expected"],
@@ -270,7 +294,7 @@ fn canonical_white_box_cases_exercise_the_production_ordered_evaluator() {
         );
         count += 1;
     }
-    assert_eq!(count, 10);
+    assert_eq!(count, 10 + 10);
 }
 
 #[test]
@@ -289,12 +313,12 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
     let properties = corpus::properties(&case);
     let mut context = corpus::context(&case, &properties);
     assert!(Evaluator::new(config)
-        .evaluate_with_hash(&context, |_, _| panic!("100% must not hash"))
+        .evaluate_with_hash(&context, |_, _, _| panic!("100% must not hash"))
         .is_ok());
     context.person_identifier = "";
     assert!(matches!(
         Evaluator::new(config)
-            .evaluate_with_hash(&context, |_, _| panic!("empty subject must not hash")),
+            .evaluate_with_hash(&context, |_, _, _| panic!("empty subject must not hash")),
         Ok(Evaluation::NoRuleMatch { .. })
     ));
     if let Outcome::PercentageRollout {
@@ -310,8 +334,9 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
     context.person_identifier = &subject;
     let mut calls = 0;
     assert!(matches!(
-        Evaluator::new(config).evaluate_with_hash(&context, |seed, subject| {
+        Evaluator::new(config).evaluate_with_hash(&context, |hash_use, seed, subject| {
             calls += 1;
+            assert_eq!(hash_use, HashUse::Rollout);
             assert_eq!(seed, "example-allocation");
             assert_eq!(subject, "😀".repeat(200));
             Ok(0.5)
@@ -320,9 +345,56 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
     ));
     assert_eq!(calls, 1);
     assert_eq!(
-        Evaluator::new(config).evaluate_with_hash(&context, |_, _| Err(EvaluationError::Hash)),
+        Evaluator::new(config).evaluate_with_hash(&context, |_, _, _| Err(EvaluationError::Hash)),
         Err(EvaluationError::Hash)
     );
+}
+
+#[test]
+fn experiment_draws_follow_pause_holdout_rollout_variant_order() {
+    for (id, expected) in [
+        ("v2_experiment.ordering.paused_before_holdout", vec![]),
+        (
+            "v2_experiment.assignment.holdout_out",
+            vec![
+                (HashUse::Holdout, "example-holdout"),
+                (HashUse::Variant, "example-split"),
+            ],
+        ),
+        (
+            "v2_experiment.assignment.rollout_hit",
+            vec![
+                (HashUse::Rollout, "example-split"),
+                (HashUse::Variant, "example-split"),
+            ],
+        ),
+        (
+            "v2_experiment.assignment.shared_rollout_seed",
+            vec![
+                (HashUse::Rollout, "example-shared"),
+                (HashUse::Variant, "example-shared"),
+            ],
+        ),
+    ] {
+        let case = corpus::experiment_cases()
+            .into_iter()
+            .find(|case| case["id"] == id)
+            .unwrap();
+        let flag = corpus::read(&case);
+        let properties = corpus::properties(&case);
+        let context = corpus::context(&case, &properties);
+        let mut draws = Vec::new();
+        let result = Evaluator::new(corpus::config(&flag)).evaluate_with_hash(
+            &context,
+            |hash_use, seed, subject| {
+                draws.push((hash_use, seed.to_owned()));
+                hash_use.hash(seed, subject)
+            },
+        );
+        assert_eq!(corpus::result_json(result), case["expected"], "{id}");
+        let draws: Vec<_> = draws.iter().map(|(u, s)| (*u, s.as_str())).collect();
+        assert_eq!(draws, expected, "{id}");
+    }
 }
 
 #[test]
@@ -379,4 +451,232 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
     let result = evaluator.evaluate(&context);
     assert!(matches!(result, Ok(Evaluation::TargetingMatch { .. })));
     assert!(!format!("{evaluator:?} {result:?}").contains("sensitive-seed"));
+}
+
+/// Complete properties come from a stored person and run through the request path. The
+/// service reads the person for a missing predicate key and treats an overrides-only
+/// request as complete, so partial and unavailable context exist only below that path:
+/// those cases reach `get_match` directly, with no preparation.
+#[tokio::test]
+async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
+    use feature_flags::api::types::{
+        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, FlagsResponseV3,
+        LegacyFlagsResponse,
+    };
+    use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
+    use feature_flags::flags::flag_matching::FeatureFlagMatcher;
+    use feature_flags::utils::test_utils::{
+        flag_list_with_metadata, mock_group_type_cache, TestContext,
+    };
+    use std::collections::HashMap;
+
+    let db = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        db.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let (mut projected, mut direct, mut skipped) = (0, 0, 0);
+    for case in corpus::cases()
+        .into_iter()
+        .chain(corpus::value_cases())
+        .chain(corpus::experiment_cases())
+    {
+        let id = case["id"].as_str().unwrap();
+        let properties = corpus::properties(&case);
+        let context = corpus::context(&case, &properties);
+        // White-box needs the hash seam, eligibility the request boundary.
+        if matches!(
+            case["family"].as_str().unwrap(),
+            "white_box" | "eligibility"
+        ) {
+            skipped += 1;
+            continue;
+        }
+        let team = db.insert_new_team(None).await.unwrap();
+        let mut flag = corpus::read(&case);
+        flag.team_id = team.id;
+        let mut matcher = FeatureFlagMatcher::new(
+            context.person_identifier.to_string(),
+            None,
+            team.id,
+            db.create_postgres_router(),
+            cohort_cache.clone(),
+            mock_group_type_cache(HashMap::new()),
+            None,
+        )
+        .with_timezone(context.timezone)
+        .with_explicit_exact_matching(context.use_explicit_exact_matching)
+        .with_now(context.now);
+        let expected = &case["expected"];
+        let failed = expected["status"] != "success";
+        let legacy = case.get("legacy").cloned().unwrap_or_else(|| {
+            let enabled = expected["value"].as_bool().unwrap_or(false);
+            json!({"enabled": enabled, "variant": null, "value": enabled, "payload": null})
+        });
+        let enabled = legacy["enabled"].as_bool().unwrap();
+        let variant = legacy["variant"].as_str().map(str::to_owned);
+        let payload = Some(&legacy["payload"]).filter(|payload| !payload.is_null());
+        let decoded = |payload: &Option<Value>| {
+            payload
+                .as_ref()
+                .map(|p| serde_json::from_str::<Value>(p.as_str().unwrap()).unwrap())
+        };
+        let reason = match expected["reason"].as_str() {
+            Some("targeting_match" | "experiment_split") => "condition_match",
+            Some("rollout_miss") => "out_of_rollout_bound",
+            Some("holdout") => "holdout_condition_value",
+            _ => "no_condition_match",
+        };
+        let rule_index = expected["rule"]["index"].as_i64();
+        let PersonProperties::Complete(_) = context.properties else {
+            let overrides =
+                matches!(context.properties, PersonProperties::Partial(_)).then_some(&properties);
+            match matcher.get_match(&flag, overrides, None, None, &None) {
+                Ok(outcome) => {
+                    assert!(!failed, "{id}");
+                    assert_eq!(
+                        (
+                            outcome.matches,
+                            outcome.reason.to_string(),
+                            outcome.condition_index
+                        ),
+                        (enabled, reason.to_string(), rule_index.map(|i| i as usize)),
+                        "{id}"
+                    );
+                    assert_eq!(
+                        (outcome.variant, decoded(&outcome.payload).as_ref()),
+                        (variant, payload),
+                        "{id}"
+                    );
+                }
+                Err(error) => {
+                    assert!(failed, "{id}");
+                    assert_eq!(
+                        error.evaluation_error_code(),
+                        "flag_evaluation_error",
+                        "{id}"
+                    );
+                }
+            }
+            direct += 1;
+            continue;
+        };
+        if !properties.is_empty() {
+            db.insert_person(
+                team.id,
+                context.person_identifier.to_string(),
+                Some(json!(properties)),
+            )
+            .await
+            .unwrap();
+        }
+        let key = flag.key.clone();
+        let response = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        let details = &response.flags[&key];
+        assert_eq!(
+            (
+                details.failed,
+                details.enabled,
+                &details.variant,
+                decoded(&details.metadata.payload).as_ref()
+            ),
+            (failed, enabled, &variant, payload),
+            "{id}"
+        );
+        assert_eq!(response.errors_while_computing_flags, failed, "{id}");
+        if failed {
+            let expected_code = if case["family"] == "parser" {
+                "flag_data_parsing_error"
+            } else {
+                "flag_evaluation_error"
+            };
+            assert_eq!(details.reason.code, expected_code, "{id}");
+        } else {
+            assert_eq!(details.reason.code, reason, "{id}");
+            assert_eq!(
+                details.reason.condition_index.map(i64::from),
+                rule_index,
+                "{id}"
+            );
+        }
+        let wire = serde_json::to_value(&response).unwrap();
+        let reparse = || serde_json::from_value::<FlagsResponse>(wire.clone()).unwrap();
+        let map_value: FlagValue = serde_json::from_value(legacy["value"].clone()).unwrap();
+        let flags_v1 = LegacyFlagsResponse::from_response(reparse());
+        assert_eq!(flags_v1.feature_flags[&key], map_value, "{id}");
+        assert_eq!(
+            decoded(&flags_v1.feature_flag_payloads.get(&key).cloned()).as_ref(),
+            payload,
+            "{id}"
+        );
+        assert_eq!(
+            DecideV1Response::from_response(reparse())
+                .feature_flags
+                .contains(&key),
+            enabled,
+            "{id}"
+        );
+        assert_eq!(
+            DecideV2Response::from_response(reparse())
+                .feature_flags
+                .get(&key),
+            enabled.then_some(map_value).as_ref(),
+            "{id}"
+        );
+        let v3 = serde_json::to_value(FlagsResponseV3::from_response(response)).unwrap();
+        wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{id}: {error:?}"));
+        let record = &v3["flags"][&key];
+        assert_eq!(record["metadata"]["config_version"], 2, "{id}");
+        assert_eq!(record.get("enabled"), None, "{id}");
+        if failed {
+            assert_eq!(
+                (
+                    &record["value"],
+                    &record["reason"]["code"],
+                    &record["failed"]
+                ),
+                (&Value::Null, &json!("error"), &json!(true)),
+                "{id}"
+            );
+        } else {
+            assert_eq!(record["value"], expected["value"], "{id}");
+            assert_eq!(record["reason"]["code"], expected["reason"], "{id}");
+            assert_eq!(
+                record["reason"]["condition_index"], expected["rule"]["index"],
+                "{id}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_id"),
+                expected["rule"].get("id"),
+                "{id}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_type"),
+                expected["rule"].get("rule_type"),
+                "{id}"
+            );
+            assert_eq!(
+                record["metadata"].get("variant_key"),
+                expected.get("variant"),
+                "{id}"
+            );
+            for field in ["experiment_id", "holdout_id"] {
+                assert_eq!(record["metadata"].get(field), None, "{id}");
+            }
+        }
+        projected += 1;
+    }
+    assert_eq!((projected, direct, skipped), (114 + 49 + 71, 8, 13 + 10));
 }

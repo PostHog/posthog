@@ -1,12 +1,13 @@
-import { setSpanAttributes } from '~/common/tracing/tracing-utils'
+import { context, propagation, trace } from '@opentelemetry/api'
+import {
+    InMemorySpanExporter,
+    NodeTracerProvider,
+    ReadableSpan,
+    SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-node'
 
 import { LazyLoader } from './lazy-loader'
 import { delay } from './utils'
-
-jest.mock('~/common/tracing/tracing-utils', () => ({
-    ...jest.requireActual('~/common/tracing/tracing-utils'),
-    setSpanAttributes: jest.fn(),
-}))
 
 describe('LazyLoader', () => {
     jest.setTimeout(1000)
@@ -202,26 +203,47 @@ describe('LazyLoader', () => {
         })
     })
 
-    describe('span attributes', () => {
-        it('records whether keys were cached, loaded, or waited on an in-flight load', async () => {
+    describe('spans', () => {
+        let exporter: InMemorySpanExporter
+        let provider: NodeTracerProvider
+
+        beforeEach(() => {
+            exporter = new InMemorySpanExporter()
+            provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+            provider.register()
+        })
+
+        afterEach(async () => {
+            await provider.shutdown()
+            trace.disable()
+            context.disable()
+            propagation.disable()
+        })
+
+        const loadSpans = (): ReadableSpan[] =>
+            exporter.getFinishedSpans().filter((span) => span.name === 'lazyLoader.loadViaCache')
+
+        it('spans loads and in-flight waits, and skips the span on a full cache hit', async () => {
             loader.mockResolvedValue({ key1: 'value1' })
 
             const first = lazyLoader.get('key1')
             const second = lazyLoader.get('key1')
             await Promise.all([first, second])
-            await lazyLoader.get('key1')
 
-            expect(jest.mocked(setSpanAttributes).mock.calls.map(([attrs]) => attrs['lazyloader.outcome'])).toEqual([
+            expect(loadSpans().map((span) => span.attributes['lazyloader.outcome'])).toEqual([
                 'loaded',
                 'waited_pending',
-                'all_cached',
             ])
-            expect(jest.mocked(setSpanAttributes)).toHaveBeenLastCalledWith({
+            expect(loadSpans()[1].attributes).toMatchObject({
                 'lazyloader.name': 'test',
                 'lazyloader.keys': 1,
-                'lazyloader.misses': 0,
-                'lazyloader.outcome': 'all_cached',
+                'lazyloader.misses': 1,
+                'lazyloader.outcome': 'waited_pending',
             })
+
+            await lazyLoader.get('key1')
+
+            expect(loadSpans()).toHaveLength(2)
         })
     })
 

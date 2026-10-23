@@ -41,7 +41,12 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
-from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
+from products.mcp_store.backend.policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_read_only_connector_tool,
+    legacy_state_for_caller,
+)
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from products.mcp_store.backend.tools import (
     ToolCallError,
@@ -63,6 +68,8 @@ def resolve_member_tool_states(
     team_id: int,
     gateway_server_id: uuid.UUID | None,
     user_id: int | None = None,
+    *,
+    block_locked_approvals: bool = False,
 ) -> dict[str, str]:
     """Return a {tool_name: effective_state} map for an installation.
 
@@ -71,30 +78,83 @@ def resolve_member_tool_states(
     unregistered installations fall back to the cached per-tool approval state.
     Rows with `removed_at` set surface as `"do_not_use"` so the agent can't
     call them even if the cached approval state was previously `approved` —
-    if the tool is gone upstream, it's gone. Anything not in the map is
-    treated as `needs_approval` by the caller (explicit opt-in for freshly
-    discovered tools)."""
-    rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
-        "tool_name", "annotations", "approval_state", "removed_at"
+    if the tool is gone upstream, it's gone. Callers resolve missing names
+    through `resolve_member_unlisted_tool_state` before execution.
+
+    With `block_locked_approvals`, a `needs_approval` state that an org rule
+    locks surfaces as `"do_not_use"`. Use it for callers that approve calls
+    on the member's behalf, because the member cannot approve a locked state."""
+    rows = list(
+        MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
+            "tool_name", "annotations", "approval_state", "removed_at", "installation__user_id"
+        )
     )
-    legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
+    owner_id = rows[0]["installation__user_id"] if rows else None
 
     if gateway_server_id is None or user_id is None:
-        return legacy
+        caller_owns_installation = user_id is not None and owner_id == user_id
+        return {
+            row["tool_name"]: (
+                "do_not_use"
+                if row["removed_at"]
+                else legacy_state_for_caller(row["approval_state"], caller_owns_installation=caller_owns_installation)
+            )
+            for row in rows
+        }
 
     context = PolicyContext(
         team_id=team_id,
         caller=GatewayCaller(kind="member", user_id=user_id),
         gateway_server_id=gateway_server_id,
         legacy_rows={row["tool_name"]: row["approval_state"] for row in rows if row["removed_at"] is None},
+        installation_owner_id=owner_id,
     )
     resolved: dict[str, str] = {}
     for row in rows:
         if row["removed_at"]:
             resolved[row["tool_name"]] = "do_not_use"
         else:
-            resolved[row["tool_name"]] = context.resolve(row["tool_name"], row["annotations"]).state
+            resolved[row["tool_name"]] = _member_tool_state(
+                context, row["tool_name"], row["annotations"], block_locked_approvals=block_locked_approvals
+            )
     return resolved
+
+
+def resolve_member_unlisted_tool_state(
+    installation_id: str,
+    team_id: int,
+    gateway_server_id: uuid.UUID | None,
+    user_id: int,
+    tool_name: str,
+) -> str:
+    """Re-list an unknown tool and refuse it unless the server advertises it."""
+    installation = MCPServerInstallation.objects.filter(id=installation_id, team_id=team_id).first()
+    tool = _registered_tool(installation, tool_name) if installation is not None else None
+    if tool is None or tool.removed_at is not None:
+        return "do_not_use"
+    if gateway_server_id is None:
+        return "do_not_use" if tool.approval_state == "do_not_use" else "needs_approval"
+    context = PolicyContext(
+        team_id=team_id,
+        caller=GatewayCaller(kind="member", user_id=user_id),
+        gateway_server_id=gateway_server_id,
+        legacy_rows={},
+    )
+    state = _member_tool_state(context, tool_name, tool.annotations, block_locked_approvals=True)
+    return state if state == "do_not_use" else "needs_approval"
+
+
+def _member_tool_state(
+    context: PolicyContext,
+    tool_name: str,
+    annotations: dict[str, Any] | None,
+    *,
+    block_locked_approvals: bool,
+) -> str:
+    resolved = context.resolve(tool_name, annotations)
+    if block_locked_approvals and resolved.locked and resolved.state == "needs_approval":
+        return "do_not_use"
+    return resolved.state
 
 
 def unauthorized_installation_ids(team_id: int, user_id: int, candidate_ids: Iterable[str]) -> list[str]:
@@ -654,7 +714,9 @@ def call_member_server_tool(
         if gateway_server is not None
         else None
     )
-    decision, block_reason = resolve_call_decision(tool, policy_context)
+    decision, block_reason = resolve_call_decision(
+        tool, policy_context, caller_owns_installation=installation.user_id == user_id
+    )
     pending_approval_token = None
     if block_reason == "needs_approval":
         if policy_context is not None and policy_context.resolve(tool.tool_name, tool.annotations).locked:

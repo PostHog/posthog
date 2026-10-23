@@ -44,7 +44,8 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { SettingSectionUnavailable } from './components/SettingSectionUnavailable'
 import { SearchResult, settingsLogic } from './settingsLogic'
-import { SettingLevelId, SettingsLogicProps } from './types'
+import { settingsNavTree } from './settingsNavTree'
+import { SettingLevelNames, SettingSection, SettingsLogicProps } from './types'
 
 export interface SettingOption {
     key: string
@@ -188,16 +189,8 @@ export function Settings({
                   </OptionButton>
               ),
           }))
-        : filteredLevels.map((level) => {
-              const levelSections = filteredSections.filter((x) => x.level === level)
-              const isCollapsed = collapsedLevels[level]
-
-              // Separate danger zone sections (always rendered last)
-              const dangerZoneSections = levelSections.filter((s) => s.id.endsWith('-danger-zone'))
-              const nonDangerSections = levelSections.filter((s) => !s.id.endsWith('-danger-zone'))
-
-              // Build section option helper
-              const buildSectionOption = (section: (typeof levelSections)[0]): SettingOption => {
+        : settingsNavTree(filteredLevels, filteredSections).map(({ level, items }) => {
+              const buildSectionOption = (section: SettingSection): SettingOption => {
                   const { id, to, accessControl } = section
 
                   return {
@@ -232,49 +225,26 @@ export function Settings({
                   }
               }
 
-              // Build items in SETTINGS_MAP order, rendering groups when we first encounter them
-              const renderedGroups = new Set<string>()
-              const levelItems: SettingOption[] = [
-                  ...nonDangerSections.flatMap((section) => {
-                      // Ungrouped section - render directly
-                      if (!section.group) {
-                          return [buildSectionOption(section)]
-                      }
-
-                      // Grouped section - render entire group when we first see it
-                      if (renderedGroups.has(section.group)) {
-                          return [] // Already rendered this group
-                      }
-
-                      renderedGroups.add(section.group)
-                      const groupKey = `${level}-${section.group}`
-                      const isGroupCollapsed = collapsedGroups[groupKey]
-                      const sectionsInGroup = nonDangerSections.filter((s) => s.group === section.group)
-
-                      return [
-                          {
-                              key: groupKey,
-                              collapsible: {
-                                  label: section.group,
-                                  open: !isGroupCollapsed,
-                                  onOpenChange: () => toggleGroupCollapse(groupKey),
-                              },
-                              items: sectionsInGroup.map(buildSectionOption),
-                          },
-                      ]
-                  }),
-                  // Danger zone always at the bottom
-                  ...dangerZoneSections.map(buildSectionOption),
-              ]
-
               return {
                   key: level,
                   collapsible: {
                       label: SettingLevelNames[level],
-                      open: !isCollapsed,
+                      open: !collapsedLevels[level],
                       onOpenChange: () => toggleLevelCollapse(level),
                   },
-                  items: levelItems,
+                  items: items.map((item) =>
+                      item.kind === 'section'
+                          ? buildSectionOption(item.section)
+                          : {
+                                key: item.key,
+                                collapsible: {
+                                    label: item.label,
+                                    open: !collapsedGroups[item.key],
+                                    onOpenChange: () => toggleGroupCollapse(item.key),
+                                },
+                                items: item.sections.map(buildSectionOption),
+                            }
+                  ),
               }
           })
 
@@ -598,10 +568,3 @@ const OptionButton = ({
 
     return button
 }
-
-export const SettingLevelNames: Record<SettingLevelId, string> = {
-    environment: 'Environment',
-    project: 'Project',
-    organization: 'Organization',
-    user: 'Account',
-} as const

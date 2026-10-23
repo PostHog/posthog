@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
     ANALYTICS_ENDPOINT_PATHS,
     ANALYTICS_ID_PARAM_NAMES,
     ANALYTICS_MAX_IDS,
+    ANALYTICS_REQUEST_TIMEOUT_SECONDS,
     BASE_URL,
     ENTITY_ENDPOINT_PATHS,
     PAGE_SIZE,
@@ -331,7 +332,7 @@ def _iter_fanned_out_analytics(
                 **extra_params,
             }
 
-            data = _make_request(session, url, params)
+            data = _make_request(session, url, params, timeout=(30, ANALYTICS_REQUEST_TIMEOUT_SECONDS))
 
             rows = parse_rows(data)
             if rows is None:

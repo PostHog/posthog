@@ -86,13 +86,13 @@ export const tracingRetentionConfigLogic = kea<tracingRetentionConfigLogicType>(
                 // every request, so these URLs are deliberately hand-built (same as
                 // tracingCorrelationConfigLogic).
                 loadTracingConfig: async (): Promise<TeamTracingConfigApi> => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsTracingConfigRetrieve() from 'products/tracing/frontend/generated/api' instead.
                     return await api.get(`api/projects/${teamLogic.values.currentTeamId}/tracing_config/`)
                 },
                 updateRetentionDays: async (retentionDays: number): Promise<TeamTracingConfigApi> => {
                     const patch: PatchedTeamTracingConfigApi = { retention_days: retentionDays }
                     try {
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsTracingConfigPartialUpdate() from 'products/tracing/frontend/generated/api' instead.
                         const updated: TeamTracingConfigApi = await api.update(
                             `api/projects/${teamLogic.values.currentTeamId}/tracing_config/`,
                             patch

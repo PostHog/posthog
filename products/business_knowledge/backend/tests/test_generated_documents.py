@@ -15,6 +15,8 @@ from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeLibrary,
+    KnowledgeLibrarySource,
     KnowledgeSource,
     SafetyVerdict,
     SourceStatus,
@@ -71,6 +73,9 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         }
 
         assert result.created is True
+        library = KnowledgeLibrary.objects.unscoped().get(team_id=self.team.id, is_default=True)
+        assert library.name == "Learned"
+        assert KnowledgeLibrarySource.objects.unscoped().filter(library=library, source_id=result.source_id).exists()
         assert source.team_id == self.team.id
         assert source.name == "Refund policy"
         assert source.id == logic.learned_source_id_for(
@@ -139,6 +144,40 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert document.content == "Refunds are available within 30 days."
         assert KnowledgeSource.objects.unscoped().filter(team=self.team, is_generated=True).count() == 1
         assert KnowledgeDocument.objects.unscoped().filter(source_id=first.source_id).count() == 1
+
+    def test_removing_a_learned_source_from_learned_sticks_across_a_retry(self) -> None:
+        first = logic.create_generated_knowledge_document(self._input())
+        KnowledgeLibrarySource.objects.unscoped().filter(source_id=first.source_id).delete()
+
+        logic.create_generated_knowledge_document(self._input())
+
+        assert not KnowledgeLibrarySource.objects.unscoped().filter(source_id=first.source_id).exists()
+
+    def test_deleting_learned_unlinks_members_and_the_next_source_recreates_it(self) -> None:
+        first = logic.create_generated_knowledge_document(self._input())
+        KnowledgeLibrary.objects.unscoped().get(team_id=self.team.id, is_default=True).delete()
+        assert not KnowledgeLibrarySource.objects.unscoped().filter(source_id=first.source_id).exists()
+
+        second = logic.create_generated_knowledge_document(
+            self._input(resolution_comment_id=uuid.UUID("30000000-0000-0000-0000-000000000003"))
+        )
+
+        library = KnowledgeLibrary.objects.unscoped().get(team_id=self.team.id, is_default=True)
+        member_ids = set(
+            KnowledgeLibrarySource.objects.unscoped().filter(library=library).values_list("source_id", flat=True)
+        )
+        assert member_ids == {second.source_id}
+
+    def test_a_library_named_learned_is_adopted_as_the_default(self) -> None:
+        with team_scope(self.team.id, canonical=True):
+            existing = KnowledgeLibrary.objects.create(team_id=self.team.id, name="learned", is_default=False)
+
+        result = logic.create_generated_knowledge_document(self._input())
+
+        existing.refresh_from_db()
+        assert existing.is_default is True
+        assert KnowledgeLibrary.objects.unscoped().filter(team_id=self.team.id).count() == 1
+        assert KnowledgeLibrarySource.objects.unscoped().filter(library=existing, source_id=result.source_id).exists()
 
     @parameterized.expand(
         [

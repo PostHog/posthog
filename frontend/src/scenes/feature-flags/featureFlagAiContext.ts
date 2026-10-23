@@ -1,5 +1,6 @@
 import { FeatureFlagType } from '~/types'
 
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 // The backend rejects a text attachment longer than this and fails the whole send with a 400
@@ -29,6 +30,12 @@ export function featureFlagContextItems(featureFlag: FeatureFlagType): AttachedC
 
 function targetingValue(featureFlag: FeatureFlagType): string {
     const filters = featureFlag.filters
+    if (!isV1FeatureFlagConfig(filters)) {
+        const full = JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config: filters })
+        return full.length <= MAX_TARGETING_VALUE_LENGTH
+            ? full
+            : JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config_version: filters.version })
+    }
     const identity = {
         key: featureFlag.key,
         description: featureFlag.name.slice(0, MAX_DESCRIPTION_LENGTH),
@@ -62,6 +69,55 @@ function targetingValue(featureFlag: FeatureFlagType): string {
         holdout_condition_count: filters?.holdout_groups?.length ?? 0,
         conditions_omitted: 'Too large to attach. Read the saved flag to see the property filters.',
     })
+}
+
+/** Skill the "Review cleanup with AI" action asks PostHog AI to load; bundled into the agent sandbox image. */
+export const FEATURE_FLAG_CLEANUP_SKILL = 'cleaning-up-stale-feature-flags'
+
+export const FEATURE_FLAG_CLEANUP_ASSESSMENT_PROMPT = 'Assess this feature flag for cleanup.'
+const FEATURE_FLAG_CLEANUP_TARGET_TYPE = 'feature_flag_cleanup_target'
+
+const FEATURE_FLAG_CLEANUP_SKILL_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'skill',
+    key: FEATURE_FLAG_CLEANUP_SKILL,
+    label: 'Cleaning up stale feature flags skill',
+}
+
+// Our own static, build-time text only. Never interpolate the flag's key, name, or description into
+// this item, or a project-authored string would ride inside the trusted block the agent is told to
+// follow. The saved identity a reader needs to act on travels separately, as the untrusted
+// `feature_flag_cleanup_target` item below.
+const FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        `Load the ${FEATURE_FLAG_CLEANUP_SKILL} skill before assessing. The ${FEATURE_FLAG_CLEANUP_TARGET_TYPE} item ` +
+        'names the flag by project, id, and key. Re-fetch its current definition with the feature-flag tools ' +
+        'rather than trusting values elsewhere in this conversation, because it can have changed since the page ' +
+        'that started this request was loaded. Check linked systems (dependent flags, experiments, holdouts, ' +
+        'schedules) and recent activity before concluding. This request is assessment only: return the evidence ' +
+        'you gathered, any blockers, and a recommended next step. Do not edit any files, open a pull request, or ' +
+        'change this flag in PostHog - do not enable, disable, archive, unarchive, or delete it.',
+}
+
+function cleanupTargetValue(featureFlag: Pick<FeatureFlagType, 'id' | 'key'>, projectId: number | null): string {
+    return JSON.stringify({ project_id: projectId, id: featureFlag.id, key: featureFlag.key })
+}
+
+/** The instruction stays trusted text; the flag identity travels separately as untrusted data. */
+export function featureFlagCleanupAssessmentContextItems(
+    featureFlag: Pick<FeatureFlagType, 'id' | 'key'>,
+    projectId: number | null
+): AttachedContextItem[] {
+    return [
+        FEATURE_FLAG_CLEANUP_SKILL_CONTEXT_ITEM,
+        FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM,
+        {
+            type: FEATURE_FLAG_CLEANUP_TARGET_TYPE,
+            hidden: true,
+            value: cleanupTargetValue(featureFlag, projectId),
+        },
+    ]
 }
 
 // `create-feature-flag` is left out because it never targets the flag on screen.

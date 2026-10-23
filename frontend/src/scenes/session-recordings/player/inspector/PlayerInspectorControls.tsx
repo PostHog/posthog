@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import {
@@ -14,7 +15,7 @@ import {
     IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsButton, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -32,18 +33,22 @@ import { urls } from 'scenes/urls'
 
 import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
+import { SessionLogsUnavailableNotice } from './components/SessionLogsUnavailableNotice'
 
 function sideActionForType({
+    type,
     miniFilters,
     setMiniFilter,
     allItemsByMiniFilterKey,
 }: {
+    type: FilterableInspectorListItemTypes
     miniFilters: SharedListMiniFilter[]
     setMiniFilter: (key: string, enabled: boolean) => void
     allItemsByMiniFilterKey: Record<string, InspectorListItem[]>
 }): SideAction {
     return {
         icon: <IconChevronRight className="rotate-90" />,
+        'data-attr': `player-inspector-${type}-mini-filter-menu`,
         dropdown: {
             closeOnClickInside: false,
             overlay: (
@@ -95,14 +100,18 @@ function FilterSettingsButton({
     type,
     icon,
     disabledReason,
+    loading,
     upsellSideAction,
     label,
+    'data-attr': dataAttr,
 }: {
     type: FilterableInspectorListItemTypes
     icon: JSX.Element
     disabledReason?: string | undefined
+    loading?: boolean
     upsellSideAction?: SideAction
     label?: string
+    'data-attr'?: string
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByMiniFilterKey, allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
@@ -120,6 +129,7 @@ function FilterSettingsButton({
                     ? upsellSideAction
                     : allItemsByItemType[type]?.length > 1
                       ? sideActionForType({
+                            type,
                             setMiniFilter,
                             allItemsByMiniFilterKey,
                             miniFilters: filteredMiniFiltersForType,
@@ -128,10 +138,12 @@ function FilterSettingsButton({
             }
             label={label || capitalizeFirstLetter(type)}
             icon={icon}
+            data-attr={dataAttr}
             onClick={() => {
                 setMiniFilters(filterKeys, !isEnabled)
             }}
             disabledReason={disabledReason}
+            loading={loading}
             active={isEnabled}
         />
     )
@@ -143,6 +155,13 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const hasNetworkItems = allItemsByItemType['network']?.length > 0
+    const showNetworkUpsell = !!currentTeam && !hasNetworkItems && !currentTeam.capture_performance_opt_in
+
+    useEffect(() => {
+        if (showNetworkUpsell) {
+            posthog.capture('recording inspector upsell shown', { type: 'network' })
+        }
+    }, [showNetworkUpsell])
 
     return (
         <FilterSettingsButton
@@ -153,9 +172,10 @@ function NetworkFilterSettingsButton(): JSX.Element {
             disabledReason={!hasNetworkItems ? 'There are no network requests in this recording' : undefined}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
-                !hasNetworkItems && !currentTeam?.capture_performance_opt_in
+                showNetworkUpsell
                     ? {
                           icon: <IconChevronDown />,
+                          'data-attr': 'player-inspector-network-upsell-menu',
 
                           dropdown: {
                               closeOnClickInside: false,
@@ -184,6 +204,13 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const hasConsoleItems = allItemsByItemType['console']?.length > 0
+    const showConsoleUpsell = !!currentTeam && !hasConsoleItems && !currentTeam.capture_console_log_opt_in
+
+    useEffect(() => {
+        if (showConsoleUpsell) {
+            posthog.capture('recording inspector upsell shown', { type: 'console' })
+        }
+    }, [showConsoleUpsell])
 
     return (
         <FilterSettingsButton
@@ -194,9 +221,10 @@ function ConsoleFilterSettingsButton(): JSX.Element {
             disabledReason={!hasConsoleItems ? 'There are no console logs in this recording' : undefined}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
-                !hasConsoleItems && !currentTeam?.capture_console_log_opt_in
+                showConsoleUpsell
                     ? {
                           icon: <IconChevronRight className="rotate-90" />,
+                          'data-attr': 'player-inspector-console-upsell-menu',
 
                           dropdown: {
                               closeOnClickInside: false,
@@ -257,16 +285,46 @@ function CommentsFilterSettingsButton(): JSX.Element {
 
 function LogsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByItemType, logsLoading, logsLoadError } = useValues(playerInspectorLogic(logicProps))
+    const { allItemsByItemType, logsLoading, logsLoadError, logsInitialLoadRequested } = useValues(
+        playerInspectorLogic(logicProps)
+    )
 
     const hasLogItems = allItemsByItemType['logs']?.length > 0
+    const showLogsUpsell = logsInitialLoadRequested && !logsLoading && !logsLoadError && !hasLogItems
+
+    useEffect(() => {
+        if (showLogsUpsell) {
+            posthog.capture('recording inspector upsell shown', { type: 'logs' })
+        }
+    }, [showLogsUpsell])
+
+    if (showLogsUpsell) {
+        return (
+            <div className="SettingsBar--button--square">
+                <LemonDropdown
+                    overlay={<SessionLogsUnavailableNotice sessionId={logicProps.sessionRecordingId} />}
+                    closeOnClickInside={false}
+                    placement="bottom-end"
+                >
+                    <LemonButton
+                        className="rounded-[0px]"
+                        size="xsmall"
+                        icon={<IconLive />}
+                        data-attr="player-inspector-logs-unavailable"
+                    >
+                        Logs
+                    </LemonButton>
+                </LemonDropdown>
+            </div>
+        )
+    }
 
     const disabledReason = logsLoading
         ? 'Loading logs...'
-        : logsLoadError
-          ? 'Failed to load logs for this session'
-          : !hasLogItems
-            ? 'No logs found for this session'
+        : !logsInitialLoadRequested
+          ? "Logs load after the recording's events load"
+          : logsLoadError
+            ? 'Failed to load logs for this session'
             : undefined
 
     return (
@@ -275,6 +333,7 @@ function LogsFilterSettingsButton(): JSX.Element {
             type="logs"
             icon={<IconLive />}
             disabledReason={disabledReason}
+            loading={logsLoading}
             label="Logs"
         />
     )

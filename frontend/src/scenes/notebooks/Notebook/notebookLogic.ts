@@ -41,6 +41,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
+import { RetainedValues } from 'lib/utils/retainedValues'
 import { slugify } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -53,6 +54,7 @@ import {
     notebooksModel,
     openNotebook,
 } from '~/models/notebooksModel'
+import { RESPONSE_CACHE_TTL } from '~/queries/nodes/DataNode/responseCache'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { AnyResponseType } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
@@ -74,6 +76,7 @@ import {
     buildNotebookDependencyGraph,
     collectNodeIndices,
     collectNotebookFrameNodes,
+    collectRunnableCellNodeIds,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
 import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
@@ -267,6 +270,23 @@ export type NotebookLogicProps = {
     cachedInlineQueryResultsByNodeId?: Record<string, AnyResponseType>
 }
 
+const retainedNotebooks = new RetainedValues<NotebookType>({
+    maxEntries: 50,
+    ttlMs: RESPONSE_CACHE_TTL,
+    maxTotalSize: 30_000_000,
+    maxEntrySize: 10_000_000,
+    sizeOf: (notebook) => JSON.stringify(notebook.content ?? null).length,
+})
+
+function canRetainNotebook(props: NotebookLogicProps): boolean {
+    return (
+        (props.mode ?? 'notebook') === 'notebook' &&
+        !props.cachedNotebook &&
+        props.shortId !== SCRATCHPAD_NOTEBOOK.short_id &&
+        !props.shortId.startsWith('template-')
+    )
+}
+
 async function runWhenNotebookIsReady(waitForNotebook: () => boolean, fn: () => any): Promise<any | null> {
     const maxWaitMs = 5000
     const startTime = Date.now()
@@ -342,6 +362,7 @@ export interface notebookLogicValues {
     notebookPresenceParticipants: NotebookPresenceParticipant[]
     personUUIDFromCanvasOverride: string | null
     previewContent: JSONContent | null
+    runnableCellNodeIds: string[]
     runnableVariables: NotebookVariable[]
     shortId: string
     shouldBeEditable: boolean
@@ -685,6 +706,7 @@ export interface notebookLogicMeta {
             content: JSONContent
         ) => BuiltLogic<notebookNodeLogicType>[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
+        runnableCellNodeIds: (content: JSONContent) => string[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
         dependencyGraph: (contentAtLastRun: JSONContent | null) => NotebookDependencyGraph
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
@@ -992,7 +1014,7 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
     loaders(({ values, props, actions, cache }) => ({
         notebook: [
-            null as NotebookType | null,
+            (canRetainNotebook(props) ? retainedNotebooks.get(props.shortId) : null) as NotebookType | null,
             {
                 loadNotebook: async () => {
                     let response: NotebookType | null = null
@@ -1024,11 +1046,13 @@ export const notebookLogic = kea<notebookLogicType>([
                             })
                         } catch (e: any) {
                             if (e.status === 403 && e.code === 'permission_denied') {
+                                retainedNotebooks.delete(props.shortId)
                                 actions.setAccessDeniedToNotebook()
                             } else if (e.status === 304) {
                                 // Indicates nothing has changed
                                 return values.notebook
                             } else if (e.status === 404) {
+                                retainedNotebooks.delete(props.shortId)
                                 return null
                             }
                             throw e
@@ -1227,6 +1251,8 @@ export const notebookLogic = kea<notebookLogicType>([
         // Extends the loader reducer: canonical remote states (streamed diffs, 409 replays)
         // land in `notebook` without a refetch.
         notebook: {
+            // A retained copy can render before the server denies access, so it must not stay on screen.
+            setAccessDeniedToNotebook: () => null,
             loadNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             applyRemoteNotebookContent: (state, { content, version }) =>
@@ -1444,6 +1470,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
+        runnableCellNodeIds: [(s) => [s.content], (content: JSONContent) => collectRunnableCellNodeIds(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
         dependencyGraph: [
             // Keyed on the last-run snapshot, not live content, so typing does not rebuild it.
@@ -2191,8 +2218,11 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, props }) => ({
         notebook: (notebook?: NotebookType) => {
+            if (notebook && canRetainNotebook(props)) {
+                retainedNotebooks.set(props.shortId, notebook)
+            }
             // Keep the list logic up to date with any changes
             if (notebook && notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
                 actions.receiveNotebookUpdate(notebook)
@@ -2234,8 +2264,12 @@ export const notebookLogic = kea<notebookLogicType>([
         message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 
-    afterMount(({ props }) => {
+    afterMount(({ props, values, actions }) => {
         drainPendingNotebookOperations(props.shortId)
+        // A retained copy renders at once, so check it against the server straight away.
+        if (values.notebook && canRetainNotebook(props)) {
+            actions.loadNotebook()
+        }
     }),
 
     beforeUnmount(() => {

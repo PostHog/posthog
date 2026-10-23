@@ -200,16 +200,67 @@ def _project_page(team_id: int, team_name: str) -> str:
     return f"---\nproject_id: {team_id}\nproject_name: {title}\nsummary: Context for project {team_id}.\nstatus: active\nsources: project-catalog\n---\n\n# {title} (project {team_id})\n"
 
 
+def _split_frontmatter(content: str) -> tuple[list[str], str]:
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return [], content
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return lines[1:index], "\n".join(lines[index + 1 :])
+    return [], content
+
+
+def _top_level_key(line: str) -> str | None:
+    if not line or line[0].isspace() or line.startswith(("-", "#")):
+        return None
+    name, separator, _ = line.partition(":")
+    return name.strip() if separator else None
+
+
+def _merge_frontmatter(identity: list[str], imported: list[str], defaults: list[str]) -> list[str]:
+    # The server binds page writes to a space through `team_id` and `channel_id`, so imported values never replace them.
+    identity_keys = {_top_level_key(line) for line in identity}
+    kept = [line for line in imported if _top_level_key(line) not in identity_keys]
+    kept_keys = {_top_level_key(line) for line in kept}
+    return [*identity, *kept, *(line for line in defaults if _top_level_key(line) not in kept_keys)]
+
+
+def _is_lint_clean(frontmatter: list[str]) -> bool:
+    # The import lints the whole wiki in one change, so one page the lint rejects blocks every page in the
+    # organization. Accept only frontmatter this check proves clean: `superseded` and `review_after` need
+    # checks against other pages or dates, so they fall back to the body as well, where the import encodes bad links.
+    fields = {
+        key: value.strip()
+        for key, separator, value in (line.partition(":") for line in frontmatter)
+        if separator and key and key == key.strip()
+    }
+    _, malformed_links = repo_lint._links("\n".join(frontmatter))
+    return (
+        not malformed_links
+        and not repo_lint._lint_frontmatter_lists(frontmatter)
+        and bool(fields.get("summary"))
+        and fields.get("status") in {"active", "historical"}
+        and "review_after" not in fields
+    )
+
+
 def _channel_page(team_id: int, channel_id: str, channel_name: str, content: str | None) -> str:
     title = " ".join(channel_name.split()) or channel_id
+    identity = [f"team_id: {team_id}", f"channel_id: {channel_id}"]
     if content is None:
-        summary = f"Context for {title}."
-        source = "channel-catalog"
+        frontmatter = [*identity, f"summary: Context for {title}.", "status: active", "sources: channel-catalog"]
         body = ""
     else:
-        summary = f"Context imported from {title}."
-        source = "channel-instructions-import"
-        sanitized_content, repaired = _sanitize_imported_context(content.strip())
+        defaults = [
+            f"summary: Context imported from {title}.",
+            "status: active",
+            "sources: channel-instructions-import",
+        ]
+        imported_frontmatter, remainder = _split_frontmatter(content.strip())
+        frontmatter = _merge_frontmatter(identity, imported_frontmatter, defaults)
+        if not _is_lint_clean(frontmatter):
+            frontmatter, remainder = [*identity, *defaults], content.strip()
+        sanitized_content, repaired = _sanitize_imported_context(remainder.strip())
         repair_note = (
             "\n> **Import note:** Some wiki-link brackets in this imported context were encoded because they were "
             "malformed. Review and repair the links.\n"
@@ -217,7 +268,7 @@ def _channel_page(team_id: int, channel_id: str, channel_name: str, content: str
             else ""
         )
         body = f"{repair_note}\n{sanitized_content}\n"
-    return f"---\nteam_id: {team_id}\nchannel_id: {channel_id}\nsummary: {summary}\nstatus: active\nsources: {source}\n---\n\n# {title} (project {team_id}, Space {channel_id[:8]})\n{body}"
+    return "---\n" + "\n".join(frontmatter) + f"\n---\n\n# {title} (project {team_id}, Space {channel_id[:8]})\n{body}"
 
 
 def _sanitize_imported_context(content: str) -> tuple[str, bool]:

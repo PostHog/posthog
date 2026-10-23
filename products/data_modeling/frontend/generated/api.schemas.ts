@@ -7,61 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DagApi {
-    readonly id: string
-    /**
-     * Human-readable name for this DAG
-     * @maxLength 2048
-     */
-    name: string
-    /** Optional description of the DAG's purpose */
-    description?: string
-    /**
-     * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-     * @nullable
-     */
-    sync_frequency?: string | null
-    readonly node_count: number
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedDAGListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DagApi[]
-}
-
-export interface PatchedDAGApi {
-    readonly id?: string
-    /**
-     * Human-readable name for this DAG
-     * @maxLength 2048
-     */
-    name?: string
-    /** Optional description of the DAG's purpose */
-    description?: string
-    /**
-     * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-     * @nullable
-     */
-    sync_frequency?: string | null
-    readonly node_count?: number
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
 export interface EdgeApi {
     readonly id: string
+    /** ID of the upstream node. */
     readonly source_id: string
+    /** ID of the downstream node. */
     readonly target_id: string
-    dag: string
-    readonly dag_name: string
     properties?: unknown
     readonly created_at: string
     /** @nullable */
@@ -79,10 +30,10 @@ export interface PaginatedEdgeListApi {
 
 export interface PatchedEdgeApi {
     readonly id?: string
+    /** ID of the upstream node. */
     readonly source_id?: string
+    /** ID of the downstream node. */
     readonly target_id?: string
-    dag?: string
-    readonly dag_name?: string
     properties?: unknown
     readonly created_at?: string
     /** @nullable */
@@ -132,6 +83,17 @@ export interface LineageIssueApi {
     at: string | null
 }
 
+/**
+ * * `posthog` - posthog
+ * * `warehouse` - warehouse
+ */
+export type NodeOriginEnumApi = (typeof NodeOriginEnumApi)[keyof typeof NodeOriginEnumApi]
+
+export const NodeOriginEnumApi = {
+    Posthog: 'posthog',
+    Warehouse: 'warehouse',
+} as const
+
 export interface NodeSuspensionApi {
     /** When the node was suspended. */
     at: string
@@ -158,8 +120,6 @@ export interface NodeApi {
     /** @maxLength 2048 */
     name: string
     type?: NodeTypeEnumApi
-    dag: string
-    readonly dag_name: string
     /** @maxLength 1024 */
     description?: string
     /** @nullable */
@@ -167,6 +127,16 @@ export interface NodeApi {
     /** @nullable */
     readonly metric_id: string | null
     readonly lineage_issue: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id: string | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -214,8 +184,6 @@ export interface PatchedNodeApi {
     /** @maxLength 2048 */
     name?: string
     type?: NodeTypeEnumApi
-    dag?: string
-    readonly dag_name?: string
     /** @maxLength 1024 */
     description?: string
     /** @nullable */
@@ -223,6 +191,16 @@ export interface PatchedNodeApi {
     /** @nullable */
     readonly metric_id?: string | null
     readonly lineage_issue?: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin?: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
@@ -256,6 +234,31 @@ export interface NodeResumeApi {
     resumed: boolean
 }
 
+/**
+ * * `upstream` - Upstream
+ * * `downstream` - Downstream
+ */
+export type MaterializationRunDirectionEnumApi =
+    (typeof MaterializationRunDirectionEnumApi)[keyof typeof MaterializationRunDirectionEnumApi]
+
+export const MaterializationRunDirectionEnumApi = {
+    Upstream: 'upstream',
+    Downstream: 'downstream',
+} as const
+
+export interface NodeRunApi {
+    /** Run this view with all upstream dependencies or all downstream dependents.
+     *
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream */
+    direction: MaterializationRunDirectionEnumApi
+}
+
+export interface NodeRunResponseApi {
+    /** The nodes included in the dependency run. */
+    node_ids: string[]
+}
+
 export interface LineageResponseApi {
     /** Every node reachable from the requested one, plus the node itself. */
     nodes: NodeApi[]
@@ -263,22 +266,126 @@ export interface LineageResponseApi {
     edges: EdgeApi[]
 }
 
-export type DataModelingDagsListParams = {
+export interface ModelUsageTotalsApi {
+    /** Finished ClickHouse materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
     /**
-     * Number of results to return per page.
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
      */
-    limit?: number
+    read_bytes: number | null
     /**
-     * The initial index from which to return the results.
+     * Measured rows read. Null if unmeasured.
+     * @nullable
      */
-    offset?: number
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+}
+
+export interface ModelUsageDayApi {
+    /** Finished ClickHouse materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /** UTC day on which the runs finished. */
+    day: string
+}
+
+export interface ModelUsageRowApi {
+    /** Finished ClickHouse materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /**
+     * Model ID, or null if permanently deleted.
+     * @nullable
+     */
+    saved_query_id: string | null
+    /** Model name. */
+    name: string
+    /** Whether this model has been deleted. */
+    deleted: boolean
+}
+
+export interface ModelUsageApi {
+    /** Inclusive UTC start date. */
+    date_from: string
+    /** Exclusive UTC end date. Today's incomplete usage is excluded. */
+    date_to: string
+    /** Totals over the whole date range. */
+    overview: ModelUsageTotalsApi
+    /** Daily usage, attributed to when each run finished. */
+    trends: ModelUsageDayApi[]
+    /** Model breakdown, highest measured bytes first. */
+    models: ModelUsageRowApi[]
+    /** Total number of models in the breakdown. */
+    count: number
+    /**
+     * Latest usage collection timestamp in this range.
+     * @nullable
+     */
+    usage_updated_at: string | null
 }
 
 export type DataModelingEdgesListParams = {
     /**
-     * Return only the edges of this DAG.
+     * A page number within the paginated result set.
      */
-    dag?: string
+    page?: number
+}
+
+export type DataModelingNodesListParams = {
     /**
      * A page number within the paginated result set.
      */
@@ -289,20 +396,22 @@ export type DataModelingEdgesListParams = {
     search?: string
 }
 
-export type DataModelingNodesListParams = {
+export type DataModelingNodesRetrieveParams = {
     /**
-     * Scope the lineage counts to this DAG.
+     * Resolve the path ID as this backing resource type instead of a node ID.
      */
-    dag?: string
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number
-    /**
-     * A search term.
-     */
-    search?: string
+    lookup?: DataModelingNodesRetrieveLookup
 }
+
+export type DataModelingNodesRetrieveLookup =
+    (typeof DataModelingNodesRetrieveLookup)[keyof typeof DataModelingNodesRetrieveLookup]
+
+export const DataModelingNodesRetrieveLookup = {
+    Metric: 'metric',
+    PosthogTable: 'posthog_table',
+    SavedQuery: 'saved_query',
+    WarehouseTable: 'warehouse_table',
+} as const
 
 export type DataModelingNodesLineageRetrieveParams = {
     /**
@@ -317,4 +426,24 @@ export type DataModelingNodesLineageRetrieveParams = {
      * Saved query to build lineage for, resolved to its node. Alternative to node_id.
      */
     saved_query_id?: string
+}
+
+export type DataModelingUsageListParams = {
+    /**
+     * Number of complete UTC days, up to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+    /**
+     * Model breakdown page, starting at 1.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Models per page, up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
 }

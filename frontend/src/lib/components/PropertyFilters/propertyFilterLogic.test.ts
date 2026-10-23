@@ -6,7 +6,15 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyFilterRow,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+} from '~/types'
 
 const eventFilter = (key: string, value?: PropertyFilterValue, operator?: PropertyOperator): AnyPropertyFilter =>
     ({
@@ -26,7 +34,7 @@ describe('propertyFilterLogic', () => {
     })
 
     function mountLogic(
-        overrides: { propertyFilters?: AnyPropertyFilter[]; sendAllKeyUpdates?: boolean } = {}
+        overrides: { propertyFilters?: PropertyFilterRow[]; sendAllKeyUpdates?: boolean } = {}
     ): ReturnType<typeof propertyFilterLogic.build> {
         const logic = propertyFilterLogic({
             pageKey: 'test',
@@ -55,7 +63,7 @@ describe('propertyFilterLogic', () => {
             })
             logic.actions.remove(0)
             expect(logic.values.filters).toHaveLength(2)
-            expect(logic.values.filters[0].key).toBe('$os')
+            expect(logic.values.filters[0]).toMatchObject({ key: '$os' })
             expect(Object.keys(logic.values.filters[1])).toHaveLength(0)
         })
 
@@ -65,6 +73,31 @@ describe('propertyFilterLogic', () => {
             })
             logic.actions.remove(0)
             expect(logic.values.filters).toEqual([{}])
+        })
+    })
+
+    describe('nested property groups', () => {
+        const nestedGroup: PropertyGroupFilterValue = {
+            type: FilterLogicalOperator.Or,
+            values: [eventFilter('$os', 'Mac', PropertyOperator.Exact), eventFilter('$lib', 'web')],
+        }
+
+        it('keeps a nested group when another row changes', async () => {
+            const logic = mountLogic({
+                propertyFilters: [nestedGroup, eventFilter('$browser', 'Chrome', PropertyOperator.Exact)],
+            })
+            logic.actions.setFilter(1, eventFilter('$browser', 'Firefox', PropertyOperator.Exact))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onChange).toHaveBeenCalledWith([
+                nestedGroup,
+                eventFilter('$browser', 'Firefox', PropertyOperator.Exact),
+            ])
+        })
+
+        it('offers an empty row to add to after a nested group', () => {
+            const logic = mountLogic({ propertyFilters: [nestedGroup] })
+            expect(logic.values.filtersWithNew).toEqual([nestedGroup, {}])
         })
     })
 

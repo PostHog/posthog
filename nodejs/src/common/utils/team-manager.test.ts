@@ -2,13 +2,14 @@ import { randomUUID } from 'crypto'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import {
+    createOrganization,
     createTeam,
     createTestTeamFixture,
     getTeam,
     insertRow,
     updateOrganizationAvailableFeatures,
 } from '~/tests/helpers/sql'
-import { Hub, Team } from '~/types'
+import { FlagEvaluationsMode, Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
 import { closeHub, createHub } from './db/hub'
@@ -73,6 +74,7 @@ describe('TeamManager()', () => {
                   "cookieless_server_hash_mode": 2,
                   "drop_events_older_than_seconds": null,
                   "extra_settings": null,
+                  "flag_evaluations_mode": 0,
                   "heatmaps_opt_in": null,
                   "id": "<TEAM_ID>",
                   "ingested_event": true,
@@ -243,6 +245,21 @@ describe('TeamManager()', () => {
             expect(newTeam!.minimal_flag_called_events).toBe(true)
         })
 
+        it("reads flag_evaluations_mode from the team's organization", async () => {
+            const newTeamId = await createTeam(postgres, organizationId)
+            const otherOrganizationId = await createOrganization(postgres)
+            const otherTeamId = await createTeam(postgres, otherOrganizationId)
+            await insertRow(postgres, 'feature_flags_organizationfeatureflagsconfig', {
+                organization_id: organizationId,
+                flag_evaluations_mode: FlagEvaluationsMode.ReadFlagEvaluations,
+            })
+
+            expect((await teamManager.getTeam(newTeamId))!.flag_evaluations_mode).toBe(
+                FlagEvaluationsMode.ReadFlagEvaluations
+            )
+            expect((await teamManager.getTeam(otherTeamId))!.flag_evaluations_mode).toBe(FlagEvaluationsMode.Events)
+        })
+
         it('does not leak minimal_flag_called_events across teams', async () => {
             const teamA = await createTeam(postgres, organizationId)
             const teamB = await createTeam(postgres, organizationId)
@@ -313,6 +330,13 @@ describe('TeamManager()', () => {
                 expect.objectContaining({ sdk: 'web' }),
                 expect.any(String)
             )
+        })
+
+        it('flips the flag and captures once for a batch that repeats a team', async () => {
+            await teamManager.setTeamsIngestedData([newTeam.id, newTeam.id, newTeam.id])
+
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
         })
 
         it('does nothing on a repeat call through a stale team object', async () => {

@@ -1,15 +1,17 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
-import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -17,11 +19,13 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +35,6 @@ import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayou
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
-import { ReplayComments } from 'products/replay/frontend/comments/ReplayComments'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
@@ -42,21 +45,23 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
-import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
-import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
+import { SCENE_PLAYLIST_LOGIC_PROPS, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+
+const HedgehogExplorer = pngHoggie(explorerPng)
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
     const [loading, setLoading] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const handleNewPlaylist = async (): Promise<void> => {
         setLoading(true)
         try {
-            await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
-            reportRecordingPlaylistCreated('new')
+            await createPlaylist(
+                { _create_in_folder: 'Unfiled/Replay playlists', type: 'collection', creation_method: 'new' },
+                true
+            )
         } catch (error: any) {
             if (isAccessDeniedError(error)) {
                 lemonToast.error('You do not have access to create collections.')
@@ -80,6 +85,7 @@ function Header(): JSX.Element {
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
+                                data-attr="replay-open-file-playback"
                                 to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
@@ -88,6 +94,7 @@ function Header(): JSX.Element {
                                 <IconDocument /> Playback from PostHog JSON file
                             </Link>
                             <Link
+                                data-attr="replay-open-kiosk"
                                 to={urls.replayKiosk()}
                                 buttonProps={{
                                     menuItem: true,
@@ -112,40 +119,67 @@ function Header(): JSX.Element {
                         interaction="click"
                         scope={Scene.Replay}
                     >
-                        <LemonButton
-                            type="primary"
-                            onClick={handleNewPlaylist}
-                            data-attr="save-recordings-playlist-button"
-                            loading={loading}
-                            size="small"
-                            tooltip="New collection"
-                        >
-                            New collection
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                onClick={handleNewPlaylist}
+                                data-attr="save-recordings-playlist-button"
+                                loading={loading}
+                                tooltip="New collection"
+                            >
+                                New collection
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                onClick={handleNewPlaylist}
+                                data-attr="save-recordings-playlist-button"
+                                loading={loading}
+                                size="small"
+                                tooltip="New collection"
+                            >
+                                New collection
+                            </LemonButton>
+                        )}
                     </Shortcut>
                 </AccessControlAction>
             )}
 
-            <LemonButton
-                icon={<IconGear />}
-                type="secondary"
-                size="small"
-                to={urls.replaySettings()}
-                data-attr="session-recordings-settings-button"
-            >
-                Settings
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    variant="outline"
+                    render={<LinkPrimitive to={urls.replaySettings()} />}
+                    data-attr="session-recordings-settings-button"
+                >
+                    <IconGear />
+                    Settings
+                </Button>
+            ) : (
+                <LemonButton
+                    icon={<IconGear />}
+                    type="secondary"
+                    size="small"
+                    to={urls.replaySettings()}
+                    data-attr="session-recordings-settings-button"
+                >
+                    Settings
+                </LemonButton>
+            )}
         </div>
     )
 }
 
 const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
+// Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
+const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
+    // The promo waits until the field guide banner is closed so the two never stack
+    const { isDismissed: isFieldGuideDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
 
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (isDismissed) {
+    if (isDismissed || !isFieldGuideDismissed) {
         return null
     }
 
@@ -167,6 +201,42 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
     )
 }
 
+function FieldGuideBanner(): JSX.Element | null {
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
+
+    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
+    if (isDismissed) {
+        return null
+    }
+
+    return (
+        <PostHogCaptureOnViewed name="replay-field-guide-banner-shown">
+            <LemonBanner
+                type="info"
+                dismissKey={FIELD_GUIDE_DISMISS_KEY}
+                onClose={() => posthog.capture('replay-field-guide-banner-dismissed')}
+                // Negative margins let the hog overflow the banner edges without making the banner taller.
+                // z-10 draws it over the border of a banner above. It hides in a narrow banner to keep the text width.
+                icon={
+                    <HedgehogExplorer className="hidden @lg:block pointer-events-none relative z-10 w-36 h-36 -mt-16 -mb-14 shrink-0" />
+                }
+            >
+                <p>
+                    <span className="font-semibold">Meet the 10 species living in your replays.</span> A naturalist's{' '}
+                    <Link
+                        to="https://posthog.com/field-guide"
+                        target="_blank"
+                        data-attr="replay-field-guide-banner-link"
+                    >
+                        field guide
+                    </Link>{' '}
+                    to the rage-clickers, tab-hoppers, and other wild users you'll spot in user recordings.
+                </p>
+            </LemonBanner>
+        </PostHogCaptureOnViewed>
+    )
+}
+
 // Keeps the recordings logic mounted for the scene's lifetime so its state survives tab
 // switches. Rendered only on the Home tab so landing on Collections/Templates does not mount
 // it — which would otherwise fire a wasted loadSessionRecordings ClickHouse query on load.
@@ -180,35 +250,27 @@ function AttachScenePlaylistLogic({
 }
 
 function MainPanel(): JSX.Element {
-    const { tab } = useValues(sessionReplaySceneLogic)
+    const { tab, picksInList } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
-
-    const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: 'scene',
-        updateSearchParams: true,
-    }
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
             <ReplayVisionPromoBanner />
+            {tab === ReplayTabs.Home && <FieldGuideBanner />}
 
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
+                    <AttachScenePlaylistLogic playlistLogicProps={SCENE_PLAYLIST_LOGIC_PROPS} />
                     {isRedesignEnabled ? (
-                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                        <SessionRecordingsPlaylistRedesign {...SCENE_PLAYLIST_LOGIC_PROPS} />
                     ) : (
-                        <SessionRecordingsPlaylist {...playlistLogicProps} />
+                        <SessionRecordingsPlaylist {...SCENE_PLAYLIST_LOGIC_PROPS} picksInList={picksInList} />
                     )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
-            ) : tab === ReplayTabs.Comments ? (
-                <ReplayComments />
-            ) : tab === ReplayTabs.Templates ? (
-                <SessionRecordingTemplates />
             ) : null}
         </div>
     )
@@ -228,21 +290,10 @@ const ReplayPageTabs: ReplayTab[] = [
         tooltip: 'View & create collections',
         'data-attr': 'session-recordings-collections-tab',
     },
-    {
-        label: 'Comments',
-        key: ReplayTabs.Comments,
-        tooltip: 'Comments you added to recordings',
-        'data-attr': 'session-recordings-comments-tab',
-    },
-    {
-        label: 'Filter templates',
-        key: ReplayTabs.Templates,
-        'data-attr': 'session-recordings-templates-tab',
-    },
 ]
 
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { tab } = useValues(sessionReplaySceneLogic)
     return (
         <LemonTabs
             activeKey={tab}
@@ -251,14 +302,7 @@ export function SessionRecordingsPageTabs(): JSX.Element {
             className="-mt-4"
             tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
+                    label: replayTab.label,
                     key: replayTab.key,
                     link: urls.replay(replayTab.key),
                     tooltip: replayTab.tooltip,

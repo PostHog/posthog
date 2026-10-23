@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from posthog.schema import (
     EventPropertyFilter,
@@ -12,11 +11,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.models.experiment import Experiment
-
-if TYPE_CHECKING:
-    from posthog.models import User
+from products.ai_observability.backend.facade.contracts import EVALUATION_GRADED_MARKER, EVALUATION_PASSED_MARKER
 
 LLMMetric = ExperimentMeanMetric | ExperimentRatioMetric
 
@@ -56,34 +51,15 @@ def build_latency_metric(prompt_name: str) -> ExperimentMeanMetric:
 
 
 def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
-    # Use explicit JSON extraction rather than `properties.X = true`. The latter goes through
-    # HogQL property type inference, which casts the property to Float64 if any event in the
-    # table has stored this key as a number — silently dropping JSON-boolean events. The
-    # JSONExtract* functions bypass the inference and read the JSON value directly.
-    # The applicable guard excludes N/A evaluations (applicable=false) but keeps events
-    # where the property isn't set at all (JSONExtractRaw returns '' for missing keys).
-    applicable_filter = HogQLPropertyFilter(key="JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'")
-    boolean_filter = HogQLPropertyFilter(
-        key="JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')"
-    )
     return ExperimentRatioMetric(
         name="Eval pass rate",
         numerator=EventsNode(
             event="$ai_evaluation",
-            properties=[
-                _prompt_filter(prompt_name),
-                HogQLPropertyFilter(key="JSONExtractBool(properties, '$ai_evaluation_result')"),
-                applicable_filter,
-                boolean_filter,
-            ],
+            properties=[_prompt_filter(prompt_name), HogQLPropertyFilter(key=EVALUATION_PASSED_MARKER)],
         ),
         denominator=EventsNode(
             event="$ai_evaluation",
-            properties=[
-                _prompt_filter(prompt_name),
-                applicable_filter,
-                boolean_filter,
-            ],
+            properties=[_prompt_filter(prompt_name), HogQLPropertyFilter(key=EVALUATION_GRADED_MARKER)],
         ),
     )
 
@@ -120,25 +96,3 @@ def build_template(name: str, prompt_name: str) -> LLMMetric:
 
 def list_templates() -> list[dict[str, str]]:
     return [{"key": name, **_TEMPLATE_METADATA[name]} for name in _TEMPLATES]
-
-
-def apply_metric_to_experiment(
-    experiment: Experiment,
-    template_name: str,
-    prompt_name: str,
-    *,
-    user: "User",
-    replace: bool = False,
-) -> Experiment:
-    new_metric = build_template(template_name, prompt_name).model_dump(exclude_none=True)
-
-    if replace:
-        next_metrics = [new_metric]
-    else:
-        next_metrics = [*(experiment.metrics or []), new_metric]
-
-    service = ExperimentService(team=experiment.team, user=user)
-    # The templates hardcode known LLM event names, so the typo-guard validation in
-    # update_experiment adds no value but rejects the common case of attaching a
-    # metric before any matching event has been ingested.
-    return service.update_experiment(experiment, {"metrics": next_metrics}, allow_unknown_events=True)

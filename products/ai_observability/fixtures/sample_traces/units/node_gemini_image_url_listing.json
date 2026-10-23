@@ -1,0 +1,167 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Auto-listing a secondhand dress: classify, then generate the marketing photo",
+  "scenario": "ThreadLoop is a peer-to-peer secondhand fashion marketplace. A seller uploads one raw phone photo of a garment; a classifier call extracts structured listing data from it, then an image-generation call composites a polished, on-brand marketing photo using three house style reference images plus the extracted details.",
+  "summary": {
+    "events": {
+      "$ai_generation": 2
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-node"
+    ],
+    "providers": [
+      "gemini"
+    ],
+    "frameworks": [],
+    "models": [
+      "gemini-3-pro-image-preview",
+      "gemini-3.5-flash"
+    ],
+    "content_types": [
+      "file",
+      "image",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_id": "75baca3c-4a9f-7096-6a89-13097b0d6807",
+        "app.render_queue_depth": 483,
+        "$is_server": true,
+        "$ai_output_tokens": 589,
+        "$ai_latency": 3.9002527859956024,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_input_tokens": 1734,
+        "$ai_session_id": null,
+        "$ai_model": "gemini-3.5-flash",
+        "$ai_stop_reason": "STOP",
+        "$ai_is_error": false,
+        "$lib": "posthog-node",
+        "$lib_version": "5.52.5",
+        "$ai_provider": "gemini",
+        "$ai_http_status": 200,
+        "$ai_trace_id": "trc-8f21",
+        "$geoip_disable": true,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are ThreadLoop's automated listing assistant. A seller has just uploaded a raw photo of a garment they want to list for resale, attached below. Analyze the photo carefully and extract structured listing data our catalog needs before this item can go live.\n\nThreadLoop is a peer-to-peer secondhand fashion marketplace, and buyers rely on accurate condition and material information more than they rely on the photo itself, so do not guess generously. Look closely for wear: pulls, stains, fading, loose threads, missing buttons, or hardware damage, and describe exactly what you see and where it is on the garment, rather than writing a generic 'good condition' note.\n\nReturn a single JSON object with exactly these fields:\n\n- garment_category: the type of item (e.g. midi-dress, blazer, jeans, sneakers)\n- material: the fabric or primary material, inferred from visible texture and weave if no care label is visible\n- requires_repair: boolean, true only if a defect would need mending or replacement before the item is wearable as-is\n- colors: a short plain-language description of the garment's color and any notable trim or hardware color\n- defect_notes: a specific, single-sentence description of any visible flaw and its exact location, or 'No visible defects' if there are none\n- pattern: a single word or short phrase for the print or weave, or 'solid' if there is none\n- suggested_name: a listing title under 80 characters that a buyer would actually search for\n\nBase every field only on what is visible in the attached photo. If lighting or angle makes something genuinely unclear, say so in defect_notes rather than inventing a detail; a missed defect that a buyer discovers after purchase costs us far more in disputes than an overly cautious note does.\n\nA few examples of the level of specificity we need: 'small stain, roughly the size of a coin, on the lower left front panel' is good; 'some staining' is not. 'missing one button, second from the top' is good; 'button issue' is not. If the garment looks new or unworn, defect_notes should say 'No visible defects' rather than trying to invent something to fill the field, since an honest, empty-handed answer is far more useful downstream than a hedge.\n\nOutput only the JSON object, with no surrounding text and no markdown code fences around it.",
+                "type": "text"
+              },
+              {
+                "mimeType": "image/jpeg",
+                "dataUrl": "data:image/jpeg;base64",
+                "type": "image"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"garment_category\": \"midi-dress\", \"material\": \"wool-blend\", \"requires_repair\": false, \"colors\": \"Deep forest green with brass trim\", \"defect_notes\": \"Small pull in the wool near the left hem, about half an inch across, not visible when worn\", \"pattern\": \"houndstooth\", \"suggested_name\": \"Vintage wool-blend houndstooth midi dress with brass button trim\"}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 25222,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_model": "gemini-3-pro-image-preview",
+        "$ai_provider": "gemini",
+        "$ai_latency": 21.01362810000032,
+        "$ai_output_tokens": 1508,
+        "$ai_http_status": 200,
+        "$ai_is_error": false,
+        "$ai_span_id": "3d283800-6eb7-7bd1-27ef-ecdd86ad97c5",
+        "app.render_queue_depth": 189,
+        "$lib_version": "5.52.5",
+        "$ai_trace_id": "trc-8f21",
+        "$lib": "posthog-node",
+        "$ai_input_tokens": 4216,
+        "$ai_stop_reason": "STOP",
+        "$is_server": true,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_session_id": null,
+        "$geoip_disable": true,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are ThreadLoop's automated listing photographer. Sellers upload one raw phone photo of a used garment, and your job is to generate a single polished marketing photo that matches ThreadLoop's house photography style exactly, using the raw photo's garment details together with the three reference photos supplied in this turn.\n\nYou will always receive, in order: a text brief describing the specific garment (category, material, color, pattern, and any condition notes that must not be papered over), then three reference photos that establish lighting, framing, and background for garments in that category. Study the reference photos closely before generating anything: your output must match their lighting direction, shadow softness, background tone, and crop ratio, not just show the right garment in the right color.\n\nNever invent a garment feature that contradicts the brief. Never remove or hide a listed defect; a small documented flaw should still be visible if a reference photo would show it at that angle. Never add a logo, brand mark, price sticker, or human model unless the brief explicitly asks for one. Sellers who upload a lower-quality raw photo are relying on you to bring their listing photo up to platform standard without ever misrepresenting the actual item's condition.\n\nThe sections below are ThreadLoop's full photography style guide. Follow every rule in it exactly, and prioritize the category-specific section that matches the current brief over the general sections when they seem to conflict on a minor detail such as fold angle or crop.\n\n\n\n## Lighting standards\n\nEvery ThreadLoop listing photo uses soft, diffused daylight-equivalent lighting at approximately 5500K, coming from the upper left at roughly a 45 degree angle. Shadows should be visible but soft-edged, never harsh or blown out. Avoid any visible light source, lens flare, or specular hotspot on shiny fabrics such as satin or patent leather; instead angle the key light so highlights read as a gentle gradient across the surface. Metal hardware such as zippers, buckles, and buttons should catch a small highlight to signal texture without glaring. Never use flat, shadowless lighting: internal testing shows it reads as a stock photo and converts worse than a photo with real, soft shadow. If the seller's raw upload shows harsh flash shadows or an orange indoor cast, correct the direction and color temperature in the generated photo rather than replicating the mistake.\n\nA secondary, much dimmer fill light from the lower right can be used to lift shadow detail on dark garments such as black denim or navy wool, but it should never fully cancel the primary shadow direction established by the key light, since a shadowless render is the single most common reason a generated photo gets sent back for reshoot in our weekly quality audit.\n\n## Background and surface\n\nThe default background for flatlay garment photos is a seamless, slightly warm white (roughly RGB 250,248,244), photographed as a large surface with no visible seams, wrinkles, or dust. For hung or draped garments, use a neutral light-gray backdrop with a subtle gradient darkening toward the edges of frame. Never include a busy room background, furniture, or any part of a human body unless the brief explicitly calls for a worn shot. Props are allowed only if the brief names them; do not invent a coffee cup, plant, or magazine to 'add lifestyle' unless asked. The surface should always be large enough that the garment's full silhouette sits with even margin on all sides, roughly ten percent of the frame width.\n\nWhen the brief mentions a specific defect location, keep the surrounding surface plain enough that the defect isn't visually competing with a texture or pattern in the background itself; a busy woven basket surface behind a lightly pilled sweater, for instance, makes the pilling much harder to judge at a glance, which works against the transparency goal of the whole photo.\n\n## Category guide: dresses and tops\n\nDresses and tops should be shot as a flatlay by default unless the brief requests a hung or worn shot. Arrange sleeves at a natural, slightly relaxed angle rather than perfectly symmetrical, which reads as artificial. Necklines should be gently opened to their natural shape, not pinned flat. For dresses with a waist seam or belt, let the fabric below the waist fall with a soft curve rather than lying perfectly flat, to suggest how it will drape when worn. Any pattern, such as a print or weave, should remain crisp and readable at normal zoom; never let the generated texture moire or blur into a flat color.\n\n## Category guide: outerwear and knitwear\n\nOuterwear should be shot with enough loft and dimension to read as a real, three-dimensional garment rather than a paper cutout: a coat or jacket photographed flat should still show the collar standing slightly, and cuffs kept open rather than collapsed. Knitwear needs visible stitch texture, especially cable or rib knits, since stitch definition is one of the top things buyers zoom in on. Never smooth a chunky knit into a flat, glossy surface. Zippers should be shown at least partially closed unless the brief specifies otherwise, since a fully open zipper on a jacket flatlay tends to look unintentional. Faux fur or shearling trim should keep individual strand definition rather than collapsing into a solid block of color, and any lining visible at a cuff or hem should match the color and pattern described in the brief exactly.\n\n## Category guide: denim and trousers\n\nDenim should show its actual wash and fade pattern accurately, including any whiskering at the hips or fading at the knees; do not invent a lighter or darker wash than the raw photo and brief describe. Fold trousers and jeans with a single clean crease down the leg unless the brief calls for a hanging shot. Belt loops and pocket stitching should stay sharp and legible, since buyers frequently zoom into hardware and stitching detail to judge authenticity and condition. Rivets and any embossed leather patch on the waistband should keep their real wear pattern too, including dulling or light rust described in the brief, rather than being rendered as factory-new.\n\n## Category guide: shoes and accessories\n\nShoes are shot at a three-quarter angle showing both the toe box and the side profile, never straight-on, since a straight-on shot hides sole wear that buyers want to see. Pair shots should show both shoes, one slightly behind the other, with the rear shoe just out of the sharpest focal plane. Accessories such as bags and belts should be shot with any branding-free hardware visible and catching a soft highlight, and interior lining should be visible in at least one reference angle if the brief mentions its condition. Straps should be laid with a natural slight curve rather than perfectly straight, and buckles should be shown in their most-used hole position when the brief mentions wear consistent with regular use.\n\n## Prohibited content\n\nGenerated photos must never include: a visible human face or body, even partially; any brand logo, wordmark, or hangtag design, real or invented; any text overlay, watermark, or price sticker; a background that suggests a specific real store or location; or a defect that contradicts the brief, either by adding damage that isn't described or by removing damage that is. When in doubt about whether a detail is allowed, leave it out rather than guess, and flag the ambiguity in your reasoning rather than silently resolving it in the direction that looks better. Reviewers reject and requeue any photo that violates this list, which slows the seller's listing and counts against the generation pipeline's quality metric for that week.\n\n## Color and white balance\n\nAll generated photos should be calibrated to a neutral white balance, verified by checking that the background reads as true white or true gray rather than warm or cool. Garment colors should match the brief's description as closely as a photo can represent it; when a color name is ambiguous, such as 'sage' or 'rust', favor the muted, slightly grayed-down version of that hue rather than a saturated cartoon version, since that is what performs best against buyer expectations set by the raw upload. Metallic hardware should be color-corrected separately from the fabric around it, since a warm overall cast can otherwise make silver hardware read as brass or gold, which is exactly the kind of mismatch that generates buyer complaints after delivery.\n\n## Delivery spec\n\nFinal output should be a single image per request, cropped to the garment or item with even margin on all sides, at a 4:5 aspect ratio suited to the mobile listing feed. Do not output multiple options, a contact sheet, or a before/after comparison unless the brief explicitly asks for one. Resolution should be high enough that a buyer can pinch-zoom into stitching and hardware without visible artifacting, since that zoom interaction is one of the most common pre-purchase behaviors we track.\n\n## Quality review and escalation\n\nEvery generated photo is spot-checked against the classifier's structured output before it goes live. If a generated photo cannot simultaneously satisfy the lighting standard, the category guide, and the requirement to keep a documented defect visible, prioritize the defect requirement above all else and note in your reasoning which visual compromise you made. A photo that looks slightly less polished but is honest about condition passes review; a photo that looks perfect but hides a defect does not, and repeated violations pause a seller's photo-generation access pending manual review.\n\n## Lighting standards\n\nEvery ThreadLoop listing photo uses soft, diffused daylight-equivalent lighting at approximately 5500K, coming from the upper left at roughly a 45 degree angle. Shadows should be visible but soft-edged, never harsh or blown out. Avoid any visible light source, lens flare, or specular hotspot on shiny fabrics such as satin or patent leather; instead angle the key light so highlights read as a gentle gradient across the surface. Metal hardware such as zippers, buckles, and buttons should catch a small highlight to signal texture without glaring. Never use flat, shadowless lighting: internal testing shows it reads as a stock photo and converts worse than a photo with real, soft shadow. If the seller's raw upload shows harsh flash shadows or an orange indoor cast, correct the direction and color temperature in the generated photo rather than replicating the mistake.\n\nA secondary, much dimmer fill light from the lower right can be used to lift shadow detail on dark garments such as black denim or navy wool, but it should never fully cancel the primary shadow direction established by the key light, since a shadowless render is the single most common reason a generated photo gets sent back for reshoot in our weekly quality audit.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Listing request for photo generation, submitted from the seller review queue.\n\nGarment summary from our classifier:\n- Category: midi-dress\n- Material: wool-blend\n- Colors: Deep forest green with brass trim\n- Pattern: houndstooth\n- Condition note: small pull in the wool near the left hem, about half an inch across, not visible when worn\n- Suggested listing name: Vintage wool-blend houndstooth midi dress with brass button trim\n\nBefore generating the final photo, review our full photography style guide below so the output matches house style exactly, especially the sections on lighting and on this garment's category. Pay particular attention to keeping the hem defect visible but softly lit rather than retouched away entirely: ThreadLoop's seller agreement requires every listing photo to represent the item's actual condition, and our trust team spot-checks generated photos against the classifier's defect_notes field weekly.\n\nThree reference photos follow this brief, each with a short caption explaining what it establishes. Match their lighting, background, and crop as closely as this garment's shape allows, then apply the category-specific guidance for dresses from the style guide below.\n\n\n\n## Lighting standards\n\nEvery ThreadLoop listing photo uses soft, diffused daylight-equivalent lighting at approximately 5500K, coming from the upper left at roughly a 45 degree angle. Shadows should be visible but soft-edged, never harsh or blown out. Avoid any visible light source, lens flare, or specular hotspot on shiny fabrics such as satin or patent leather; instead angle the key light so highlights read as a gentle gradient across the surface. Metal hardware such as zippers, buckles, and buttons should catch a small highlight to signal texture without glaring. Never use flat, shadowless lighting: internal testing shows it reads as a stock photo and converts worse than a photo with real, soft shadow. If the seller's raw upload shows harsh flash shadows or an orange indoor cast, correct the direction and color temperature in the generated photo rather than replicating the mistake.\n\nA secondary, much dimmer fill light from the lower right can be used to lift shadow detail on dark garments such as black denim or navy wool, but it should never fully cancel the primary shadow direction established by the key light, since a shadowless render is the single most common reason a generated photo gets sent back for reshoot in our weekly quality audit.\n\n## Background and surface\n\nThe default background for flatlay garment photos is a seamless, slightly warm white (roughly RGB 250,248,244), photographed as a large surface with no visible seams, wrinkles, or dust. For hung or draped garments, use a neutral light-gray backdrop with a subtle gradient darkening toward the edges of frame. Never include a busy room background, furniture, or any part of a human body unless the brief explicitly calls for a worn shot. Props are allowed only if the brief names them; do not invent a coffee cup, plant, or magazine to 'add lifestyle' unless asked. The surface should always be large enough that the garment's full silhouette sits with even margin on all sides, roughly ten percent of the frame width.\n\nWhen the brief mentions a specific defect location, keep the surrounding surface plain enough that the defect isn't visually competing with a texture or pattern in the background itself; a busy woven basket surface behind a lightly pilled sweater, for instance, makes the pilling much harder to judge at a glance, which works against the transparency goal of the whole photo.\n\n## Category guide: dresses and tops\n\nDresses and tops should be shot as a flatlay by default unless the brief requests a hung or worn shot. Arrange sleeves at a natural, slightly relaxed angle rather than perfectly symmetrical, which reads as artificial. Necklines should be gently opened to their natural shape, not pinned flat. For dresses with a waist seam or belt, let the fabric below the waist fall with a soft curve rather than lying perfectly flat, to suggest how it will drape when worn. Any pattern, such as a print or weave, should remain crisp and readable at normal zoom; never let the generated texture moire or blur into a flat color.\n\n## Category guide: outerwear and knitwear\n\nOuterwear should be shot with enough loft and dimension to read as a real, three-dimensional garment rather than a paper cutout: a coat or jacket photographed flat should still show the collar standing slightly, and cuffs kept open rather than collapsed. Knitwear needs visible stitch texture, especially cable or rib knits, since stitch definition is one of the top things buyers zoom in on. Never smooth a chunky knit into a flat, glossy surface. Zippers should be shown at least partially closed unless the brief specifies otherwise, since a fully open zipper on a jacket flatlay tends to look unintentional. Faux fur or shearling trim should keep individual strand definition rather than collapsing into a solid block of color, and any lining visible at a cuff or hem should match the color and pattern described in the brief exactly.",
+                "type": "text"
+              },
+              {
+                "text": "Reference 1: our standard flatlay lighting setup for wool dresses",
+                "type": "text"
+              },
+              {
+                "fileUri": "https://media.example.com/node_gemini_image_url_listing__W1794924.jpg",
+                "mimeType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Reference 2: close-up hardware lighting we use for buttons, buckles, and zippers",
+                "type": "text"
+              },
+              {
+                "fileUri": "https://media.example.com/node_gemini_image_url_listing__W3291732.jpg",
+                "mimeType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Generate the final listing photo for this item now: a forest green wool-blend midi dress with a subtle houndstooth weave and brass button trim down the front placket, currently listed with one small defect that must stay visible, a half-inch pull in the wool near the left hem, so frame the shot from an angle similar to reference 1 where that area is gently lit rather than hidden in shadow; use reference 2's hardware lighting for the brass buttons so they read as brass rather than gold or silver; use reference 3 to match how a houndstooth weave should catch light and drape when laid flat, keeping the pattern crisp and never letting it moire; output a single overhead flatlay photo on a seamless white background with no visible model, mannequin, brand tag, or logo anywhere in frame, cropped to a 4:5 ratio for the mobile listing feed.",
+                "type": "text"
+              },
+              {
+                "fileUri": "https://media.example.com/node_gemini_image_url_listing__W9208107.jpg",
+                "mimeType": "image/jpeg",
+                "type": "file"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "mimeType": "image/jpeg",
+                "dataUrl": "data:image/jpeg;base64",
+                "type": "image"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}
