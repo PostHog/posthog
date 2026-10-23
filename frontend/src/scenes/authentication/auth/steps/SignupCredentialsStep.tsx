@@ -7,12 +7,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 
 import { ConnectTitle } from '../components/ConnectTitle'
-import { NoAccountInRegionNotice } from '../components/NoAccountInRegionNotice'
+import { OtherRegionNotice } from '../components/OtherRegionNotice'
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
 import { signupLogic } from '../signupLogic'
 
@@ -64,16 +65,14 @@ export function SignupCredentialsStep(): JSX.Element {
                 }
                 sub={greeting}
             />
-            <NoAccountInRegionNotice email={signupEmail} />
+            <OtherRegionNotice email={signupEmail} reason="no_account" />
             {passkeyError && (
-                <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
-                    <span>{passkeyError}</span>
-                </div>
+                <AuthBanner variant="danger" className="mb-4">
+                    {passkeyError}
+                </AuthBanner>
             )}
             {passkeyRegistered ? (
-                <div className="AuthScene__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary border border-dashed rounded">
-                    Passkey registered. Continue below.
-                </div>
+                <AuthBanner variant="success">Passkey registered. Continue below.</AuthBanner>
             ) : (
                 <LemonButton
                     type="secondary"

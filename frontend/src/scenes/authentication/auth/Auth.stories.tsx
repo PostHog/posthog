@@ -53,6 +53,8 @@ type StoryArgs = {
     pendingOAuthConnection: boolean
     arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
+    signedOutForSessionRisk: boolean
+    noSignInMethod: boolean
 }
 
 const EMAIL = 'test@posthog.com'
@@ -90,6 +92,8 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
+        signedOutForSessionRisk: { control: 'boolean', name: 'Signed out for session risk' },
+        noSignInMethod: { control: 'boolean', name: 'Account has no sign-in method' },
     },
     args: {
         entry: 'login',
@@ -105,6 +109,8 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: false,
         arrivedFromWebsite: false,
         hasLoggedInBefore: true,
+        signedOutForSessionRisk: false,
+        noSignInMethod: false,
     },
 }
 export default meta
@@ -127,6 +133,8 @@ const Template: StoryFn<StoryArgs> = ({
     pendingOAuthConnection,
     arrivedFromWebsite,
     hasLoggedInBefore,
+    signedOutForSessionRisk,
+    noSignInMethod,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookies while it mounts during this same render.
@@ -157,6 +165,7 @@ const Template: StoryFn<StoryArgs> = ({
                 account_exists: !NEW_ACCOUNT_STEPS.includes(step),
                 sso_enforcement: enforcement,
                 saml_available: samlAvailable || step === 'New person on an SSO domain',
+                password_login_available: !noSignInMethod,
             },
             '/api/signup/precheck': {
                 email_exists: false,
@@ -168,8 +177,11 @@ const Template: StoryFn<StoryArgs> = ({
     useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
 
     useEffect(() => {
-        router.actions.push(entry === 'signup' ? '/signup' : '/login')
-    }, [entry])
+        router.actions.push(
+            entry === 'signup' ? '/signup' : '/login',
+            signedOutForSessionRisk ? { reason: 'session_risk' } : {}
+        )
+    }, [entry, signedOutForSessionRisk])
 
     useEffect(() => {
         arrivedFromWebsiteLogic.findMounted()?.actions.setArrivedFromWebsite(arrivedFromWebsite)
@@ -269,3 +281,11 @@ PendingInvite.args = { step: 'Pending invite' }
 export const NewPersonOnSSODomain: StoryFn<StoryArgs> = Template.bind({})
 NewPersonOnSSODomain.storyName = 'New person on an SSO domain'
 NewPersonOnSSODomain.args = { step: 'New person on an SSO domain' }
+
+export const SignedOutForSessionRisk: StoryFn<StoryArgs> = Template.bind({})
+SignedOutForSessionRisk.storyName = 'Signed out for session risk'
+SignedOutForSessionRisk.args = { signedOutForSessionRisk: true }
+
+export const NoSignInMethod: StoryFn<StoryArgs> = Template.bind({})
+NoSignInMethod.storyName = 'Account with no sign-in method'
+NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: false, github: false, gitlab: false }
