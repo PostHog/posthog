@@ -5,6 +5,7 @@ import {
     BareEmailAddressSchema,
     EmailHeaderSchema,
     EmailTagSchema,
+    MAX_EMAIL_COPIES,
     MAX_EMAIL_HEADERS,
     MAX_EMAIL_TAGS,
 } from '~/cdp/schema/emailFields'
@@ -40,8 +41,8 @@ export const AcceptedSendSchema = z
             .readonly()
             .optional(),
         replyTo: z.array(z.string()).readonly().optional(),
-        cc: z.array(BareEmailAddressSchema).max(10).readonly().optional(),
-        bcc: z.array(BareEmailAddressSchema).max(10).readonly().optional(),
+        cc: z.array(BareEmailAddressSchema).max(MAX_EMAIL_COPIES).readonly().optional(),
+        bcc: z.array(BareEmailAddressSchema).max(MAX_EMAIL_COPIES).readonly().optional(),
         headers: z.array(EmailHeaderSchema.readonly()).max(MAX_EMAIL_HEADERS).readonly().optional(),
         tags: z.array(EmailTagSchema.readonly()).max(MAX_EMAIL_TAGS).readonly().optional(),
         tracking: z.object({ captureEngagement: z.boolean() }).readonly(),

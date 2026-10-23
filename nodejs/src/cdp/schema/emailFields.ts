@@ -20,6 +20,7 @@ const HEADERS_POSTHOG_SETS = new Set([
 ])
 const HEADER_PREFIXES_POSTHOG_SETS = ['content-', 'x-posthog-', 'x-ses-']
 
+export const MAX_EMAIL_COPIES = 10
 export const MAX_EMAIL_HEADERS = 10
 export const MAX_EMAIL_TAGS = 10
 export const RESERVED_EMAIL_TAG_PREFIX = 'ph_'
