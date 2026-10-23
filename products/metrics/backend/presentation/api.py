@@ -374,6 +374,12 @@ class _MetricSeriesSerializer(serializers.Serializer):
         allow_null=True,
         help_text='UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.',
     )
+    histogram_bounds = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        allow_null=True,
+        help_text="Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.",
+    )
 
 
 class _MetricQueryResponseSerializer(serializers.Serializer):

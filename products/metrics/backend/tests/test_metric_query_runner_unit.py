@@ -7,7 +7,13 @@ from parameterized import parameterized
 from posthog.hogql import ast
 
 from products.metrics.backend.formula import evaluate, parse_formula
-from products.metrics.backend.metric_query_runner import _active_since_expr, _histogram_quantile, _pick_interval
+from products.metrics.backend.metric_query_runner import (
+    _active_since_expr,
+    _exponential_upper_edges,
+    _histogram_quantile,
+    _merge_histograms,
+    _pick_interval,
+)
 
 
 class TestPickInterval:
@@ -47,6 +53,64 @@ class TestHistogramQuantileInterpolation:
     )
     def test_interpolation(self, _name, q, bounds, counts, expected):
         assert abs(_histogram_quantile(q, bounds, counts) - expected) < 1e-9
+
+
+class TestExponentialUpperEdges:
+    # Ingest stores each exponential bucket's lower edge. The quantile reads upper edges.
+    @parameterized.expand(
+        [
+            ("positive_buckets", [1.0, 2.0, 4.0], [1, 2, 3], [1.0, 2.0, 4.0, 8.0], [0, 1, 2, 3]),
+            ("zero_bucket_first", [0.0, 1.0, 2.0], [5, 1, 1], [0.0, 1.0, 2.0, 4.0], [5, 0, 1, 1]),
+            ("one_bucket_keeps_the_lower_edge", [1.0], [3], [1.0], [3]),
+            ("empty", [], [], [], []),
+        ]
+    )
+    def test_upper_edges(self, _name, bounds, counts, expected_bounds, expected_counts):
+        assert _exponential_upper_edges(bounds, counts) == (expected_bounds, expected_counts)
+
+    def test_quantile_lands_inside_the_true_bucket(self):
+        bounds, counts = _exponential_upper_edges([0.1, 0.2, 0.4], [0, 10, 0])
+        assert abs(_histogram_quantile(0.5, bounds, counts) - 0.3) < 1e-9
+
+
+class TestMergeHistograms:
+    @parameterized.expand(
+        [
+            (
+                "same_layout_sums",
+                [([0.1, 0.5], [1.0, 2.0, 3.0]), ([0.1, 0.5], [1.0, 2.0, 3.0])],
+                [0.1, 0.5],
+                [2.0, 4.0, 6.0],
+            ),
+            (
+                "coarse_bucket_splits_by_width",
+                [([1.0], [10.0, 0.0]), ([0.5, 1.0], [4.0, 6.0, 0.0])],
+                [0.5, 1.0],
+                [9.0, 11.0, 0.0],
+            ),
+            (
+                "overflow_goes_to_the_next_bucket_up",
+                [([1.0], [0.0, 3.0]), ([2.0, 4.0], [0.0, 0.0, 0.0])],
+                [1.0, 2.0, 4.0],
+                [0.0, 3.0, 0.0, 0.0],
+            ),
+            (
+                "overflow_above_every_edge_stays_overflow",
+                [([4.0], [0.0, 3.0]), ([2.0], [1.0, 0.0])],
+                [2.0, 4.0],
+                [1.0, 0.0, 3.0],
+            ),
+            ("one_layout_is_unchanged", [([0.1, 0.5], [1.0, 2.0, 3.0])], [0.1, 0.5], [1.0, 2.0, 3.0]),
+        ]
+    )
+    def test_merge(self, _name, distributions, expected_bounds, expected_counts):
+        bounds, counts = _merge_histograms(distributions)
+        assert bounds == expected_bounds
+        assert counts == pytest.approx(expected_counts)
+
+    def test_total_count_is_kept(self):
+        _, counts = _merge_histograms([([0.1, 0.3, 0.9], [5.0, 7.0, 11.0, 2.0]), ([0.2, 1.0], [3.0, 4.0, 1.0])])
+        assert sum(counts) == pytest.approx(33.0)
 
 
 class TestFormulaParser:

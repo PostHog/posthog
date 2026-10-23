@@ -164,15 +164,10 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         # The runner may coarsen the interval to stay within its bucket limit, so read its step.
         step = _interval_step(runner.interval)
 
-        # Rows: (time, bounds, bounds_variants, counts). Bounds variants must agree (same rule
-        # as the quantile runner) or the grid has no stable y axis.
-        distinct_bounds = {tuple(variant) for row in response.results for variant in row[2] if variant}
-        if len(distinct_bounds) > 1:
-            raise ExposedHogQLError(
-                "histogram bounds differ across the selected time range; "
-                "narrow the query with filters so all series share one bucket layout"
-            )
-        bounds = sorted(distinct_bounds)[0] if distinct_bounds else []
+        # Series can use different bucket layouts, so every time bucket merges onto the union of
+        # the edges. The grid then has one stable y axis.
+        bounds = runner.histogram_edges(response.results)
+        distributions = runner.merged_distributions(response.results, edges=bounds)
 
         # Assemble the grid: column per time bucket, row per bound, zero-filled.
         # `runner.date_to` is exclusive, so the last column is the bucket whose
@@ -193,8 +188,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             )
 
         counts = [[0 for _ in grid_times] for _ in bounds]
-        for row in response.results:
-            time_val = row[0]
+        for (time_val, *_), (_, merged_counts, _) in distributions.items():
             if isinstance(time_val, datetime):
                 time_key = _grid_time_key(time_val.astimezone(grid_start.tzinfo))
             else:
@@ -203,11 +197,8 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             column = time_index.get(time_key)
             if column is None:
                 continue
-            row_bounds = list(row[1])
-            row_counts = list(row[3])
-            for bound_idx, bound in enumerate(row_bounds):
-                if bound_idx < len(bounds) and bounds[bound_idx] == bound and bound_idx < len(row_counts):
-                    counts[bound_idx][column] += int(row_counts[bound_idx])
+            for bound_idx in range(len(bounds)):
+                counts[bound_idx][column] += round(merged_counts[bound_idx])
 
         # The base response requires `results`; the heatmap grid lives in times/bounds/counts,
         # so `results` is returned as null.

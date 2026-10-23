@@ -121,19 +121,23 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
     # an exponential histogram) blends into one heatmap.
     def test_metric_type_filters_to_that_type(self):
         self._seed_histogram([(self.anchor, [10, 10, 10, 0])])
-        self._seed_histogram([(self.anchor, [5, 5, 5, 0])], metric_type="exponential_histogram")
+        # Ingest stores exponential lower edges; the grid rows are upper edges.
+        self._seed_histogram([(self.anchor, [5, 5, 5])], bounds=[0.1, 0.2, 0.4], metric_type="exponential_histogram")
 
         response = self._run(metricType="exponential_histogram")
 
-        second_minute = [response.counts[b][1] for b in range(len(self.BOUNDS))]
-        self.assertEqual(second_minute, [5, 5, 5])
+        self.assertEqual(response.bounds, [0.1, 0.2, 0.4, 0.8])
+        self.assertEqual([row[1] for row in response.counts], [0, 5, 5, 5])
 
-    def test_rejects_mixed_bucket_layouts(self):
+    def test_merges_mixed_bucket_layouts_onto_their_union(self):
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], bounds=[0.1, 0.5, 1.0])
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], bounds=[0.2, 1.0, 2.0])
 
-        with self.assertRaises(Exception):
-            self._run()
+        response = self._run()
+
+        self.assertEqual(response.bounds, [0.1, 0.2, 0.5, 1.0, 2.0])
+        # The (0, 0.2] bucket splits evenly over (0, 0.1] and (0.1, 0.2].
+        self.assertEqual([row[1] for row in response.counts], [15, 5, 0, 0, 0])
 
     def test_no_trailing_column_when_date_to_sits_on_a_bucket_boundary(self):
         # date_to is exclusive: a range ending exactly on a bucket start has no

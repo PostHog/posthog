@@ -1,0 +1,65 @@
+import { OtelMetricTypeEnumApi } from '../generated/api.schemas'
+import { coarsePercentileResolution, suggestedBucketEdges } from './metricsPercentileResolution'
+import { supportsHistogramQuantile } from './metricsViewerLogic'
+
+const DJANGO_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1]
+
+const series = (
+    values: (number | null)[],
+    bounds: number[] | null = DJANGO_BUCKETS
+): { histogram_bounds: number[] | null; points: { time: string; value: number | null }[] } => ({
+    histogram_bounds: bounds,
+    points: values.map((value, index) => ({ time: `2026-10-23T10:0${index}:00Z`, value })),
+})
+
+describe('coarsePercentileResolution', () => {
+    it('names the bucket most points fall in when its edges are far apart', () => {
+        const resolution = coarsePercentileResolution([series([0.45, 0.5, 0.62, 1.2])])
+
+        expect(resolution).toEqual({ edges: DJANGO_BUCKETS, lower: 0.3, upper: 0.9, share: 0.75 })
+    })
+
+    it('counts a point below the first edge as the bucket from zero', () => {
+        expect(coarsePercentileResolution([series([0.05, 0.06])])).toMatchObject({ lower: 0, upper: 0.1 })
+    })
+
+    it('counts a point above the last edge as the open overflow bucket', () => {
+        expect(coarsePercentileResolution([series([9, 9.5])])).toMatchObject({ lower: 8.1, upper: Infinity })
+    })
+
+    it('stays quiet for fine buckets such as an exponential histogram', () => {
+        const fine = Array.from({ length: 40 }, (_, index) => 0.1 * 1.09 ** index)
+
+        expect(coarsePercentileResolution([series([0.45, 0.5, 0.62], fine)])).toBeNull()
+    })
+
+    it('stays quiet without histogram bounds or values', () => {
+        expect(coarsePercentileResolution([series([0.5], null)])).toBeNull()
+        expect(coarsePercentileResolution([series([null, null])])).toBeNull()
+        expect(coarsePercentileResolution([])).toBeNull()
+    })
+})
+
+describe('suggestedBucketEdges', () => {
+    it('spans the plotted values with edges that grow by a fixed step', () => {
+        const edges = suggestedBucketEdges([0.45, 1.2])
+
+        expect(edges[0]).toBeLessThanOrEqual(0.45 / 2)
+        expect(edges[edges.length - 1]).toBeGreaterThanOrEqual(1.2 * 2)
+        expect(edges.length).toBeLessThanOrEqual(12)
+        edges.slice(1).forEach((edge, index) => expect(edge / edges[index]).toBeLessThanOrEqual(1.6))
+    })
+
+    it('returns no edges without positive values', () => {
+        expect(suggestedBucketEdges([])).toEqual([])
+        expect(suggestedBucketEdges([0])).toEqual([])
+    })
+})
+
+describe('supportsHistogramQuantile', () => {
+    it('offers percentiles for explicit and exponential histograms', () => {
+        expect(supportsHistogramQuantile(OtelMetricTypeEnumApi.Histogram)).toBe(true)
+        expect(supportsHistogramQuantile(OtelMetricTypeEnumApi.ExponentialHistogram)).toBe(true)
+        expect(supportsHistogramQuantile(OtelMetricTypeEnumApi.Gauge)).toBe(false)
+    })
+})

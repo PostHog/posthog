@@ -231,9 +231,12 @@ const HISTOGRAM_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
     OtelMetricTypeEnumApi.Summary,
 ]
 // Ingest keeps these types' bucket distribution apart from the scalar value, which holds the running
-// sum of observations. Exponential histograms are left out: ingest stores each bucket's lower edge,
-// and the backend quantile reads every bound as an upper edge.
-const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [OtelMetricTypeEnumApi.Histogram]
+// sum of observations. The backend quantile turns the stored lower edges of exponential buckets into
+// upper edges.
+const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
+    OtelMetricTypeEnumApi.Histogram,
+    OtelMetricTypeEnumApi.ExponentialHistogram,
+]
 
 export const supportsHistogramQuantile = (metricType: OtelMetricTypeEnumApi | null): boolean =>
     !!metricType && HISTOGRAM_QUANTILE_METRIC_TYPES.includes(metricType)
@@ -1532,6 +1535,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             metric_name: series.metricName ?? null,
                             clause: series.clause ?? null,
                             unit: series.unit ?? null,
+                            histogram_bounds: series.histogramBounds ?? null,
                         }))
                     }
                     const queryPayload = values.queryPayload
