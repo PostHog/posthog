@@ -477,6 +477,7 @@ def _managed_warehouse_exemption(
         return None
 
     from products.managed_warehouse.backend.facade.api import get_managed_warehouse_target  # noqa: PLC0415
+    from products.managed_warehouse.backend.managed_ingress import _ingress_ips  # noqa: PLC0415
     from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX  # noqa: PLC0415
 
     organization_id = _managed_warehouse_organization_id(team_id)
@@ -486,7 +487,7 @@ def _managed_warehouse_exemption(
     target = get_managed_warehouse_target(organization_id, source_type=source_type)
     if target is None:
         return None
-    if not target.accepts(_normalize_host(host), port, addresses):
+    if not target.accepts(_normalize_host(host), port, addresses, _ingress_ips()):
         return None
 
     logger.info(

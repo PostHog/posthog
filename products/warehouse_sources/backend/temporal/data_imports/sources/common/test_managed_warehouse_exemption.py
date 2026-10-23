@@ -37,6 +37,7 @@ _INGRESS_MODULE = "products.managed_warehouse.backend.managed_ingress"
 _NLB_A = "10.1.0.1"
 _NLB_B = "10.1.0.2"
 _TENANT_HOST = "acme.dw.us.postwh.com"
+_INGRESS_SET = (_NLB_A, _NLB_B)
 
 
 def _target(host: str = _TENANT_HOST, ports: frozenset[int] = frozenset({5432})) -> ManagedWarehouseTarget:
@@ -48,62 +49,62 @@ class TestManagedWarehouseAccepts(SimpleTestCase):
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_the_organizations_own_host_on_its_own_port_at_an_ingress_address_is_accepted(self) -> None:
-        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A]) is True
+        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A], _INGRESS_SET) is True
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_every_resolved_address_is_allowed(self) -> None:
-        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A, _NLB_B]) is True
+        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A, _NLB_B], _INGRESS_SET) is True
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_a_neighbouring_tenant_host_is_refused(self) -> None:
         # The signal the actor used to enumerate tenants: a guessed label that still resolves
         # to the shared load balancer must not be exempted.
-        assert _target().accepts("zzq7x9neg.dw.us.postwh.com", 5432, [_NLB_A]) is False
+        assert _target().accepts("zzq7x9neg.dw.us.postwh.com", 5432, [_NLB_A], _INGRESS_SET) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_a_different_tenant_at_the_same_address_is_refused(self) -> None:
         # Both tenant names answer with the same ingress address, so the address check alone
         # cannot separate them. The host comparison is what stops one tenant reaching another.
-        assert _target().accepts("globex.dw.us.postwh.com", 5432, [_NLB_A]) is False
+        assert _target().accepts("globex.dw.us.postwh.com", 5432, [_NLB_A], _INGRESS_SET) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_a_port_the_source_type_is_not_served_on_is_refused(self) -> None:
         # A Postgres source must not be able to reach the gateway listener on the same address.
-        assert _target().accepts(_TENANT_HOST, 443, [_NLB_A]) is False
+        assert _target().accepts(_TENANT_HOST, 443, [_NLB_A], _INGRESS_SET) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_a_missing_port_is_refused(self) -> None:
         # `None` must deny. A branch that treats it as "no port to check" restores the
         # any-port hole the exemption had.
-        assert _target().accepts(_TENANT_HOST, None, [_NLB_A]) is False
+        assert _target().accepts(_TENANT_HOST, None, [_NLB_A], _INGRESS_SET) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_an_address_outside_the_ingress_set_is_refused(self) -> None:
         # A dangling or taken-over `postwh.com` record answers with an address that is not ours.
-        assert _target().accepts(_TENANT_HOST, 5432, ["10.0.0.7"]) is False
+        assert _target().accepts(_TENANT_HOST, 5432, ["10.0.0.7"], _INGRESS_SET) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_one_foreign_address_in_the_set_is_refused(self) -> None:
         # A mixed answer is the DNS-rebinding shape: one approved address to pass a check, one
         # the connection could actually reach. Every address must agree.
-        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A, "10.0.0.7"]) is False
+        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A, "10.0.0.7"], _INGRESS_SET) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_an_empty_address_set_is_refused(self) -> None:
         # An empty set is a failed lookup, not an approval.
-        assert _target().accepts(_TENANT_HOST, 5432, []) is False
+        assert _target().accepts(_TENANT_HOST, 5432, [], _INGRESS_SET) is False
 
-    @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS="")
     def test_an_unconfigured_ingress_set_refuses_everything(self) -> None:
         # The fail-closed default. A deployment that has not been given the address set refuses
-        # managed warehouse hosts rather than trusting the name.
-        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A]) is False
+        # managed warehouse hosts rather than trusting the name. The caller passes the set, so an
+        # empty one is the refusal, not a setting the contract reads.
+        assert _target().accepts(_TENANT_HOST, 5432, [_NLB_A], ()) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=_NLB_A)
     def test_an_ipv4_mapped_form_matches_its_ipv4_spelling(self) -> None:
         # The resolver can answer in either form, so a string comparison would refuse a real
         # address or, worse, accept the wrong one.
-        assert _target().accepts(_TENANT_HOST, 5432, [f"::ffff:{_NLB_A}"]) is True
+        assert _target().accepts(_TENANT_HOST, 5432, [f"::ffff:{_NLB_A}"], _INGRESS_SET) is True
 
 
 class TestManagedWarehouseHostShape(SimpleTestCase):
@@ -596,13 +597,13 @@ class TestHostComparisonIsNormalized(SimpleTestCase):
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=_NLB_A)
     def test_a_differently_cased_or_dotted_control_plane_host_still_matches(self, _name: str, stored: str) -> None:
         target = ManagedWarehouseTarget(host=stored, ports=frozenset({5432}))
-        assert target.accepts(_TENANT_HOST, 5432, [_NLB_A]) is True
+        assert target.accepts(_TENANT_HOST, 5432, [_NLB_A], _INGRESS_SET) is True
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=_NLB_A)
     def test_a_genuinely_different_host_is_still_refused(self) -> None:
         # Normalization must not become a fuzzy match.
         target = ManagedWarehouseTarget(host="globex.dw.us.postwh.com", ports=frozenset({5432}))
-        assert target.accepts(_TENANT_HOST, 5432, [_NLB_A]) is False
+        assert target.accepts(_TENANT_HOST, 5432, [_NLB_A], _INGRESS_SET) is False
 
 
 class TestTrinoConnectPathAgreesWithValidation(SimpleTestCase):
