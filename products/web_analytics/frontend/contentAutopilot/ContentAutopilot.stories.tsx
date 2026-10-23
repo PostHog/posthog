@@ -7,19 +7,26 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    AEOPromptApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
     ContentAutopilotRunApi,
     ContentAutopilotSiteProfileApi,
 } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
-import { type ContentAutopilotProposalTab, contentAutopilotLogic } from './contentAutopilotLogic'
+import {
+    type ContentAutopilotProposalTab,
+    type ContentAutopilotWorkspaceTab,
+    contentAutopilotLogic,
+} from './contentAutopilotLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
     EXAMPLE_FAILED_PROPOSAL_LIST,
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
+    EXAMPLE_PROMPT_TOPICS,
+    EXAMPLE_PROMPTS,
     EXAMPLE_PROPOSAL,
     EXAMPLE_PROPOSAL_LIST,
     EXAMPLE_RUN,
@@ -31,11 +38,13 @@ const workspaceHandlers = ({
     runs = [],
     proposals = [],
     opportunities = [],
+    prompts = [],
 }: {
     profiles: ContentAutopilotSiteProfileApi[]
     runs?: ContentAutopilotRunApi[]
     proposals?: ContentAutopilotProposalListApi[]
     opportunities?: ContentAutopilotOpportunityApi[]
+    prompts?: AEOPromptApi[]
 }): ReturnType<typeof mswDecorator> =>
     mswDecorator({
         get: {
@@ -59,6 +68,11 @@ const workspaceHandlers = ({
                 200,
                 { count: opportunities.length, next: null, previous: null, results: opportunities },
             ],
+            '/api/projects/:team_id/aeo_prompts/': () => [
+                200,
+                { count: prompts.length, next: null, previous: null, results: prompts },
+            ],
+            '/api/projects/:team_id/aeo_prompts/topics/': () => [200, prompts.length ? EXAMPLE_PROMPT_TOPICS : []],
         },
         post: {
             '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/refresh/': () => [200, opportunities],
@@ -175,14 +189,14 @@ ProposalReview.decorators = [
     }),
 ]
 
-const DraftsTabStory = (): JSX.Element => {
+const WorkspaceTabStory = ({ tab }: { tab: ContentAutopilotWorkspaceTab }): JSX.Element => {
     const { profileDataLoaded } = useValues(contentAutopilotLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     useEffect(() => {
         if (profileDataLoaded) {
-            setWorkspaceTab('drafts')
+            setWorkspaceTab(tab)
         }
-    }, [profileDataLoaded, setWorkspaceTab])
+    }, [profileDataLoaded, setWorkspaceTab, tab])
     return (
         <div className="p-6">
             <ContentAutopilot />
@@ -190,7 +204,7 @@ const DraftsTabStory = (): JSX.Element => {
     )
 }
 
-export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => <DraftsTabStory />
+export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="drafts" />
 ActiveRun.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 ActiveRun.decorators = [
     workspaceHandlers({
@@ -201,7 +215,7 @@ ActiveRun.decorators = [
     }),
 ]
 
-export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => <DraftsTabStory />
+export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="drafts" />
 DraftsTab.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],
@@ -223,3 +237,13 @@ DraftsTab.decorators = [
 
 export const ProposalPreview: StoryFn<typeof ContentAutopilot> = () => <ProposalStory />
 ProposalPreview.decorators = ProposalReview.decorators
+
+export const PromptsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="prompts" />
+PromptsTab.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [EXAMPLE_RUN],
+        opportunities: EXAMPLE_OPPORTUNITIES,
+        prompts: EXAMPLE_PROMPTS,
+    }),
+]

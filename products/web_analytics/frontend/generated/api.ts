@@ -12,6 +12,7 @@ import type {
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
+    AEOPromptTopicApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
@@ -115,7 +116,7 @@ export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListP
 }
 
 /**
- * Lists the project's AEO prompt set, grouped by topic, one page at a time.
+ * Lists the project's AEO prompt set, grouped by topic, one page at a time. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const aeoPromptsList = async (
@@ -186,6 +187,21 @@ export const aeoPromptsBulkImport = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
+
+export const getAeoPromptsTopicsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/topics/`
+}
+
+/**
+ * Lists the topics in the project's AEO prompt set, with the number of prompts in each.
+ * @summary List AEO prompt topics
+ */
+export const aeoPromptsTopics = async (projectId: string, options?: RequestInit): Promise<AEOPromptTopicApi[]> => {
+    return apiMutator<AEOPromptTopicApi[]>(getAeoPromptsTopicsUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -41,7 +41,7 @@ python manage.py run_aeo_citation_checks --team-id <id>
 
 ### Import over the API
 
-`/api/projects/<id>/aeo_prompts/` lists the prompt set, turns a prompt on or off (`PATCH {"active": false}`), and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=`; each prompt carries `latest_checks`, its newest check per engine), lists topics with `GET topics/`, turns a prompt on or off (`PATCH {"active": false}`), and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
 
 ```bash
 curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
@@ -98,7 +98,7 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
 
 ## Content autopilot
 
-Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab lists the prompt set with each prompt's latest result per engine. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
 
 ## Cost
 
@@ -106,4 +106,4 @@ Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search
 
 ## Out of scope
 
-Seeding prompts from first-party data, a UI for the prompt set, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.
+Seeding prompts from first-party data, editing the prompt set in the UI, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.

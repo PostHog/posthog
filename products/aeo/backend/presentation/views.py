@@ -1,7 +1,7 @@
 import math
 from typing import Any, cast
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -14,14 +14,22 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import posthog_feature_flag_enabled
 
-from products.aeo.backend.facade.api import get_prompt, import_prompts, list_prompts, set_prompt_active
+from products.aeo.backend.facade.api import (
+    get_prompt,
+    import_prompts,
+    list_prompt_topics,
+    list_prompts,
+    set_prompt_active,
+)
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     PROMPT_TOPIC_MAX_LENGTH,
     Prompt,
+    PromptEngineCheck,
     PromptImport,
     PromptImportResult,
     PromptNotFoundError,
+    PromptTopic,
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
@@ -35,7 +43,28 @@ EXTERNAL_VISIBILITY_HELP = (
 )
 
 
+class AEOPromptEngineCheckSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptEngineCheck
+        ref_name = "AEOPromptEngineCheck"
+        extra_kwargs = {
+            "engine": {
+                "help_text": "Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'."
+            },
+            "cited": {"help_text": "Whether the answer cited a URL on one of the target domains."},
+            "check_failed": {
+                "help_text": "The engine did not answer. When true, 'cited' is false and says nothing about citations."
+            },
+            "checked_at": {"help_text": "When the check ran."},
+        }
+
+
 class AEOPromptSerializer(DataclassSerializer):
+    latest_checks = AEOPromptEngineCheckSerializer(
+        many=True,
+        help_text="The most recent check for each answer engine that ran the prompt. Empty when the prompt never ran.",
+    )
+
     class Meta:
         dataclass = Prompt
         ref_name = "AEOPrompt"
@@ -50,6 +79,25 @@ class AEOPromptSerializer(DataclassSerializer):
             "external_visibility": {"help_text": EXTERNAL_VISIBILITY_HELP + " Null when the import carried none."},
             "created_at": {"help_text": "When the prompt was added."},
             "updated_at": {"help_text": "When the prompt last changed."},
+        }
+
+
+class AEOPromptListQuerySerializer(serializers.Serializer):
+    topic = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        help_text="Only list prompts with this topic. An empty value lists the prompts that have no topic.",
+    )
+
+
+class AEOPromptTopicSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptTopic
+        ref_name = "AEOPromptTopic"
+        extra_kwargs = {
+            "topic": {"help_text": "Topic name. Empty for prompts that have no topic."},
+            "prompts": {"help_text": "How many prompts in the set have this topic."},
         }
 
 
@@ -104,7 +152,7 @@ class AEOPromptImportResultSerializer(DataclassSerializer):
 
 class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "topics"]
     scope_object_write_actions = ["partial_update", "bulk_import"]
     pagination_class = PrecountedLimitOffsetPagination
 
@@ -116,17 +164,21 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             raise PermissionDenied("This feature is not available.")
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=AEOPromptListQuerySerializer,
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, grouped by topic, one page at a time.",
+        description="Lists the project's AEO prompt set, grouped by topic, one page at a time. Each prompt carries its latest check per answer engine.",
         responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
-    def list(self, request: Request, **kwargs: Any) -> Response:
+    def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
         prompts, count = list_prompts(
-            self.team_id, limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE, offset=paginator.get_offset(request)
+            self.team_id,
+            limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE,
+            offset=paginator.get_offset(request),
+            topic=request.validated_query_data.get("topic"),
         )
         paginator.set_count(count)
         page = self.paginate_queryset(prompts)
@@ -157,6 +209,17 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except PromptNotFoundError:
             raise NotFound()
         return Response(AEOPromptSerializer(prompt).data)
+
+    @validated_request(
+        operation_id="aeo_prompts_topics",
+        summary="List AEO prompt topics",
+        description="Lists the topics in the project's AEO prompt set, with the number of prompts in each.",
+        responses={200: OpenApiResponse(response=AEOPromptTopicSerializer(many=True))},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def topics(self, request: Request, **kwargs: Any) -> Response:
+        return Response(AEOPromptTopicSerializer(list_prompt_topics(self.team_id), many=True).data)
 
     @validated_request(
         request_serializer=AEOPromptBulkImportRequestSerializer,
