@@ -268,6 +268,7 @@ __all__ = [
     "own_subscription_cloud_enabled",
     "can_bill_plan_unattended",
     "unattended_model_access_state",
+    "uses_own_subscription",
     "beacon_task_presence",
     "bootstrap_task_run",
     "SANDBOX_REPOSITORIES_ROOT",
@@ -4125,6 +4126,12 @@ def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
     if access.adapter is None:
         return None
     return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
+
+
+def uses_own_subscription(state: dict[str, Any] | None) -> bool:
+    """Whether a run bills to its owner's plan rather than to PostHog credits."""
+    run_state = state or {}
+    return any(run_state.get(f"{adapter}_model_access") == "own-subscription" for adapter in SUBSCRIPTION_PLAN_NAMES)
 
 
 def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:

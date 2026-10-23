@@ -45213,6 +45213,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -45235,6 +45236,7 @@ export namespace Schemas {
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
+      EarlySignificance: 'early_significance',
     } as const;
 
     /**
@@ -45299,7 +45301,8 @@ export namespace Schemas {
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-       * * `new_flag_no_traffic` - New Flag No Traffic */
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `early_significance` - Early Significance */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45339,6 +45342,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -45359,6 +45363,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -45395,6 +45400,7 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -77295,6 +77301,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetricList[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
@@ -99263,6 +99271,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetric[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
