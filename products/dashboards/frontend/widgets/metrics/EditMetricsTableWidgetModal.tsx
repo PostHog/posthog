@@ -85,6 +85,7 @@ function ColumnEditor({ column, index }: { column: MetricsTableColumn; index: nu
                 <LemonField.Pure label="Metric" className="flex-1 min-w-0">
                     <MetricNameFilter
                         value={column.metricName}
+                        allowCustomName
                         disabled={saving}
                         onChange={(metricName) => updateColumn(index, { metricName })}
                     />
