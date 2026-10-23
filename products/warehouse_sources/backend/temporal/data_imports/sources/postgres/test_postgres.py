@@ -5,6 +5,7 @@ import threading
 from collections.abc import Generator, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -3630,7 +3631,8 @@ class TestInvalidSSLNegotiationResponse:
 
         kwargs = connect_mock.call_args.kwargs
         assert kwargs["sslmode"] == "verify-full"
-        assert kwargs["sslrootcert"] != "/tmp/no.txt"
+        # A cancel request on the open connection reads the authority file again.
+        assert Path(kwargs["sslrootcert"]).read_text() == "CA PEM"
         assert "tls" not in kwargs
 
     def test_genuine_unsupported_ssl_still_raises_ssl_required(self):

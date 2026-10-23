@@ -1090,13 +1090,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             }
             with libpq_tls_kwargs(tls_options(config)) as tls_kwargs:
                 connection = psycopg.connect(**{**connect_kwargs, **tls_kwargs})
-            with connection as conn:
-                conn.adapters.register_loader("date", SafeDateLoader)
-                conn.adapters.register_loader("timestamp", SafeTimestampLoader)
-                conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
-                if statement_timeout_ms is not None:
-                    _set_session_statement_timeout(conn, statement_timeout_ms)
-                yield conn
+                with connection as conn:
+                    conn.adapters.register_loader("date", SafeDateLoader)
+                    conn.adapters.register_loader("timestamp", SafeTimestampLoader)
+                    conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+                    if statement_timeout_ms is not None:
+                        _set_session_statement_timeout(conn, statement_timeout_ms)
+                    yield conn
 
     # ------------------------------------------------------------------
     # Listing — batch queries run once during `get_schemas`

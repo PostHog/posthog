@@ -4,6 +4,7 @@ import re
 import math
 import time
 import errno
+import weakref
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -969,8 +970,17 @@ def _open_connection(
     `options` and why dropping it is safe.
     """
     if tls is not None:
-        with libpq_tls_kwargs(tls) as tls_kwargs:
-            return _open_connection(team_id=team_id, **{**connect_kwargs, **tls_kwargs})
+        tls_files = ExitStack()
+        tls_kwargs = tls_files.enter_context(libpq_tls_kwargs(tls))
+        try:
+            connection = _open_connection(team_id=team_id, **{**connect_kwargs, **tls_kwargs})
+        except BaseException:
+            tls_files.close()
+            raise
+        # libpq 17 reads the certificate files again for every `cancel_safe` request, so they must
+        # last as long as the connection.
+        weakref.finalize(connection, tls_files.close)
+        return connection
     connect_kwargs.update(
         pinned_host_kwargs(
             connect_kwargs["host"],

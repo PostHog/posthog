@@ -39,15 +39,18 @@ CERTIFICATE_ERRORS: dict[str, str] = {
     "certificate verify failed": (
         "PostHog could not verify your database's TLS certificate. Either an authority PostHog trusts did not "
         "sign it, or it does not match the host. Add the authority that signed it, check the host, or turn "
-        "off certificate verification."
+        "off certificate verification and remove the certificate authority."
     ),
     "does not match host name": (
         "Your database's TLS certificate does not match the host you entered. Use the hostname the "
-        "certificate was issued for, or turn off certificate verification."
+        "certificate was issued for, or turn off certificate verification and remove the certificate authority."
     ),
     "alert certificate required": _CLIENT_CERTIFICATE_REJECTED_ERROR,
     "alert bad certificate": _CLIENT_CERTIFICATE_REJECTED_ERROR,
     "alert unknown ca": _CLIENT_CERTIFICATE_REJECTED_ERROR,
+    # Postgres completes the TLS handshake and then rejects the certificate at its pg_hba check.
+    "certificate authentication failed": _CLIENT_CERTIFICATE_REJECTED_ERROR,
+    "connection requires a valid client certificate": _CLIENT_CERTIFICATE_REJECTED_ERROR,
 }
 
 

@@ -129,6 +129,11 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         if "publication" in message:
             return CDCErrorCategory.PUBLICATION_MISSING
 
+    # Before the authentication checks: Postgres reports a rejected client certificate as
+    # "certificate authentication failed", which the auth markers would otherwise claim.
+    if any(marker in message for marker in CERTIFICATE_ERRORS):
+        return CDCErrorCategory.CERTIFICATE_REJECTED
+
     # Authentication (SQLSTATE class 28) surfaces either as a mapped subclass (server-side)
     # or a bare OperationalError with a libpq message (connection-time). Check before the
     # generic OperationalError fallback, which these subclass.
@@ -146,8 +151,6 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         return CDCErrorCategory.PERMISSION_DENIED
 
     if isinstance(exc, psycopg.OperationalError):
-        if any(marker in message for marker in CERTIFICATE_ERRORS):
-            return CDCErrorCategory.CERTIFICATE_REJECTED
         if any(marker in message for marker in _IP_NOT_ALLOWED_MARKERS):
             return CDCErrorCategory.HOST_UNREACHABLE
         if any(marker in message for marker in _SSL_REQUIRED_MARKERS):

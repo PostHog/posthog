@@ -40,6 +40,11 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.CERTIFICATE_REJECTED,
             ),
             (
+                "client_certificate_rejected_by_pg_hba",
+                psycopg.OperationalError('connection failed: FATAL:  certificate authentication failed for user "u"'),
+                CDCErrorCategory.CERTIFICATE_REJECTED,
+            ),
+            (
                 "client_certificate_rejected",
                 psycopg.OperationalError("connection failed: SSL error: tlsv13 alert certificate required"),
                 CDCErrorCategory.CERTIFICATE_REJECTED,

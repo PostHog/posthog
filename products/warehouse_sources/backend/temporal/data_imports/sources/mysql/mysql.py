@@ -914,7 +914,8 @@ class _TLSRequiredConnection(_SourceConnection):
             raise pymysql.err.OperationalError(
                 CR.CR_SSL_CONNECTION_ERROR,
                 "The MySQL server did not offer a TLS connection. Enable TLS on the server, or turn off "
-                "certificate verification and remove the client certificate for this source.",
+                "certificate verification and remove the certificate authority and client certificate "
+                "for this source.",
             )
         super()._request_authentication()
 

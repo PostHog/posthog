@@ -229,9 +229,10 @@ class PostgresAdapter:
 
                     with request.timings.measure("postgres_connect", emit_span=True):
                         try:
-                            with libpq_tls_kwargs(tls_options(source_config)) as tls_kwargs:
-                                connection_kwargs.update(cast(PostgresConnectionKwargs, tls_kwargs))
-                                connection_context = psycopg.connect(**connection_kwargs)
+                            # The files must outlast the connect, because a cancel request reads them again.
+                            tls_kwargs = tunnel_stack.enter_context(libpq_tls_kwargs(tls_options(source_config)))
+                            connection_kwargs.update(cast(PostgresConnectionKwargs, tls_kwargs))
+                            connection_context = psycopg.connect(**connection_kwargs)
                         except (psycopg.Error, RuntimeError, ValueError) as error:
                             if source.is_managed_warehouse_ready:
                                 raise ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR) from error
