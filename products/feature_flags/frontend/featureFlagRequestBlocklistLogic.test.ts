@@ -12,12 +12,15 @@ import { featureFlagRequestBlocklistLogic } from './featureFlagRequestBlocklistL
 
 describe('featureFlagRequestBlocklistLogic', () => {
     let logic: ReturnType<typeof featureFlagRequestBlocklistLogic.build>
+    let patchedPayload: Partial<TeamType> | undefined
 
     beforeEach(() => {
+        patchedPayload = undefined
         useMocks({
             patch: {
                 '/api/environments/:id': async ({ request }) => {
                     const payload = (await request.json()) as Partial<TeamType>
+                    patchedPayload = payload
                     const config = payload.feature_flag_policy_config
                     return [
                         200,
@@ -70,11 +73,46 @@ describe('featureFlagRequestBlocklistLogic', () => {
 
     it('shows the saved lists after a blocklist save', async () => {
         logic.actions.setBlockedHosts(['EXAMPLE.com'])
+        logic.actions.setBlockedIps(['203.0.113.7'])
 
         await expectLogic(logic, () => {
             logic.actions.saveBlocklist()
         })
             .toDispatchActions(['updateCurrentTeamSuccess', 'clearDrafts'])
-            .toMatchValues({ draftBlockedHosts: null, blockedHosts: ['example.com'] })
+            .toMatchValues({
+                draftBlockedHosts: null,
+                draftBlockedIps: null,
+                blockedHosts: ['example.com'],
+                blockedIps: ['203.0.113.7'],
+            })
+    })
+
+    it('sends only the edited list, so a save keeps a newer change to the other list', async () => {
+        logic.actions.setBlockedHosts(['saved.example.com', 'draft.example.com'])
+
+        await expectLogic(logic, () => {
+            logic.actions.saveBlocklist()
+        }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+        expect(patchedPayload?.feature_flag_policy_config).toEqual({
+            blocked_hosts: ['saved.example.com', 'draft.example.com'],
+        })
+    })
+
+    it('keeps the drafts when the API rejects the save', async () => {
+        useMocks({
+            patch: {
+                '/api/environments/:id': () => [400, { type: 'validation_error', detail: 'Not a valid domain.' }],
+            },
+        })
+        logic.actions.setBlockedHosts(['*.example.com'])
+
+        await expectLogic(logic, () => {
+            logic.actions.saveBlocklist()
+        })
+            .toDispatchActions(teamLogic, ['updateCurrentTeamFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.draftBlockedHosts).toEqual(['*.example.com'])
     })
 })

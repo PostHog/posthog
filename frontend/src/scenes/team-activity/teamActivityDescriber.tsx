@@ -16,7 +16,6 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { Link } from 'lib/lemon-ui/Link'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
 import { isObject } from 'lib/utils/guards'
-import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
@@ -506,9 +505,6 @@ const TEAM_PROPERTIES_MAPPING: Record<
         for (const [field, label] of lists) {
             const beforeEntries = (before[field] ?? []) as string[]
             const afterEntries = (after[field] ?? []) as string[]
-            if (objectsEqual(beforeEntries, afterEntries)) {
-                continue
-            }
             const added = afterEntries.filter((entry) => !beforeEntries.includes(entry))
             const removed = beforeEntries.filter((entry) => !afterEntries.includes(entry))
             if (added.length) {
