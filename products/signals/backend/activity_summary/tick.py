@@ -41,7 +41,9 @@ from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     ActivitySummaryTierStats,
     daily_usage,
+    enrollment,
     feed_queue,
+    is_team_enrolled_for_generation,
     max_update_cost_usd,
     select_pairs,
     sync_pair_state,
@@ -84,6 +86,13 @@ class ActivitySummaryTickInput:
 
 
 @frozen
+class EnrollmentCounts:
+    qualifying_organizations: int = 0
+    enrolled_organizations: int = 0
+    enrolled_teams: int = 0
+
+
+@frozen
 class ActivitySummaryTickPlan:
     enabled: bool
     pairs: list[ActivitySummaryPair]
@@ -105,6 +114,7 @@ class ActivitySummaryTickPlan:
     max_error_rate: float = 1.0
     max_skip_backoff_hours: float = MAX_SKIP_BACKOFF.total_seconds() / 3600
     tiers: list[ActivitySummaryTierStats] = dataclasses.field(default_factory=list)
+    enrollment: EnrollmentCounts = dataclasses.field(default_factory=EnrollmentCounts)
 
 
 @frozen
@@ -128,6 +138,8 @@ class ActivitySummaryPairResult:
     status: str
     cost_usd: float | None
     called_model: bool
+    # Has a default, so the result of a pair activity in flight during a deploy still decodes.
+    new_summary: bool = False
 
 
 @frozen
@@ -140,6 +152,10 @@ class ActivitySummaryTickResult:
     cost_usd: float = 0.0
     stop_reason: str | None = None
     tiers: list[ActivitySummaryTierStats] = dataclasses.field(default_factory=list)
+    enrollment: EnrollmentCounts = dataclasses.field(default_factory=EnrollmentCounts)
+    # Successful updates that made a pair's first summary, and successful updates of an existing summary.
+    new_builds: int = 0
+    refresh_builds: int = 0
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
@@ -149,14 +165,22 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         # Every pair would fail on the same missing gateway, so the tick runs none.
         logger.warning("activity_summary_tick_gateway_not_configured")
     enabled = config.enabled and not gateway_missing
+    # One enrollment read serves the feed, the selection and the counts.
+    enrolled = enrollment(config)
+    counts = EnrollmentCounts(
+        qualifying_organizations=len(enrolled.qualifying_organization_ids),
+        enrolled_organizations=len(enrolled.organization_ids),
+        enrolled_teams=len(enrolled.team_ids),
+    )
+    logger.info("activity_summary_enrollment_read", **dataclasses.asdict(counts))
     if config.enabled:
         # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
-        feed_queue(config, now)
+        feed_queue(config, now, enrolled.team_ids)
     usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
     tick_limit = limit or config.max_pairs_per_tick
-    selection = select_pairs(config, now, tick_limit) if updates_left and cost_left else None
+    selection = select_pairs(config, now, tick_limit, enrolled.team_ids) if updates_left and cost_left else None
     pairs = selection.pairs if selection else []
     due_pairs = selection.due_pairs if selection else 0
 
@@ -185,6 +209,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         max_error_rate=config.max_error_rate,
         max_skip_backoff_hours=config.max_skip_backoff_hours,
         tiers=selection.tiers if selection else [],
+        enrollment=counts,
         stop_reason=stop_reason,
         rebuild_before=config.rebuild_before,
         max_versions=config.max_versions,
@@ -243,7 +268,17 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
     )
 
 
+def _enrolled_at_dispatch(team_id: int) -> bool:
+    # The flag can change between the plan and the pair, so the pair reads it again.
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    return team is not None and is_team_enrolled_for_generation(read_config(), team)
+
+
 def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> ActivitySummaryPairResult:
+    if not _enrolled_at_dispatch(input.team_id):
+        return ActivitySummaryPairResult(
+            status=UpdateStatus.SKIPPED_NOT_ENROLLED.value, cost_usd=None, called_model=False
+        )
     try:
         update = update_activity_summary(
             input.team_id,
@@ -278,7 +313,12 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             _capture_generated(input.team_id, input.user_id, update)
         except Exception:
             logger.exception("activity_summary_capture_failed", team_id=input.team_id, user_id=input.user_id)
-    return ActivitySummaryPairResult(status=update.status.value, cost_usd=update.cost_usd, called_model=called_model)
+    return ActivitySummaryPairResult(
+        status=update.status.value,
+        cost_usd=update.cost_usd,
+        called_model=called_model,
+        new_summary=update.new_summary,
+    )
 
 
 def capture_tick(result: ActivitySummaryTickResult) -> None:
@@ -291,6 +331,9 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         cost_usd=result.cost_usd,
         stop_reason=result.stop_reason,
         tiers=[dataclasses.asdict(tier) for tier in result.tiers],
+        new_builds=result.new_builds,
+        refresh_builds=result.refresh_builds,
+        **dataclasses.asdict(result.enrollment),
     )
     ph_background_capture()(
         distinct_id=PIPELINE_DISTINCT_ID,
@@ -303,6 +346,9 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "errored": result.errored,
             "cost_usd": result.cost_usd,
             "stop_reason": result.stop_reason,
+            "new_builds": result.new_builds,
+            "refresh_builds": result.refresh_builds,
+            **dataclasses.asdict(result.enrollment),
             **{
                 f"{tier.tier}_{name}": getattr(tier, name)
                 for tier in result.tiers
@@ -349,6 +395,7 @@ class ActivitySummaryTickWorkflow:
             return ActivitySummaryTickResult(stop_reason=plan.stop_reason)
 
         statuses: Counter[str] = Counter()
+        builds: Counter[bool] = Counter()
         errored = 0
         cost = 0.0
         # Model calls of this tick and the calls among them that failed or raised, for the circuit breaker.
@@ -408,6 +455,8 @@ class ActivitySummaryTickWorkflow:
                     cost += plan.max_update_cost_usd
                     continue
                 statuses[outcome.status] += 1
+                if outcome.status == UpdateStatus.OK:
+                    builds[outcome.new_summary] += 1
                 if outcome.called_model:
                     calls += 1
                     failures += outcome.status == UpdateStatus.FAILED
@@ -423,6 +472,9 @@ class ActivitySummaryTickWorkflow:
             cost_usd=cost,
             stop_reason=stop_reason,
             tiers=plan.tiers,
+            enrollment=plan.enrollment,
+            new_builds=builds[True],
+            refresh_builds=builds[False],
         )
         await workflow.execute_activity(
             capture_activity_summary_tick_activity,

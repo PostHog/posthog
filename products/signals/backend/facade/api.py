@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import pydantic
@@ -566,20 +566,33 @@ def waiting_reports(team_id: int, limit: int = 3) -> WaitingReports:
     )
 
 
+def _enabled_source_configs() -> QuerySet[SignalSourceConfig]:
+    return (
+        SignalSourceConfig.objects.filter(enabled=True)
+        # Retired: rows outlive the feature until the cleanup migration runs, and counting one marks
+        # onboarding complete on a source that emits nothing.
+        .exclude(source_product="session_replay", source_type="session_analysis_cluster")
+    )
+
+
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to.
 
     Replay Vision is checked separately because it has no config row to find: each scanner's own
     `emits_signals` flag authorizes it (see `SignalSourceConfig.is_source_enabled`)."""
-    if (
-        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
-        # Retired: rows outlive the feature until the cleanup migration runs, and counting one marks
-        # onboarding complete on a source that emits nothing.
-        .exclude(source_product="session_replay", source_type="session_analysis_cluster")
-        .exists()
-    ):
+    if _enabled_source_configs().filter(team_id=team_id).exists():
         return True
     return _has_emitting_replay_scanner(team_id)
+
+
+def team_ids_with_enabled_source() -> set[int]:
+    """Every team that `has_enabled_source` is true for, in two queries."""
+    from products.replay_vision.backend.facade.api import (
+        team_ids_with_signal_emitting_scanner,  # noqa: PLC0415 — keeps the Replay Vision stack off this import path
+    )
+
+    with_config = set(_enabled_source_configs().values_list("team_id", flat=True))
+    return with_config | team_ids_with_signal_emitting_scanner()
 
 
 def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
