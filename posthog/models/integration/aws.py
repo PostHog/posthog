@@ -1,4 +1,4 @@
-"""AWS role/credential-based integrations (S3, Redshift, S3-compatible endpoints)."""
+"""AWS role/credential-based integrations (S3, Redshift, Kinesis, S3-compatible endpoints)."""
 
 import re
 import json
@@ -19,7 +19,11 @@ from posthog.security.url_validation import is_url_allowed
 
 from . import common, model
 
-_AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
+_AWSKindType = Literal[
+    model.Integration.IntegrationKind.AWS_KINESIS,
+    model.Integration.IntegrationKind.AWS_REDSHIFT,
+    model.Integration.IntegrationKind.AWS_S3,
+]
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -108,7 +112,11 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     has_same_aws_role_integrations = (
         model.Integration.objects.select_related("team__organization")
         .filter(
-            kind__in=(model.Integration.IntegrationKind.AWS_S3, model.Integration.IntegrationKind.AWS_REDSHIFT),
+            kind__in=(
+                model.Integration.IntegrationKind.AWS_S3,
+                model.Integration.IntegrationKind.AWS_REDSHIFT,
+                model.Integration.IntegrationKind.AWS_KINESIS,
+            ),
             config__aws_role_arn=aws_role_arn,
         )
         .exclude(team__organization_id=organization_id)
@@ -145,6 +153,11 @@ def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id:
 
     if not AWS_ROLE_ARN_RE.match(aws_role_arn):
         raise common.IntegrationError("AWS role ARN is not valid")
+
+    if not our_aws_role_arn:
+        raise common.IntegrationError(
+            "Connecting with an IAM role is not available on this PostHog instance. Connect with access keys instead."
+        )
 
     config = Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1})
     sts = boto3.client("sts", config=config)
@@ -290,12 +303,9 @@ class AWSRoleBasedIntegration:
 
         extra = cls.read_extra_configuration_parameters(**config)
 
-        # Currently, only batch exports uses this integration.
-        # If you are using this integration outside batch exports, then you should make the our_aws_role_arn and external_id configurable.
-        # TODO: Make our_aws_role_arn external_id configurable.
         validate_aws_role_arn(
             aws_role_arn=aws_role_arn,
-            our_aws_role_arn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
+            our_aws_role_arn=cls.our_aws_role_arn(),
             external_id=f"posthog-{organization_id}",
         )
 
@@ -313,6 +323,15 @@ class AWSRoleBasedIntegration:
         """Subclasses can override this to do further processing on the configuration."""
         return {}
 
+    @staticmethod
+    def our_aws_role_arn() -> str:
+        """The PostHog role that assumes the customer's role, which the customer's trust policy must name.
+
+        Each subclass names its own setting. A product that adopts this integration then chooses its
+        PostHog role explicitly, instead of inheriting the role of another product.
+        """
+        raise NotImplementedError
+
 
 class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
     """An AWS S3 integration storing a customer's AWS role."""
@@ -320,6 +339,22 @@ class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
     integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_S3]] = (
         model.Integration.IntegrationKind.AWS_S3
     )
+
+    @staticmethod
+    def our_aws_role_arn() -> str:
+        return settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN
+
+
+class AWSKinesisRoleBasedIntegration(AWSRoleBasedIntegration):
+    """An AWS Kinesis integration storing a customer's AWS role."""
+
+    integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_KINESIS]] = (
+        model.Integration.IntegrationKind.AWS_KINESIS
+    )
+
+    @staticmethod
+    def our_aws_role_arn() -> str:
+        return settings.CDP_AWS_EXTERNAL_ROLE_ARN
 
 
 def _return_redshift_groups(**config) -> list[str] | None:
@@ -398,6 +433,10 @@ class AWSRedshiftRoleBasedIntegration(AWSRoleBasedIntegration):
     @staticmethod
     def read_extra_configuration_parameters(**config) -> dict[str, Any]:
         return _return_extra_redshift_configuration(**config)
+
+    @staticmethod
+    def our_aws_role_arn() -> str:
+        return settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN
 
 
 class AWSCredentialsIntegration:
@@ -488,6 +527,18 @@ class AWSS3Integration(AWSCredentialsIntegration):
 
     integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_S3]] = (
         model.Integration.IntegrationKind.AWS_S3
+    )
+
+
+class AWSKinesisIntegration(AWSCredentialsIntegration):
+    """An AWS Kinesis integration storing reusable AWS credentials.
+
+    Holds only credentials. The stream name and region stay on the destination inputs, so one
+    credential can serve many streams.
+    """
+
+    integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_KINESIS]] = (
+        model.Integration.IntegrationKind.AWS_KINESIS
     )
 
 

@@ -7052,6 +7052,7 @@ export namespace Schemas {
         | "postgresql"
         | "aws-s3"
         | "aws-redshift"
+        | "aws-kinesis"
         | "s3-compatible"
         | "snowflake"
         | "youtube-analytics"
@@ -16228,6 +16229,7 @@ export namespace Schemas {
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
+     * * `aws-kinesis` - Aws Kinesis
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
@@ -16280,6 +16282,7 @@ export namespace Schemas {
         | "anthropic"
         | "apple-ads"
         | "apns"
+        | "aws-kinesis"
         | "aws-redshift"
         | "aws-s3"
         | "azure-blob"

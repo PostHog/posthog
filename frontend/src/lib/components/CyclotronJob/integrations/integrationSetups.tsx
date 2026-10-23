@@ -1,3 +1,4 @@
+import { AwsKinesisSetupModal } from 'scenes/integrations/aws-kinesis/AwsKinesisSetupModal'
 import { AwsS3SetupModal } from 'scenes/integrations/aws-s3/AwsS3SetupModal'
 import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
@@ -110,6 +111,17 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <AwsS3SetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'aws-kinesis',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new AWS Kinesis connection',
+        onClick: () => openModal('aws-kinesis'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <AwsKinesisSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })
 

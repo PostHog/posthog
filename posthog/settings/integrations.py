@@ -258,3 +258,8 @@ POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV = get_from_env("POSTHOG_CONNECT_OAUTH_CL
 POSTHOG_CONNECT_BASE_URL_US = get_from_env("POSTHOG_CONNECT_BASE_URL_US", "https://us.posthog.com")
 POSTHOG_CONNECT_BASE_URL_EU = get_from_env("POSTHOG_CONNECT_BASE_URL_EU", "https://eu.posthog.com")
 POSTHOG_CONNECT_BASE_URL_DEV = get_from_env("POSTHOG_CONNECT_BASE_URL_DEV", "http://localhost:8000")
+
+# ARN of the PostHog role that assumes customer roles for AWS destinations such as Kinesis.
+# Customers name this role in their role's trust policy. Empty disables IAM role connections for
+# those destinations, so creating one fails with a clear error instead of an AWS error.
+CDP_AWS_EXTERNAL_ROLE_ARN: str = get_from_env("CDP_AWS_EXTERNAL_ROLE_ARN", "")

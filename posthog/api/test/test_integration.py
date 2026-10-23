@@ -999,6 +999,7 @@ class TestAWSIntegration:
         params=[
             (Integration.IntegrationKind.AWS_S3),
             (Integration.IntegrationKind.AWS_REDSHIFT),
+            (Integration.IntegrationKind.AWS_KINESIS),
         ],
         ids=lambda kind: kind.value,
     )
@@ -1144,6 +1145,7 @@ class TestAWSRoleBasedIntegration:
         params=[
             (Integration.IntegrationKind.AWS_S3),
             (Integration.IntegrationKind.AWS_REDSHIFT),
+            (Integration.IntegrationKind.AWS_KINESIS),
         ],
         ids=lambda kind: kind.value,
     )
@@ -1164,6 +1166,19 @@ class TestAWSRoleBasedIntegration:
             self.extra_config = {"user": "awsuser"}
         else:
             self.extra_config = {}
+
+        role_arn_settings = {
+            "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN": "arn:aws:iam::111111111111:role/batch-exports-external",
+            "CDP_AWS_EXTERNAL_ROLE_ARN": "arn:aws:iam::222222222222:role/cdp-external",
+        }
+        self.our_role_arn_setting = (
+            "CDP_AWS_EXTERNAL_ROLE_ARN"
+            if aws_integration_kind == Integration.IntegrationKind.AWS_KINESIS
+            else "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN"
+        )
+        self.our_role_arn = role_arn_settings[self.our_role_arn_setting]
+        with override_settings(**role_arn_settings):
+            yield
 
     @patch("posthog.models.integration.aws.validate_aws_role_arn")
     def test_create_with_valid_config(self, mock_validate, client: HttpClient):
@@ -1192,6 +1207,33 @@ class TestAWSRoleBasedIntegration:
         assert integration.integration_id == "prod-aws"
         assert integration.config == {"name": "prod-aws", "aws_role_arn": role, **self.extra_config}
         assert integration.sensitive_config == {}
+        mock_validate.assert_called_once_with(
+            aws_role_arn=role,
+            our_aws_role_arn=self.our_role_arn,
+            external_id=f"posthog-{self.organization.id}",
+        )
+
+    @patch("boto3.client", side_effect=AssertionError("role validation must not call AWS"))
+    def test_create_fails_closed_without_our_role(self, mock_boto_client, client: HttpClient):
+        client.force_login(self.user)
+
+        with override_settings(**{self.our_role_arn_setting: ""}):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations",
+                {
+                    "kind": self.integration_kind,
+                    "config": {
+                        "name": "prod-aws",
+                        "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
+                        **self.extra_config,
+                    },
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Connecting with an IAM role is not available" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind=self.integration_kind).exists()
 
     @patch("posthog.models.integration.aws.validate_aws_role_arn")
     def test_create_rejects_invalid_role_arn(self, mock_validate, client: HttpClient):
@@ -1217,32 +1259,39 @@ class TestAWSRoleBasedIntegration:
         assert "AWS role ARN is not valid" in response.json()["detail"]
         assert not Integration.objects.filter(team=self.team, kind=self.integration_kind).exists()
 
+    @pytest.mark.parametrize(
+        "other_org_kind",
+        [
+            Integration.IntegrationKind.AWS_S3,
+            Integration.IntegrationKind.AWS_REDSHIFT,
+            Integration.IntegrationKind.AWS_KINESIS,
+        ],
+        ids=lambda kind: f"other-org-{kind.value}",
+    )
     @patch("posthog.models.integration.aws.validate_aws_role_arn")
-    def test_create_rejects_duplicate_role_in_different_org(self, mock_validate, client: HttpClient):
+    def test_create_rejects_duplicate_role_in_different_org(self, mock_validate, other_org_kind, client: HttpClient):
+        role = "arn:aws:iam::123456789012:role/my-role"
         another_org = Organization.objects.create(name="Test Org 2")
         another_team = Team.objects.create(organization=another_org, name="Test Team")
-        another_user = User.objects.create_and_join(
-            another_org, "test2@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        Integration.objects.create(
+            team=another_team,
+            kind=other_org_kind,
+            integration_id="prod-aws",
+            config={"name": "prod-aws", "aws_role_arn": role},
         )
-        client.force_login(another_user)
-        payload = {
-            "kind": self.integration_kind,
-            "config": {
-                "name": "prod-aws",
-                "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
-                **self.extra_config,
-            },
-        }
-
-        first = client.post(
-            f"/api/environments/{another_team.pk}/integrations", payload, content_type="application/json"
-        )
-        assert first.status_code == status.HTTP_201_CREATED, first.json()
 
         client.force_login(self.user)
-        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
-        assert second.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Cannot create AWS integration: Invalid role" in second.json()["detail"]
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": self.integration_kind,
+                "config": {"name": "prod-aws", "aws_role_arn": role, **self.extra_config},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot create AWS integration: Invalid role" in response.json()["detail"]
 
     @patch("posthog.models.integration.aws.validate_aws_role_arn")
     def test_create_rejects_duplicate_name(self, mock_validate, client: HttpClient):

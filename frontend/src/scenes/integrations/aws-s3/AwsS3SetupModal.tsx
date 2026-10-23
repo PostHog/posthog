@@ -61,6 +61,7 @@ export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element =
                             />
                         </LemonField>
                         <AwsRoleRequirements
+                            posthogRole="batch-exports"
                             permissions={
                                 <>
                                     Grant the role <code>s3:PutObject</code> and <code>s3:AbortMultipartUpload</code> on

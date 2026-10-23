@@ -298,6 +298,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
             "webmcp_available": webmcp_api.is_available(),
+            "cdp_aws_external_role_arn": settings.CDP_AWS_EXTERNAL_ROLE_ARN or None,
         }
 
     return JsonResponse(response)
