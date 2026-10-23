@@ -1841,6 +1841,18 @@ export interface TeamWorkflowsConfigApi {
 export interface TeamFeatureFlagPolicyConfigApi {
     /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
     require_tags?: boolean
+    /**
+     * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_hosts?: string[]
+    /**
+     * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_ips?: string[]
 }
 
 /**
@@ -3664,6 +3676,8 @@ export interface ProjectBackwardCompatApi {
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -4552,6 +4566,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi

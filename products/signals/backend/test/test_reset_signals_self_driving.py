@@ -165,7 +165,7 @@ class TestResetSignalsSelfDrivingCustomScouts(BaseTest):
         # let a stale owner publish it.
         name = f"{SIGNALS_SCOUT_SKILL_PREFIX}custom-checkout"
         create_skill(self.team, user=self.user, name=name, description="d", body="# b")
-        set_skill_owners(self.team, name, [self.user])
+        set_skill_owners(self.team, name, [self.user], acting_user=None)
 
         call_command("reset_signals_self_driving", team_id=self.team.id, yes=True, keep_findings=True, keep_log=True)
 

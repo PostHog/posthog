@@ -72,9 +72,11 @@ class SuggestedSourceProduct(LabeledStrEnum):
 class ReportLinkWritePath(StrEnum):
     # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
     # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.
+    # `MERGE` writes the `duplicate_of` link when the merge endpoint folds a report into another.
     EMIT = "emit"
     EDIT = "edit"
     PIPELINE = "pipeline"
+    MERGE = "merge"
 
 
 class SignalSourceProduct(StrEnum):

@@ -48,6 +48,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     resolve_evaluation_target,
     target_event_predicate,
 )
+from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     MAX_TRACE_EVENTS_LIMIT,
     MAX_TRACE_PROPERTIES_SIZE,
@@ -747,11 +748,12 @@ def sample_generation_details(
     state: Annotated[dict, InjectedState],
     generation_ids: list[str],
 ) -> str:
-    """Get full $ai_generation event data for specific generations.
+    """Get $ai_generation previews and token usage for specific generations.
 
-    Returns input, output, model, tokens, AND trace_id for verification before
-    citing in the report. **Always call this before add_citation** so you have
-    the trace_id to pass in.
+    Input previews keep the head and tail within 500 characters. Output previews
+    keep the first 500 characters. Returns model, token counts including cache
+    usage, and trace_id for verification before citing in the report.
+    **Always call this before add_citation** so you have the trace_id to pass in.
 
     Args:
         generation_ids: List of generation IDs to look up (max 20)
@@ -811,7 +813,9 @@ def sample_generation_details(
             properties.$ai_tools_called as tools_called,
             properties.$ai_tool_call_count as tool_call_count,
             input_state,
-            output_state
+            output_state,
+            cache_read_input_tokens,
+            cache_creation_input_tokens
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
@@ -827,7 +831,7 @@ def sample_generation_details(
 
     result = []
     for row in rows:
-        input_text = str(row[2])[:500] if row[2] else ""
+        input_text = truncate_to_head_tail(str(row[2]), max_chars=500, head_chars=250) if row[2] else ""
         output_text = str(row[3])[:500] if row[3] else ""
         entry: dict = {
             "generation_id": str(row[0]) if row[0] else "",
@@ -836,6 +840,8 @@ def sample_generation_details(
             "output_preview": output_text,
             "input_tokens": row[4],
             "output_tokens": row[5],
+            "cache_read_input_tokens": row[13],
+            "cache_creation_input_tokens": row[14],
             "trace_id": str(row[6]) if row[6] else "",
         }
         if row[7]:  # is_error
@@ -846,7 +852,7 @@ def sample_generation_details(
             entry["tools_called"] = str(row[9])
             entry["tool_call_count"] = row[10]
         if row[11]:  # input_state
-            entry["input_state_preview"] = str(row[11])[:500]
+            entry["input_state_preview"] = truncate_to_head_tail(str(row[11]), max_chars=500, head_chars=250)
         if row[12]:  # output_state
             entry["output_state_preview"] = str(row[12])[:500]
         result.append(entry)
@@ -963,7 +969,9 @@ def get_generation_detail(
             properties.$ai_tool_call_count as tool_call_count,
             tools as tools_available,
             input_state,
-            output_state
+            output_state,
+            cache_read_input_tokens,
+            cache_creation_input_tokens
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id = {trace_id}
@@ -1016,6 +1024,8 @@ def get_generation_detail(
         "output": str(row[4]) if row[4] else "",
         "input_tokens": row[5],
         "output_tokens": row[6],
+        "cache_read_input_tokens": row[19],
+        "cache_creation_input_tokens": row[20],
         "cost": row[7],
         "latency": row[8],
         "trace_id": str(row[9]) if row[9] else "",

@@ -51,41 +51,24 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
-from products.experiments.backend.health.bucketing_changes import (
-    BucketingChangeShape,
-    bucketing_changes_from_activity,
-    bucketing_net_effect,
-    changes_that_apply,
-    conditions_follow_flag_aggregation,
-)
+from products.experiments.backend.health.bucketing_changes import BucketingChangeShape, bucketing_net_effect
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     conditions_change_from_activity,
     conditions_net_effect,
-    parse_release_conditions,
 )
 from products.experiments.backend.health.context import (
     MAX_FLAG_SAVES,
     MAX_RELEASE_CONDITIONS,
     MIN_EXPOSED_UNITS_TO_WARN,
-    BucketingChange,
-    BucketingSetting,
     ChangeWindow,
-    ConditionsChange,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
-    Split,
-    SplitChange,
     changes_of_kind,
-    parse_variants,
 )
-from products.experiments.backend.health.split_changes import (
-    same_assignment,
-    split_change_from_activity,
-    split_variant_keys,
-)
+from products.experiments.backend.health.split_changes import split_change_from_activity
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     aggregates_by_group,
     build_exposure_event_conditions,
@@ -95,6 +78,20 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    BucketingSetting,
+    ConditionsChange,
+    Split,
+    SplitChange,
+    bucketing_changes_from_activity,
+    changes_that_apply,
+    conditions_follow_flag_aggregation,
+    parse_release_conditions,
+    parse_variants,
+    same_assignment,
+    split_variant_keys,
+)
 
 MAX_EXPOSURE_QUERIES = 20
 # Each override window costs a cache read, and a query when the answer is not cached. A window past this stays

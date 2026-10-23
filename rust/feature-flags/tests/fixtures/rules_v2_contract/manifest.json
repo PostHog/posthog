@@ -1,7 +1,7 @@
 {
   "contract": {
     "name": "feature_flag_rules_v2",
-    "version": "3.0.0",
+    "version": "6.0.0",
     "config_version": 2
   },
   "artifacts": [
@@ -409,7 +409,7 @@
       "expected_failure": {
         "keyword": "additionalProperties",
         "instance_path": "/rules/0/holdout",
-        "message_contains": "'id'"
+        "message_contains": "id"
       }
     },
     {
