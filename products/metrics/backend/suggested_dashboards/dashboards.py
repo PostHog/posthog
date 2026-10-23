@@ -46,6 +46,8 @@ MAX_TEXT_LENGTH = 4000
 SERVICE_ATTRIBUTES = frozenset({"service_name", "service.name"})
 # The name and attribute tables store hourly buckets, so the bucket that holds the start of the range counts too.
 OPTIONS_RANGE = "time_bucket >= toStartOfHour($__from) AND time_bucket < $__to"
+# A dashboard opens on the last hour, as the metrics viewer does. Without it, each tile reads the last 24 hours.
+DASHBOARD_DATE_FROM = "-1h"
 _OTEL_TYPES = frozenset(member.value for member in MetricsOtelType)
 
 
@@ -87,7 +89,7 @@ def _with_team_metric_types(query: dict[str, Any], catalog: MetricCatalog) -> di
     return resolved
 
 
-def _fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
+def fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
     """Spread the boxes of each row across the full width again, after some panels of the row were dropped."""
     rows: dict[int, list[tuple[int, GridLayout]]] = defaultdict(list)
     for index, layout in boxes:
@@ -128,7 +130,7 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
             dropped.append(panel)
         else:
             kept.append((panel, query))
-    layouts = _fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped and refill else {}
+    layouts = fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped and refill else {}
     tiles: list[NewInsightTile | NewTextTile] = []
     for index, (panel, query) in enumerate(kept):
         layout = layouts.get(index, panel.layout).clamped(
@@ -226,7 +228,7 @@ def create_dashboard(
 ) -> tuple[CreatedDashboard | None, BuiltTiles]:
     """Create the dashboard as the user. Returns no dashboard when no panel has data in this team.
 
-    The dashboard gets only the variables that its tiles refer to.
+    The dashboard gets only the variables that its tiles refer to, and opens on the last hour.
     """
     built = build_tiles(panels, catalog, refill=refill)
     if not any(isinstance(tile, NewInsightTile) for tile in built.tiles):
@@ -244,7 +246,10 @@ def create_dashboard(
             tiles=built.tiles,
             idempotency_key=idempotency_key,
             unlisted=unlisted,
-            filters={"metricVariables": kept_variables} if kept_variables else None,
+            filters={
+                "date_from": DASHBOARD_DATE_FROM,
+                **({"metricVariables": kept_variables} if kept_variables else {}),
+            },
         ),
     )
     return created, built

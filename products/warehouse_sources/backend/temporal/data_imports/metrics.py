@@ -160,12 +160,26 @@ def get_import_not_preempted_metric(source_type: str | None, reason: str) -> Met
     )
 
 
-def get_shutdown_handoff_delay_metric(source_type: str | None, mode: str) -> MetricHistogramFloat:
-    # `mode` is `preempted` when the pipeline stopped waiting for the source, and `cooperative`
-    # when the source yielded an item or reached a safe point.
+def get_import_finished_during_shutdown_metric(source_type: str | None, rode_out: bool) -> MetricCounter:
+    # The imports a hand-off would have restarted. `rode_out` is True when the gate kept the import
+    # on the worker past the shutdown at least once.
     return (
         activity.metric_meter()
-        .with_additional_attributes({"source_type": source_type or "unknown", "mode": mode})
+        .with_additional_attributes({"source_type": source_type or "unknown", "rode_out": str(rode_out).lower()})
+        .create_counter(
+            "warehouse_import_finished_during_shutdown_total",
+            "Imports that finished on a worker that was shutting down instead of handing off.",
+        )
+    )
+
+
+def get_shutdown_handoff_delay_metric(source_type: str | None, mode: str, reason: str) -> MetricHistogramFloat:
+    # `mode` is `preempted` when the pipeline stopped waiting for the source, and `cooperative`
+    # when the source yielded an item or reached a safe point. `reason` is why the gate let the
+    # import leave the worker (see `HandoffGate`).
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "mode": mode, "reason": reason})
         .create_histogram_float(
             "warehouse_import_shutdown_handoff_delay_seconds",
             "Seconds from the worker shutdown to the hand-off of an import.",

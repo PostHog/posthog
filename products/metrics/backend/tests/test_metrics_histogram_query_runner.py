@@ -7,7 +7,14 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import DashboardFilter, MetricsHistogramQuery, MetricsQueryFilter
+from posthog.schema import (
+    DashboardFilter,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
+    MetricsHistogramQuery,
+    MetricsQueryFilter,
+    MetricsVariableValue,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -61,14 +68,25 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
         dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
         runner = MetricsHistogramQueryRunner(
-            query=MetricsHistogramQuery(metricName="latency", filters=[own_filter]), team=self.team
+            query=MetricsHistogramQuery(metricName="latency", filters=[own_filter], interval="$window"), team=self.team
         )
 
-        runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricFilters=[dashboard_filter],
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ],
+            )
+        )
 
         self.assertEqual(runner.query.filters, [own_filter, dashboard_filter])
+        assert runner.query.variables is not None and runner.query.variables["window"].values == ["1m"]
 
-    def test_returns_a_time_by_bound_grid(self):
+    @parameterized.expand([("fixed", "minute"), ("variable", "$window")])
+    def test_returns_a_time_by_bound_grid(self, _name: str, interval: str) -> None:
         self._seed_histogram(
             [
                 (self.anchor + dt.timedelta(seconds=0), [10, 10, 10, 0]),
@@ -77,7 +95,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response = self._run()
+        response = self._run(interval=interval, variables={"window": MetricsVariableValue(values=["1m"])})
 
         self.assertEqual(response.bounds, self.BOUNDS)
         # One column per minute bucket across the 3-minute window.
