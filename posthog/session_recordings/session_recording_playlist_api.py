@@ -564,8 +564,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         return recordings_counts
 
-    def validate_filters(self, value: Any) -> dict[str, Any]:
+    def validate_filters(self, value: Any) -> Any:
         if not isinstance(value, dict):
+            if self.instance is not None and value == self.instance.filters:
+                return value
             raise ValidationError(
                 "Filters must be a JSON object. Send the filter criteria as an object, not as a string or a list."
             )

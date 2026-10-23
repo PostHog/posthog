@@ -606,6 +606,21 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    def test_can_delete_saved_filter_stored_with_string_filters(self) -> None:
+        legacy_filters = json.dumps({"date_from": "-7d"})
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="legacy", type="filters", filters=legacy_filters
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}",
+            {"name": "legacy", "filters": legacy_filters, "deleted": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        playlist.refresh_from_db()
+        assert playlist.deleted is True
+
     def test_does_not_count_empty_object_as_filters(self) -> None:
         """
         can delete a collection despite there is an empty object for filters
