@@ -81,7 +81,7 @@ import type {
     WorkflowImportRecordApi,
     WorkflowImportRequestApi,
     WorkflowImportResponseApi,
-    WorkflowImportsListParams,
+    WorkflowImportsForWorkflowRetrieveParams,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
@@ -1535,36 +1535,6 @@ export const workflowEmailDraftsCreate = async (
     })
 }
 
-export const getWorkflowImportsListUrl = (projectId: string, params: WorkflowImportsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/workflow_imports/?${stringifiedParams}`
-        : `/api/projects/${projectId}/workflow_imports/`
-}
-
-/**
- * @summary Read what importing a workflow changed or left out
- */
-export const workflowImportsList = async (
-    projectId: string,
-    params: WorkflowImportsListParams,
-    options?: RequestInit
-): Promise<WorkflowImportRecordApi[]> => {
-    return apiMutator<WorkflowImportRecordApi[]>(getWorkflowImportsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getWorkflowImportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_imports/`
 }
@@ -1583,6 +1553,39 @@ export const workflowImportsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(workflowImportRequestApi),
+    })
+}
+
+export const getWorkflowImportsForWorkflowRetrieveUrl = (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_imports/for_workflow/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_imports/for_workflow/`
+}
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const workflowImportsForWorkflowRetrieve = async (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowImportRecordApi> => {
+    return apiMutator<WorkflowImportRecordApi>(getWorkflowImportsForWorkflowRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

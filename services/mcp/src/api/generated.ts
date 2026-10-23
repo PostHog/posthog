@@ -137814,9 +137814,9 @@ export namespace Schemas {
     workflow_id: string;
     };
 
-    export type WorkflowImportsListParams = {
+    export type WorkflowImportsForWorkflowRetrieveParams = {
     /**
-     * The workflow to read the latest import of.
+     * The workflow to read the import of.
      */
     hog_flow_id: string;
     };

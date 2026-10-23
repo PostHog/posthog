@@ -306,10 +306,11 @@ class TestWorkflowImportAPI(APIBaseTest):
     def test_notes_are_readable_by_workflow(self) -> None:
         result = self._import()
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/workflow_imports/", {"hog_flow_id": result["workflow_id"]}
-        )
+        url = f"/api/projects/{self.team.id}/workflow_imports/for_workflow/"
+        response = self.client.get(url, {"hog_flow_id": result["workflow_id"]})
         assert response.status_code == 200
-        [record] = response.json()
-        assert record["source_id"] == "42"
-        assert record["notes"] == result["notes"]
+        assert response.json()["source_id"] == "42"
+        assert response.json()["notes"] == result["notes"]
+
+        other = HogFlow.objects.create(team=self.team, name="Built by hand")
+        assert self.client.get(url, {"hog_flow_id": str(other.id)}).status_code == 404

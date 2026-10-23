@@ -2597,61 +2597,6 @@ export interface EmailDraftApi {
 }
 
 /**
- * * `approximated` - Approximated
- * * `unsupported` - Unsupported
- * * `needs_input` - Needs input
- */
-export type WorkflowImportNoteLevelEnumApi =
-    (typeof WorkflowImportNoteLevelEnumApi)[keyof typeof WorkflowImportNoteLevelEnumApi]
-
-export const WorkflowImportNoteLevelEnumApi = {
-    Approximated: 'approximated',
-    Unsupported: 'unsupported',
-    NeedsInput: 'needs_input',
-} as const
-
-export interface WorkflowImportNoteApi {
-    /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
-     *
-     * * `approximated` - Approximated
-     * * `unsupported` - Unsupported
-     * * `needs_input` - Needs input */
-    level: WorkflowImportNoteLevelEnumApi
-    /** What changed or was left out, and what to do about it. */
-    message: string
-    /**
-     * The workflow step the note is about, or null.
-     * @nullable
-     */
-    step_id: string | null
-    /**
-     * That step's name, or null.
-     * @nullable
-     */
-    step_name: string | null
-}
-
-export interface WorkflowImportRecordApi {
-    /** The import record's id. */
-    readonly id: string
-    /** The tool the workflow was imported from. */
-    readonly source: string
-    /** The automation's id in that tool. */
-    readonly source_id: string
-    /** The automation's name in that tool. */
-    readonly source_name: string
-    /**
-     * The workflow.
-     * @nullable
-     */
-    readonly hog_flow: string | null
-    /** What the import changed or left out. */
-    readonly notes: readonly WorkflowImportNoteApi[]
-    /** When the workflow was last imported. */
-    readonly updated_at: string
-}
-
-/**
  * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
  */
 export type WorkflowImportRequestApiSnippets = { [key: string]: string }
@@ -2718,6 +2663,41 @@ export const WorkflowImportStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * * `approximated` - Approximated
+ * * `unsupported` - Unsupported
+ * * `needs_input` - Needs input
+ */
+export type WorkflowImportNoteLevelEnumApi =
+    (typeof WorkflowImportNoteLevelEnumApi)[keyof typeof WorkflowImportNoteLevelEnumApi]
+
+export const WorkflowImportNoteLevelEnumApi = {
+    Approximated: 'approximated',
+    Unsupported: 'unsupported',
+    NeedsInput: 'needs_input',
+} as const
+
+export interface WorkflowImportNoteApi {
+    /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
+     *
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input */
+    level: WorkflowImportNoteLevelEnumApi
+    /** What changed or was left out, and what to do about it. */
+    message: string
+    /**
+     * The workflow step the note is about, or null.
+     * @nullable
+     */
+    step_id: string | null
+    /**
+     * That step's name, or null.
+     * @nullable
+     */
+    step_name: string | null
+}
+
 export interface WorkflowImportResultApi {
     /** The automation's id in Customer.io. */
     source_id: string
@@ -2745,6 +2725,26 @@ export interface WorkflowImportResultApi {
 export interface WorkflowImportResponseApi {
     /** One result per automation, in request order. */
     results: WorkflowImportResultApi[]
+}
+
+export interface WorkflowImportRecordApi {
+    /** The import record's id. */
+    readonly id: string
+    /** The tool the workflow was imported from. */
+    readonly source: string
+    /** The automation's id in that tool. */
+    readonly source_id: string
+    /** The automation's name in that tool. */
+    readonly source_name: string
+    /**
+     * The workflow.
+     * @nullable
+     */
+    readonly hog_flow: string | null
+    /** What the import changed or left out. */
+    readonly notes: readonly WorkflowImportNoteApi[]
+    /** When the workflow was last imported. */
+    readonly updated_at: string
 }
 
 export type PeopleImportCreateApiRowsItem = { [key: string]: string }
@@ -3435,9 +3435,9 @@ export type HogFlowsSendCalendarRetrieveParams = {
     start: string
 }
 
-export type WorkflowImportsListParams = {
+export type WorkflowImportsForWorkflowRetrieveParams = {
     /**
-     * The workflow to read the latest import of.
+     * The workflow to read the import of.
      */
     hog_flow_id: string
 }

@@ -5,7 +5,8 @@ from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -134,8 +135,7 @@ class WorkflowImportRecordSerializer(serializers.Serializer):
 class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     serializer_class = WorkflowImportRequestSerializer
-    # A workflow has at most one import record, so the list is never long enough to page.
-    pagination_class = None
+    scope_object_read_actions = ["for_workflow"]
 
     @validated_request(
         WorkflowImportRequestSerializer,
@@ -173,17 +173,21 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter(
-                "hog_flow_id", type=str, required=True, description="The workflow to read the latest import of."
-            )
+            OpenApiParameter("hog_flow_id", type=str, required=True, description="The workflow to read the import of.")
         ],
-        responses={200: OpenApiResponse(response=WorkflowImportRecordSerializer(many=True))},
+        responses={
+            200: OpenApiResponse(response=WorkflowImportRecordSerializer),
+            404: OpenApiResponse(description="The workflow was not imported."),
+        },
         summary="Read what importing a workflow changed or left out",
     )
-    def list(self, request: Request, **kwargs: Any) -> Response:
+    @action(detail=False, methods=["get"], url_path="for_workflow")
+    def for_workflow(self, request: Request, **kwargs: Any) -> Response:
         try:
             hog_flow_id = UUID(str(request.query_params.get("hog_flow_id")))
         except ValueError:
             raise ValidationError({"hog_flow_id": "Pass the workflow's id."})
         record = import_for_workflow(self.team, hog_flow_id)
-        return Response(WorkflowImportRecordSerializer([record] if record else [], many=True).data)
+        if record is None:
+            raise NotFound("This workflow was not imported.")
+        return Response(WorkflowImportRecordSerializer(record).data)
