@@ -132,7 +132,6 @@ def _subscription_title(
     if is_new_subscription:
         return (
             f"This channel has been subscribed to {display_name} on PostHog! 🎉\n\n"
-            f"This subscription is {subscription.summary}.\n"
             f"The next one will be sent on {next_delivery_date_display(subscription)}"
         )
     return f"Your subscription to {display_name} is ready! 🎉"
@@ -163,10 +162,6 @@ def _subscription_header_blocks(
         {
             "type": "context",
             "elements": [{"type": "plain_text", "text": f"{resource_icon} {resource_info.kind}: {resource_info.name}"}],
-        },
-        {
-            "type": "context",
-            "elements": [{"type": "plain_text", "text": f"🕒 {subscription.summary.removeprefix('sent ')}"}],
         },
     ]
 
