@@ -665,7 +665,7 @@ describe('insightDataLogic', () => {
             expect(patchSpy).toHaveBeenCalledTimes(1)
         })
 
-        it('keeps the stored filters when a dashboard tile saves its dashboard-filtered query', async () => {
+        describe('on a filtered dashboard tile', () => {
             const storedProperties = {
                 type: FilterLogicalOperator.And,
                 values: [{ type: FilterLogicalOperator.And, values: [{ key: 'id', type: 'cohort', value: 1 }] }],
@@ -679,54 +679,74 @@ describe('insightDataLogic', () => {
                     dateRange: { date_from: '-30d' },
                 } as TrendsQuery,
             }
-            const dashboardFilteredSource = {
-                ...storedQuery.source,
-                properties: {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        storedProperties,
-                        {
-                            type: FilterLogicalOperator.And,
-                            values: [{ key: 'platform', type: 'event', value: ['ios'], operator: 'exact' }],
-                        },
-                    ],
-                },
-                dateRange: { date_from: '-7d' },
-                interval: 'week',
-            } as TrendsQuery
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/insights/': () => [
-                        200,
-                        { results: [{ id: insightId, short_id: Insight42, query: storedQuery }] },
-                    ],
-                },
-            })
-            const props = {
-                dashboardItemId: Insight42,
-                dashboardId: 7,
-                cachedInsight: {
-                    id: insightId,
-                    short_id: Insight42,
-                    query: { ...storedQuery, source: dashboardFilteredSource },
-                } as any,
+            const dashboardFilteredQuery: InsightVizNode = {
+                ...storedQuery,
+                source: {
+                    ...storedQuery.source,
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            storedProperties,
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ key: 'platform', type: 'event', value: ['ios'], operator: 'exact' }],
+                            },
+                        ],
+                    },
+                    dateRange: { date_from: '-7d' },
+                    interval: 'week',
+                } as TrendsQuery,
             }
-            insightLogic(props).mount()
-            const tileLogic = insightDataLogic(props)
-            tileLogic.mount()
+            const worldMapBreakdown = { breakdown: '$geoip_country_code', breakdown_type: 'event' } as const
+            const tileEdit: InsightVizNode = {
+                ...dashboardFilteredQuery,
+                source: {
+                    ...dashboardFilteredQuery.source,
+                    trendsFilter: { display: ChartDisplayType.WorldMap },
+                    breakdownFilter: worldMapBreakdown,
+                } as TrendsQuery,
+            }
 
-            await expectLogic(tileLogic, () => {
-                tileLogic.actions.persistDisplayOptions({
-                    kind: NodeKind.InsightVizNode,
-                    source: { ...dashboardFilteredSource, trendsFilter: { showLegend: true } },
-                } as InsightVizNode)
-            }).toFinishAllListeners()
+            let tileLogic: ReturnType<typeof insightDataLogic.build>
+            let patchedBody: Record<string, any>
 
-            expect(patchSpy).toHaveBeenCalledTimes(1)
-            // The PATCH mock echoes the request body, so the saved query is what the tile sent.
-            expect((tileLogic.values.savedInsight.query as InsightVizNode).source).toEqual({
-                ...storedQuery.source,
-                trendsFilter: { showLegend: true },
+            beforeEach(async () => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/insights/': () => [
+                            200,
+                            { results: [{ id: insightId, short_id: Insight42, query: storedQuery }] },
+                        ],
+                    },
+                })
+                patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return [200, { id: insightId, short_id: Insight42, ...patchedBody }]
+                })
+                const props = {
+                    dashboardItemId: Insight42,
+                    dashboardId: 7,
+                    cachedInsight: { id: insightId, short_id: Insight42, query: dashboardFilteredQuery } as any,
+                }
+                insightLogic(props).mount()
+                tileLogic = insightDataLogic(props)
+                tileLogic.mount()
+
+                await expectLogic(tileLogic, () => {
+                    tileLogic.actions.persistDisplayOptions(tileEdit)
+                }).toFinishAllListeners()
+            })
+
+            it('saves the stored filters with the changes the tile made', () => {
+                expect(patchedBody.query.source).toEqual({
+                    ...storedQuery.source,
+                    trendsFilter: { display: ChartDisplayType.WorldMap },
+                    breakdownFilter: worldMapBreakdown,
+                })
+            })
+
+            it('keeps the dashboard-filtered query on the tile after saving', () => {
+                expect(tileLogic.values.savedInsight.query).toEqual(tileEdit)
             })
         })
 

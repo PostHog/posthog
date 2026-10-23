@@ -129,9 +129,11 @@ const isMatchingSqlQuery = (
     query.source.query === reference.source.query &&
     objectsEqual(query.source.variables ?? {}, reference.source.variables ?? {})
 
-// A tile's query carries the dashboard's filters in these fields (QueryRunner.apply_dashboard_filters).
-// Saving them back bakes the filters into the insight, nested one property group deeper per save.
+// A tile's query carries the dashboard's filters in these fields (resolve_effective_dashboard_filters and
+// QueryRunner.apply_dashboard_filters). Saving them back bakes the filters into the insight, nesting
+// properties one group deeper per save.
 const DASHBOARD_FILTERED_SOURCE_KEYS = [
+    'series',
     'properties',
     'dateRange',
     'breakdownFilter',
@@ -140,13 +142,28 @@ const DASHBOARD_FILTERED_SOURCE_KEYS = [
     'compareFilter',
 ] as const
 
-const withStoredDashboardFilteredFields = (query: Node, storedQuery: Node | null | undefined): Node => {
-    if (!isInsightVizNode(query) || !isInsightVizNode(storedQuery) || query.source.kind !== storedQuery.source.kind) {
+// Restores a field from the stored query only when the tile left it as loaded, so a change the tile
+// made on purpose (switching to World map adds a country breakdown) is still saved.
+const withStoredDashboardFilteredFields = (
+    query: Node,
+    tileBaseQuery: Node | null | undefined,
+    storedQuery: Node | null | undefined
+): Node => {
+    if (
+        !isInsightVizNode(query) ||
+        !isInsightVizNode(tileBaseQuery) ||
+        !isInsightVizNode(storedQuery) ||
+        query.source.kind !== storedQuery.source.kind
+    ) {
         return query
     }
     const source: Record<string, any> = { ...query.source }
+    const baseSource: Record<string, any> = tileBaseQuery.source
     const storedSource: Record<string, any> = storedQuery.source
     for (const key of DASHBOARD_FILTERED_SOURCE_KEYS) {
+        if (!objectsEqual(source[key], baseSource[key])) {
+            continue
+        }
         if (key in storedSource) {
             source[key] = storedSource[key]
         } else {
@@ -897,12 +914,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 await cache.displayOptionsSave
                 breakpoint()
                 const shortId = values.insight.short_id
-                const storedInsight =
-                    props.dashboardId != null && shortId ? await insightsApi.getByShortId(shortId, true) : null
-                breakpoint()
-                const persistedQuery = withStoredDashboardFilteredFields(query, storedInsight?.query)
+                const tileBaseQuery = values.savedInsight.query
                 const save = withTimeout(
-                    (signal) => insightsApi.update(insightId, { query: persistedQuery }, { signal }),
+                    async (signal) => {
+                        const storedInsight =
+                            props.dashboardId != null && shortId ? await insightsApi.getByShortId(shortId, true) : null
+                        const persistedQuery = withStoredDashboardFilteredFields(
+                            query,
+                            tileBaseQuery,
+                            storedInsight?.query
+                        )
+                        return insightsApi.update(insightId, { query: persistedQuery }, { signal })
+                    },
                     15_000,
                     'Saving display options timed out'
                 )
@@ -912,9 +935,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (saveId !== cache.displayOptionsSaveId) {
                     return
                 }
-                actions.renameInsightSuccess(updatedItem)
+                // The response holds the stored query; the tile keeps its dashboard-filtered one.
+                const tileItem = props.dashboardId != null ? { ...updatedItem, query } : updatedItem
+                actions.renameInsightSuccess(tileItem)
                 if (refreshResults) {
-                    props.refreshAfterDisplayOptionsChange?.(updatedItem)
+                    props.refreshAfterDisplayOptionsChange?.(tileItem)
                 }
                 actions.persistDisplayOptionsSettled()
                 lemonToast.success('Insight updated')

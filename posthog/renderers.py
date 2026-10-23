@@ -1,3 +1,5 @@
+import math
+
 import orjson
 from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.utils.encoders import JSONEncoder
@@ -5,6 +7,17 @@ from rest_framework.utils.encoders import JSONEncoder
 from posthog.exceptions_capture import capture_exception
 
 CleaningMarker = bool | dict[int, "CleaningMarker"]
+
+
+def _null_non_finite(value):
+    # Matches orjson, which writes NaN and infinity as null; the stdlib encoder would emit invalid JSON.
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _null_non_finite(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_null_non_finite(item) for item in value]
+    return value
 
 
 class SafeJSONRenderer(JSONRenderer):
@@ -25,7 +38,7 @@ class SafeJSONRenderer(JSONRenderer):
             if str(e) != "Recursion limit reached":
                 raise
             capture_exception(e)
-            return super().render(data, accepted_media_type, renderer_context)
+            return super().render(_null_non_finite(data), accepted_media_type, renderer_context)
 
 
 class ServerSentEventRenderer(BaseRenderer):
