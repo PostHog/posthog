@@ -97,7 +97,7 @@ def _raise(_ctx: HealthContext) -> Any:
 
 
 MULTIPLE_VARIANTS_CHECK = next(check for check in EXPOSURE_HEALTH_CHECKS if check.key == Key.MULTIPLE_VARIANTS_SHARE)
-FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", find=_raise, skip=lambda _ctx: None)
+FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", run=_raise)
 
 
 class TestEvaluate(TestCase):
