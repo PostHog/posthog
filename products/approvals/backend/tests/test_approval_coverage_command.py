@@ -1,6 +1,7 @@
 from io import StringIO
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 
@@ -32,3 +33,15 @@ class TestApprovalCoverageCommand(BaseTest):
         call_command("approval_coverage", "--organization", str(self.organization.id), stdout=out)
 
         assert "0 flags move family, 1 flags lose coverage" in out.getvalue()
+
+    def test_an_unknown_rollout_state_is_not_reported_as_off(self) -> None:
+        self._policy("feature_flag.enable", team=None)
+
+        out = StringIO()
+        with patch(
+            "products.approvals.backend.management.commands.approval_coverage.scope_by_owner_state",
+            return_value=None,
+        ):
+            call_command("approval_coverage", "--organization", str(self.organization.id), stdout=out)
+
+        assert "rolled out: unknown" in out.getvalue()

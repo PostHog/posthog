@@ -13,12 +13,14 @@ from posthog.models import Organization, Team
 
 from products.approvals.backend.coverage import families_by_owner_kind
 from products.approvals.backend.models import ApprovalPolicy
-from products.approvals.backend.ownership import scope_by_owner_enabled
+from products.approvals.backend.ownership import scope_by_owner_state
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import owner_kind_counts
 
 UNOWNED_LABEL = "(unowned)"
 NO_FAMILY = "(none)"
+# The sync skips an organization whose state is unknown, so the report must not show it as "no".
+ROLLOUT_LABELS = {True: "yes", False: "no", None: "unknown, so the policy sync skips it"}
 
 
 class Command(BaseCommand):
@@ -61,10 +63,10 @@ class Command(BaseCommand):
         for team_id, action_key in enabled.filter(team__isnull=False).values_list("team_id", "action_key"):
             team_keys[team_id].add(action_key)
 
-        rolled_out = "yes" if scope_by_owner_enabled(organization) else "no"
+        rolled_out = ROLLOUT_LABELS[scope_by_owner_state(organization)]
         self.stdout.write(f"\n{organization.name} ({organization.id})  rolled out: {rolled_out}")
         self.stdout.write(f"  organization policies: {', '.join(sorted(organization_keys)) or '(none)'}")
-        self.stdout.write(f"  {'owner kind':<22}{'flags':>10}  {'now':<28}{'scoped by owner':<28}")
+        self.stdout.write(f"  {'owner kind':<22}{'flags':>10}  {'not scoped':<28}{'scoped by owner':<28}")
 
         # A team policy governs only its own team's flags, so each team is resolved on its own.
         rows: Counter[tuple[Optional[str], tuple[str, ...], tuple[str, ...]]] = Counter()

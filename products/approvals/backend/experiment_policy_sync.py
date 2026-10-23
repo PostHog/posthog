@@ -13,8 +13,15 @@ Every part of the sync carries the tag `TODO(experiment-approval-policies)`. Rem
 - the `experiment.*` exclusions in `ApprovalPolicyViewSet`
 - the `experiment.*` rejection in `ApprovalPolicySerializer.validate_action_key`
 - the tests in `test_approvals_api.py` that create `experiment.*` rows to check they stay hidden
-- `fallback_policy_action_keys` on the experiment holdout actions, the fallback lookup in
-  `PolicyEngine.get_policy_for_action`, and `ignore_conditions` in `PolicyEngine.evaluate`
+- the branch of `fallback_policy_action_keys_for` on the experiment holdout actions that serves an
+  organization not rolled out
+
+Keep the rest of the holdout fallback: the fallback lookup in `PolicyEngine.get_policy_for_action`
+and `ignore_conditions` in `PolicyEngine.evaluate`. A holdout has no policy of its own, and once
+every organization is rolled out it borrows `experiment.update` through them.
+
+A self-hosted instance cannot evaluate the rollout flag, so it never rolls out. Decide how those
+instances move to the experiment policies before deleting this module.
 
 No column marks a row as a mirror. This is on purpose, because the sync is short-lived. So the sync
 treats every `experiment.*` row as a mirror. It overwrites or deletes any `experiment.*` row that a
