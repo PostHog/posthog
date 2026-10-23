@@ -1239,8 +1239,7 @@ export class CdpApi {
             }
             try {
                 const decision = await this.transactionalEmailPolicy.check(
-                    await transactionalSendCandidate(hogFlow, invocation.id, to, send, this.deps.integrationManager),
-                    'admission'
+                    await transactionalSendCandidate(hogFlow, invocation.id, to, send, this.deps.integrationManager)
                 )
                 if (!decision.ok) {
                     if (idempotencyKey) {
