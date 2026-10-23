@@ -568,9 +568,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         if not isinstance(value, dict):
             if self.instance is not None and value == self.instance.filters:
                 return value
-            raise ValidationError(
-                "Filters must be a JSON object. Send the filter criteria as an object, not as a string or a list."
-            )
+            raise ValidationError("Filters must be a JSON object with the recording filter criteria.")
         experiment_exposure = value.get("experiment_exposure")
         experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
         if isinstance(experiment_id, int):

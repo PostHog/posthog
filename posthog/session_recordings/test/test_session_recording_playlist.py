@@ -328,7 +328,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "saved_filters_as_json_string",
                 {"type": "filters", "filters": json.dumps({"date_from": "-7d"})},
                 "filters",
-                "Filters must be a JSON object. Send the filter criteria as an object, not as a string or a list.",
+                "Filters must be a JSON object with the recording filter criteria.",
             ],
         ]
     )
@@ -583,9 +583,19 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-    @parameterized.expand([["empty_dict", {}], ["none", None], ["json_string", json.dumps({"date_from": "-7d"})]])
-    def test_cannot_update_saved_filter_to_have_no_filters(
-        self, _name: str, updated_filters: dict | str | None
+    @parameterized.expand(
+        [
+            ["empty_dict", {}, "You cannot remove all filters when updating a saved filter"],
+            ["none", None, "This field may not be null."],
+            [
+                "json_string",
+                json.dumps({"date_from": "-7d"}),
+                "Filters must be a JSON object with the recording filter criteria.",
+            ],
+        ]
+    )
+    def test_cannot_update_saved_filter_to_invalid_filters(
+        self, _name: str, updated_filters: dict | str | None, expected_error: str
     ) -> None:
         create_response = self._create_playlist(
             {
@@ -605,6 +615,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == expected_error, response.json()
 
     def test_can_delete_saved_filter_stored_with_string_filters(self) -> None:
         legacy_filters = json.dumps({"date_from": "-7d"})
