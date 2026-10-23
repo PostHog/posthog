@@ -92,7 +92,6 @@ import {
     DataVisualizationNode,
     HogQLVariable,
     MetricsDashboardVariable,
-    MetricsQueryFilter,
     NodeKind,
     RefreshType,
 } from '~/queries/schema/schema-general'
@@ -1002,9 +1001,6 @@ export interface dashboardLogicActions {
     setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => {
         loadLayoutFromServerOnPreview: boolean
     }
-    setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => {
-        metricFilters: MetricsQueryFilter[] | null
-    }
     setMetricVariables: (metricVariables: MetricsDashboardVariable[] | null) => {
         metricVariables: MetricsDashboardVariable[] | null
     }
@@ -1586,7 +1582,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInterval: (interval: IntervalType | null) => ({ interval }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
-        setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => ({ metricFilters }),
         reportDashboardFilterChange: (
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
@@ -2189,7 +2184,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setInterval: () => false,
                 setFilterTestAccounts: () => false,
                 setCompareFilter: () => false,
-                setMetricFilters: () => false,
                 setMetricVariables: () => false,
                 overrideVariableValue: () => false,
                 loadDashboardSuccess: () => false,
@@ -5335,23 +5329,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        setMetricFilters: ({ metricFilters }) => {
-            actions.setDashboardSettingsDraft({
-                ...values.currentDashboardSettings,
-                filters: { ...values.currentDashboardSettings.filters, metricFilters },
-            })
-            actions.reportDashboardFilterChange('metric_labels', {
-                metric_filter_count: metricFilters?.length ?? 0,
-            })
-
-            if (values.canAutoPreview) {
-                actions.refreshDashboardItems({
-                    action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
-                    previewUnsavedFilters: true,
-                })
-            }
-        },
         setMetricVariables: ({ metricVariables }) => {
             actions.setDashboardSettingsDraft({
                 ...values.currentDashboardSettings,
@@ -5643,25 +5620,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newUrlFilters: DashboardFilter = {
                 ...urlFilters,
                 compareFilter,
-            }
-
-            return [
-                currentLocation.pathname,
-                searchParamsWithUrlFilters(
-                    currentLocation.searchParams,
-                    newUrlFilters,
-                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
-                ),
-                currentLocation.hashParams,
-            ]
-        },
-        setMetricFilters: ({ metricFilters }) => {
-            const { currentLocation } = router.values
-
-            const urlFilters = parseURLFilters(currentLocation.searchParams)
-            const newUrlFilters: DashboardFilter = {
-                ...urlFilters,
-                metricFilters,
             }
 
             return [
