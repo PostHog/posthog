@@ -1,4 +1,10 @@
+import ssl
+import datetime
+import threading
+import contextlib
 import subprocess
+import socketserver
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -9,6 +15,10 @@ from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
@@ -415,6 +425,29 @@ class TestChdbEngineChoiceByFormat:
         assert mock_sync_execute.called is not uses_chdb
 
 
+def _test_certificate(
+    name: str,
+    key: ec.EllipticCurvePrivateKey,
+    signing_key: ec.EllipticCurvePrivateKey,
+    issuer: x509.Name | None = None,
+) -> x509.Certificate:
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
+    now = datetime.datetime.now(datetime.UTC)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer or subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(hours=1))
+        .not_valid_after(now + datetime.timedelta(hours=1))
+        .add_extension(x509.BasicConstraints(ca=issuer is None, path_length=None), critical=True)
+    )
+    if issuer is not None:
+        builder = builder.add_extension(x509.SubjectAlternativeName([x509.DNSName(name)]), critical=False)
+    return builder.sign(signing_key, hashes.SHA256())
+
+
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
         # Real subprocess: chdb import alone exceeds the timeout, so this exercises the
@@ -443,6 +476,54 @@ class TestRunChdbQuery:
         assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
         assert child_env["https_proxy"] == "http://web-1:x@egress-proxy.example:4750/"
         assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SELECT 1"
+
+    def test_read_rejects_a_certificate_issued_for_another_host(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # The proxy answers every CONNECT with a certificate the test CA issued for other.invalid. An engine
+        # that checks the chain but not the hostname accepts that certificate and reads the body.
+        ca_key = ec.generate_private_key(ec.SECP256R1())
+        ca = _test_certificate("Test CA", ca_key, ca_key)
+        leaf_key = ec.generate_private_key(ec.SECP256R1())
+        leaf = _test_certificate("other.invalid", leaf_key, ca_key, issuer=ca.subject)
+        (tmp_path / "ca.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+        (tmp_path / "leaf.pem").write_bytes(
+            leaf.public_bytes(serialization.Encoding.PEM)
+            + leaf_key.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+            )
+        )
+        tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls_context.load_cert_chain(tmp_path / "leaf.pem")
+
+        class TlsTerminatingProxy(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                request = b""
+                while b"\r\n\r\n" not in request:
+                    chunk = self.request.recv(4096)
+                    if not chunk:
+                        return
+                    request += chunk
+                self.request.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                with contextlib.suppress(OSError), tls_context.wrap_socket(self.request, server_side=True) as tls:
+                    tls.recv(65536)
+                    tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+
+        with socketserver.ThreadingTCPServer(("127.0.0.1", 0), TlsTerminatingProxy) as proxy:
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
+            monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{proxy.server_address[1]}")
+            monkeypatch.delenv("NO_PROXY", raising=False)
+            monkeypatch.delenv("no_proxy", raising=False)
+            monkeypatch.setenv("SSL_CERT_FILE", str(tmp_path / "ca.pem"))
+            try:
+                # Retries back off on each failed handshake and would outlast run_chdb_query's timeout.
+                with pytest.raises(RuntimeError, match="Unacceptable certificate from wrong.invalid"):
+                    run_chdb_query(
+                        "SET s3_retry_attempts = 0; "
+                        "SELECT * FROM s3('https://wrong.invalid/bucket/data.csv', 'RawBLOB')"
+                    )
+            finally:
+                proxy.shutdown()
 
     @pytest.mark.parametrize(
         "stderr",
