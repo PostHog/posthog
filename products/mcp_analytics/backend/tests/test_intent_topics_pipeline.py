@@ -2,16 +2,19 @@ import os
 
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 
-from datetime import UTC, datetime, timedelta  # noqa: E402
+from datetime import timedelta  # noqa: E402
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
 from unittest.mock import patch  # noqa: E402
 
 import numpy as np  # noqa: E402
 
+from posthog.schema import DateRange, MCPIntentTopicsQuery  # noqa: E402
+
 from posthog.hogql.parser import parse_select  # noqa: E402
 from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
+from products.mcp_analytics.backend.hogql_queries.intent_topics import MCPIntentTopicsQueryRunner  # noqa: E402
 from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
 from products.mcp_analytics.backend.intent_topics import pipeline, rollups  # noqa: E402
 from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls  # noqa: E402
@@ -101,7 +104,7 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
             team=self.team,
         ).results
         _insert_assignment(self.team.pk, intent_hash("plot signups"), "topic-a")
-        rollups.rebuild_topic_daily(team_id=self.team.pk, window_start=start, window_end=NOW, now=datetime.now(tz=UTC))
+        rollups.rebuild_topic_daily(team_id=self.team.pk, window_start=start, window_end=NOW, now=NOW)
         daily = execute_hogql_query(
             query="SELECT calls, length(conversation_hashes) FROM posthog.mcp_intent_topic_daily", team=self.team
         ).results
@@ -204,10 +207,25 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert sorted(str(t.pk) for t in MCPIntentTopic.active.filter(team=self.team)) == first_ids
         assert MCPIntentClusteringRun.objects.filter(team=self.team, kind="refit", status="succeeded").count() == 2
 
-    def test_assign_without_topics_is_skipped(self) -> None:
+    def test_assign_without_topics_is_skipped_and_still_counts_the_calls_as_unassigned(self) -> None:
+        rollups.insert_hourly_calls(
+            self.team.pk,
+            [HourlyCalls(hour=NOW - timedelta(hours=3), hash="h1", tool="query-trends", calls=6, conversations=(1,))],
+            now=NOW,
+        )
+
         outcome = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=1), window_end=NOW)
 
         assert outcome.status == "skipped_too_few"
+        coverage = (
+            MCPIntentTopicsQueryRunner(
+                query=MCPIntentTopicsQuery(dateRange=DateRange(date_from=(NOW - timedelta(days=1)).date().isoformat())),
+                team=self.team,
+            )
+            .calculate()
+            .coverage
+        )
+        assert (coverage.calls_with_intent, coverage.calls_assigned) == (6, 0)
 
 
 class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

@@ -10,7 +10,11 @@ from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEve
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
-from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import (
+    MCPIntentAssignmentsTable,
+    MCPIntentCallsHourlyTable,
+    RawMCPIntentAssignmentsTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
@@ -76,7 +80,7 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
         return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     if isinstance(table, FlagEvaluationsTable):
         return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
-    if isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
+    if isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable | MCPIntentCallsHourlyTable):
         return _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
     return None
 
@@ -133,7 +137,12 @@ def restricted_property_keys_for_table_type(
         group_type_index = table.group_index
     elif isinstance(
         table,
-        EventsTable | FlagEvaluationsTable | AiEventsTable | MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable,
+        EventsTable
+        | FlagEvaluationsTable
+        | AiEventsTable
+        | MCPIntentAssignmentsTable
+        | RawMCPIntentAssignmentsTable
+        | MCPIntentCallsHourlyTable,
     ):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):

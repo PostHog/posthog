@@ -48,8 +48,13 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
 from products.mcp_analytics.backend.intent_topics.metrics import drift, focus_band, focus_score
+from products.mcp_analytics.backend.intent_topics.persist import latest_refit_started_at, project_team
 from products.mcp_analytics.backend.intent_topics.rollups import hourly_calls_source, topic_daily_source
 from products.mcp_analytics.backend.models import MCPIntentTopic
 
@@ -66,6 +71,7 @@ TOP_TOOLS_PER_TOPIC = 5
 # HogQL from applying its default of 100 rows.
 MAX_TOPICS_READ = 10_000
 UNASSIGNED = ""
+INTENT_PROPERTY = "$mcp_intent"
 
 
 def _order(name: str, direction: str = "ASC") -> ast.OrderExpr:
@@ -161,7 +167,8 @@ INNER JOIN (
            argMax(y, timestamp) AS y,
            argMax(ifNull(topic_id, ''), timestamp) AS topic_id,
            argMax(is_outlier, timestamp) AS is_outlier,
-           argMax(distance, timestamp) AS distance
+           argMax(distance, timestamp) AS distance,
+           max(timestamp) AS assigned_at
     FROM posthog.raw_mcp_intent_assignments
     WHERE intent_hash IN (SELECT intent_hash FROM {called})
     GROUP BY intent_hash
@@ -174,6 +181,7 @@ class _IntentTopicsBase:
     """Shared reads for the runners: per-topic sums for the window and the previous window."""
 
     team: Any
+    user: Any
     query: Any
     timings: Any
     modifiers: Any
@@ -195,6 +203,8 @@ class _IntentTopicsBase:
             response = execute_hogql_query(
                 query=query,
                 team=self.team,
+                user=self.user,
+                context=cast(AnalyticsQueryRunner, self).build_hogql_context(),
                 query_type=name,
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -237,7 +247,21 @@ class _IntentTopicsBase:
         return TopicSums(current=current, previous=previous)
 
     def _topics_by_id(self) -> dict[str, MCPIntentTopic]:
-        return {str(t.pk): t for t in MCPIntentTopic.objects.unscoped().filter(team=self.team)}
+        return {str(t.pk): t for t in MCPIntentTopic.objects.unscoped().filter(team=project_team(self.team))}
+
+    @cached_property
+    def _intent_text_restricted(self) -> bool:
+        # Topic labels and summaries are written from intent texts, so they follow the same restriction.
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
+        return INTENT_PROPERTY in split_restricted_property_names(restrictions).event
+
+    def _label(self, topic_id: str, topic: MCPIntentTopic | None) -> str:
+        if topic is None or self._intent_text_restricted:
+            return f"Topic {topic_id[:8]}"
+        return topic.label
+
+    def _summary(self, topic: MCPIntentTopic | None) -> str:
+        return "" if topic is None or self._intent_text_restricted else topic.summary
 
     def _coverage(self, sums: TopicSums) -> MCPIntentCoverage:
         with_intent = sums.calls_with_intent
@@ -260,8 +284,8 @@ class _IntentTopicsBase:
             items.append(
                 MCPIntentTopicItem(
                     topic_id=topic_id,
-                    label=topic.label if topic else f"Topic {topic_id[:8]}",
-                    summary=topic.summary if topic else "",
+                    label=self._label(topic_id, topic),
+                    summary=self._summary(topic),
                     calls=totals.calls,
                     sessions=totals.sessions,
                     share_pct=share,
@@ -392,34 +416,34 @@ class MCPToolIntentProfileQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MC
         for item in items:
             item.sparkline = sparklines.get(item.topic_id, [])
 
-        assigned_now = {k: v.calls for k, v in sums.current.items() if k != UNASSIGNED}
-        assigned_before = {k: v for k, v in sums.previous.items() if k != UNASSIGNED}
-        score = focus_score(assigned_now)
-        moved = drift(assigned_now, assigned_before)
+        calls_now = {k: v.calls for k, v in sums.current.items()}
+        score = focus_score({k: v for k, v in calls_now.items() if k != UNASSIGNED})
+        # Shares count every call with an intent, as the topic list does; the unassigned bucket is never listed.
+        moved = drift(calls_now, sums.previous)
         registry = self._topics_by_id()
-        total = sum(assigned_now.values())
-        previous_total = sum(assigned_before.values())
+        total = sum(calls_now.values())
+        previous_total = sum(sums.previous.values())
 
         def ref(topic_id: str) -> MCPIntentTopicRef:
-            topic = registry.get(topic_id)
             return MCPIntentTopicRef(
                 topic_id=topic_id,
-                label=topic.label if topic else f"Topic {topic_id[:8]}",
-                calls=assigned_now.get(topic_id, 0),
-                share_pct=_pct(assigned_now.get(topic_id, 0), total),
-                previous_share_pct=_pct(assigned_before[topic_id], previous_total)
-                if topic_id in assigned_before
-                else None,
+                label=self._label(topic_id, registry.get(topic_id)),
+                calls=calls_now.get(topic_id, 0),
+                share_pct=_pct(calls_now.get(topic_id, 0), total),
+                previous_share_pct=_pct(sums.previous[topic_id], previous_total) if topic_id in sums.previous else None,
             )
+
+        def refs(topic_ids: list[str]) -> list[MCPIntentTopicRef]:
+            return [ref(t) for t in topic_ids if t != UNASSIGNED]
 
         return MCPToolIntentProfileQueryResponse(
             results=items,
             focus=MCPIntentFocus(score=round(score, 4), band=focus_band(score)),
             drift=MCPIntentDrift(
-                new=[ref(t) for t in moved.new],
-                growing=[ref(t) for t in moved.growing],
-                shrinking=[ref(t) for t in moved.shrinking],
-                gone=[ref(t) for t in moved.gone],
+                new=refs(moved.new),
+                growing=refs(moved.growing),
+                shrinking=refs(moved.shrinking),
+                gone=refs(moved.gone),
             ),
             outliers=self._outliers(),
             coverage=self._coverage(sums),
@@ -494,9 +518,7 @@ class MCPSimilarToolsQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPSimi
                     tool=tool,
                     similarity=round(similarity, 4),
                     calls=sum(per_tool.values()),
-                    shared_topics=[
-                        registry[t].label if t in registry else f"Topic {t[:8]}" for t in shared[:TOP_TOOLS_PER_TOPIC]
-                    ],
+                    shared_topics=[self._label(t, registry.get(t)) for t in shared[:TOP_TOOLS_PER_TOPIC]],
                 )
             )
         results.sort(key=lambda item: (-item.similarity, -item.calls, item.tool))
@@ -516,6 +538,12 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
 
     def _point_filters(self) -> list[ast.Expr]:
         filters: list[ast.Expr] = []
+        # Each refit fits a new 2D basis and re-assigns only recent vectors; older positions use an older basis.
+        basis_since = latest_refit_started_at(self.team)
+        if basis_since is not None:
+            filters.append(
+                parse_expr("a.assigned_at >= {basis_since}", {"basis_since": ast.Constant(value=basis_since)})
+            )
         if self.query.topicId:
             filters.append(parse_expr("a.topic_id = {topic_id}", {"topic_id": ast.Constant(value=self.query.topicId)}))
         if self.query.bounds:
@@ -571,17 +599,15 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
         topics = [
             MCPIntentMapTopic(
                 topic_id=topic_id,
-                label=topic.label,
-                summary=topic.summary,
+                label=self._label(topic_id, topic),
+                summary=self._summary(topic),
                 x=topic.centroid_x,
                 y=topic.centroid_y,
                 calls=sums.current[topic_id].calls,
                 share_pct=_pct(sums.current[topic_id].calls, total_calls),
             )
             for topic_id, topic in registry.items()
-            if topic.status == MCPIntentTopic.Status.ACTIVE
-            and topic_id in sums.current
-            and (not self.query.topicId or topic_id == self.query.topicId)
+            if topic_id in sums.current and (not self.query.topicId or topic_id == self.query.topicId)
         ]
         topics.sort(key=lambda t: -t.calls)
         return MCPIntentMapQueryResponse(

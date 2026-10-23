@@ -595,8 +595,12 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "mcp_intent_assignments": TableNode(
                         name="mcp_intent_assignments", table=MCPIntentAssignmentsTable()
                     ),
-                    "mcp_intent_calls_hourly": TableNode(name="mcp_intent_calls_hourly", table=MCPIntentCallsHourlyTable()),
-                    "mcp_intent_topic_daily": TableNode(name="mcp_intent_topic_daily", table=MCPIntentTopicDailyTable()),
+                    "mcp_intent_calls_hourly": TableNode(
+                        name="mcp_intent_calls_hourly", table=MCPIntentCallsHourlyTable()
+                    ),
+                    "mcp_intent_topic_daily": TableNode(
+                        name="mcp_intent_topic_daily", table=MCPIntentTopicDailyTable()
+                    ),
                     **{name: TableNode(name=name, table=table) for name, table in HOGQL_POSTHOG_MODEL_TABLES.items()},
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),

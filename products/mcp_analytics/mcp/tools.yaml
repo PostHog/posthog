@@ -328,7 +328,8 @@ wrappers:
             Pass an optional toolName to scope to one effective tool and a dateRange (defaults to the last 7 days).
             Reads the nightly rollup, so it is fast for any window; property filters do not apply. Use to answer
             "what do agents use this server for?", "how has use of tool X changed over the past 3 months?" (compare
-            two date ranges or read trend_pp) and "what is the average use of tool X over the past 5 days?".
+            two date ranges or read trend_pp). For a tool's total or average calls, use query-mcp-tool-daily-stats:
+            this tool counts only calls that carry an intent.
         system_prompt_hint: Intent topics with share, trend and tools, for the server or one tool
         exclude_properties:
             - response
@@ -407,10 +408,11 @@ wrappers:
         title: Intent map points and topic bubbles
         description: >
             Return the 2D intent map: topic bubbles (label, summary, position, calls, share) and the most called
-            intent texts as points (position, topic, outlier flag, calls, tool), up to the limit (default 2000,
-            maximum 5000), with the total number of matching points. Optional toolName, topicId and bounds narrow
-            the points. Positions come from a PCA projection of the intent embeddings; close points mean similar
-            intents. Use to read individual intents inside a topic or to list what sits far from every topic.
+            intent texts as points (position, topic, outlier flag, calls, tool), up to the limit, with the total
+            number of matching points. The limit defaults to 50 here; each point carries up to 500 characters of
+            intent text, so raise it only as far as you need and narrow with toolName, topicId or bounds first.
+            Positions come from a PCA projection of the intent embeddings; close points mean similar intents. Use
+            to read individual intents inside a topic or to list what sits far from every topic.
         system_prompt_hint: Topic bubbles and intent points for the 2D intent map
         exclude_properties:
             - response
@@ -418,6 +420,8 @@ wrappers:
             - version
             - tags
         reads_ingested_data: events
+        property_defaults:
+            limit: 50
         response_fields:
             - topics
             - total_points

@@ -4,6 +4,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_select
@@ -186,7 +188,17 @@ def fetch_hourly_calls(
                 "offset": ast.Constant(value=len(rows)),
             },
         )
-        page = execute_hogql_query(query=query, team=team).results or []
+        # Hour keys must be UTC: the daily rebuild groups them into days, and project-local hours break
+        # at fractional offsets such as +05:30.
+        page = (
+            execute_hogql_query(
+                query=query,
+                team=team,
+                workload=Workload.OFFLINE,
+                modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+            ).results
+            or []
+        )
         rows.extend(
             HourlyCalls(hour=row[0], hash=row[1], tool=row[2] or "", calls=int(row[3]), conversations=tuple(row[4]))
             for row in page
