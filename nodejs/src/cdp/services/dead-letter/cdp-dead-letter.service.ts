@@ -67,6 +67,8 @@ const MAX_REASON_BYTES = 1024
 /** A ratio says nothing on a small batch: one bad event in a batch of one is 100% of it. */
 const MIN_UNEXPECTED_TO_BREAK = 3
 
+const UNEXPECTED_STEPS: ReadonlySet<DeadLetterStep> = new Set<DeadLetterStep>(['lookup', 'process'])
+
 export interface CdpDeadLetterServiceConfig {
     CDP_DLQ_ENABLED: boolean
     CDP_DLQ_BATCH_FAIL_RATIO: number
@@ -215,12 +217,18 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         // Stalling the partition beats parking a whole batch: draining the stream into a side topic
         // leaves lag, health and throughput all reading normal, so nobody notices. `filter` and
         // `inputs` never count, because one broken builtin legitimately breaks a whole batch and
-        // those records are the point.
-        const unexpected = new Set(
-            failures
-                .filter((entry) => entry.failures.some((failure) => failure.step === 'process'))
-                .map((entry) => entry.globals)
-        ).size
+        // those records are the point. `parse` never counts either. Most parse errors come from bytes
+        // that fail the same way on every read, so a stall would never clear them. A deploy that
+        // breaks the conversion to globals also parks as `parse`, so this check does not catch that
+        // deploy. A `lookup` error does not come from the bytes, so it counts with `process`.
+        const unexpected = new Set<object>([
+            ...failures
+                .filter((entry) => entry.failures.some((failure) => UNEXPECTED_STEPS.has(failure.step)))
+                .map((entry) => entry.globals),
+            ...messageFailures
+                .filter(({ failure }) => UNEXPECTED_STEPS.has(failure.step))
+                .map(({ message }) => message),
+        ]).size
         if (
             unexpected >= MIN_UNEXPECTED_TO_BREAK &&
             messages.length &&

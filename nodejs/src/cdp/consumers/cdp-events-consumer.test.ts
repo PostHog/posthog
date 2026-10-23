@@ -759,26 +759,31 @@ describe('CdpEventsConsumer', () => {
             it.each([
                 {
                     name: 'a message that is not an event object',
+                    step: 'parse',
                     bad: () => createKafkaMessage('not json at all'),
                 },
                 {
                     name: 'an event whose properties are not JSON',
+                    step: 'parse',
                     bad: (teamId: number) => createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
                 },
                 {
                     name: 'an event whose team_id is out of int4 range',
+                    step: 'parse',
                     bad: (teamId: number) =>
                         createKafkaMessage({ ...createIncomingEvent(teamId, {}), team_id: 3_000_000_000 }),
                 },
                 ...lookupSpies.map(({ lookup, spy }) => ({
                     name: `an event whose ${lookup} lookup throws a non-retriable error`,
+                    // A lookup parked as `parse` would escape the dead-letter circuit breaker.
+                    step: 'lookup',
                     // The first message in the batch makes the first lookup call, so only it fails.
                     bad: (teamId: number) => {
                         spy().mockRejectedValueOnce(new Error('column "bytecode" does not exist'))
                         return createKafkaMessage(createIncomingEvent(teamId, {}))
                     },
                 })),
-            ])('parks $name and processes the rest of the batch', async ({ bad }) => {
+            ])('parks $name and processes the rest of the batch', async ({ step, bad }) => {
                 await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -789,7 +794,7 @@ describe('CdpEventsConsumer', () => {
 
                 const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
                 expect(parked).toHaveLength(1)
-                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse', dlq_offset: '0' })
+                expect(parked[0].headers).toMatchObject({ dlq_step: step, dlq_offset: '0' })
                 expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             })
 
