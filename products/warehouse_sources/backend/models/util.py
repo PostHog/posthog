@@ -738,6 +738,12 @@ _VIRTUAL_HOSTED_STORAGE_HOST = re.compile(rf"^(?P<bucket>.+?)\.{_STORAGE_ENDPOIN
 # ClickHouse expands these in an s3() URL. They belong in the key, never in the bucket position.
 _GLOB_METACHARACTERS = frozenset("*?{}[]")
 
+_AWS_CONSOLE_HOST = "console.aws.amazon.com"
+_AWS_CONSOLE_URL = (
+    "This URL is a link to the AWS console, not to your files. "
+    "Enter the S3 URL of your files instead, for example https://<bucket>.s3.<region>.amazonaws.com/<path>/*.parquet."
+)
+
 _NOT_OUR_STORAGE = (
     "This URL points to PostHog's internal storage and can't be used as a source. "
     "Enter the location of your own bucket instead."
@@ -904,6 +910,9 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
         return False, "URL pattern must include a valid hostname."
 
     normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
+
+    if normalized_hostname == _AWS_CONSOLE_HOST or normalized_hostname.endswith(f".{_AWS_CONSOLE_HOST}"):
+        return False, _AWS_CONSOLE_URL
 
     # Runs before the generic SSRF check below so a URL aimed at our own storage always reports
     # that, rather than whatever the internal hostname happens to resolve to.
