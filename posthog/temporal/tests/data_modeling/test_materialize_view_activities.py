@@ -24,7 +24,11 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseError, ClickHouseTooManySimultaneousQueriesError
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClient,
+    ClickHouseError,
+    ClickHouseTooManySimultaneousQueriesError,
+)
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -57,6 +61,7 @@ from posthog.temporal.data_modeling.activities.materialize_view_managed_warehous
     materialize_view_managed_warehouse_activity,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
@@ -2048,6 +2053,41 @@ class _EmptyArrowClient:
 
 
 class TestHogqlTableModifiers:
+    async def test_formatter_shaped_aliases_preserve_values_and_team_scope(
+        self, ateam: Team, clickhouse_client: ClickHouseClient
+    ) -> None:
+        events, _, other_team_events = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=2,
+            count_outside_range=0,
+            count_other_team=2,
+            table="sharded_events",
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        query = r"""
+            SELECT 'quote\' backtick` slash\\ {log_comment} %(other)s' AS `{hogql_val_0}`,
+                event AS `{log_comment}`, uuid AS `{{hogql_val_0}}`
+            FROM events
+        """
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        rows = [row for table, _ in batches for row in table.to_pylist()]
+        assert len(rows) == len(events)
+        assert all(list(row) == ["{hogql_val_0}", "{log_comment}", "{{hogql_val_0}}"] for row in rows)
+        assert {row["{hogql_val_0}"] for row in rows} == {"quote' backtick` slash\\ {log_comment} %(other)s"}
+        assert {row["{{hogql_val_0}}"] for row in rows} == {event["uuid"] for event in events}
+        assert not {row["{{hogql_val_0}}"] for row in rows} & {event["uuid"] for event in other_team_events}
+
     @pytest.mark.parametrize(
         "clickhouse_type,expected_conversion",
         [
