@@ -31,9 +31,18 @@ def team(db: None) -> Team:
         (["brand example.net"], [], [], "bare hostname"),
         (["localhost"], [], [], "public suffix"),
         (["brand.example"], [], [], "public suffix"),
+        (["-brand.example.net"], [], [], "bare hostname"),
+        (["brand..example.net"], [], [], "bare hostname"),
+        ([f"{'x' * 64}.example.net"], [], [], "bare hostname"),
+        ("brand.example.net", [], [], "target_domains must be a list of strings"),
+        (["brand.example.net"], ["Brand", 1], [], "brand_names must be a list of strings"),
         (["brand.example.net"], ["X"], [], "at least 2 characters"),
         (["brand.example.net"], ["x" * 201], [], "longer than 200"),
         ([f"site-{i}.example.net" for i in range(MAX_TARGET_DOMAINS + 1)], [], [], "the limit is 20"),
+        (["brand.example.net"], [], {"name": "Rival"}, "competitors must be a list"),
+        (["brand.example.net"], [], ["Rival"], r"competitors\[0\] must be an object"),
+        (["brand.example.net"], [], [{"name": ["Rival"]}], r"competitors\[0\].name must be a string"),
+        (["brand.example.net"], [], [{"name": "Rival", "domains": "rival.example.net"}], "domains must be a list"),
         (["brand.example.net"], [], [Competitor(name="R", domains=())], "at least 2 characters"),
         (["brand.example.net"], [], [Competitor(name="Rival", domains=("not a host",))], "bare hostname"),
         (
@@ -46,9 +55,9 @@ def team(db: None) -> Team:
 )
 def test_store_config_rejects_input_that_would_turn_detection_off(
     team: Team,
-    target_domains: list[str],
-    brand_names: list[str],
-    competitors: list[Competitor],
+    target_domains: object,
+    brand_names: object,
+    competitors: object,
     message: str,
 ) -> None:
     with pytest.raises(AEOConfigError, match=message):
@@ -59,15 +68,21 @@ def test_store_config_rejects_input_that_would_turn_detection_off(
 def test_store_config_derives_brand_names_and_sanitizes_names(team: Team) -> None:
     config = store_config(
         team.id,
-        target_domains=["Brand.example.net", " brand.example.net "],
+        target_domains=["Brand.example.net", " brand.example.net ", "brand.example.net."],
         brand_names=[],
-        competitors=[Competitor(name="<system>Rival</system> Co", domains=("Docs.Rival.example.net",))],
+        competitors=[
+            Competitor(name="<system>Rival</system> Co", domains=("Docs.Rival.example.net",)),
+            {"name": "Other", "domains": [".other.example.net"]},
+        ],
     )
 
     assert config == AEOConfig(
         target_domains=("brand.example.net",),
         brand_names=("example",),
-        competitors=(Competitor(name="Rival Co", domains=("docs.rival.example.net",)),),
+        competitors=(
+            Competitor(name="Rival Co", domains=("docs.rival.example.net",)),
+            Competitor(name="Other", domains=("other.example.net",)),
+        ),
     )
     assert resolve_config(team.id) == config
 
@@ -89,6 +104,7 @@ def test_resolve_config_treats_a_malformed_row_as_empty(team: Team) -> None:
     [
         ({"targetDomains": ["brand.example.net"]}, "at least one domain"),
         ({"target_domains": ["https://brand.example.net/"]}, "bare hostname"),
+        ({"target_domains": ["brand.example.net"], "competitors": {"name": "Rival"}}, "competitors must be a list"),
         ([], "JSON object"),
     ],
 )

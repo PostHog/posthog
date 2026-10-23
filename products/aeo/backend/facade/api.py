@@ -18,7 +18,6 @@ from products.aeo.backend.facade.contracts import (
     AEOConfig,
     CitationGap,
     CitationRunSummary,
-    Competitor,
     Prompt,
     PromptImport,
     PromptImportResult,
@@ -50,12 +49,16 @@ def get_config(team_id: int) -> AEOConfig:
 def update_config(
     team_id: int,
     *,
-    target_domains: list[str],
-    brand_names: list[str],
-    competitors: list[Competitor],
+    target_domains: object,
+    brand_names: object,
+    competitors: object,
 ) -> AEOConfig:
     """Replace the team's brand and competitor config. Later runs read it; rows
-    already written keep the detection they ran with."""
+    already written keep the detection they ran with.
+
+    Takes raw payload values and raises `AEOConfigError` on a wrong shape:
+    `target_domains` and `brand_names` must be lists of strings, `competitors`
+    a list of `Competitor` values or `{"name": ..., "domains": [...]}` objects."""
     return store_config(team_id, target_domains=target_domains, brand_names=brand_names, competitors=competitors)
 
 

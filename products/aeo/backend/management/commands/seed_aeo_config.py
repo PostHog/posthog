@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from posthog.models.team import Team
 
 from products.aeo.backend.facade.api import update_config
-from products.aeo.backend.facade.contracts import AEOConfigError, Competitor
+from products.aeo.backend.facade.contracts import AEOConfigError
 
 
 class Command(BaseCommand):
@@ -33,17 +33,12 @@ class Command(BaseCommand):
         if not isinstance(payload, dict):
             raise CommandError("The config file must hold a JSON object")
 
-        competitors = [
-            Competitor(name=str(item.get("name") or ""), domains=tuple(_strings(item.get("domains"))))
-            for item in payload.get("competitors") or []
-            if isinstance(item, dict)
-        ]
         try:
             config = update_config(
                 team.id,
-                target_domains=_strings(payload.get("target_domains")),
-                brand_names=_strings(payload.get("brand_names")),
-                competitors=competitors,
+                target_domains=payload.get("target_domains", []),
+                brand_names=payload.get("brand_names", []),
+                competitors=payload.get("competitors", []),
             )
         except AEOConfigError as error:
             raise CommandError(f"Config rejected: {error}") from error
@@ -60,9 +55,3 @@ class Command(BaseCommand):
                 f"{len(config.competitors)} competitor(s)"
             )
         )
-
-
-def _strings(values: Any) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    return [str(value) for value in values if isinstance(value, str)]

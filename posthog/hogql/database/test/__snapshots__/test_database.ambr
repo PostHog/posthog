@@ -2877,6 +2877,36 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_mentioned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_mentioned",
+                  "id": null,
+                  "name": "brand_mentioned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "competitors_mentioned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "competitors_mentioned",
+                  "id": null,
+                  "name": "competitors_mentioned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "competitors_cited": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "competitors_cited",
+                  "id": null,
+                  "name": "competitors_cited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -17491,6 +17521,36 @@
                   "hogql_value": "top_cited_domains",
                   "id": null,
                   "name": "top_cited_domains",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "brand_mentioned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_mentioned",
+                  "id": null,
+                  "name": "brand_mentioned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "competitors_mentioned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "competitors_mentioned",
+                  "id": null,
+                  "name": "competitors_mentioned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "competitors_cited": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "competitors_cited",
+                  "id": null,
+                  "name": "competitors_cited",
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
