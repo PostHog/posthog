@@ -298,7 +298,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                 : undefined
                                 }
                                 duplicateDisabledReason={
-                                    templateChanged ? 'Save your changes before duplicating' : undefined
+                                    isDuplicating
+                                        ? 'Duplicating…'
+                                        : templateChanged
+                                          ? 'Save your changes before duplicating'
+                                          : undefined
                                 }
                                 templateChanged={templateChanged && !draftsEnabled && !isCodeManaged}
                                 saving={isTemplateSubmitting || templateLoading}
