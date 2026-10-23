@@ -16,9 +16,10 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
-from posthog.llm.system_one_client import build_system_one_client
+from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS, build_system_one_client
 
-from products.slack_app.backend.logic.feature_tips.catalog import SlackFeature, TipFeature
+from products.slack_app.backend.logic.feature_tips.catalog import TipFeature
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY
 
 logger = structlog.get_logger(__name__)
@@ -35,8 +36,8 @@ FEATURE_TIP_QUESTION_ID = "feature_tip"
 NO_FEATURE = "none"
 # The model needs the request, not the whole message. This also keeps pasted logs out of the call.
 FEATURE_TIP_MESSAGE_MAX_CHARS = 500
-# The gateway accepts at most 16 options in one choice question, and `none` takes one of them.
-FEATURE_TIP_MAX_CANDIDATES = 15
+# `none` takes one of the options the gateway accepts.
+FEATURE_TIP_MAX_CANDIDATES = GATEWAY_MAX_CHOICE_OPTIONS - 1
 
 FEATURE_TIP_INSTRUCTIONS = (
     "`message` is what a person asked the PostHog assistant in Slack. "

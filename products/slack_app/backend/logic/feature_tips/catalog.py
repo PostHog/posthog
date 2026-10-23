@@ -15,7 +15,6 @@ outside any database lock.
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Literal
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
@@ -37,7 +36,7 @@ from products.slack_app.backend.inbox_channel import (
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_messages import app_home_url, personal_integrations_url, project_web_url
-from products.slack_app.backend.services.slack_scopes import has_scopes
+from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
 from products.slack_app.backend.services.slack_settings import (
     set_auto_model_choice,
     set_untagged_followup_mode,
@@ -45,17 +44,9 @@ from products.slack_app.backend.services.slack_settings import (
 )
 from products.subscriptions.backend.facade.api import user_has_slack_subscription
 
-__all__ = ["CATALOG", "SlackFeature", "TipContext", "TipCta", "TipFeature"]
-
-# The artifact delivery path checks the same scopes at the point of use.
-SLACK_FILE_SCOPE = "files:write"
-SLACK_CANVAS_SCOPE = "canvases:write"
-
 
 @frozen(slots=False)
 class TipContext:
-    """The Slack user and the thread that a tip is for. Team facts load once, on first use."""
-
     integration: Integration
     slack_user_id: str
     posthog_user_id: int | None
@@ -98,9 +89,15 @@ class TipContext:
 
 @frozen
 class TipCta:
-    kind: Literal["url", "action"]
     label: str
+    # Without a URL, the button runs ``apply_action``.
     url: str | None = None
+
+
+def _home_tab_cta(ctx: TipContext) -> TipCta | None:
+    if ctx.app_home_url is None:
+        return None
+    return TipCta(label="Open the Home tab", url=ctx.app_home_url)
 
 
 class TipFeature:
@@ -108,13 +105,11 @@ class TipFeature:
     # Lower comes first when nothing in the message points at one feature.
     rank: int
     text: str
-    # What the decision model reads to match a message to this feature.
     choice_criteria: str
-    # Whether the CTA is a button that changes something in place, through ``apply_action``.
     has_action: bool = False
 
     def is_eligible(self, ctx: TipContext) -> bool:
-        raise NotImplementedError
+        return True
 
     def was_used(self, ctx: TipContext) -> bool:
         """``False`` for a feature without stored state. Its code path records use instead."""
@@ -127,7 +122,6 @@ class TipFeature:
         return None
 
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
-        """Run an ``action`` CTA and return the text that replaces the tip."""
         raise NotImplementedError
 
 
@@ -153,7 +147,7 @@ class ThreadFollowupTip(TipFeature):
         return ctx.settings.untagged_followup_mode is not None
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        return TipCta(kind="action", label="Always pick up my replies")
+        return TipCta(label="Always pick up my replies")
 
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
@@ -206,7 +200,7 @@ class CodeChangePrTip(TipFeature):
         ).exists()
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        return TipCta(kind="url", label="Connect your GitHub", url=personal_integrations_url(ctx.team_id))
+        return TipCta(label="Connect your GitHub", url=personal_integrations_url(ctx.team_id))
 
 
 class McpToolTip(TipFeature):
@@ -230,7 +224,7 @@ class McpToolTip(TipFeature):
         return bool(get_active_installations(ctx.team_id, ctx.posthog_user_id))
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        return TipCta(kind="url", label="Connect a tool", url=f"{project_web_url(ctx.team_id)}/mcp-servers")
+        return TipCta(label="Connect a tool", url=f"{project_web_url(ctx.team_id)}/mcp-servers")
 
 
 class DirectMessageTip(TipFeature):
@@ -253,14 +247,10 @@ class DirectMessageTip(TipFeature):
         ).exists()
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        app_id = (ctx.integration.config or {}).get("app_id")
-        if not app_id:
+        url = app_home_url(ctx.integration, tab="messages")
+        if url is None:
             return None
-        return TipCta(
-            kind="url",
-            label="Open a direct message",
-            url=f"slack://app?team={ctx.integration.integration_id}&id={app_id}&tab=messages",
-        )
+        return TipCta(label="Open a direct message", url=url)
 
 
 class FileAttachmentsTip(TipFeature):
@@ -271,9 +261,6 @@ class FileAttachmentsTip(TipFeature):
         "Sending screenshots and files to the assistant. Fits a message that describes something on screen, "
         "a design, a spreadsheet, a log file, or an error the person sees."
     )
-
-    def is_eligible(self, ctx: TipContext) -> bool:
-        return True
 
 
 class FileOutputsTip(TipFeature):
@@ -314,7 +301,7 @@ class InboxChannelTip(TipFeature):
         return f"Tip: join {name} to see the problems that PostHog finds in your product, such as new errors."
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        return TipCta(kind="action", label="Join the channel")
+        return TipCta(label="Join the channel")
 
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         channel = ensure_inbox_channel(integration)
@@ -355,9 +342,7 @@ class AppHomeProjectTip(TipFeature):
         return ctx.settings.default_integration_id is not None
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        if ctx.app_home_url is None:
-            return None
-        return TipCta(kind="url", label="Open the Home tab", url=ctx.app_home_url)
+        return _home_tab_cta(ctx)
 
 
 class ModelInMentionTip(TipFeature):
@@ -371,9 +356,6 @@ class ModelInMentionTip(TipFeature):
         "Choosing an AI model or effort level for one request. Fits a hard or long task, such as a deep "
         "investigation or a large code change, or a message about speed or quality of answers."
     )
-
-    def is_eligible(self, ctx: TipContext) -> bool:
-        return True
 
 
 class AutoModelChoiceTip(TipFeature):
@@ -390,14 +372,14 @@ class AutoModelChoiceTip(TipFeature):
     )
 
     def is_eligible(self, ctx: TipContext) -> bool:
-        # The choice is stored on the linked PostHog user's run preferences.
+        # Without a linked PostHog user the router cannot run, so the setting would do nothing.
         return ctx.posthog_user_id is not None
 
     def was_used(self, ctx: TipContext) -> bool:
         return ctx.settings.auto_model_choice is not None
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        return TipCta(kind="action", label="Turn it on")
+        return TipCta(label="Turn it on")
 
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         set_auto_model_choice(integration.integration_id, slack_user_id, True)
@@ -419,9 +401,7 @@ class AppHomeTasksTip(TipFeature):
         return ctx.app_home_url is not None
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        if ctx.app_home_url is None:
-            return None
-        return TipCta(kind="url", label="Open the Home tab", url=ctx.app_home_url)
+        return _home_tab_cta(ctx)
 
 
 class InsightUnfurlTip(TipFeature):
@@ -432,9 +412,6 @@ class InsightUnfurlTip(TipFeature):
         "Previews of PostHog links pasted in Slack. Fits a message that shares or mentions an insight, "
         "a dashboard, or a chart with the team."
     )
-
-    def is_eligible(self, ctx: TipContext) -> bool:
-        return True
 
 
 class ForkThreadTip(TipFeature):
@@ -467,7 +444,7 @@ class UnpromptedAnswersTip(TipFeature):
         return ctx.settings.untagged_question_mode is not None
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        return TipCta(kind="action", label="Always answer my questions")
+        return TipCta(label="Always answer my questions")
 
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         set_untagged_question_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
@@ -486,9 +463,6 @@ class AnswerRatingTip(TipFeature):
         "incomplete, or very helpful."
     )
 
-    def is_eligible(self, ctx: TipContext) -> bool:
-        return True
-
 
 class ReplySuggestionsTip(TipFeature):
     feature = SlackFeature.REPLY_SUGGESTIONS
@@ -497,9 +471,6 @@ class ReplySuggestionsTip(TipFeature):
     choice_criteria = (
         "Suggested follow-up replies under an answer. Fits a short follow-up question that continues an earlier answer."
     )
-
-    def is_eligible(self, ctx: TipContext) -> bool:
-        return True
 
 
 CATALOG: dict[SlackFeature, TipFeature] = {

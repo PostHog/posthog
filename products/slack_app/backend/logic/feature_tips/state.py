@@ -1,8 +1,7 @@
 """What one Slack user did with the Slack app features: used them, saw a tip, or dismissed it.
 
 The state lives in ``SlackSettings.feature_tips`` on the user's personal row, so it exists before
-the user links a PostHog account. Other flows, such as the DM onboarding, read and write it through
-``get_state``, ``mark_used`` and ``mark_shown``, so a tip never promotes what onboarding already showed.
+the user links a PostHog account.
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ class TipRecord(BaseModel):
 
 class FeatureTipsState(BaseModel):
     version: int = 1
-    # Set when the first evaluation seeded ``interaction_count`` from the user's thread history.
     backfilled_at: datetime | None = None
     interaction_count: int = 0
     # Keys are ``SlackFeature`` values. Plain strings, so a feature removed from the catalog
@@ -73,9 +71,8 @@ def update_state(
     The lock is on the user's own settings row. Keep ``change`` free of network calls, because
     the row stays locked until it returns.
     """
-    SlackSettings.objects.get_or_create(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
     with transaction.atomic():
-        settings = SlackSettings.objects.select_for_update().get(
+        settings, _ = SlackSettings.objects.select_for_update().get_or_create(
             slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id
         )
         state = parse_state(settings.feature_tips)
@@ -93,14 +90,17 @@ def mark_used(slack_workspace_id: str, slack_user_id: str, feature: str) -> None
 
 
 def record_feature_used(slack_workspace_id: str, slack_user_id: str | None, feature: str) -> None:
-    """Record that a Slack user used a feature, from that feature's own code path. Never raises.
+    """Never raises, because it runs inside the code path of the feature itself.
 
-    Reads first, so a feature used every day costs one read after its first use, not a locked write.
+    Checks the key in SQL first, so a feature used every day costs one indexed read after its first
+    use, not a locked write.
     """
     if not slack_user_id:
         return
     try:
-        if feature in get_state(slack_workspace_id, slack_user_id).used:
+        if SlackSettings.objects.filter(
+            slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id, feature_tips__used__has_key=feature
+        ).exists():
             return
         mark_used(slack_workspace_id, slack_user_id, feature)
     except Exception:

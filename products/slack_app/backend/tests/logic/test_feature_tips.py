@@ -16,7 +16,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.logic.feature_tips import catalog, interactivity, offer, picker
-from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, SlackFeature
+from products.slack_app.backend.logic.feature_tips.catalog import CATALOG
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
 from products.slack_app.backend.logic.feature_tips.state import get_state, parse_state
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode

@@ -1,9 +1,5 @@
 """Which feature tip fits a message the person sent to PostHog in Slack?
 
-A tip goes under an answer when one is due. With two or more candidate features,
-`classify_feature_tip` asks Jev, a System One decision model, to pick the one that fits the
-message, or `none`. A pick below `FEATURE_TIP_MIN_CONFIDENCE` falls back to the ranked order.
-
 `no_forced_tip` is the number to watch: a tip that claims to fit a message it does not fit reads
 as an ad. A missed match only costs the ranked tip, which is still a valid tip.
 
@@ -21,7 +17,8 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.logic.feature_tips import picker
-from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, SlackFeature
+from products.slack_app.backend.logic.feature_tips.catalog import CATALOG
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.evals.scorers import FEATURE_TIP_KEY, FeatureTipMatch, NoForcedTip
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -121,7 +118,6 @@ async def eval_feature_tip_picker(ctx: EvalContext) -> None:
         if task_ctx.demo_data is None:
             return {"decision_model": model, "feature": None, "error": "No demo data team to bill the call to"}
         try:
-            # Sync and blocking on the gateway, so off the event loop.
             verdict = await asyncio.to_thread(
                 picker.classify_feature_tip,
                 case.prompt,

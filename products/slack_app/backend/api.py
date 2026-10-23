@@ -2437,7 +2437,6 @@ def _route_app_home_opened(
         return ROUTE_NO_INTEGRATION
     try:
         _handle_app_home_opened(event, slack_team_id, integration=integration)
-        record_feature_used(slack_team_id, slack_user_id, SlackFeature.APP_HOME_TASKS)
     except Exception:
         logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
     return ROUTE_HANDLED_LOCALLY
@@ -4665,7 +4664,6 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
             "Only members of this PostHog project can reply to the agent. Ask a project member to reply instead.",
         )
         return HttpResponse(status=200)
-    record_feature_used(slack_team_id, clicker_slack_user_id, SlackFeature.REPLY_SUGGESTIONS)
 
     # A typed reply in an unapproved Slack Connect channel is dropped before dispatch, and a
     # channel can become shared after the buttons were posted.
@@ -4733,6 +4731,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
                 logger.warning("slack_app_reply_suggestion_delete_failed", integration_id=integration.id)
         raise
 
+    record_feature_used(slack_team_id, clicker_slack_user_id, SlackFeature.REPLY_SUGGESTIONS)
     capture_slack_event(
         integration,
         "slack app reply suggestion clicked",
@@ -6241,7 +6240,6 @@ def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
     user_id = payload.get("user", {}).get("id", "")
     source_ts = message.get("thread_ts") or message.get("ts", "")
     workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{source_ts}"
-    record_feature_used(team_id, user_id, SlackFeature.FORK_THREAD)
     try:
         client = sync_connect()
         asyncio.run(
@@ -6468,8 +6466,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             if action_id == TURN_FEEDBACK_ACTION_ID:
                 return turn_feedback.handle_turn_feedback_click(payload)
             if feature_tip_interactivity.is_feature_tip_action(action_id):
-                feature_tip_interactivity.handle_feature_tip_action(payload)
-                return HttpResponse(status=200)
+                return feature_tip_interactivity.handle_feature_tip_action(payload)
             if reply_suggestions.is_reply_suggestion_action(action_id) and clicked_reply_suggestion:
                 return _handle_reply_suggestion_click(payload, clicked_reply_suggestion)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:

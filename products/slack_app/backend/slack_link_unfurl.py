@@ -1366,9 +1366,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     from products.slack_app.backend.api import SLACK_PLACEHOLDER_USER_ID, resolve_slack_user
 
     bot_authors = {SLACK_PLACEHOLDER_USER_ID, get_cached_bot_user_id(slack, integration)}
-    bot_reply_actor = _bot_reply_actor(integration, event) if slack_user_id in bot_authors else None
-    if slack_user_id not in bot_authors:
-        record_feature_used(integration.integration_id, slack_user_id, SlackFeature.INSIGHT_UNFURL)
+    shared_by_person = slack_user_id not in bot_authors
+    bot_reply_actor = None if shared_by_person else _bot_reply_actor(integration, event)
     if bot_reply_actor:
         slack_user_id = bot_reply_actor
         # Everything downstream, the chart workflow included, reads the sharer from the event.
@@ -1509,6 +1508,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             integration=integration, user=user, event=event, unfurls=unfurls, url=first_url, title=first_card.title
         )
     )
+    if shared_by_person:
+        record_feature_used(integration.integration_id, slack_user_id, SlackFeature.INSIGHT_UNFURL)
     capture_slack_event(
         integration,
         "slack app link unfurled",

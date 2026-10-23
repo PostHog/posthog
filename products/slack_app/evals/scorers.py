@@ -519,8 +519,6 @@ FEATURE_TIP_KEY = "feature_tip"
 
 
 class FeatureTipMatch(Scorer):
-    """Did the picker choose the feature a person reading the message would choose, or `none`?"""
-
     def _name(self) -> str:
         return FEATURE_TIP_KEY
 

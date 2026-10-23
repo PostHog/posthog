@@ -26,7 +26,8 @@ from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_distinct_id
 from products.slack_app.backend.feature_flags import is_slack_app_feature_tips_enabled
-from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, SlackFeature, TipContext, TipFeature
+from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, TipContext, TipFeature
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.picker import choose_tip
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, mark_shown, parse_state
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
@@ -68,8 +69,16 @@ class _Reservation:
 
 
 def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
-    """Post one tip under the answer the reader just got, if one is due. Returns the feature it promoted."""
     integration = request.integration
+    stored = list(
+        SlackSettings.objects.filter(
+            slack_workspace_id=integration.integration_id, slack_user_id=request.slack_user_id
+        ).values_list("feature_tips", flat=True)[:1]
+    )
+    # Most answers come from a reader who opted out or already got today's tip. They stop here,
+    # before the flag call and the lock. Their interaction count no longer gates anything.
+    if stored and _skip_without_counting(parse_state(stored[0]), timezone.now()):
+        return None
     distinct_id = (
         request.posthog_user.distinct_id
         if request.posthog_user is not None and request.posthog_user.distinct_id
@@ -77,6 +86,10 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
     )
     if not is_slack_app_feature_tips_enabled(integration, distinct_id):
         return None
+    if not stored:
+        SlackSettings.objects.get_or_create(
+            slack_workspace_id=integration.integration_id, slack_user_id=request.slack_user_id
+        )
     reservation = _reserve_candidates(request)
     if reservation is None:
         return None
@@ -98,7 +111,7 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
             user=request.slack_user_id,
             thread_ts=request.thread_ts,
             text=text,
-            blocks=tip_blocks(integration.id, tip, reservation.ctx),
+            blocks=tip_blocks(integration.id, tip, reservation.ctx, text),
         )
     except Exception:
         logger.warning("slack_app_feature_tip_post_failed", feature=choice.feature, exc_info=True)
@@ -117,6 +130,16 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
         in_direct_message=reservation.ctx.in_direct_message,
     )
     return choice.feature
+
+
+def _skip_without_counting(state: FeatureTipsState, now: datetime) -> bool:
+    if state.opted_out_at is not None:
+        return True
+    return (
+        state.interaction_count >= MIN_INTERACTIONS
+        and state.last_shown_at is not None
+        and now - state.last_shown_at < TIP_INTERVAL
+    )
 
 
 def _is_due(state: FeatureTipsState, now: datetime) -> bool:
@@ -149,7 +172,6 @@ def _reserve_candidates(request: TipRequest) -> _Reservation | None:
     """
     workspace_id = request.integration.integration_id
     slack_user_id = request.slack_user_id
-    SlackSettings.objects.get_or_create(slack_workspace_id=workspace_id, slack_user_id=slack_user_id)
     now = timezone.now()
 
     with transaction.atomic():
@@ -204,36 +226,24 @@ def _reserve_candidates(request: TipRequest) -> _Reservation | None:
     return _Reservation(candidates=candidates, ctx=ctx, interaction_count=state.interaction_count)
 
 
-def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext) -> list[dict[str, Any]]:
+def _button(action_id: str, label: str, value: str, **extra: str) -> dict[str, Any]:
+    return {
+        "type": "button",
+        "action_id": action_id,
+        "text": {"type": "plain_text", "text": label},
+        "value": value,
+        **extra,
+    }
+
+
+def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext, text: str) -> list[dict[str, Any]]:
     # The integration id lets the cross-region interactivity router find the region that owns the click.
     value = json.dumps({"integration_id": integration_id, "feature": tip.feature.value})
     buttons: list[dict[str, Any]] = []
     cta = tip.cta(ctx)
     if cta is not None:
-        button: dict[str, Any] = {
-            "type": "button",
-            "action_id": FEATURE_TIP_CTA_ACTION_ID,
-            "text": {"type": "plain_text", "text": cta.label},
-            "style": "primary",
-            "value": value,
-        }
-        if cta.url:
-            button["url"] = cta.url
-        buttons.append(button)
-    buttons.append(
-        {
-            "type": "button",
-            "action_id": FEATURE_TIP_DISMISS_ACTION_ID,
-            "text": {"type": "plain_text", "text": "Not now"},
-            "value": value,
-        }
-    )
-    buttons.append(
-        {
-            "type": "button",
-            "action_id": FEATURE_TIP_OPT_OUT_ACTION_ID,
-            "text": {"type": "plain_text", "text": "Don't show tips"},
-            "value": value,
-        }
-    )
-    return [section_block(tip.render_text(ctx)), {"type": "actions", "elements": buttons}]
+        extra = {"style": "primary", **({"url": cta.url} if cta.url else {})}
+        buttons.append(_button(FEATURE_TIP_CTA_ACTION_ID, cta.label, value, **extra))
+    buttons.append(_button(FEATURE_TIP_DISMISS_ACTION_ID, "Not now", value))
+    buttons.append(_button(FEATURE_TIP_OPT_OUT_ACTION_ID, "Don't show tips", value))
+    return [section_block(text), {"type": "actions", "elements": buttons}]

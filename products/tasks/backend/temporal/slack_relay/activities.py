@@ -199,8 +199,7 @@ class RelaySlackMessageInput:
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
-    from products.slack_app.backend.logic.feature_tips.features import SlackFeature
-    from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+    from products.slack_app.backend.facade.api import SlackFeature, record_slack_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_messages import (
         leading_mention_prefix,
@@ -331,7 +330,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             deliver_pending_slack_file_artifacts(task_run)
     handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
     if answer_delivered and has_pending_slack_files:
-        record_feature_used(mapping.slack_workspace_id, target, SlackFeature.FILE_OUTPUTS)
+        record_slack_feature_used(mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
