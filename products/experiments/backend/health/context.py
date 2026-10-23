@@ -28,6 +28,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     has_activation_config,
     normalize_to_exposure_criteria,
 )
+from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
@@ -198,6 +199,22 @@ class PauseHistory:
 
 
 @frozen
+class PrimaryMetric:
+    """The experiment's first primary metric, which its running-time estimate sizes, with its stored result."""
+
+    name: str
+    is_funnel: bool
+    # The relative effect, as a percentage, that the experiment plans to detect.
+    minimum_detectable_effect: float
+    # Whether the running time estimate is in manual mode, where its target comes from a baseline the user entered
+    # instead of from the results.
+    manual_running_time: bool
+    # The current stored result, the one the results page shows after its last calculation. None when no completed
+    # result is stored under the metric's current calculation key. Only read for a funnel.
+    result: MetricResultStats | None
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -283,6 +300,9 @@ class HealthContext:
     condition_set_traffic: ConditionSetTraffic | None
     # None when not loaded or unknown. Only the health endpoint loads it, and only for a paused experiment.
     pause_history: PauseHistory | None
+    # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoint loads it,
+    # and only for a launched experiment.
+    primary_metric: PrimaryMetric | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
 
@@ -567,5 +587,6 @@ def load_health_context(
         flag_history=flag_history,
         condition_set_traffic=None,
         pause_history=None,
+        primary_metric=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
     )

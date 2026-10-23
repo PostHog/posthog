@@ -126,6 +126,16 @@
             "maximum": 9007199254740991,
             "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions."
         },
+        "DashboardInsightTileIdsSchema": {
+            "description": "IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+            }
+        },
         "DashboardTileCreateSchema": {
             "type": "object",
             "properties": {
@@ -772,7 +782,7 @@
                     ]
                 },
                 "filters_override": {
-                    "description": "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token.",
+                    "description": "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token.",
                     "anyOf": [
                         {
                             "type": "string"

@@ -190,6 +190,7 @@ overrides:
 
 patchedDependencies:
   '@base-ui/react@1.9.0': e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f
+  '@base-ui/utils@0.5.0': c25c4734cc997d0eec882b628a0231f91805610478dba85f65a60f0ba6fbb80a
   '@connectrpc/connect-node@2.1.1': a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
   dayjs@1.11.11: 2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852
   heatmap.js@2.0.5: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
@@ -668,6 +669,9 @@ importers:
       '@posthog/products-apm':
         specifier: workspace:*
         version: link:../products/apm
+      '@posthog/products-authorization':
+        specifier: workspace:*
+        version: link:../products/authorization
       '@posthog/products-autoresearch':
         specifier: workspace:*
         version: link:../products/autoresearch
@@ -2659,6 +2663,8 @@ importers:
   products/apm: {}
 
   products/approvals: {}
+
+  products/authorization: {}
 
   products/autoresearch:
     dependencies:
@@ -26409,7 +26415,7 @@ snapshots:
   '@base-ui/react@1.9.0(patch_hash=e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f)(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@babel/runtime': 7.29.7
-      '@base-ui/utils': 0.5.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@base-ui/utils': 0.5.0(patch_hash=c25c4734cc997d0eec882b628a0231f91805610478dba85f65a60f0ba6fbb80a)(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/react-dom': 2.1.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/utils': 0.2.12
       react: 18.3.1
@@ -26420,7 +26426,7 @@ snapshots:
       '@types/react': 18.3.27
       date-fns: 4.1.0
 
-  '@base-ui/utils@0.5.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@base-ui/utils@0.5.0(patch_hash=c25c4734cc997d0eec882b628a0231f91805610478dba85f65a60f0ba6fbb80a)(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@babel/runtime': 7.29.7
       '@floating-ui/utils': 0.2.12

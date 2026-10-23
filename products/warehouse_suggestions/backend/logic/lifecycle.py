@@ -240,14 +240,39 @@ def _reconcile_assets(context: CandidateContext) -> int:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     changed = 0
     for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
-        "id", "kind", "subject_kind", "subject_id", "reviewed_at", "asset_outcome"
+        "id",
+        "kind",
+        "subject_kind",
+        "subject_id",
+        "reviewed_at",
+        "score_inputs",
+        "asset_outcome",
+        "realized_seconds_saved_per_month",
+        "realized_bytes_saved_per_month",
     ):
-        outcome = CANDIDATES[WarehouseSuggestionKind(row.kind)].asset_outcome(
-            context, _subject(row), accepted_at=row.reviewed_at
-        )
-        if outcome != row.asset_outcome:
-            changed += suggestions.filter(id=row.id).update(asset_outcome=outcome)
+        updates = _asset_updates(context, row)
+        if any(getattr(row, field) != value for field, value in updates.items()):
+            changed += suggestions.filter(id=row.id).update(**updates)
     return changed
+
+
+def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:
+    candidate = CANDIDATES[WarehouseSuggestionKind(row.kind)]
+    subject = _subject(row)
+    savings = (
+        candidate.realized_savings(context, subject, row.score_inputs)
+        if _window_starts_after(context, row.reviewed_at)
+        else None
+    )
+    return {
+        "asset_outcome": candidate.asset_outcome(context, subject, accepted_at=row.reviewed_at),
+        "realized_seconds_saved_per_month": savings.seconds if savings else None,
+        "realized_bytes_saved_per_month": savings.read_bytes if savings else None,
+    }
+
+
+def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:
+    return accepted_at is not None and accepted_at < context.reads.window.starts_at
 
 
 def _move_all(
