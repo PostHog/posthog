@@ -29,6 +29,8 @@ from hogli.hooks import register_telemetry_properties
 from hogli.manifest import REPO_ROOT
 from hogli.telemetry import _load_config, _save_config, is_ci
 
+from hogli_commands.test_runner import runs_on_playwright
+
 _POSTHOG_DEV_CACHE_TTL_SECONDS = 30 * 86400  # 30 days
 
 
@@ -272,7 +274,7 @@ def classify_command(command: str | None, argv: Sequence[str] = ()) -> CommandKi
     """Bucket a hogli command by the kind of work it does, so verification loops can be counted.
 
     *argv* holds the arguments after the command name. ``hogli test`` dispatches on its
-    paths, so a Playwright path in *argv* makes it an e2e run.
+    paths, so a path the test runner hands to Playwright makes it an e2e run.
     """
     if not command:
         return "other"
@@ -281,7 +283,9 @@ def classify_command(command: str | None, argv: Sequence[str] = ()) -> CommandKi
     leaf = segments[-1]
     if command == "ci:preflight":
         return "verify-preflight"
-    if command == "test:e2e" or (command == "test" and any("playwright" in arg for arg in argv)):
+    if command == "test:e2e" or (
+        command == "test" and any(runs_on_playwright(arg) for arg in argv if not arg.startswith("-"))
+    ):
         return "verify-e2e"
     if "typecheck" in leaf or "mypy" in leaf:
         return "verify-typecheck"

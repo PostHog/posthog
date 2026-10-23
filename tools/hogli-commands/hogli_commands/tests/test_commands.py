@@ -9,6 +9,7 @@ import fcntl
 import pytest
 from unittest.mock import patch
 
+from hogli.manifest import REPO_ROOT
 from hogli_commands.telemetry_props import (
     _AGENT_ENV_MARKERS,
     _DEVBOX_ENV_MARKERS,
@@ -216,6 +217,7 @@ class TestClassifyCommand:
             ("test:e2e", [], "verify-e2e"),
             ("test", ["playwright/e2e/insights.spec.ts"], "verify-e2e"),
             ("test", ["posthog/api/test/test_team.py"], "verify-test"),
+            ("test", ["posthog/api/test/test_playwright_setup.py"], "verify-test"),
             ("test:python", [], "verify-test"),
             ("desktop:test", [], "verify-test"),
             ("test:quarantine", [], "other"),
@@ -240,6 +242,10 @@ class TestClassifyCommand:
     )
     def test_classification(self, command, argv, expected) -> None:
         assert classify_command(command, argv) == expected
+
+    def test_a_spec_named_from_inside_the_playwright_directory_is_e2e(self, monkeypatch) -> None:
+        monkeypatch.chdir(REPO_ROOT / "playwright")
+        assert classify_command("test", ["e2e/insights.spec.ts"]) == "verify-e2e"
 
 
 class TestIsRerun:
