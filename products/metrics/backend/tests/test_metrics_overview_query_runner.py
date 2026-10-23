@@ -70,6 +70,38 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(api_row.series, 3)
         self.assertEqual(dt.datetime.fromisoformat(api_row.last_seen), anchor)
 
+    def test_last_seen_comes_from_the_newest_sample_not_the_series_row(self):
+        newest = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(newest - dt.timedelta(minutes=20), 1.0)],
+            service_name="api",
+        )
+        # Capture strips the labels from later samples in the label window, so the series row keeps the first sample time.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(newest, 2.0)],
+            service_name="api",
+            has_labels=False,
+        )
+        seed_metric(
+            team_id=99999,
+            metric_name="http.duration",
+            points=[(newest + dt.timedelta(minutes=2), 3.0)],
+            service_name="api",
+            has_labels=False,
+        )
+
+        overview = MetricsOverviewQueryRunner(team=self.team).run()
+
+        assert overview.last_seen is not None
+        self.assertEqual(dt.datetime.fromisoformat(overview.last_seen), newest)
+        self.assertEqual(
+            [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services], [("api", newest)]
+        )
+
     def test_services_query_reads_the_hourly_projection(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], service_name="api")
