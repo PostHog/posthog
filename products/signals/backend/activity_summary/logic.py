@@ -79,6 +79,8 @@ class ActivitySummaryUpdate:
     inputs_used: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
     rebuilt: bool = False
+    # The pair had no generated summary before this update.
+    new_summary: bool = False
 
 
 class StoredSummaryVersion(Protocol):
@@ -317,6 +319,7 @@ def update_activity_summary(
         inputs_used=inputs_used,
         input_watermark=watermark if outcome.summary is not None else None,
         rebuilt=rebuild,
+        new_summary=stored is None or stored.generated_at is None,
     )
     if dry_run:
         return result
