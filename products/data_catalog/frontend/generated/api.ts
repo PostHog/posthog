@@ -13,6 +13,7 @@ import type {
     DataCatalogCertificationApi,
     DataCatalogCertificationsListParams,
     DataCatalogMetricApi,
+    DataCatalogMetricApproveRequestApi,
     DataCatalogMetricBulkApproveApi,
     DataCatalogMetricBulkDeleteApi,
     DataCatalogMetricBulkNamesRequestApi,
@@ -313,11 +314,14 @@ export const getDataCatalogMetricsApproveCreateUrl = (projectId: string, name: s
 export const dataCatalogMetricsApproveCreate = async (
     projectId: string,
     name: string,
+    dataCatalogMetricApproveRequestApi?: DataCatalogMetricApproveRequestApi,
     options?: RequestInit
 ): Promise<DataCatalogMetricApi> => {
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsApproveCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricApproveRequestApi),
     })
 }
 

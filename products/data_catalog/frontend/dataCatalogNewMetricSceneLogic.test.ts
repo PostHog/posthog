@@ -62,6 +62,8 @@ const SQL_FORM: Partial<NewMetricFormValues> = {
     sql: 'SELECT count(DISTINCT person_id) FROM events',
 }
 
+const CREATED_AT = '2026-10-23T12:00:00.000000Z'
+
 function buildMetric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetricApi {
     return {
         id: 'metric-1',
@@ -88,7 +90,7 @@ describe('dataCatalogNewMetricSceneLogic', () => {
     beforeEach(async () => {
         jest.clearAllMocks()
         ;(dataCatalogMetricsList as jest.Mock).mockResolvedValue({ results: [] })
-        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(buildMetric())
+        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(buildMetric({ updated_at: CREATED_AT }))
         ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(buildMetric({ status: 'approved' }))
         initKeaTests()
         logic = dataCatalogNewMetricSceneLogic()
@@ -117,7 +119,9 @@ describe('dataCatalogNewMetricSceneLogic', () => {
             created_source: 'user',
             definition: { kind: 'HogQLQuery', query: 'SELECT count(DISTINCT person_id) FROM events' },
         })
-        expect(dataCatalogMetricsApproveCreate).toHaveBeenCalledTimes(approveCalls)
+        expect((dataCatalogMetricsApproveCreate as jest.Mock).mock.calls).toEqual(
+            Array(approveCalls).fill(['1', 'monthly_active_users', { expected_updated_at: CREATED_AT }])
+        )
         expect(lemonToast.success).toHaveBeenCalledWith(toast)
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('monthly_active_users'))
     })

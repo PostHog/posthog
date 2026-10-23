@@ -19,7 +19,10 @@ export async function createMetricAsUser(request: MetricCreateRequest, approve: 
         return { metric, approval: 'proposed' }
     }
     try {
-        return { metric: await dataCatalogMetricsApproveCreate(projectId, metric.name), approval: 'approved' }
+        const approved = await dataCatalogMetricsApproveCreate(projectId, metric.name, {
+            expected_updated_at: metric.updated_at ?? undefined,
+        })
+        return { metric: approved, approval: 'approved' }
     } catch {
         return { metric, approval: 'approval_failed' }
     }
