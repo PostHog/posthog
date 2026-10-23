@@ -3,7 +3,6 @@ export type StoryConfidence = 'high' | 'medium' | 'low'
 export interface StoryEvidence {
     text: string
     url: string | null
-    /** The query the agent ran to find this, so the walkthrough can draw it in place of its own chart. */
     query?: Record<string, unknown> | null
 }
 

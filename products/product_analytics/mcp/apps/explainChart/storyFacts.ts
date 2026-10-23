@@ -25,7 +25,7 @@ const MONTHS = [
     'November',
     'December',
 ]
-/** A series with this share of empty points is compared with its active points only. */
+/** A series with this share of zero points is compared by its non-zero points only. */
 const SPARSE_SHARE = 0.3
 const MIN_POINTS = 3
 
