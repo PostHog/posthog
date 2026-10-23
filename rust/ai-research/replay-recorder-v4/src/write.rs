@@ -74,12 +74,23 @@ pub struct WriterCounts {
     pub dropped: Option<&'static str>,
 }
 
+/// A block compressed once for all the attempts of its flush, with the images it moved out.
+pub struct CompressedBlock {
+    pub session: SessionKey,
+    pub key: Key,
+    pub body: Vec<u8>,
+    /// Shared, so that each attempt of a flush seals the images without a copy.
+    pub images: Vec<Arc<Image>>,
+    pub counts: WriterCounts,
+    pub url_fingerprints: Vec<String>,
+}
+
 /// A block sealed for one object, with the images it moved out.
 pub struct SealedBlock {
     pub session: SessionKey,
     pub key_month: String,
     pub frame: Vec<u8>,
-    pub images: Vec<Image>,
+    pub images: Vec<Arc<Image>>,
     pub counts: WriterCounts,
     pub url_fingerprints: Vec<String>,
 }
@@ -192,6 +203,16 @@ pub fn seal_block(
     team_key: &[u8; 32],
     key_month: &str,
 ) -> Result<SealedBlock, WriteError> {
+    seal_compressed(&compress_block(block, key, team_key, key_month)?)
+}
+
+/// Builds and compresses one block. This is most of the work of a flush, so a retry does not do it again.
+pub fn compress_block(
+    block: &Block,
+    key: &Key,
+    team_key: &[u8; 32],
+    key_month: &str,
+) -> Result<CompressedBlock, WriteError> {
     let seal_error = |e: io::Error| WriteError::Seal(e.to_string());
     // Lines go into the encoder as they are built, so memory follows the compressed block and not its plaintext.
     // A brotli stream does not state its decompressed size, so a reader decompresses it as a stream.
@@ -201,23 +222,35 @@ pub fn seal_block(
     let (images, counts) =
         prepare_block(block, team_key, key_month, &mut lines).map_err(seal_error)?;
     let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
-    let compressed = encoder
+    let body = encoder
         .into_inner()
         .map_err(|e| WriteError::Seal(e.to_string()))?;
+    Ok(CompressedBlock {
+        session: block.session.clone(),
+        key: key.clone(),
+        body,
+        images: images.into_iter().map(Arc::new).collect(),
+        counts,
+        url_fingerprints: url_fingerprints(&key.key, &block_urls(block)),
+    })
+}
+
+/// Seals a compressed block for one attempt.
+pub fn seal_compressed(block: &CompressedBlock) -> Result<SealedBlock, WriteError> {
     let frame = seal_frame(
-        &key.key,
+        &block.key.key,
         Version::V4,
-        &block_context(&block.session, &key.key_month),
-        &compressed,
+        &block_context(&block.session, &block.key.key_month),
+        &block.body,
     )
     .map_err(|e| WriteError::Seal(e.to_string()))?;
     Ok(SealedBlock {
         session: block.session.clone(),
-        key_month: key.key_month.clone(),
+        key_month: block.key.key_month.clone(),
         frame,
-        images,
-        counts,
-        url_fingerprints: url_fingerprints(&key.key, &block_urls(block)),
+        images: block.images.clone(),
+        counts: block.counts,
+        url_fingerprints: block.url_fingerprints.clone(),
     })
 }
 
@@ -250,8 +283,8 @@ pub fn session_keyed_frames(sealed: &[SealedBlock]) -> u64 {
 }
 
 /// The flush's new images by team, each once.
-pub fn new_images(sealed: &mut [SealedBlock]) -> BTreeMap<i64, Vec<Image>> {
-    let mut images: BTreeMap<i64, Vec<Image>> = BTreeMap::new();
+pub fn new_images(sealed: &mut [SealedBlock]) -> BTreeMap<i64, Vec<Arc<Image>>> {
+    let mut images: BTreeMap<i64, Vec<Arc<Image>>> = BTreeMap::new();
     let mut seen: HashSet<String> = HashSet::new();
     for block in sealed {
         for image in std::mem::take(&mut block.images) {
@@ -265,7 +298,7 @@ pub fn new_images(sealed: &mut [SealedBlock]) -> BTreeMap<i64, Vec<Image>> {
 
 fn seal_pack(
     team_id: i64,
-    team_images: &[Image],
+    team_images: &[Arc<Image>],
     team_key: &[u8; 32],
     key_month: &str,
     pack_key: &str,
@@ -303,7 +336,7 @@ fn seal_pack(
 /// image index for the flush.
 #[allow(clippy::too_many_arguments)]
 pub async fn write_images(
-    images: BTreeMap<i64, Vec<Image>>,
+    images: BTreeMap<i64, Vec<Arc<Image>>>,
     keys: &FlushKeys,
     write_day: &str,
     key_month: &str,
