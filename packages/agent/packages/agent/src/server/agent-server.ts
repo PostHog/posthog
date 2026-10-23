@@ -5905,14 +5905,13 @@ export class AgentServer {
   /**
    * Ask the user about a needs_approval MCP tool and, when they allow it,
    * record the approval in PostHog first so the gateway proxy accepts the call.
-   * The proxy has no per-call approval, so the one allow option says it saves the approval.
+   * The proxy has no per-call approval, and clients hide "always" options by
+   * default, so the one allow option is a plain allow labeled as saving it.
    */
   private async relayMcpToolApproval(
     params: RequestPermissionRequest,
     policy: McpToolPolicy,
   ): Promise<RequestPermissionResponse> {
-    // Clients hide "always" options by default, so offer a plain allow whose
-    // label carries the permanent effect.
     const response = await this.relayPermissionToClient({
       ...params,
       options: params.options.flatMap((option) => {
