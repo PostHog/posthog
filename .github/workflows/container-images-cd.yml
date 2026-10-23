@@ -1586,7 +1586,6 @@ jobs:
         if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        continue-on-error: true
         permissions:
             id-token: write
             contents: read
@@ -1624,6 +1623,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
+              id: publish-alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 2
               shell: bash
@@ -1634,3 +1634,11 @@ jobs:
                   ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
                   REGCTL: ${{ runner.temp }}/regctl
               run: bash .github/scripts/ordered-image-release.sh publish
+
+            - name: Fail when the ordered image alias is missing
+              if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
+              env:
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
+              run: |
+                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
+                  exit 1
