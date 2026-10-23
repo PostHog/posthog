@@ -313,6 +313,7 @@ def _canonical_ip(value: str) -> str:
     return str(parsed)
 
 
+@dataclass(frozen=True, kw_only=True)
 class ManagedWarehouseSourceJobUpdate:
     team_id: int
     schema_ids: list[UUID]
