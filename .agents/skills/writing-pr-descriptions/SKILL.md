@@ -189,7 +189,7 @@ When the diff is six lines, the body has to read as the body of a six-line chang
 Run the counter on the body file before every `gh pr create` or `gh pr edit`:
 
 ```sh
-.agents/skills/writing-pr-descriptions/scripts/count-prose-words.sh pr-body.md
+python3 .agents/skills/writing-pr-descriptions/scripts/count_prose_words.py pr-body.md
 ```
 
 When the count is over 150, move facts into a table or a diagram, then cut.
@@ -290,7 +290,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does `scripts/count-prose-words.sh` print 150 or less? If not, cut. If it is still over 150, suggest a stack to the PR author.
+2. Does `scripts/count_prose_words.py` print 150 or less? If not, cut. If it is still over 150, suggest a stack to the PR author.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.
