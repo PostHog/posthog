@@ -64,23 +64,18 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA": (
         False,
-        "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
+        "Every project reads the native JSON events table (events_json) instead of the legacy events table. The widest of the switches: a query's useNewEventsSchema modifier, a staff person's ph_new_events_schema cookie and CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS each switch less.",
         bool,
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
         "",
-        "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
+        "Comma-separated project IDs that read the native JSON events table (events_json) for everything: insights, SQL, cohorts, exports and background jobs. Changes reach workers within about a minute.",
         str,
     ),
     "CLICKHOUSE_NATIVE_EVENTS_HOST": (
         get_from_env("CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
-        "Hostname of the events cluster, without a scheme, port or path. Queries that read events_json for a project in CLICKHOUSE_NATIVE_EVENTS_TEAMS run there. Leave it empty to keep them on the main cluster. Changes reach workers within about a minute.",
+        "Hostname of the events cluster, without a scheme, port or path. Every query whose SQL reads events_json starts there, whichever switch made it read that table. Leave it empty to start them on the main cluster. Changes reach workers within about a minute.",
         str,
-    ),
-    "CLICKHOUSE_NATIVE_EVENTS_TEAMS": (
-        [],
-        "Project IDs whose queries that read events_json run on the events cluster named by CLICKHOUSE_NATIVE_EVENTS_HOST. This does not change which events table a project reads.",
-        list[int],
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         # Person-on-events v2 reads are the production default for every project created
@@ -458,7 +453,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
     "CLICKHOUSE_NATIVE_EVENTS_HOST",
-    "CLICKHOUSE_NATIVE_EVENTS_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",

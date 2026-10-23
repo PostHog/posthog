@@ -2130,8 +2130,6 @@ class TestHogqlTableModifiers:
         assert captured_sql is not None and expected_sql in captured_sql
 
     async def test_a_routed_view_over_events_json_runs_on_the_events_cluster(self, ateam: Team) -> None:
-        ateam.modifiers = {"useNewEventsSchema": True}
-        await database_sync_to_async(ateam.save)()
         client = _EmptyArrowClient(pa.schema([pa.field("event", pa.string())]))
         client.describe_body = b"event\tString\n"
         client_urls: list[str | None] = []
@@ -2143,7 +2141,7 @@ class TestHogqlTableModifiers:
 
         instance_settings = {
             "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
-            "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [ateam.pk],
+            "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": str(ateam.pk),
         }
         with (
             unittest.mock.patch("posthog.models.event.new_events_schema.get_instance_setting", instance_settings.get),

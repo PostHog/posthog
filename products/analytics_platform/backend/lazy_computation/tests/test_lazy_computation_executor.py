@@ -3957,7 +3957,6 @@ class TestInsertsFollowTheEventsRoute(BaseTest):
         assert isinstance(query, ast.SelectQuery)
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
             override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",

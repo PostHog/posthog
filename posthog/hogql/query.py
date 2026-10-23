@@ -74,7 +74,11 @@ from posthog.clickhouse.workload import MAIN_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
-from posthog.models.event.new_events_schema import events_read_workload, use_new_events_cluster, use_new_events_schema
+from posthog.models.event.new_events_schema import (
+    events_read_workload,
+    get_new_events_cluster_host,
+    use_new_events_schema,
+)
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -248,7 +252,7 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
         # The events cluster has none of the preaggregated tables, so a query that will run there keeps reading events.
-        if use_new_events_cluster(self.team.pk) and use_new_events_schema(self.team.pk, self.query_modifiers):
+        if get_new_events_cluster_host() and use_new_events_schema(self.team.pk, self.query_modifiers):
             return
         if self.query_modifiers.usePreaggregatedTableTransforms:
             with self.timings.measure("preaggregated_table_transforms"):

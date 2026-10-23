@@ -4,6 +4,7 @@ import re
 import json
 import uuid
 import builtins
+import contextvars
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
@@ -475,6 +476,19 @@ def tile_insight_prefetches() -> list[Prefetch]:
             to_attr="_prefetched_alerts",
         ),
     ]
+
+
+def _run_widget_query_in_context(
+    context: contextvars.Context,
+    team: Team,
+    work_item: _RunWidgetQueryWorkItem,
+    *,
+    dashboard_id: int,
+    distinct_id: str,
+) -> dict[str, Any]:
+    # A pool thread starts without the request's context variables, the query tags and the events table switch
+    # among them, so the query runs inside a copy of the request's context.
+    return context.run(_run_widget_query, team, work_item, dashboard_id=dashboard_id, distinct_id=distinct_id)
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -3889,7 +3903,8 @@ class DashboardsViewSet(
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(
-                        _run_widget_query,
+                        _run_widget_query_in_context,
+                        contextvars.copy_context(),
                         self.team,
                         work_item,
                         dashboard_id=dashboard.id,

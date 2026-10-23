@@ -73,6 +73,12 @@ def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: boo
 
 
 def get_new_events_cluster_host() -> str | None:
+    """The events cluster's hostname from CLICKHOUSE_NATIVE_EVENTS_HOST, or None while queries stay on the main cluster.
+
+    The main cluster reaches events_json through a Distributed table. While it runs an older ClickHouse than the
+    events cluster, a query started on one of its nodes fails for common shapes, so every query that reads
+    events_json starts on the events cluster instead.
+    """
     value = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_HOST")
     return value if isinstance(value, str) and value else None
 
@@ -94,64 +100,66 @@ def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
         _query_route.reset(token)
 
 
-def use_new_events_cluster(team_id: int | None) -> bool:
-    """Whether the project's reads of events_json run on the events cluster.
-
-    The main cluster reaches events_json through a Distributed table. While it runs an older ClickHouse than the
-    events cluster, a query started on one of its nodes fails for common shapes, so the query starts on the events
-    cluster instead, when CLICKHOUSE_NATIVE_EVENTS_HOST is set and the project is in CLICKHOUSE_NATIVE_EVENTS_TEAMS.
-    """
-    if not get_new_events_cluster_host():
-        return False
-    allowed = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_TEAMS")
-    return isinstance(allowed, list) and all(type(value) is int for value in allowed) and team_id in allowed
-
-
 def events_read_workload(workload: Workload, context: "HogQLContext") -> Workload:
     """The workload a printed query runs under.
 
-    The events cluster when the SQL read events_json for a project whose reads run there, otherwise the caller's choice.
+    The events cluster when the SQL read events_json and CLICKHOUSE_NATIVE_EVENTS_HOST names one, otherwise the
+    caller's choice.
     """
-    if (
-        workload in MAIN_CLUSTER_WORKLOADS
-        and context.reads_native_events_table
-        and use_new_events_cluster(context.team_id)
-    ):
+    if workload in MAIN_CLUSTER_WORKLOADS and context.reads_native_events_table and get_new_events_cluster_host():
         return Workload.NEW_EVENTS_CLUSTER
     return workload
 
 
-def new_events_cluster_http_url(team_id: int | None) -> str | None:
-    """The events cluster's HTTP URL for a project whose events_json reads run there, else None.
+def new_events_cluster_http_url() -> str | None:
+    """The events cluster's HTTP URL when CLICKHOUSE_NATIVE_EVENTS_HOST names one, else None.
 
     The Temporal jobs reach ClickHouse through an HTTP client that takes a URL instead of a workload, so this is
     the main cluster's HTTP URL with the events cluster's host.
     """
     host = get_new_events_cluster_host()
-    if host is None or not use_new_events_cluster(team_id):
+    if host is None:
         return None
     main = urlsplit(settings.CLICKHOUSE_HTTP_URL)
     return urlunsplit(main._replace(netloc=f"{host}:{main.port}"))
 
 
 def events_read_http_url(context: "HogQLContext") -> str | None:
-    """`events_read_workload` for the HTTP clients: the events cluster URL when the printed SQL read events_json there."""
+    """`events_read_workload` for the HTTP clients: the events cluster URL when the printed SQL read events_json."""
     if not context.reads_native_events_table:
         return None
-    return new_events_cluster_http_url(context.team_id)
+    return new_events_cluster_http_url()
+
+
+# A staff person's browser sends this cookie to read events_json on every request, impersonated sessions included.
+NEW_EVENTS_SCHEMA_COOKIE = "ph_new_events_schema"
+_person_switch: ContextVar[bool] = ContextVar("new_events_schema_person_switch", default=False)
+
+
+@contextmanager
+def new_events_schema_for_request() -> Iterator[None]:
+    """Every events read inside the block targets events_json, unless its query's modifier says otherwise."""
+    token = _person_switch.set(True)
+    try:
+        yield
+    finally:
+        _person_switch.reset(token)
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
-    """Whether HogQL reads should target the native-JSON events tables.
+    """Whether events reads target the native JSON events table (events_json) instead of the legacy events table.
 
-    A query's `useNewEventsSchema` modifier decides when it is set, so one query can be run against either table.
-    Otherwise the instance setting flips it globally at runtime, and the *_TEAMS instance setting enables it
-    for individual teams first (both cached for up to 60s per worker). Code running inside a query
-    should prefer HogQLContext.uses_new_events_schema(), which resolves this once so a mid-query
-    flip can't mix schemas.
+    Four switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
+    a staff person's cookie, for every request from that browser (see new_events_schema_for_request);
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, for a project everywhere, background jobs included; and
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, for every project. The instance settings are cached for up to 60s
+    per worker. Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
+    resolves this once so a mid-query flip can't mix schemas.
     """
     if modifiers is not None and modifiers.useNewEventsSchema is not None:
         return modifiers.useNewEventsSchema
+    if _person_switch.get():
+        return True
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
     if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):

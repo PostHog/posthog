@@ -184,10 +184,7 @@ async def test_insert_into_stage_activity_runs_a_native_backfill_on_the_events_c
         ),
         destination_default_fields=None,
     )
-    instance_settings = {
-        "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
-        "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [ateam.pk],
-    }
+    instance_settings = {"CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com"}
 
     with (
         patch(
