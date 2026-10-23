@@ -5133,6 +5133,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
+            cache.disposables.dispose('openGroupReload')
             abortGroupLoads(cache)
             const groupSignal = (cache.groupAbortController = new AbortController()).signal
             const dashboardRefreshStartTime = performance.now()
@@ -5217,10 +5218,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 openTileGroupsWaiting(values.tiles, values.collapsedTileIds, values.waitingTileRefresh)
             if (openGroupsWaiting().size > 0) {
                 // The aborted group load clears its queued status a few microtasks later, and that status blocks a reload.
-                await breakpoint(0)
-                if (!groupSignal.aborted) {
-                    openGroupsWaiting().forEach((groupKey) => actions.refreshTileGroup(groupKey))
-                }
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        if (!groupSignal.aborted) {
+                            openGroupsWaiting().forEach((groupKey) => actions.refreshTileGroup(groupKey))
+                        }
+                    }, 0)
+                    return () => clearTimeout(timerId)
+                }, 'openGroupReload')
             }
 
             if (sortedTilesToRefresh.length > 0) {
