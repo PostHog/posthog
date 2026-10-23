@@ -2253,6 +2253,26 @@ describe('CDP API', () => {
                     { send: codeSend },
                     { send: { ...codeSend, from: { ...codeSend.from, integrationId: 13 } } },
                 ],
+                [
+                    'another cc',
+                    { send: { ...codeSend, cc: ['first@example.com'] } },
+                    { send: { ...codeSend, cc: ['second@example.com'] } },
+                ],
+                [
+                    'another bcc',
+                    { send: { ...codeSend, bcc: ['first@example.com'] } },
+                    { send: { ...codeSend, bcc: ['second@example.com'] } },
+                ],
+                [
+                    'other headers',
+                    { send: { ...codeSend, headers: [{ name: 'X-Entity-Ref-ID', value: 'order-1' }] } },
+                    { send: { ...codeSend, headers: [{ name: 'X-Entity-Ref-ID', value: 'order-2' }] } },
+                ],
+                [
+                    'other tags',
+                    { send: { ...codeSend, tags: [{ name: 'plan', value: 'free' }] } },
+                    { send: { ...codeSend, tags: [{ name: 'plan', value: 'pro' }] } },
+                ],
             ])('rejects the key for %s', async (_desc, first, retry) => {
                 await sendKeyed({ ...keyed, ...first })
 
@@ -2399,7 +2419,7 @@ describe('CDP API', () => {
         })
 
         describe('send checks', () => {
-            type Target = { teamId: number; flowId: string; to: string }
+            type Target = { teamId: number; flowId: string; to: string; send?: Record<string, unknown> }
 
             const suppress = async (address: string): Promise<void> => {
                 await hub.postgres.query(
@@ -2468,23 +2488,29 @@ describe('CDP API', () => {
                 return { teamId: team.id, flowId: flow.id, to: body.to }
             }
 
+            const suppressedCopy = async (): Promise<Target> => {
+                const { teamId, flowId } = await suppressedRecipient()
+                return { teamId, flowId, to: body.to, send: { ...codeSend, cc: ['bounced@example.com'] } }
+            }
+
             const domainWithoutMailServers = (): Promise<Target> =>
                 Promise.resolve({ teamId: team.id, flowId: hogFlow.id, to: 'someone@no-mail.invalid' })
 
             it.each([
                 ['invalid_recipient', domainWithoutMailServers, 'has no mail servers'],
                 ['recipient_suppressed', suppressedRecipient, 'bounced or was marked as spam'],
+                ['recipient_suppressed', suppressedCopy, 'bounced or was marked as spam'],
                 ['template_paused', pausedWorkflow, 'Email sending is paused for this email'],
                 ['sending_suspended', suspendedProject, 'Email sending is suspended for this project'],
                 ['sender_not_verified', unverifiedSender, "The sender's domain is not verified"],
-            ])('refuses a send that fails %s before it queues', async (code, setUp, why) => {
-                const { teamId, flowId, to } = await setUp()
+            ])('refuses a send that fails %s before it queues, set up by %p', async (code, setUp, why) => {
+                const { teamId, flowId, to, send } = await setUp()
                 const rejectedBefore = await outcomeCount(code)
 
                 const res = await supertest(app)
                     .post(`/api/projects/${teamId}/hog_flows/${flowId}/transactional_email`)
                     .set({ Authorization: `Bearer ${mintToken(teamId, flowId)}` })
-                    .send({ ...body, to })
+                    .send({ ...body, to, ...(send && { send }) })
 
                 expect(res.status).toEqual(400)
                 expect(res.body).toEqual({
