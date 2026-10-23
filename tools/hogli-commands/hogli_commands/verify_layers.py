@@ -51,6 +51,7 @@ class ChangeKind(StrEnum):
     KEA_LOGIC = "kea logic"
     CSS = "CSS"
     REACT_COMPONENT = "React component"
+    DJANGO_TEMPLATE = "Django template"
     APP_WIRING = "settings, URLs or middleware"
     PURE_LOGIC = "pure logic"
 
@@ -66,12 +67,12 @@ class KindRule:
 KIND_RULES: tuple[KindRule, ...] = (
     KindRule(
         kind=ChangeKind.DOCS_OR_SKILLS,
-        globs=("*.md", "*.mdx", "docs/*", ".agents/skills/*", "products/*/skills/*"),
+        globs=("*.md", "*.mdx"),
         sufficient=ComplexityLayer.STATIC,
     ),
     KindRule(
         kind=ChangeKind.CI_WORKFLOW,
-        globs=(".github/workflows/*", ".github/actions/*"),
+        globs=(".github/workflows/*", ".github/actions/*.yml", ".github/actions/*.yaml"),
         sufficient=ComplexityLayer.STATIC,
     ),
     KindRule(kind=ChangeKind.MIGRATION, globs=("*/migrations/*.py",), sufficient=ComplexityLayer.UNIT_TEST),
@@ -90,6 +91,7 @@ KIND_RULES: tuple[KindRule, ...] = (
     KindRule(kind=ChangeKind.KEA_LOGIC, globs=("*Logic.ts", "*Logic.tsx"), sufficient=ComplexityLayer.UNIT_TEST),
     KindRule(kind=ChangeKind.CSS, globs=("*.css", "*.scss"), sufficient=ComplexityLayer.STORYBOOK),
     KindRule(kind=ChangeKind.REACT_COMPONENT, globs=("*.tsx",), sufficient=ComplexityLayer.STORYBOOK),
+    KindRule(kind=ChangeKind.DJANGO_TEMPLATE, globs=("*/templates/*.html",), sufficient=ComplexityLayer.STACK),
     KindRule(
         kind=ChangeKind.APP_WIRING,
         globs=(

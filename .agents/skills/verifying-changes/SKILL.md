@@ -5,7 +5,7 @@ description: >
   Use before you report a task done, before you start Storybook, the dev stack or a
   Playwright run to check your own work, and when you are unsure how much verification a diff needs.
   Maps each kind of change, such as pure logic, DRF serializer or viewset, migration, kea logic, React component,
-  CSS, CI workflow, SQL or HogQL, or docs and skills, to the layer that is enough and the layer that is wasted.
+  CSS, Django template, CI workflow, SQL or HogQL, or docs and skills, to the layer that is enough and the layer that is wasted.
   `hogli verify --changed` runs the cheap layers for the current diff and names the slower ones left to run yourself.
   Trigger terms: verify, how do I test this, is this enough testing, start the stack, render it, run e2e.
 ---
@@ -42,6 +42,7 @@ Use `--plan` to see the classification without running anything.
 | CI workflow                | 1: `hogli lint:workflows`, `hogli ci:plan`          | 2: unit tests                            |
 | SQL or HogQL               | 2: the ClickHouse-backed query test                 | 5: stack                                 |
 | Docs or skills             | 1: format, `hogli lint:skills`                      | 2 and above                              |
+| Django template            | 5: render the page in the running stack             | 6: Playwright                            |
 | Settings, URLs, middleware | 5: running stack                                    | 6: Playwright                            |
 
 A diff that mixes kinds needs the highest layer among them, and only for the files of that kind.
@@ -57,6 +58,7 @@ A diff that mixes kinds needs the highest layer among them, and only for the fil
 Start the stack only when the behavior spans more than one process and no layer 2 test runs both sides:
 
 - Settings, URL routing, middleware, or the Content Security Policy, because only the browser applies them.
+- A Django template, because only Django renders it.
 - A change that a person has to see in the app: a new scene, a navigation change, or data flowing from ingestion to a UI.
 - A Celery task, Temporal workflow, or plugin-server path whose wiring changed. A change to its logic alone stays at layer 2.
 - A Playwright spec you changed, because it runs against the stack.

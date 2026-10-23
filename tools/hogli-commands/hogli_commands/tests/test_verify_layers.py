@@ -38,6 +38,12 @@ class TestClassify:
             ("products/surveys/backend/routes.py", ChangeKind.APP_WIRING),
             ("posthog/csp_middleware.py", ChangeKind.APP_WIRING),
             ("posthog/models/team/team.py", ChangeKind.PURE_LOGIC),
+            ("docs/onboarding/web-analytics/react.tsx", ChangeKind.REACT_COMPONENT),
+            (".agents/skills/verifying-changes/scripts/check.py", ChangeKind.PURE_LOGIC),
+            (".github/actions/paths-filter/action.yml", ChangeKind.CI_WORKFLOW),
+            (".github/actions/paths-filter/__tests__/filter.test.ts", ChangeKind.TEST),
+            (".github/actions/paths-filter/src/filter.ts", ChangeKind.PURE_LOGIC),
+            ("posthog/templates/authorize_and_link.html", ChangeKind.DJANGO_TEMPLATE),
         ],
     )
     def test_kind(self, path: str, expected_kind: ChangeKind) -> None:
