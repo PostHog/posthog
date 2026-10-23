@@ -234,6 +234,31 @@ export interface NodeResumeApi {
     resumed: boolean
 }
 
+/**
+ * * `upstream` - Upstream
+ * * `downstream` - Downstream
+ */
+export type MaterializationRunDirectionEnumApi =
+    (typeof MaterializationRunDirectionEnumApi)[keyof typeof MaterializationRunDirectionEnumApi]
+
+export const MaterializationRunDirectionEnumApi = {
+    Upstream: 'upstream',
+    Downstream: 'downstream',
+} as const
+
+export interface NodeRunApi {
+    /** Run this view with all upstream dependencies or all downstream dependents.
+     *
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream */
+    direction: MaterializationRunDirectionEnumApi
+}
+
+export interface NodeRunResponseApi {
+    /** The nodes included in the dependency run. */
+    node_ids: string[]
+}
+
 export interface LineageResponseApi {
     /** Every node reachable from the requested one, plus the node itself. */
     nodes: NodeApi[]
