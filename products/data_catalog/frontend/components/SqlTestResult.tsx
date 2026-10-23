@@ -9,6 +9,8 @@ import type { SqlPreview } from '../dataCatalogNewMetricSceneLogic'
 import { SQL_PREVIEW_ROW_LIMIT } from '../dataCatalogNewMetricSceneLogic'
 import { ResultCell } from './ResultCell'
 
+const SINGLE_VALUE_MAX_FRACTION_DIGITS = 6
+
 export interface SqlTestResultProps {
     preview: SqlPreview
     unit: string
@@ -38,7 +40,7 @@ export function SqlTestResult({ preview, unit, stale, loading, onAddUnit }: SqlT
             ) : isSingleValue && typeof singleValue === 'number' ? (
                 <div className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-2xl font-semibold tabular-nums" translate="no">
-                        {humanFriendlyNumber(singleValue)}
+                        {humanFriendlyNumber(singleValue, SINGLE_VALUE_MAX_FRACTION_DIGITS)}
                     </span>
                     {unit.trim() ? (
                         <span className="text-secondary">{unit.trim()}</span>

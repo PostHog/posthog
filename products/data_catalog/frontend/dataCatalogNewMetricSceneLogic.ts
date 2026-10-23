@@ -11,7 +11,7 @@ import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import {
@@ -68,6 +68,10 @@ export interface SqlPreview {
 }
 
 export const SQL_PREVIEW_ROW_LIMIT = 10
+
+const SQL_PREVIEW_QUERY_TAGS = { productKey: ProductKey.DATA_CATALOG, scene: 'DataCatalogNewMetric' }
+
+const SQL_PREVIEW_FAILED_MESSAGE = "Couldn't run the query. Try again, or open it in the SQL editor to see more."
 
 function insightTypeName(query: unknown): string | null {
     const node = query as { kind?: NodeKind; source?: { kind?: NodeKind } } | null
@@ -340,7 +344,7 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
                         return null
                     }
                     const response = await performQuery<HogQLQuery>(
-                        { kind: NodeKind.HogQLQuery, query: sql },
+                        { kind: NodeKind.HogQLQuery, query: sql, tags: SQL_PREVIEW_QUERY_TAGS },
                         undefined,
                         'force_blocking'
                     )
@@ -380,7 +384,7 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
             {
                 runSqlPreview: () => null,
                 runSqlPreviewSuccess: () => null,
-                runSqlPreviewFailure: (_, { error, errorObject }) => errorObject?.detail ?? error,
+                runSqlPreviewFailure: (_, { errorObject }) => errorObject?.detail ?? SQL_PREVIEW_FAILED_MESSAGE,
             },
         ],
         savedInsightsFailed: [
