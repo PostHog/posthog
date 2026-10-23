@@ -292,6 +292,7 @@ flowchart LR
 ```
 
 The worker maps selected project members to their current personal GitHub accounts and checks repository assignability.
+Each attempt checks at most ten eligible candidates, in the saved order.
 It assigns eligible selected people in the saved order only when their **Assign me on GitHub** setting is on.
 A missing settings row, a missing GitHub account, or lost access prevents assignment to that person. The worker does not select a replacement.
 The personal setting does not remove anyone from the report. Claims and owning teams do not change the selected list or its order.
@@ -300,6 +301,8 @@ The report remains the source of the assignment. Logs record unavailable account
 The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
 Queued work and retries use the current personal setting.
 Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
+The legacy DRI path also respects report exclusions and rechecks human choices before assignment.
+Claimants and suggested reviewers must be active project members to receive assignments or review requests.
 This first version copies the list only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
 That work must preserve human GitHub changes and copy the shared report assignment, not select another owner.
 GitHub's final read and write are not atomic, so a small external race remains.

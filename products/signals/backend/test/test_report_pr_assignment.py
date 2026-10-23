@@ -157,6 +157,21 @@ class TestReportPRAssignment:
         assert self.assign(report, github) == ["retained", "added"]
         github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["retained", "added"])
 
+    @pytest.mark.parametrize("assignable", [False, True])
+    def test_large_reviewer_lists_have_bounded_github_checks(
+        self, org_and_team: tuple[Organization, Team], assignable: bool
+    ) -> None:
+        org, team = org_and_team
+        logins = [f"reviewer-{index}" for index in range(12)]
+        for login in logins:
+            _make_reviewer(org, login, opted_in=True)
+        report = _make_report(team, logins)
+        github = self.github()
+        github.is_assignable.return_value = {"success": True, "assignable": assignable}
+
+        assert self.assign(report, github) == (logins[:10] if assignable else [])
+        assert github.is_assignable.call_count == 10
+
     @pytest.mark.parametrize(
         "change", ["reviewers", "identity", "access", "preference", "github", "delivery", "writer", "selection"]
     )
