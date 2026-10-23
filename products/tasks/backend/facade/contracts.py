@@ -55,6 +55,38 @@ class TaskDTO:
     slug: str = ""
 
 
+@dataclass(frozen=True, kw_only=True)
+class TaskAccessScope:
+    """Task IDs a user can or cannot access through channel visibility rules."""
+
+    user_id: int
+    has_resource_access: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentTaskRunDTO:
+    """Identity and workflow handle for a newly dispatched agent task."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    workflow_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class SessionFile:
+    """A text file a custom-prompt session puts in the sandbox before its first turn.
+
+    The agent server writes it under the run's attachments directory and lists its path in the
+    first prompt, so the agent and any sub-agent it starts can read it from disk.
+    """
+
+    name: str
+    content: str
+
+
 @dataclass(frozen=True)
 class StreamNotificationDelivery:
     """Where a server-originated stream notification landed.
@@ -96,6 +128,14 @@ class WizardCloudRunDTO:
     run_id: UUID
     status: str
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunTokenUsage:
+    """Settled token subtotal in micro-USD and whether every request is accounted for."""
+
+    cost_microusd: int | None
+    complete: bool
 
 
 @dataclass(frozen=True)
@@ -193,6 +233,21 @@ class TaskSlackUnfurlDTO:
 
 
 @dataclass(frozen=True)
+class TaskArtifactSlackUnfurlDTO:
+    """The task run artifact metadata needed to build a Slack unfurl."""
+
+    name: str
+    content_type: str
+    size: int | None
+    uploaded_at: datetime | None
+    task_id: UUID
+    task_title: str
+    run_id: UUID
+    artifact_id: str
+    download_path: str
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -233,6 +288,7 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+    client_provenance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -267,6 +323,14 @@ class ChannelDTO:
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
     system_role: str | None = None
+
+
+@dataclass(frozen=True)
+class ChannelContributorsDTO:
+    """The people who own at least one task or canvas in a channel, most recently active first."""
+
+    channel: UUID
+    people: list["TaskUserBasicInfo"]
 
 
 @dataclass(frozen=True)
@@ -373,6 +437,17 @@ class TaskArtifactDTO:
     id: str
     type: str
     name: str
+
+
+@dataclass(frozen=True)
+class TaskRunInputFile:
+    """An existing server-owned object attached before a task run starts."""
+
+    id: str
+    name: str
+    storage_path: str
+    size_bytes: int
+    content_type: str
 
 
 @dataclass(frozen=True)
@@ -672,6 +747,27 @@ class TaskRunCreateResult:
 
     run: "TaskRunDetailDTO | None" = None
     error: TaskRunValidationError | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunLogSliceDTO:
+    """Part of a run's conversation log.
+
+    ``content`` is JSONL. ``offset`` is the index in the full log of the first entry after the
+    ``preamble`` entries, ``count`` is the number of entries in the full log, and ``turns_before`` is the
+    number of user turns that start before ``offset``. ``origin`` is the id of the first run in the chain: the
+    chain keeps a limited number of runs, so indexes hold only while the origin stays the same. ``sliced`` is
+    false when the run's log cannot be read in parts, so ``content`` is the full log and the other fields carry
+    no index.
+    """
+
+    content: str
+    offset: int
+    count: int
+    preamble: int = 0
+    turns_before: int = 0
+    origin: str = ""
+    sliced: bool = True
 
 
 @dataclass(frozen=True)
@@ -1013,3 +1109,47 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionContent:
+    name: str
+    content_type: str
+    content: bytes
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionPreview:
+    name: str
+    content_type: str
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionDownload:
+    url: str | None
+    error: Literal["not_found", "not_stored", "unavailable"] | None
+
+
+class SandboxRunStartDenial(StrEnum):
+    """Why a task sandbox cannot start a run."""
+
+    NO_ACTOR = "no_actor"
+    NESTED = "nested"
+
+
+@dataclass(frozen=True)
+class SandboxRunStarter:
+    """The task and run whose sandbox starts a run for the task's owner."""
+
+    parent_task_id: UUID
+    parent_run_id: UUID
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunPlan:
+    """The user plan a run bills to in place of PostHog credits."""
+
+    plan_name: str
+    owner_user_id: int | None

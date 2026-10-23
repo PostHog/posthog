@@ -4,23 +4,28 @@ description: >
   Internal PostHog developer frontend/browser QA skill. Use only when a PostHog
   developer explicitly asks to run frontend QA, browser-test a PR, verify a UI
   flow against the local PostHog stack, use qa-frontend, or QA current frontend
-  changes with browser/runtime evidence. Do not use for generic code review, PR
-  review, "check my changes", CI debugging, or security audit; use qa-team,
-  debugging-ci-failures, or security-audit instead. Runs in PR mode or local
+  changes with browser/runtime evidence, or to make a feature reel (see reel
+  mode below). Do not use for generic code review, PR review, "check my
+  changes", CI debugging, or security audit; use qa-team,
+  debugging-ci-failures, or security-audit instead. QA runs in PR mode or local
   mode, plans adaptive browser and visual checks, drives browser MCP/tooling
   such as Playwright MCP or Chrome DevTools MCP, captures evidence, and applies
-  only approved/narrow fixes.
+  only approved/narrow fixes. Reel mode makes a feature reel instead: a short,
+  sharp animated WebP of one UI flow for a PR description. Use it when asked
+  for a reel, GIF, or animated demo, or when writing-pr-descriptions calls for
+  a reel: a new action and its effect that one screenshot cannot show.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*, mcp__chrome-devtools__*, mcp__phrocs__*
 ---
 
 # QA Frontend
 
-Run the code, not just the diff. This is a repo-local skill for PostHog developers working on PostHog itself. It executes a bounded frontend QA loop against a local PostHog stack and operates in one of two modes:
+Run the code, not just the diff. This is a repo-local skill for PostHog developers working on PostHog itself. It executes a bounded frontend QA loop against a local PostHog stack and operates in one of three modes:
 
 - **PR mode** - user references a specific PR (URL, number, or branch). The skill checks out the PR, runs QA, optionally uploads final evidence after approval, and posts a single PR comment after approval. Requires a clean working tree.
 - **Local mode** - user asks to QA their current work with no PR reference. The skill QAs the current checkout against the repo's default branch (`origin/HEAD`) by default, or an explicit local base ref when the user provides one, plus staged, unstaged, and untracked changes. It writes a report locally and does **not** upload evidence or touch GitHub. A dirty working tree is fine in this mode.
+- **Reel mode** - user asks for a reel, GIF, or animated demo of a UI flow for a PR description, or "Screenshots and reels" in `/writing-pr-descriptions` calls for one. The skill skips the QA loop and follows `references/feature-reel.md`: stills from a Storybook story or a test workspace in the running app become an animated WebP with a cursor and zoom.
 
-Use this skill only for explicit frontend/browser/runtime QA. If the prompt is a generic review, code-review, "check my changes", CI-debugging, or security-audit request, use the more specific repo skill instead.
+Use this skill only for explicit frontend/browser/runtime QA or a feature reel. If the prompt is a generic review, code-review, "check my changes", CI-debugging, or security-audit request, use the more specific repo skill instead.
 
 Choose mode from the prompt. If an explicit frontend QA request names a PR, links one, or says "browser-test PR <N>", use PR mode. If it targets the current frontend work with no PR ref, use local mode.
 
@@ -32,7 +37,7 @@ Claude Code ships built-in `/run` and `/verify` skills. This skill composes with
 
 ## Quick Use
 
-1. Decide mode (PR vs local) from the user prompt and presence of a PR ref.
+1. Decide mode (PR, local, or reel) from the user prompt and presence of a PR ref. Reel mode continues in `references/feature-reel.md` and skips the steps below.
 2. In PR mode, require a clean working tree before doing anything else.
 3. Require a reachable local stack and working browser MCP/tooling session. If browser MCP tools are missing, load `references/browser-mcp-patterns.md` and ask before configuring anything. Reuse the developer's current PostHog setup by default; always ask before starting PostHog.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on the current branch.
@@ -70,6 +75,7 @@ Load these files only when the matching phase starts:
 - `references/evidence-and-output.md` - evidence upload, verdict artifacts, and PR/local report rendering.
 - `references/pr-comment-template.md` - final PR comment structure.
 - `references/cleanup.md` - checkout, browser session, stack, and generated-file cleanup after the report is written.
+- `references/feature-reel.md` - reel mode: when a reel earns its place, shot list, capture, render, and upload of a feature reel.
 
 Skill scripts live next to this file (under `scripts/`). When Claude Code activates this skill, it emits a line at the top of the prompt:
 
@@ -85,7 +91,7 @@ Do **not** improvise discovery by searching the home directory or other checkout
 
 ## Preconditions
 
-Load `references/safety-rules.md` now, before acting on anything below - its stop rules and approval gates govern the whole run in both modes.
+Load `references/safety-rules.md` now, before acting on anything below - its stop rules and approval gates govern the whole run in every mode.
 
 Parse `$ARGUMENTS` into:
 

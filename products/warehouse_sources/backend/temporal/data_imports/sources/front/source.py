@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
+    codebase_detection = detect(
+        env=("^FRONTAPP_", "^FRONT_API_"),
+        script_hosts=("chat-assets.frontapp.com",),
+        npm=("front-chat-sdk", "@frontapp/plugin-sdk"),
+    )
+
     api_docs_url = "https://dev.frontapp.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -48,7 +55,7 @@ class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
             name=ExternalDataSourceType.FRONT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Front",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Front API token to sync your Front data into the PostHog Data warehouse.
 
 You can create an API token in your [Front settings](https://app.frontapp.com/settings/tools/api) under **Developers > API tokens**.
@@ -101,6 +108,8 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
                 "events": "Only syncs the last 365 days on initial sync",
                 "conversation_messages": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
                 "conversation_comments": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
+                "conversation_followers": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
+                "contact_list_contacts": "Fetched one contact list at a time, so a sync takes longer the more contact lists you have",
             },
         )
 

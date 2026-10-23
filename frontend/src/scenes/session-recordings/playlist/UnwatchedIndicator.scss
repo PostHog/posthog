@@ -1,0 +1,9 @@
+.UnwatchedIndicator {
+    &.UnwatchedIndicator--primary {
+        background: var(--danger);
+    }
+
+    &.UnwatchedIndicator--secondary {
+        background: var(--color-accent);
+    }
+}

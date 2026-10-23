@@ -29,7 +29,12 @@ import structlog
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
 
-from products.signals.backend.emission.pipeline import EMISSION_AI_PRODUCT, capture_pipeline_stage, check_actionability
+from products.signals.backend.emission.pipeline import (
+    ACTIONABILITY_SYSTEM_ONE_QUESTION,
+    EMISSION_AI_PRODUCT,
+    capture_pipeline_stage,
+    check_actionability,
+)
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.emission.steering import (
     SourceSteering,
@@ -37,6 +42,7 @@ from products.signals.backend.emission.steering import (
     apply_steering,
     steering_from_config,
 )
+from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -72,6 +78,7 @@ async def steering_filters_signal(
     description: str,
     weight: float,
     extra: dict[str, Any],
+    signal_id: str | None = None,
 ) -> bool:
     """Whether this team's steering says to drop the signal.
 
@@ -86,7 +93,17 @@ async def steering_filters_signal(
     if not steering.text:
         return False
 
+    system_one_prompt = current_prompt(
+        bundled_prompt(
+            "signals-actionability-direct",
+            DIRECT_SOURCE_ACTIONABILITY_PROMPT,
+            ACTIONABILITY_SYSTEM_ONE_QUESTION,
+            0.5,
+        )
+    )
+
     output = SignalEmitterOutput(
+        signal_id=signal_id,
         source_product=source_product,
         source_type=source_type,
         source_id=source_id,
@@ -105,11 +122,12 @@ async def steering_filters_signal(
                     client,
                     team.id,
                     output,
-                    apply_steering(DIRECT_SOURCE_ACTIONABILITY_PROMPT, steering),
+                    apply_steering(system_one_prompt.policy, steering),
                     gateway_mode=resolve_ai_gateway_config() is not None,
                     # Steering rules reference facts the description does not always carry (a host, a
                     # check kind), so the steered gate sees all of `extra`, as in the batch pipeline.
                     include_record_metadata=True,
+                    system_one_prompt=system_one_prompt,
                 ),
                 timeout=GATE_TIMEOUT_SECONDS,
             )

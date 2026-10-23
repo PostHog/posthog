@@ -2,11 +2,45 @@ import type {
   PreparedTaskArtifactUpload,
   TaskArtifactUploadRequest,
 } from "@posthog/api-client/posthog-client";
+import { fetch } from "expo/fetch";
+import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { getClient } from "@/lib/client";
 
 export const MAX_PHOTOS = 10;
 const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
+
+// Photos sent from this device by task and artifact id, so the chat can show
+// the file already on disk rather than download it again. The account-change
+// reset clears it, so one account never shows another account's file.
+const sentPhotoUris = new Map<string, string>();
+
+function sentPhotoKey(taskId: string, artifactId: string): string {
+  return `${taskId}/${artifactId}`;
+}
+
+export function sentPhotoUri(
+  taskId: string,
+  artifactId: string,
+): string | null {
+  return sentPhotoUris.get(sentPhotoKey(taskId, artifactId)) ?? null;
+}
+
+export function resetSentPhotos(): void {
+  sentPhotoUris.clear();
+}
+
+function rememberSent(
+  taskId: string,
+  photos: Photo[],
+  artifactIds: string[],
+): string[] {
+  artifactIds.forEach((artifactId, index) => {
+    const photo = photos[index];
+    if (photo) sentPhotoUris.set(sentPhotoKey(taskId, artifactId), photo.uri);
+  });
+  return artifactIds;
+}
 
 export interface Photo {
   id: string;
@@ -51,7 +85,6 @@ function uploadRequests(photos: Photo[]): TaskArtifactUploadRequest[] {
   }));
 }
 
-// Streams each file straight from disk to object storage; nothing is base64 encoded.
 async function postFiles(
   photos: Photo[],
   prepared: PreparedTaskArtifactUpload[],
@@ -65,11 +98,10 @@ async function postFiles(
       )) {
         form.append(key, value);
       }
-      form.append("file", {
-        uri: photo.uri,
-        name: photo.name,
-        type: photo.mimeType,
-      } as unknown as Blob);
+      // Expo fetch rejects React Native's legacy { uri, name, type } part.
+      // File supplies the bytes() contract that its multipart encoder requires;
+      // React Native's FormData type does not yet include Expo's File support.
+      form.append("file", new File(photo.uri) as unknown as Blob);
       const response = await fetch(artifact.presigned_post.url, {
         method: "POST",
         body: form,
@@ -95,7 +127,11 @@ export async function uploadStagedPhotos(
     taskId,
     prepared,
   );
-  return finalized.map((artifact) => artifact.id);
+  return rememberSent(
+    taskId,
+    photos,
+    finalized.map((artifact) => artifact.id),
+  );
 }
 
 export async function uploadRunPhotos(
@@ -116,5 +152,9 @@ export async function uploadRunPhotos(
     runId,
     prepared,
   );
-  return finalized.map((artifact) => artifact.id);
+  return rememberSent(
+    taskId,
+    photos,
+    finalized.map((artifact) => artifact.id),
+  );
 }

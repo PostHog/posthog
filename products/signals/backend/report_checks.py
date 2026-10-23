@@ -26,10 +26,21 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
+from products.signals.backend.report_charts import _unstorable_text
+from products.signals.backend.report_metrics import (
+    MAX_LIVE_METRIC_WINDOW_DAYS,
+    MAX_METRIC_UNIT_LENGTH,
+    ReportMetric,
+    ReportMetricKind,
+    ReportMetricValueFormat,
+    validate_live_metric_query,
+    validate_metric_id,
+    validate_metric_number,
+)
 
 CheckOutcome = Literal["passed", "failed", "errored", "inconclusive"]
 # Why an `inconclusive` verdict could not settle the claim. Only `awaiting_data` keeps the check open.
@@ -70,6 +81,19 @@ MAX_CONSECUTIVE_CHECK_ERRORS = 3
 # on a surface with almost no traffic can wait forever. After the last wait, the next
 # `awaiting_data` verdict ends the check as `inconclusive`.
 AWAITING_DATA_RETRY_WAITS = (timedelta(hours=24), timedelta(hours=72), timedelta(days=7))
+
+
+def check_schedule_expires_at(
+    *,
+    next_run_at: datetime,
+    run_interval_minutes: int | None,
+    runs_remaining: int,
+    start_at: datetime,
+) -> datetime:
+    last_run_at = next_run_at
+    if run_interval_minutes:
+        last_run_at += timedelta(minutes=run_interval_minutes * max(0, runs_remaining - 1))
+    return min(last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, start_at + MAX_CHECK_HORIZON)
 
 
 class CheckThresholdBounds(BaseModel):
@@ -127,6 +151,32 @@ class CheckComparison(BaseModel):
         return self
 
 
+class MonitoringMetricConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reference_period_minutes: int = Field(
+        strict=True,
+        gt=0,
+        le=MAX_LIVE_METRIC_WINDOW_DAYS * 24 * 60,
+        description="The period the comparison target describes, in minutes. Independent of the soak and run schedule.",
+    )
+    threshold_scaling: Literal["linear", "fixed"] = Field(
+        description=(
+            "How the target applies to a measurement from Monitoring start to the observation time. "
+            "`linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive "
+            "event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. "
+            "This definition does not enable Monitoring execution."
+        ),
+    )
+    baseline_period_minutes: int | None = Field(
+        default=None,
+        strict=True,
+        gt=0,
+        le=MAX_LIVE_METRIC_WINDOW_DAYS * 24 * 60,
+        description="The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.",
+    )
+
+
 class MetricThresholdConfig(BaseModel):
     """A deterministic check: measure one number, compare it, record the verdict.
 
@@ -163,11 +213,32 @@ class MetricThresholdConfig(BaseModel):
             "you unless `metricSummary` is `latest`, which keeps compare mode off already."
         ),
     )
+    monitoring: MonitoringMetricConfig | None = Field(
+        default=None,
+        description=(
+            "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. "
+            "Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
+        ),
+    )
     comparison: CheckComparison = Field(description="What the measured value must satisfy to pass.")
     baseline_value: float | None = Field(
         default=None,
         description="The value observed when the check was written, recorded on each result for context.",
     )
+    metric_kind: ReportMetricKind | None = Field(
+        default=None, description="How to draw this measurement; copied from a referenced metric."
+    )
+    value_format: ReportMetricValueFormat | None = Field(
+        default=None, description="How to format measured values; copied from a referenced metric."
+    )
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
+
+    @field_validator("unit")
+    @classmethod
+    def unit_must_be_storable(cls, value: str | None) -> str | None:
+        if value is not None and (reason := _unstorable_text(value)) is not None:
+            raise ValueError(f"unit must not contain {reason}")
+        return value
 
     @field_validator("baseline_value", mode="before")
     @classmethod
@@ -191,6 +262,35 @@ class MetricThresholdConfig(BaseModel):
         if self.metric_id is None and self.query is None:
             raise ValueError("provide a metric_id or a query")
         return self
+
+
+DEFAULT_MONITORING_INTERVAL_MINUTES = 24 * 60
+
+
+def monitoring_window_end(start: datetime, soak_minutes: int | None) -> datetime:
+    return start + timedelta(minutes=soak_minutes or 0)
+
+
+def monitoring_interval_minutes(run_interval_minutes: int | None) -> int:
+    return max(MIN_CHECK_INTERVAL_MINUTES, run_interval_minutes or DEFAULT_MONITORING_INTERVAL_MINUTES)
+
+
+def monitoring_comparison(config: MetricThresholdConfig, elapsed: timedelta) -> CheckComparison:
+    if config.monitoring is None or elapsed.total_seconds() <= 0:
+        raise ValueError("A Monitoring measurement needs its definition and a positive elapsed period.")
+    if config.monitoring.threshold_scaling == "fixed":
+        return config.comparison.model_copy(deep=True)
+    factor = elapsed.total_seconds() / (config.monitoring.reference_period_minutes * 60)
+    if config.comparison.operator == "between":
+        assert config.comparison.bounds is not None
+        return CheckComparison(
+            operator="between",
+            bounds=CheckThresholdBounds(
+                lower=config.comparison.bounds.lower * factor, upper=config.comparison.bounds.upper * factor
+            ),
+        )
+    assert config.comparison.value is not None
+    return CheckComparison(operator=config.comparison.operator, value=config.comparison.value * factor)
 
 
 class AgentCheckConfig(BaseModel):
@@ -283,6 +383,18 @@ class CheckConfigValidationError(ValueError):
     """A check config that does not match its kind's schema."""
 
 
+def authored_monitoring_interval_minutes(soak_minutes: int, run_interval_minutes: int | None) -> int | None:
+    if run_interval_minutes is not None:
+        if not MIN_CHECK_INTERVAL_MINUTES <= run_interval_minutes < soak_minutes:
+            raise CheckConfigValidationError(
+                "A Monitoring interval must be at least six hours and shorter than the observation window."
+            )
+        return run_interval_minutes
+    if soak_minutes <= MIN_CHECK_INTERVAL_MINUTES:
+        return None
+    return min(24 * 60, max(MIN_CHECK_INTERVAL_MINUTES, soak_minutes // 4))
+
+
 def parse_check_config(kind: str, config: object) -> BaseModel:
     """Parse a raw config payload into its kind's model.
 
@@ -298,6 +410,57 @@ def parse_check_config(kind: str, config: object) -> BaseModel:
         raise CheckConfigValidationError(str(error)) from error
 
 
+def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
+    if config.query is None:
+        raise CheckConfigValidationError("The metric query must be resolved before writing a check.")
+    if config.monitoring is not None:
+        if config.baseline_value is not None and config.monitoring.baseline_period_minutes is None:
+            raise CheckConfigValidationError("A Monitoring baseline needs its measured baseline_period_minutes.")
+        source = config.query["source"]
+        series = source["series"]
+        if any(item.get("math") in {"weekly_active", "monthly_active"} for item in series):
+            raise CheckConfigValidationError(
+                "Monitoring targets cannot use rolling weekly or monthly active users. Use a distinct user count instead."
+            )
+        if config.monitoring.threshold_scaling == "linear":
+            if (
+                len(series) != 1
+                or any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes"))
+                or series[0].get("math") not in {None, "total", "sum"}
+                or (
+                    series[0].get("math") == "sum"
+                    and (
+                        series[0].get("math_property") == "$session_duration"
+                        or series[0].get("math_property_type") == "session_properties"
+                    )
+                )
+            ):
+                raise CheckConfigValidationError(
+                    "Linear Monitoring targets require one additive event count or property sum, without a formula."
+                )
+    kind = config.metric_kind or "custom"
+    value_format = config.value_format or "number"
+    try:
+        ReportMetric(
+            metric_id=config.metric_id or "check",
+            title="Follow-up measurement",
+            kind=kind,
+            query=config.query,
+            value_format=value_format,
+            unit=config.unit,
+        )
+        if config.baseline_value is not None:
+            validate_metric_number(kind, value_format, config.baseline_value, "baseline")
+        comparison = config.comparison
+        if comparison.bounds is not None:
+            validate_metric_number(kind, value_format, comparison.bounds.lower, "lower bound")
+            validate_metric_number(kind, value_format, comparison.bounds.upper, "upper bound")
+        elif comparison.value is not None:
+            validate_metric_number(kind, value_format, comparison.value, "goal")
+    except ValueError as error:
+        raise CheckConfigValidationError(str(error)) from error
+
+
 class CheckSpec(BaseModel):
     """A check whose clock starts when its report resolves, written before any fix exists.
 
@@ -309,6 +472,10 @@ class CheckSpec(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    existing_check_id: UUID | None = Field(
+        default=None, description="ID of the existing check being retained or revised. Omit for a new check."
+    )
 
     title: str = Field(
         max_length=MAX_CHECK_TITLE_LENGTH,
@@ -327,7 +494,19 @@ class CheckSpec(BaseModel):
         le=MAX_CHECK_SOAK_HOURS,
         description=(
             "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours."
+            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
+            "for a new check; omission preserves an existing check’s wait."
+        ),
+    )
+    run_interval_minutes: int | None = Field(
+        default=None,
+        strict=True,
+        ge=MIN_CHECK_INTERVAL_MINUTES,
+        le=MAX_CHECK_INTERVAL_MINUTES,
+        description=(
+            "Minutes between interim Monitoring measurements. Must be shorter than soak_hours * 60. "
+            "Omission preserves an existing check's interval. New Monitoring metric checks default to a quarter "
+            "of the window, bounded to six hours through one day. Windows of six hours or less have no interim samples."
         ),
     )
 
@@ -341,5 +520,8 @@ class CheckSpec(BaseModel):
 
     @model_validator(mode="after")
     def config_must_match_its_kind(self) -> CheckSpec:
-        parse_check_config(self.kind, self.config)
+        config = parse_check_config(self.kind, self.config)
+        if self.run_interval_minutes is not None:
+            if not isinstance(config, MetricThresholdConfig) or config.monitoring is None:
+                raise ValueError("Research can author an interval only for a Monitoring metric check.")
         return self

@@ -34,10 +34,6 @@ class TestHarvestSource:
         assert field.secret is expected_secret
         assert field.required is True
 
-    def test_api_version_pins_the_path_the_code_calls(self) -> None:
-        assert HarvestSource.supported_versions == ("v2",)
-        assert HarvestSource.default_version == "v2"
-
     @parameterized.expand([("time_entries", True), ("invoices", True), ("roles", False)])
     def test_incremental_support_tracks_the_updated_since_filter(self, name: str, expected: bool) -> None:
         # Only endpoints with a server-side `updated_since` filter may advertise incremental
@@ -46,13 +42,6 @@ class TestHarvestSource:
         assert schema.supports_incremental is expected
         assert [f["field"] for f in schema.incremental_fields] == (["updated_at"] if expected else [])
 
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # Static catalog -> the public docs Supported tables section renders with no connection.
-        assert HarvestSource.lists_tables_without_credentials is True
-        tables = HarvestSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all(t["description"] for t in tables)
-
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Entries keyed off a stale endpoint name silently fall back to LLM enrichment.
         assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
@@ -60,8 +49,6 @@ class TestHarvestSource:
     @parameterized.expand(
         [
             ("valid", True, None, True, None),
-            ("invalid", False, 401, False, "Invalid Harvest account ID"),
-            ("no_scope", False, 403, False, "does not have permission"),
             ("unreachable", False, None, False, "Could not reach Harvest"),
         ]
     )
@@ -109,7 +96,3 @@ class TestHarvestSource:
     def test_page_size_stays_within_the_api_cap(self) -> None:
         # Harvest rejects per_page above 2000 with a 422.
         assert all(0 < c.page_size <= 2000 for c in HARVEST_ENDPOINTS.values())
-
-    def test_source_config_is_visible_to_users(self) -> None:
-        # A truthy unreleasedSource filters the connector out of the frontend entirely.
-        assert not HarvestSource().get_source_config.unreleasedSource

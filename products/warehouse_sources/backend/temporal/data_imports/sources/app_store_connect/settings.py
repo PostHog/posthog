@@ -6,7 +6,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# App Store Connect splits into very different transports, so the catalog carries four kinds:
+# App Store Connect splits into very different transports, so the catalog carries five kinds:
 #
 #   - "collection":       a top-level JSON:API list (`/v1/apps`, `/v1/builds`, ...) walked via `links.next`.
 #   - "app_fanout":       a per-app JSON:API list (`/v1/apps/{app_id}/customerReviews`, ...). Apps are
@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #                         is also ensured and, once Apple generates it, backfills history older than
 #                         the ongoing stream. Report request creation is the only account mutation this
 #                         source makes.
-EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report"]
+#   - "app_overview":     a per-app document that is not JSON:API (`/v1/apps/{app_id}/performanceOverviews`).
+#                         One request per app returns the whole document, which is flattened into rows.
+EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report", "app_overview"]
 
 # Apple caps most collection pages at 200 resources.
 MAX_PAGE_SIZE = 200
@@ -91,14 +93,8 @@ class AppStoreConnectEndpointConfig:
     # the DAILY/SUMMARY combination of each report type.
     report_version: str = ""
     report_frequency: str = "DAILY"
-    # Apple 404s a SALES report request for a date with no data. Subscription-family report types
-    # (SUBSCRIPTION, SUBSCRIPTION_EVENT) instead 400 with a misleading "Invalid vendor number
-    # specified" error for that same condition — a longstanding, publicly reported Apple API quirk,
-    # usually not an actual credentials problem. A tolerated 400 is not swallowed blindly:
-    # `_fetch_report` reads the body, so a genuinely malformed request (wrong version or sub type)
-    # still fails loudly instead of reading as a quiet account. Apple words that same 400 for a
-    # vendor number it doesn't know, so a sales-report check separates the two before the misleading
-    # wording is tolerated across the whole lookback.
+    # Apple sometimes returns a misleading 400 instead of 404 for an empty report day. Endpoints that
+    # exhibit this quirk tolerate 400; `_fetch_report` classifies the response body before swallowing it.
     missing_report_status_codes: tuple[int, ...] = (404,)
 
 
@@ -201,6 +197,16 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         primary_keys=["app_id", "id"],
         path="/v1/apps/{app_id}/subscriptionGroups",
     ),
+    # Xcode's aggregated performance metrics (launch time, hangs, memory, battery, disk writes) by
+    # app version. Rows are the overview's metric points, one per (metric, percentile, device,
+    # version). The document is a current snapshot with no date to filter or partition on, so
+    # this is a full refresh.
+    "performance_overviews": AppStoreConnectEndpointConfig(
+        name="performance_overviews",
+        kind="app_overview",
+        primary_keys=["app_id", "category", "metric", "percentile", "device", "version"],
+        path="/v1/apps/{app_id}/performanceOverviews",
+    ),
     # Daily units and proceeds. Off by default because it needs a vendor number and a Finance or Sales
     # role on the key. Keyed on (report date, line number): a published day's file is immutable, so the
     # pair is stable and unique, and re-reading a day merges cleanly.
@@ -214,6 +220,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
+        missing_report_status_codes=(404, 400),
     ),
     # Daily active subscription counts by state and territory.
     "subscription_reports": AppStoreConnectEndpointConfig(

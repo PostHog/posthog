@@ -329,6 +329,10 @@ export interface RecurringSchedulePickerProps {
     onStartsAtChange: (pickerDate: string | null) => void
     onTimezoneChange: (timezone: string, previousTimezone: string) => void
     onRepeatingChange: (repeating: boolean) => void
+    /** Off where the caller already means repeating, such as a broadcast's Recurring option. */
+    showRepeatToggle?: boolean
+    /** Shows the timezone before a start date is picked. */
+    alwaysShowTimezone?: boolean
 }
 
 export function RecurringSchedulePicker({
@@ -340,6 +344,8 @@ export function RecurringSchedulePicker({
     onStartsAtChange: setScheduleStartsAtFromPicker,
     onTimezoneChange: setScheduleTimezone,
     onRepeatingChange: setScheduleRepeating,
+    showRepeatToggle = true,
+    alwaysShowTimezone = false,
 }: RecurringSchedulePickerProps): JSX.Element {
     const previewOccurrences = useMemo(() => {
         if (!isScheduleRepeating || !scheduleStartsAt) {
@@ -360,7 +366,7 @@ export function RecurringSchedulePicker({
         scheduleState.endCount,
     ])
 
-    const summary = isScheduleRepeating ? buildSummary(scheduleState, scheduleStartsAt) : null
+    const summary = isScheduleRepeating ? buildSummary(scheduleState, scheduleStartsAt, scheduleTimezone) : null
 
     const monthlyDayLabel = scheduleStartsAt ? `Day ${dayjs(scheduleStartsAt).date()}` : 'Day N'
     const monthlyNthLabel = scheduleStartsAt
@@ -393,7 +399,7 @@ export function RecurringSchedulePicker({
                         showTimeToggle={false}
                     />
                 </div>
-                {scheduleStartsAt && (
+                {scheduleStartsAt && showRepeatToggle && (
                     <div className="w-22 shrink-0">
                         <LemonSwitch
                             label="Repeat"
@@ -403,7 +409,7 @@ export function RecurringSchedulePicker({
                     </div>
                 )}
             </div>
-            {scheduleStartsAt && (
+            {(scheduleStartsAt || alwaysShowTimezone) && (
                 <div className="flex flex-col gap-1 -mt-1">
                     <div className="flex items-center gap-2">
                         <div className="flex-1 min-w-0">
@@ -414,9 +420,9 @@ export function RecurringSchedulePicker({
                                 }}
                             />
                         </div>
-                        <div className="w-22 shrink-0" />
+                        {showRepeatToggle && <div className="w-22 shrink-0" />}
                     </div>
-                    {scheduleTimezone !== dayjs.tz.guess() && (
+                    {scheduleStartsAt && scheduleTimezone !== dayjs.tz.guess() && (
                         <span className="text-xs text-muted">
                             Schedule: {dayjs(scheduleStartsAt).tz(scheduleTimezone).format('h:mm A')} {scheduleTimezone}{' '}
                             · Your time: {dayjs(scheduleStartsAt).format('h:mm A')} {dayjs.tz.guess()}

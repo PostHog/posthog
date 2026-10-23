@@ -1,0 +1,598 @@
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID
+
+import pytest
+
+from parameterized import parameterized
+
+from products.alerts_platform.backend.facade.scheduling import (
+    BlockedWindow,
+    CalendarInterval,
+    advance_next_check_at,
+    advance_schedule,
+    alert_check_offset,
+    is_weekend,
+    next_calendar_check_time,
+    parse_blocked_windows_tuples,
+    scan_next_unblocked_utc,
+    validate_and_normalize_schedule_restriction,
+    validate_and_normalize_schedule_start_time,
+)
+
+# Wednesday 2026-03-18 12:00 UTC
+NOW = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
+PREV_CHECK = datetime(2026, 3, 18, 11, 47, tzinfo=UTC)
+ALERT_ID = UUID("0193f3c6-2a4b-7d2e-8f00-3c1b5d7e9a10")
+
+
+class TestValidateAndNormalizeScheduleRestriction:
+    @parameterized.expand(
+        [
+            (None, None),
+            ({}, None),
+            ({"blocked_windows": []}, None),
+            (
+                {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+                {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            ),
+        ]
+    )
+    def test_normalize_feature_off_or_valid_overnight(self, raw: Any, expected: dict[str, Any] | None) -> None:
+        assert validate_and_normalize_schedule_restriction(raw) == expected
+
+    def test_merges_overlapping_same_day_windows(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "10:30", "end": "11:00"},
+                {"start": "10:40", "end": "11:15"},
+            ]
+        }
+        assert validate_and_normalize_schedule_restriction(raw) == {
+            "blocked_windows": [{"start": "10:30", "end": "11:15"}]
+        }
+
+    def test_adjacent_half_open_windows_merge(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "12:00", "end": "13:00"},
+                {"start": "13:00", "end": "14:00"},
+            ]
+        }
+        assert validate_and_normalize_schedule_restriction(raw) == {
+            "blocked_windows": [{"start": "12:00", "end": "14:00"}]
+        }
+
+    def test_rejects_full_day_coverage(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "00:00", "end": "12:00"},
+                {"start": "12:00", "end": "00:00"},
+            ]
+        }
+        with pytest.raises(ValueError, match="at least one time"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    def test_rejects_too_many_windows_before_merge(self) -> None:
+        raw = {"blocked_windows": [{"start": f"{i:02d}:00", "end": f"{i:02d}:30"} for i in range(6)]}
+        with pytest.raises(ValueError, match="At most 5"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    @parameterized.expand(
+        [
+            ("12:00:00",),
+            ("not_a_time",),
+        ]
+    )
+    def test_rejects_malformed_times(self, bad_time: str) -> None:
+        raw = {"blocked_windows": [{"start": bad_time, "end": "13:00"}]}
+        with pytest.raises(ValueError):
+            validate_and_normalize_schedule_restriction(raw)
+
+    def test_rejects_equal_start_and_end(self) -> None:
+        raw = {"blocked_windows": [{"start": "10:00", "end": "10:00"}]}
+        with pytest.raises(ValueError, match="differ"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    @parameterized.expand(
+        [
+            ("same_day_too_short", "10:00", "10:29", False),
+            ("same_day_minimum", "10:00", "10:30", True),
+            ("overnight_too_short", "23:50", "00:09", False),
+            ("overnight_minimum", "23:40", "00:10", True),
+        ]
+    )
+    def test_enforces_minimum_window_length(self, _name: str, start: str, end: str, is_valid: bool) -> None:
+        raw = {"blocked_windows": [{"start": start, "end": end}]}
+        if is_valid:
+            assert validate_and_normalize_schedule_restriction(raw) == raw
+        else:
+            with pytest.raises(ValueError, match="at least 30 minutes"):
+                validate_and_normalize_schedule_restriction(raw)
+
+    def test_evening_until_midnight_preserves_end_at_midnight(self) -> None:
+        raw = {"blocked_windows": [{"start": "19:00", "end": "00:00"}]}
+        assert validate_and_normalize_schedule_restriction(raw) == raw
+
+    @parameterized.expand(
+        [
+            ("unknown_root_key", {"typo": True}),
+            ("missing_blocked_windows", {"enabled": True}),
+            (
+                "unknown_window_key",
+                {"blocked_windows": [{"start": "10:00", "end": "11:00", "typo": True}]},
+            ),
+        ]
+    )
+    def test_rejects_unknown_schedule_restriction_keys(self, _name: str, raw: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            validate_and_normalize_schedule_restriction(raw)
+
+
+class TestScheduleStartTime:
+    def test_accepts_any_valid_minute(self) -> None:
+        assert validate_and_normalize_schedule_start_time("08:02") == "08:02"
+
+    def test_hourly_check_returns_to_the_custom_minute_after_a_quiet_hours_delay(self) -> None:
+        assert next_calendar_check_time(
+            CalendarInterval.HOURLY,
+            now=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
+            tz_name="UTC",
+            next_check_at=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
+            alert_id=ALERT_ID,
+            schedule_start_time="22:30",
+        ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC)
+
+    def test_hourly_alert_created_after_its_start_time_uses_the_first_future_check(self) -> None:
+        assert next_calendar_check_time(
+            CalendarInterval.HOURLY,
+            now=datetime(2026, 4, 6, 23, 50, tzinfo=UTC),
+            tz_name="UTC",
+            next_check_at=None,
+            alert_id=ALERT_ID,
+            schedule_start_time="09:35",
+        ) == datetime(2026, 4, 7, 0, 35, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            (CalendarInterval.REAL_TIME, "09:35", datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, "00:00", datetime(2026, 3, 18, 9, 45, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, "00:05", datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, "00:55", datetime(2026, 3, 18, 9, 40, tzinfo=UTC)),
+            (CalendarInterval.HOURLY, "00:00", datetime(2026, 3, 18, 10, 0, tzinfo=UTC)),
+            (CalendarInterval.HOURLY, "00:05", datetime(2026, 3, 18, 10, 5, tzinfo=UTC)),
+            (CalendarInterval.HOURLY, "00:55", datetime(2026, 3, 18, 9, 55, tzinfo=UTC)),
+            (CalendarInterval.DAILY, "09:35", datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.WEEKLY, "09:35", datetime(2026, 3, 23, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.MONTHLY, "09:35", datetime(2026, 4, 1, 9, 35, tzinfo=UTC)),
+        ]
+    )
+    def test_next_check_uses_schedule_start_time_on_create(
+        self, interval: CalendarInterval, schedule_start_time: str, expected: datetime
+    ) -> None:
+        assert (
+            next_calendar_check_time(
+                interval,
+                now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                tz_name="UTC",
+                next_check_at=None,
+                alert_id=ALERT_ID,
+                schedule_start_time=schedule_start_time,
+            )
+            == expected
+        )
+
+    @parameterized.expand(
+        [
+            (
+                CalendarInterval.REAL_TIME,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 33, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 10, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC),
+                datetime(2026, 3, 18, 10, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.EVERY_15_MINUTES,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 50, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.EVERY_15_MINUTES,
+                datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 50, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.DAILY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 19, 9, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.WEEKLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 30, 9, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.MONTHLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 5, 1, 9, 35, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_next_check_respects_the_cadence_after_an_anchor_edit(
+        self, interval: CalendarInterval, now: datetime, expected: datetime
+    ) -> None:
+        result = next_calendar_check_time(
+            interval,
+            now=now,
+            tz_name="UTC",
+            next_check_at=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+            alert_id=ALERT_ID,
+            schedule_start_time="09:35",
+        )
+        assert result == expected
+
+
+class TestNextCalendarCheckTime:
+    @parameterized.expand(
+        [
+            # Sub-daily intervals keep one check per interval and skip missed evaluations. Real time keeps
+            # its phase; the others run at the alert's offset into the interval after the previous check.
+            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 12, 1, tzinfo=UTC)),
+            ("real_time_first_check", CalendarInterval.REAL_TIME, None, datetime(2026, 3, 18, 12, 2, tzinfo=UTC)),
+            (
+                "15min_from_prev",
+                CalendarInterval.EVERY_15_MINUTES,
+                PREV_CHECK,
+                datetime(2026, 3, 18, 12, 0, tzinfo=UTC),
+            ),
+            ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 12, 0, tzinfo=UTC)),
+            (
+                "hourly_skips_backlog",
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 5, 47, tzinfo=UTC),
+                datetime(2026, 3, 18, 12, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_sub_daily_advances_from_previous(
+        self, _name: str, interval: CalendarInterval, next_check_at: datetime | None, expected: datetime
+    ) -> None:
+        result = next_calendar_check_time(
+            interval, now=NOW, tz_name="UTC", next_check_at=next_check_at, alert_id=ALERT_ID
+        )
+        assert result == expected + alert_check_offset(interval, ALERT_ID)
+
+    @parameterized.expand(
+        [
+            # name, interval, cadence, first minute of the window, first minute after it
+            ("every_15_minutes", CalendarInterval.EVERY_15_MINUTES, timedelta(minutes=15), 1, 4),
+            ("hourly", CalendarInterval.HOURLY, timedelta(hours=1), 2, 14),
+            ("daily", CalendarInterval.DAILY, timedelta(days=1), 2, 60),
+            ("weekly", CalendarInterval.WEEKLY, timedelta(weeks=1), 2, 60),
+        ]
+    )
+    def test_each_alert_checks_at_its_own_minute_inside_the_window(
+        self, _name: str, interval: CalendarInterval, cadence: timedelta, first_minute: int, end_minute: int
+    ) -> None:
+        minute_period = int(min(cadence, timedelta(hours=1)).total_seconds() // 60)
+        minutes_used: set[int] = set()
+        for index in range(600):
+            alert_id = UUID(int=index)
+            check = next_calendar_check_time(interval, now=NOW, tz_name="UTC", next_check_at=None, alert_id=alert_id)
+            following = next_calendar_check_time(
+                interval, now=check, tz_name="UTC", next_check_at=check, alert_id=alert_id
+            )
+            late_now = check + cadence * 2.5
+            late = next_calendar_check_time(
+                interval, now=late_now, tz_name="UTC", next_check_at=check, alert_id=alert_id
+            )
+
+            minute = check.minute % minute_period
+            assert first_minute <= minute < end_minute
+            assert following - check == cadence
+            assert late > late_now
+            assert (late.minute % minute_period, late.second) == (minute, check.second)
+            minutes_used.add(minute)
+
+        assert minutes_used == set(range(first_minute, end_minute))
+
+    @parameterized.expand(
+        [
+            # Daily anchors to the 1am hour local tomorrow. US/Pacific is UTC-7 on this date.
+            ("daily_pacific", CalendarInterval.DAILY, "US/Pacific", datetime(2026, 3, 19, 8, 0, tzinfo=UTC)),
+            # Weekly anchors to the 3am hour next Monday local (Mon 2026-03-23), 3am PDT = 10:00 UTC
+            ("weekly_pacific", CalendarInterval.WEEKLY, "US/Pacific", datetime(2026, 3, 23, 10, 0, tzinfo=UTC)),
+            # Monthly anchors to the 4am hour on the 1st of next month, 4am PDT = 11:00 UTC
+            ("monthly_pacific", CalendarInterval.MONTHLY, "US/Pacific", datetime(2026, 4, 1, 11, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_calendar_anchors_in_team_timezone(
+        self, _name: str, interval: CalendarInterval, tz_name: str, anchor: datetime
+    ) -> None:
+        result = next_calendar_check_time(
+            interval, now=NOW, tz_name=tz_name, next_check_at=PREV_CHECK, alert_id=ALERT_ID
+        )
+        assert result == anchor + alert_check_offset(interval, ALERT_ID)
+
+    @parameterized.expand(
+        [
+            # Enabling an alert or changing its threshold sets next_check_at to now, so a due
+            # time later in the day than the anchor is the common case, not an edge one.
+            (
+                "due_after_the_anchor",
+                "UTC",
+                "09:35",
+                datetime(2026, 3, 19, 9, 40, tzinfo=UTC),
+                datetime(2026, 3, 20, 9, 35, tzinfo=UTC),
+            ),
+            # 02:30 does not exist on 2026-03-08 in America/New_York, so that day's check runs
+            # at 03:30 local and the due time carries the shift.
+            (
+                "due_shifted_by_spring_forward",
+                "America/New_York",
+                "02:30",
+                datetime(2026, 3, 8, 7, 30, tzinfo=UTC),
+                datetime(2026, 3, 9, 6, 30, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_a_due_time_past_the_anchor_does_not_skip_a_period(
+        self, _name: str, tz_name: str, anchor: str, due_at: datetime, expected: datetime
+    ) -> None:
+        result = next_calendar_check_time(
+            CalendarInterval.DAILY,
+            now=due_at,
+            tz_name=tz_name,
+            next_check_at=due_at,
+            alert_id=ALERT_ID,
+            schedule_start_time=anchor,
+        )
+        assert result == expected
+
+    def test_daily_across_dst_spring_forward(self) -> None:
+        # US spring-forward was 2026-03-08: local 1am tomorrow maps PST(-8) -> PDT(-7),
+        # so the UTC anchor shifts from 09:00 to 08:00 across the transition.
+        before = next_calendar_check_time(
+            CalendarInterval.DAILY,
+            now=datetime(2026, 3, 7, 12, 0, tzinfo=UTC),
+            tz_name="US/Pacific",
+            next_check_at=None,
+            alert_id=ALERT_ID,
+        )
+        after = next_calendar_check_time(
+            CalendarInterval.DAILY,
+            now=datetime(2026, 3, 8, 12, 0, tzinfo=UTC),
+            tz_name="US/Pacific",
+            next_check_at=None,
+            alert_id=ALERT_ID,
+        )
+        assert before.hour == 9
+        assert after.hour == 8
+
+    @parameterized.expand(
+        [
+            (
+                "weekly_spring_forward",
+                CalendarInterval.WEEKLY,
+                "America/New_York",
+                datetime(2026, 3, 6, 12, 0, tzinfo=UTC),
+                None,
+                datetime(2026, 3, 9, 7, 0, tzinfo=UTC),
+            ),
+            (
+                "monthly_fall_back",
+                CalendarInterval.MONTHLY,
+                "America/New_York",
+                datetime(2026, 10, 31, 12, 0, tzinfo=UTC),
+                None,
+                datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
+            ),
+            (
+                "hourly_repeated_hour",
+                CalendarInterval.HOURLY,
+                "America/New_York",
+                datetime(2026, 11, 1, 5, 3, tzinfo=UTC),
+                datetime(2026, 11, 1, 5, 3, tzinfo=UTC),
+                datetime(2026, 11, 1, 6, 0, tzinfo=UTC),
+            ),
+            # Lord Howe moves its clocks by 30 minutes at 02:00. In October the 02:00 hour starts at 02:30
+            # (15:30 UTC), one hour after the 01:00 hour starts.
+            (
+                "hourly_half_hour_spring_forward",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 10, 3, 14, 33, tzinfo=UTC),
+                datetime(2026, 10, 3, 14, 33, tzinfo=UTC),
+                datetime(2026, 10, 3, 15, 30, tzinfo=UTC),
+            ),
+            # A check that runs late, at 01:50 local, must still find the 30-minute 02:00 hour.
+            (
+                "hourly_half_hour_spring_forward_late",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 10, 3, 15, 20, tzinfo=UTC),
+                datetime(2026, 10, 3, 13, 33, tzinfo=UTC),
+                datetime(2026, 10, 3, 15, 30, tzinfo=UTC),
+            ),
+            # In April the 01:00 hour lasts 90 minutes, so the 02:00 hour starts at 15:30 UTC.
+            (
+                "hourly_half_hour_fall_back",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 4, 4, 14, 3, tzinfo=UTC),
+                datetime(2026, 4, 4, 14, 3, tzinfo=UTC),
+                datetime(2026, 4, 4, 15, 30, tzinfo=UTC),
+            ),
+            (
+                "hourly_half_hour_fall_back_late",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 4, 4, 14, 40, tzinfo=UTC),
+                datetime(2026, 4, 4, 13, 3, tzinfo=UTC),
+                datetime(2026, 4, 4, 15, 30, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_checks_keep_local_wall_time_across_dst(
+        self,
+        _name: str,
+        interval: CalendarInterval,
+        tz_name: str,
+        now: datetime,
+        next_check_at: datetime | None,
+        interval_start: datetime,
+    ) -> None:
+        assert next_calendar_check_time(
+            interval, now=now, tz_name=tz_name, next_check_at=next_check_at, alert_id=ALERT_ID
+        ) == interval_start + alert_check_offset(interval, ALERT_ID)
+
+
+class TestIsWeekend:
+    @parameterized.expand(
+        [
+            # Friday 23:00 UTC is already Saturday 08:00 in Tokyo
+            ("tokyo_saturday", datetime(2026, 3, 20, 23, 0, tzinfo=UTC), "Asia/Tokyo", True),
+            ("utc_friday", datetime(2026, 3, 20, 23, 0, tzinfo=UTC), "UTC", False),
+            # Sunday 05:00 UTC is still Saturday 22:00 in Pacific
+            ("pacific_saturday", datetime(2026, 3, 22, 5, 0, tzinfo=UTC), "US/Pacific", True),
+        ]
+    )
+    def test_weekend_is_local(self, _name: str, now: datetime, tz_name: str, expected: bool) -> None:
+        assert is_weekend(now, tz_name) == expected
+
+
+class TestScanNextUnblockedUtc:
+    def _windows(self, *pairs: tuple[str, str]) -> list[BlockedWindow] | None:
+        raw = {"blocked_windows": [{"start": s, "end": e} for s, e in pairs]}
+        return parse_blocked_windows_tuples(validate_and_normalize_schedule_restriction(raw))
+
+    @parameterized.expand(
+        [
+            # Candidate inside a same-day window snaps to the window end (half-open)
+            ("inside_window", ("09:00", "17:00"), datetime(2026, 3, 18, 12, 30, tzinfo=UTC), "UTC", (17, 0)),
+            # Candidate outside any window is returned unchanged (minute precision)
+            ("outside_window", ("09:00", "17:00"), datetime(2026, 3, 18, 18, 15, tzinfo=UTC), "UTC", (18, 15)),
+            # Overnight window (22:00-06:00): a 23:00 candidate snaps to 06:00 next day
+            ("overnight_window", ("22:00", "06:00"), datetime(2026, 3, 18, 23, 0, tzinfo=UTC), "UTC", (6, 0)),
+        ]
+    )
+    def test_snapping(
+        self, _name: str, window: tuple[str, str], candidate: datetime, tz_name: str, expected_hm: tuple
+    ) -> None:
+        result = scan_next_unblocked_utc(candidate, tz_name, self._windows(window))
+        assert result is not None
+        assert (result.hour, result.minute) == expected_hm
+
+    def test_window_is_evaluated_in_local_time(self) -> None:
+        # Blocked 09:00-17:00 in Pacific (PDT, UTC-7). 12:00 UTC = 05:00 local -> not blocked.
+        windows = self._windows(("09:00", "17:00"))
+        result = scan_next_unblocked_utc(datetime(2026, 3, 18, 12, 0, tzinfo=UTC), "US/Pacific", windows)
+        assert result == datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
+        # 18:00 UTC = 11:00 local -> blocked until 17:00 local = 00:00 UTC next day.
+        result = scan_next_unblocked_utc(datetime(2026, 3, 18, 18, 0, tzinfo=UTC), "US/Pacific", windows)
+        assert result is not None
+        assert result == datetime(2026, 3, 19, 0, 0, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            (
+                "spring_forward",
+                ("01:30", "03:30"),
+                datetime(2026, 3, 8, 6, 30, tzinfo=UTC),
+                datetime(2026, 3, 8, 7, 30, tzinfo=UTC),
+            ),
+            (
+                "fall_back",
+                ("00:30", "02:00"),
+                datetime(2026, 11, 1, 5, 0, tzinfo=UTC),
+                datetime(2026, 11, 1, 7, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_scan_respects_dst_offset_changes(
+        self, _name: str, window: tuple[str, str], candidate: datetime, expected: datetime
+    ) -> None:
+        assert scan_next_unblocked_utc(candidate, "America/New_York", self._windows(window)) == expected
+
+
+class TestRecurrenceDispatch:
+    """`advance_schedule` picks the minute arithmetic or the calendar anchor by recurrence unit."""
+
+    DISPATCH_NOW = datetime(2026, 9, 30, 21, 0, tzinfo=UTC)
+
+    def test_no_unit_keeps_the_minute_arithmetic(self) -> None:
+        current = datetime(2026, 9, 30, 20, 55, tzinfo=UTC)
+        assert advance_schedule(
+            current_next_check_at=current,
+            check_interval_minutes=10,
+            recurrence_unit=None,
+            anchor_time=None,
+            tz_name="America/New_York",
+            now=self.DISPATCH_NOW,
+            configuration_id=ALERT_ID,
+        ) == advance_next_check_at(current, 10, self.DISPATCH_NOW)
+
+    @parameterized.expand(
+        [
+            ("day", datetime(2026, 10, 1, 8, 0, tzinfo=UTC)),
+            ("week", datetime(2026, 10, 5, 8, 0, tzinfo=UTC)),
+            ("month", datetime(2026, 10, 1, 8, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_a_calendar_unit_lands_on_the_local_anchor(self, unit: str, expected: datetime) -> None:
+        assert (
+            advance_schedule(
+                current_next_check_at=None,
+                check_interval_minutes=10,
+                recurrence_unit=unit,
+                anchor_time="04:00",
+                tz_name="America/New_York",
+                now=self.DISPATCH_NOW,
+                configuration_id=ALERT_ID,
+            )
+            == expected
+        )
+
+    def test_a_calendar_unit_without_an_anchor_is_spread_by_the_configuration(self) -> None:
+        # 1am local on the next day in New York, then this configuration's own offset after it.
+        assert advance_schedule(
+            current_next_check_at=None,
+            check_interval_minutes=10,
+            recurrence_unit="day",
+            anchor_time=None,
+            tz_name="America/New_York",
+            now=self.DISPATCH_NOW,
+            configuration_id=ALERT_ID,
+        ) == datetime(2026, 10, 1, 5, 0, tzinfo=UTC) + alert_check_offset(CalendarInterval.DAILY, ALERT_ID)
+
+    def test_a_monthly_recurrence_lands_on_the_next_month_not_the_interval(self) -> None:
+        # The 1st of the next month at the anchor, which the weekly and minute paths both miss.
+        assert advance_schedule(
+            current_next_check_at=self.DISPATCH_NOW,
+            check_interval_minutes=10,
+            recurrence_unit="month",
+            anchor_time="04:00",
+            tz_name="UTC",
+            now=self.DISPATCH_NOW,
+            configuration_id=ALERT_ID,
+        ) == datetime(2026, 11, 1, 4, 0, tzinfo=UTC)
+
+    def test_an_unknown_unit_is_named_in_the_error(self) -> None:
+        with pytest.raises(ValueError, match="Unhandled recurrence unit: 'fortnight'"):
+            advance_schedule(
+                current_next_check_at=None,
+                check_interval_minutes=10,
+                recurrence_unit="fortnight",
+                anchor_time=None,
+                tz_name="UTC",
+                now=self.DISPATCH_NOW,
+                configuration_id=ALERT_ID,
+            )

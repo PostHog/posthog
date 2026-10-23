@@ -22,7 +22,6 @@ import importlib
 from pathlib import Path
 from typing import get_args
 
-from rest_framework import authentication
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.schemas.generators import EndpointEnumerator
 from rest_framework.views import APIView
@@ -34,9 +33,7 @@ SCANNED_ROOTS = ("posthog", "ee", "products", "common")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 OWNED_MODULE_PREFIXES = tuple(f"{root}." for root in SCANNED_ROOTS)
 DECLARED_TYPES = frozenset(get_args(DeclaredCredentialType))
-# `ActivityLoggingMiddleware` records the session for any class that authenticates the session's
-# user, so DRF's own session class records `session` too.
-UNOWNED_ROUTE_CLASSES = frozenset({authentication.SessionAuthentication})
+UNOWNED_ROUTE_CLASSES: frozenset[type] = frozenset()
 
 
 def _dotted_name(cls: type) -> str:
@@ -149,4 +146,29 @@ def test_every_credential_type_has_a_declaring_class() -> None:
     assert DECLARED_TYPES <= declared, (
         f"No authentication class declares {sorted(DECLARED_TYPES - declared)}. "
         "Remove the value from DeclaredCredentialType, or check that the walk still finds the classes."
+    )
+
+
+def _classes_named_in_covers_authentication_markers() -> set[str]:
+    names: set[str] = set()
+    for root in SCANNED_ROOTS:
+        for path in (REPO_ROOT / root).rglob("test_*.py"):
+            if SKIPPED_DIRS.intersection(path.parts):
+                continue
+            source = path.read_text(encoding="utf-8", errors="ignore")
+            if "covers_authentication" not in source:
+                continue
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.Call) and _base_name(node.func) == "covers_authentication":
+                    names.update(_base_name(arg) for arg in node.args)
+    return names
+
+
+def test_every_authentication_class_has_a_covering_test() -> None:
+    covered = _classes_named_in_covers_authentication_markers()
+    uncovered = sorted(_dotted_name(cls) for cls in _owned_classes() if cls.__name__ not in covered)
+
+    assert not uncovered, (
+        "Mark one test that authenticates a request through each of these classes with "
+        "`@covers_authentication(<class>)` from posthog.test.authentication_checks:\n" + "\n".join(uncovered)
     )

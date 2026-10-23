@@ -37,6 +37,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.markdown import opens_with_line_anchored_markdown
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
@@ -135,6 +136,18 @@ def decode_slack_entities(text: str) -> str:
     return text.replace("&gt;", ">").replace("&amp;", "&")
 
 
+_RE_SLACK_LINK = re.compile(r"<(https?://[^|>\s]+)(?:\|[^>]*)?>")
+
+
+def unwrap_slack_links(text: str) -> str:
+    """Rewrite Slack's `<url>` and `<url|label>` link tokens to the bare URL, for a reader that wants plain text.
+
+    Run it on wire text, before ``decode_slack_entities``: only there are `<` and `>` Slack's own
+    delimiters and never text the user typed.
+    """
+    return _RE_SLACK_LINK.sub(r"\1", text)
+
+
 def _resolve_and_decode(
     slack: SlackIntegration,
     integration: Integration,
@@ -200,6 +213,18 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
 def mentions_slack_user(text: str, slack_user_id: str) -> bool:
     """Whether `text` already mentions this user, in the bare `<@U…>` or labeled `<@U…|name>` form."""
     return re.search(rf"<@{re.escape(slack_user_id)}(\|[^>]*)?>", text) is not None
+
+
+def leading_mention_prefix(text: str, slack_user_id: str | None) -> str:
+    """The mention that opens a reply, or "" when nobody is tagged or `text` already tags them.
+
+    A heading, list, quote, table or fence must start its line, or Slack shows the markup as text,
+    so before one of those the mention takes a line of its own.
+    """
+    if not slack_user_id or mentions_slack_user(text, slack_user_id):
+        return ""
+    separator = "\n\n" if opens_with_line_anchored_markdown(text) else " "
+    return f"<@{slack_user_id}>{separator}"
 
 
 def flatten_block_text(node: Any) -> list[str]:
@@ -683,6 +708,8 @@ class RunFooter:
     # The project the thread's task belongs to, so a reader can tell which project's
     # data the answer was drawn from.
     project: str | None = None
+    # Whose plan pays for the run, for example "Your ChatGPT plan". Absent on PostHog credits.
+    plan: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -692,7 +719,7 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.model, self.project))
+        return any((self.task_url, self.model, self.project, self.plan))
 
 
 def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
@@ -739,6 +766,36 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
     return team.name if team else None
 
 
+_SLACK_USER_ID = re.compile(r"[UW][A-Z0-9]+")
+
+
+def _plan_label(state: dict[str, Any] | None, *, task_id: Any, integration_id: int | None) -> str | None:
+    """Whose plan pays for the run, or `None` on PostHog credits.
+
+    The person who sent the turn reads "Your". When someone who joined the thread sent it, the
+    reply mentions the thread creator, so everyone reading can see and reach whose plan pays.
+    """
+    from products.slack_app.backend.models import SlackThreadTaskMapping  # noqa: PLC0415
+    from products.tasks.backend.facade.api import get_run_plan  # noqa: PLC0415
+
+    plan = get_run_plan(state)
+    if plan is None:
+        return None
+    if plan.owner_user_id is not None and plan.owner_user_id == (state or {}).get("slack_actor_user_id"):
+        return f"Your {plan.plan_name}"
+    if integration_id is None:
+        return plan.plan_name
+    owner_slack_user_id = (
+        SlackThreadTaskMapping.objects.filter(integration_id=integration_id, task_id=task_id)
+        .values_list("mentioning_slack_user_id", flat=True)
+        .first()
+    )
+    # The id goes into the footer's mrkdwn unescaped, so only a well-formed one becomes a mention.
+    if not owner_slack_user_id or not _SLACK_USER_ID.fullmatch(owner_slack_user_id):
+        return plan.plan_name
+    return f"<@{owner_slack_user_id}>'s {plan.plan_name}"
+
+
 def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) -> RunFooter:
     """Describe a run for the footer.
 
@@ -775,6 +832,7 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
                 integration_id=integration_id,
                 created_by_id=run.created_by_id,
             ),
+            plan=_plan_label(run.state, task_id=run.task_id, integration_id=integration_id),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
@@ -782,7 +840,8 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
 
 
 def _run_context_segments(footer: RunFooter) -> list[str]:
-    """What the run is, as footer segments: the model, then the project it answered from.
+    """What the run is, as footer segments: the model, the plan that pays for it, then the
+    project it answered from.
 
     Shared by the reply footer and the progress message so the two cannot describe one
     run differently, and so the escaping below has a single home.
@@ -790,6 +849,8 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
     segments: list[str] = []
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.plan:
+        segments.append(footer.plan)
     if footer.project:
         # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
         # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
@@ -946,7 +1007,7 @@ def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def app_home_url(integration: Integration) -> str | None:
+def app_home_url(integration: Integration, *, tab: str = "home") -> str | None:
     """Deep link to this install's Home tab, where the model picker lives.
 
     The native `slack://` form rather than the https `app_redirect` one: the reader is
@@ -960,7 +1021,7 @@ def app_home_url(integration: Integration) -> str | None:
     app_id = (integration.config or {}).get("app_id")
     if not app_id or not integration.integration_id:
         return None
-    return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
+    return f"slack://app?team={integration.integration_id}&id={app_id}&tab={tab}"
 
 
 def personal_integrations_url(team_id: int) -> str:
@@ -970,6 +1031,11 @@ def personal_integrations_url(team_id: int) -> str:
     deep-links to this settings page instead of starting an OAuth flow from Slack.
     """
     return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
+
+
+def ai_subscriptions_url(team_id: int) -> str:
+    """Where someone connects their own ChatGPT plan for Codex tasks."""
+    return _public_url(f"/project/{team_id}/settings/environment-ai-subscriptions")
 
 
 def project_web_url(team_id: int) -> str:

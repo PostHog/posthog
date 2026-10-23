@@ -50,7 +50,8 @@
             "savedViewId",
             "search",
             "status"
-        ]
+        ],
+        "canvas_app": ["canvasId"]
     },
     "configPropertyTrees": {
         "notebook_widget": {
@@ -93,6 +94,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -154,6 +156,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -225,6 +228,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -264,7 +268,7 @@
                 "$type": "integer"
             },
             "orderBy": {
-                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "users"]
+                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "severity", "users"]
             },
             "orderDirection": {
                 "$enum": ["ASC", "DESC"]
@@ -313,6 +317,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -467,6 +472,11 @@
                 "$type": "string"
             },
             "savedViewId": {
+                "$type": "string"
+            }
+        },
+        "canvas_app": {
+            "canvasId": {
                 "$type": "string"
             }
         }

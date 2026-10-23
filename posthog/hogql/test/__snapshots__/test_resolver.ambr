@@ -64,6 +64,10 @@
                             description: None,
                             hidden: False
                           },
+                          $virt_mcp_harness: {
+                            description: "MCP client label computed from this event's client identity signals.",
+                            hidden: False
+                          },
                           $virt_traffic_category: {
                             description: None,
                             hidden: False
@@ -246,6 +250,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -430,6 +435,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -506,6 +512,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -582,6 +589,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -658,6 +666,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -734,6 +743,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -810,6 +820,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -886,6 +897,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -962,6 +974,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -1756,6 +1769,7 @@
                                       }
                                     },
                                     hidden: False,
+                                    inherit_profile_spill: False,
                                     name: None,
                                     top_level_settings: None,
                                     workload: None
@@ -1842,6 +1856,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -2323,6 +2338,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -2509,6 +2528,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -2741,6 +2761,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -2830,6 +2851,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -3194,6 +3216,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3289,6 +3312,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3384,6 +3408,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3479,6 +3504,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3574,6 +3600,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3669,6 +3696,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3764,6 +3792,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -3859,6 +3888,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -4089,6 +4119,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -4786,6 +4817,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -5310,6 +5342,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
+                                hidden: False
+                              },
                               $virt_traffic_category: {
                                 description: None,
                                 hidden: False
@@ -5492,6 +5528,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -5676,6 +5713,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5752,6 +5790,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5828,6 +5867,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5904,6 +5944,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -5980,6 +6021,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6056,6 +6098,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6132,6 +6175,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6208,6 +6252,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6332,6 +6377,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
+                                hidden: False
+                              },
                               $virt_traffic_category: {
                                 description: None,
                                 hidden: False
@@ -6514,6 +6563,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -6698,6 +6748,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6774,6 +6825,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6850,6 +6902,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -6926,6 +6979,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7002,6 +7056,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7078,6 +7133,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7154,6 +7210,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -7230,6 +7287,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -8027,6 +8085,7 @@
                                         }
                                       },
                                       hidden: False,
+                                      inherit_profile_spill: False,
                                       name: None,
                                       top_level_settings: None,
                                       workload: None
@@ -8113,6 +8172,7 @@
                                 }
                               },
                               hidden: False,
+                              inherit_profile_spill: False,
                               name: None,
                               top_level_settings: None,
                               workload: None
@@ -8673,6 +8733,7 @@
                                             }
                                           },
                                           hidden: False,
+                                          inherit_profile_spill: False,
                                           name: None,
                                           top_level_settings: None,
                                           workload: None
@@ -8759,6 +8820,7 @@
                                     }
                                   },
                                   hidden: False,
+                                  inherit_profile_spill: False,
                                   name: None,
                                   top_level_settings: None,
                                   workload: None
@@ -9475,6 +9537,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -9657,6 +9723,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -9889,6 +9956,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -9978,6 +10046,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -10342,6 +10411,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10437,6 +10507,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10532,6 +10603,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10627,6 +10699,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10722,6 +10795,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10817,6 +10891,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -10912,6 +10987,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -11007,6 +11083,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -11144,6 +11221,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -11328,6 +11409,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -11561,6 +11643,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -11650,6 +11733,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None
@@ -12014,6 +12098,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12109,6 +12194,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12204,6 +12290,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12299,6 +12386,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12394,6 +12482,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12489,6 +12578,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12584,6 +12674,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12679,6 +12770,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -12819,6 +12911,10 @@
                         description: None,
                         hidden: False
                       },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
+                        hidden: False
+                      },
                       $virt_traffic_category: {
                         description: None,
                         hidden: False
@@ -13001,6 +13097,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -13119,6 +13216,10 @@
                         description: None,
                         hidden: False
                       },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
+                        hidden: False
+                      },
                       $virt_traffic_category: {
                         description: None,
                         hidden: False
@@ -13305,6 +13406,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -13399,6 +13501,7 @@
                     },
                     filter: None,
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -13766,6 +13869,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -13948,6 +14055,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -14100,6 +14208,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -14284,6 +14396,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -14440,6 +14553,10 @@
                       },
                       $virt_is_bot: {
                         description: None,
+                        hidden: False
+                      },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
                         hidden: False
                       },
                       $virt_traffic_category: {
@@ -14624,6 +14741,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -14822,6 +14940,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
+                                hidden: False
+                              },
                               $virt_traffic_category: {
                                 description: None,
                                 hidden: False
@@ -15004,6 +15126,7 @@
                               }
                             },
                             hidden: False,
+                            inherit_profile_spill: False,
                             name: None,
                             top_level_settings: None,
                             workload: None
@@ -15208,6 +15331,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -15390,6 +15517,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -15457,6 +15585,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -15563,6 +15692,10 @@
                       description: None,
                       hidden: False
                     },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
+                      hidden: False
+                    },
                     $virt_traffic_category: {
                       description: None,
                       hidden: False
@@ -15745,6 +15878,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -15814,6 +15948,7 @@
                       }
                     },
                     hidden: False,
+                    inherit_profile_spill: False,
                     name: None,
                     top_level_settings: None,
                     workload: None
@@ -15917,6 +16052,10 @@
                   },
                   $virt_is_bot: {
                     description: None,
+                    hidden: False
+                  },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
                     hidden: False
                   },
                   $virt_traffic_category: {
@@ -16101,6 +16240,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -16154,6 +16294,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -16257,6 +16398,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -16441,6 +16586,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -16496,6 +16642,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -16578,6 +16725,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -16711,6 +16859,10 @@
                       description: None,
                       hidden: False
                     },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
+                      hidden: False
+                    },
                     $virt_traffic_category: {
                       description: None,
                       hidden: False
@@ -16893,6 +17045,7 @@
                     }
                   },
                   hidden: False,
+                  inherit_profile_spill: False,
                   name: None,
                   top_level_settings: None,
                   workload: None
@@ -17006,6 +17159,10 @@
                         },
                         $virt_is_bot: {
                           description: None,
+                          hidden: False
+                        },
+                        $virt_mcp_harness: {
+                          description: "MCP client label computed from this event's client identity signals.",
                           hidden: False
                         },
                         $virt_traffic_category: {
@@ -17190,6 +17347,7 @@
                         }
                       },
                       hidden: False,
+                      inherit_profile_spill: False,
                       name: None,
                       top_level_settings: None,
                       workload: None
@@ -17325,6 +17483,10 @@
                   },
                   $virt_is_bot: {
                     description: None,
+                    hidden: False
+                  },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
                     hidden: False
                   },
                   $virt_traffic_category: {
@@ -17509,6 +17671,7 @@
                   }
                 },
                 hidden: False,
+                inherit_profile_spill: False,
                 name: None,
                 top_level_settings: None,
                 workload: None
@@ -17570,6 +17733,7 @@
                                   }
                                 },
                                 hidden: False,
+                                inherit_profile_spill: False,
                                 name: None,
                                 top_level_settings: None,
                                 workload: None
@@ -17659,6 +17823,7 @@
                           }
                         },
                         hidden: False,
+                        inherit_profile_spill: False,
                         name: None,
                         top_level_settings: None,
                         workload: None

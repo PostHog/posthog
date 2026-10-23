@@ -80,6 +80,7 @@
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  features: hotpath-prometheus
 
 - image: batch-import-worker
   dockerfile: ./rust/Dockerfile
@@ -126,6 +127,13 @@
   dockerfile: ./rust/Dockerfile
   project: jfz76fgvqd
 
+# Second binary of the personhog-identity crate: drains the publish outbox
+# identity writes. Shares identity's Depot project like the flags-cache
+# binaries share feature-flags'.
+- image: personhog-publisher
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
+
 - image: personhog-leader
   dockerfile: ./rust/Dockerfile
   project: g0kjbvxgqx
@@ -142,9 +150,22 @@
   dockerfile: ./rust/Dockerfile
   project: hj9nd3cg9w
 
+- image: personhog-changelog-relay
+  dockerfile: ./rust/Dockerfile
+  project: lvsrh6c64c
+
+# Records the v4 AI research replay dataset (products/ai_training/docs/replay-data.md).
+- image: replay-recorder-v4
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
 - image: personhog-test-harness
   dockerfile: ./rust/Dockerfile
   project: 6tl5lmb8l8
+
+- image: personhog-parity-monitor
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
 
 - image: kafka-assigner
   dockerfile: ./rust/Dockerfile

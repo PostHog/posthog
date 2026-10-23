@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import (
@@ -301,15 +301,8 @@ def _plan_property_source(
             context=context,
         )
 
-    if (
-        context.uses_new_events_schema()
-        and table_name == "events"
-        and field_name
-        in (
-            "properties",
-            "person_properties",
-        )
-    ):
+    # The native events table has no materialized, dmat or property-group columns for any of its blobs.
+    if context.uses_new_events_schema() and table_name == "events":
         return _json_source_plan(
             table_name=table_name, field_name=field_name, property_name=property_name, context=context
         )
@@ -506,7 +499,9 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
 
     if isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
         return PropertyScope.EVENT
-    if isinstance(resolved_table, EventsPersonSubTable | PersonsTable | RawPersonsTable):
+    if isinstance(
+        resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable | PersonsTable | RawPersonsTable
+    ):
         return PropertyScope.PERSON
     if isinstance(resolved_table, GroupsTable):
         return PropertyScope.GROUP

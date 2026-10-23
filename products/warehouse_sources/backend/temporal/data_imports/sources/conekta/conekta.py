@@ -10,7 +10,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -19,12 +29,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.se
     BASE_URL,
     CONEKTA_ENDPOINTS,
     PAGE_SIZE,
+    ConektaEndpointConfig,
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ConektaResumeConfig:
-    next_cursor: str
+    # Top-level list endpoints: the `next` cursor of the page to fetch next.
+    next_cursor: str = ""
+    # Fan-out endpoints: the framework's dependent-resource resume state
+    # (`{"completed": [...], "current": ..., "child_state": ...}`).
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def build_headers(api_version: str = API_VERSION) -> dict[str, str]:
@@ -167,6 +182,83 @@ def validate_credentials(api_key: str, api_version: str = API_VERSION) -> tuple[
     )
 
 
+def _client_config(api_key: str, api_version: str) -> ClientConfig:
+    return {
+        "base_url": BASE_URL,
+        "headers": build_headers(api_version),
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": ConektaCursorPaginator(),
+        "session": _make_session(api_key, api_version),
+        # Pin every request to the Conekta origin and refuse redirects: the cursor comes out
+        # of a response-controlled URL, so a poisoned `next_page_url` must not be able to
+        # retarget the bearer token.
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
+
+
+def _fanout_resource(
+    api_key: str,
+    api_version: str,
+    endpoint_config: ConektaEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ConektaResumeConfig],
+) -> Any:
+    assert endpoint_config.fanout is not None
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(ConektaResumeConfig(fanout_state=state))
+
+    child_endpoint_extra: Endpoint = {
+        "data_selector": "data",
+        # The spec documents the subscriptions list with a single-object schema next to list
+        # pagination params; fail loud on a body without `data` instead of syncing zero rows.
+        "data_selector_required": True,
+    }
+    return build_dependent_resource(
+        endpoint_configs=CONEKTA_ENDPOINTS,
+        child_endpoint=endpoint_config.name,
+        fanout=endpoint_config.fanout,
+        client_config=_client_config(api_key, api_version),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+        parent_endpoint_extra={"data_selector": "data"},
+        child_endpoint_extra=child_endpoint_extra,
+    )
+
+
+def _source_response(endpoint_config: ConektaEndpointConfig, resource: Any) -> SourceResponse:
+    partition_keys = [endpoint_config.partition_key] if endpoint_config.partition_key else None
+
+    return SourceResponse(
+        name=endpoint_config.name,
+        items=lambda: resource,
+        primary_keys=endpoint_config.primary_keys,
+        # Conekta documents no ordering for its list endpoints and exposes no sort parameter, so
+        # we cannot claim rows arrive oldest-first. "desc" is the conservative branch: it commits
+        # the incremental watermark only after a fully successful sync, whereas "asc" would
+        # checkpoint after every batch and silently skip rows if the API returns newest-first.
+        sort_mode="desc",
+        partition_count=1 if partition_keys else None,
+        partition_size=1 if partition_keys else None,
+        partition_mode="datetime" if partition_keys else None,
+        partition_format="month" if partition_keys else None,
+        partition_keys=partition_keys,
+    )
+
+
 def conekta_source(
     api_key: str,
     endpoint: str,
@@ -180,13 +272,19 @@ def conekta_source(
 ) -> SourceResponse:
     endpoint_config = CONEKTA_ENDPOINTS[endpoint]
 
+    if endpoint_config.fanout is not None:
+        return _source_response(
+            endpoint_config,
+            _fanout_resource(api_key, api_version, endpoint_config, team_id, job_id, resumable_source_manager),
+        )
+
     # Only `/orders` accepts server-side timestamp filters, and only for the fields it documents;
     # anything else falls back to a full refresh rather than paging everything and filtering here.
     supported_cursors = {field["field"] for field in endpoint_config.incremental_fields}
     cursor_field = incremental_field if incremental_field in supported_cursors else None
     use_incremental = should_use_incremental_field and cursor_field is not None
 
-    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    params: dict[str, Any] = {} if endpoint_config.single_object else {"limit": PAGE_SIZE}
     if use_incremental:
         params[f"{cursor_field}.gte"] = {
             "type": "incremental",
@@ -195,29 +293,21 @@ def conekta_source(
             "convert": to_epoch_seconds,
         }
 
+    endpoint_definition: Endpoint = {"path": endpoint_config.path, "params": params}
+    if endpoint_config.single_object:
+        # Without a selector the whole body becomes the one row.
+        endpoint_definition["paginator"] = SinglePagePaginator()
+    else:
+        endpoint_definition["data_selector"] = "data"
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": BASE_URL,
-            "headers": build_headers(api_version),
-            "auth": {"type": "bearer", "token": api_key},
-            "paginator": ConektaCursorPaginator(),
-            "session": _make_session(api_key, api_version),
-            # Pin every request to the Conekta origin and refuse redirects: the cursor comes out
-            # of a response-controlled URL, so a poisoned `next_page_url` must not be able to
-            # retarget the bearer token.
-            "allowed_hosts": [],
-            "allow_redirects": False,
-        },
+        "client": _client_config(api_key, api_version),
         "resources": [
             {
                 "name": endpoint,
                 "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
                 "table_format": "delta",
-                "endpoint": {
-                    "path": endpoint_config.path,
-                    "params": params,
-                    "data_selector": "data",
-                },
+                "endpoint": endpoint_definition,
             }
         ],
     }
@@ -225,7 +315,7 @@ def conekta_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_cursor:
             initial_paginator_state = {"next_cursor": resume.next_cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -243,20 +333,4 @@ def conekta_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    partition_keys = [endpoint_config.partition_key] if endpoint_config.partition_key else None
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=["id"],
-        # Conekta documents no ordering for its list endpoints and exposes no sort parameter, so
-        # we cannot claim rows arrive oldest-first. "desc" is the conservative branch: it commits
-        # the incremental watermark only after a fully successful sync, whereas "asc" would
-        # checkpoint after every batch and silently skip rows if the API returns newest-first.
-        sort_mode="desc",
-        partition_count=1 if partition_keys else None,
-        partition_size=1 if partition_keys else None,
-        partition_mode="datetime" if partition_keys else None,
-        partition_format="month" if partition_keys else None,
-        partition_keys=partition_keys,
-    )
+    return _source_response(endpoint_config, resource)

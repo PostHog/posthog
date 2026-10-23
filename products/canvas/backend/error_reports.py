@@ -8,7 +8,6 @@ stay client-side, because a rendering session's error text can carry viewer
 data the authoring agent has no business seeing.
 """
 
-import re
 from typing import Any
 from uuid import UUID
 
@@ -18,17 +17,17 @@ from products.canvas.backend.models import Canvas, CanvasBuild
 
 logger = structlog.get_logger(__name__)
 
-# Everything matched here lands in agent-visible prompts and thread messages,
-# so the shape is a bare class-name identifier: anything else is coerced to
-# "unknown" rather than escaped.
-ERROR_TYPE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,63}")
+# Custom error names can carry viewer data into the author's task thread.
+RUNTIME_ERROR_TYPES = frozenset(
+    {"Error", "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError"}
+)
 UNKNOWN_ERROR_TYPE = "unknown"
 BUILD_FAILURE_ERROR_TYPE = "build_failed"
 
 
 def sanitize_error_type(raw: str | None) -> str:
     value = (raw or "").strip()
-    return value if ERROR_TYPE_PATTERN.fullmatch(value) else UNKNOWN_ERROR_TYPE
+    return value if value in RUNTIME_ERROR_TYPES else UNKNOWN_ERROR_TYPE
 
 
 def authoring_task_id(canvas: Canvas, build: CanvasBuild | None) -> UUID | None:

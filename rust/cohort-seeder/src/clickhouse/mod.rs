@@ -5,8 +5,10 @@
 pub mod client;
 pub mod credential;
 pub mod log_comment;
+pub mod materialized;
 pub mod person_scanner;
 pub mod person_sql;
+pub mod resource;
 pub mod row;
 pub mod scan_volume;
 pub mod scanner;
@@ -20,5 +22,6 @@ pub use credential::ClickHouseCredential;
 pub use log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 pub use person_scanner::{PersonRow, PersonScanError, PersonScanner};
 pub use person_sql::PersonScanSpec;
+pub use resource::ResourceError;
 pub use scan_volume::ScanKind;
 pub use scanner::{ChunkScanner, ScanError, ScanSkipReason};

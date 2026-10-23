@@ -27,8 +27,9 @@ The scheduled task is additionally gated per team by the `aeo-citation-tracking`
 ## Usage
 
 ```bash
-# 1. Seed the prompt set from a CSV (a `prompt` header column, or one prompt
-#    per line). Use --csv-source manual for a hand-written set:
+# 1. Seed the prompt set from a CSV (a `prompt` header column with an optional
+#    `topic` column, or one prompt per line). Use --csv-source manual for a
+#    hand-written set:
 python manage.py seed_aeo_prompts --team-id <id> --csv control_prompts.csv --csv-source manual
 
 # 2. Smoke test — 3 prompts, real engine calls, nothing captured:
@@ -38,6 +39,25 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
 
+### Import over the API
+
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=` and `?active=true|false`; each prompt carries `latest_checks`, its newest check per engine), lists topics with `GET topics/`, turns a prompt on or off (`PATCH {"active": false}`), and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+
+```bash
+curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
+  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" -H "Content-Type: application/json" \
+  -d '{"prompts": [{"prompt": "Best open source session replay?", "topic": "Session replay", "external_visibility": 42}]}'
+```
+
+- A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
+- A re-import matches prompts by normalized text. It updates the topic and the evidence, and keeps each prompt's on/off state.
+- The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-import` and `aeo-prompts-topics-list`.
+- `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
+
+### Which prompts a run takes
+
+A run takes at most 50 prompts. It takes one prompt per topic in turn, so every topic is sampled on each run. Within a topic, prompts never checked come first, then the least recently checked, so a set larger than one run rotates.
+
 ## The table
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
@@ -45,6 +65,7 @@ python manage.py run_aeo_citation_checks --team-id <id>
 | Column                                                                   | Meaning                                                                                                             |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
+| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
 | `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
@@ -76,10 +97,14 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
   AND $start_timestamp >= now() - INTERVAL 30 DAY
 ```
 
+## Content autopilot
+
+Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+
 ## Cost
 
 Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search fees + tokens (attributed as `$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event) plus Exa at \$5 per 1,000 requests (`cost_usd` on the check event).
 
 ## Out of scope
 
-Seeding prompts from first-party data, a UI for the prompt set, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.
+Seeding prompts from first-party data, editing the prompt set in the UI, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.

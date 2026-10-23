@@ -22,9 +22,10 @@ jobs:
         # A manual run can start from any ref, and a break-glass run tags that ref's head. Only
         # master and an existing release tag hold code that already merged.
         if: >-
-            github.event_name == 'schedule' ||
-            (github.event_name == 'workflow_dispatch' &&
-             (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v')))
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name == 'schedule' ||
+             (github.event_name == 'workflow_dispatch' &&
+              (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v'))))
         # The release App's key lives in this environment, which only master and a desktop-v* tag reach.
         environment: desktop-tagging
         permissions:
@@ -94,7 +95,7 @@ jobs:
                   esac
                   # Scoped to products/desktop/: monorepo master always has commits landing, so an
                   # unscoped check would never see a quiet period.
-                  LAST_COMMIT_EPOCH=$(git log -1 --format=%ct HEAD -- products/desktop/)
+                  LAST_COMMIT_EPOCH=$(git log -1 --format=%ct HEAD -- products/desktop/ packages/agent/)
                   NOW_EPOCH=$(date +%s)
                   AGE_MINUTES=$(( (NOW_EPOCH - LAST_COMMIT_EPOCH) / 60 ))
 
@@ -207,7 +208,7 @@ jobs:
 
                   # Scoped to products/desktop/: an unscoped count would include every PostHog
                   # commit and inflate patch numbers meaninglessly.
-                  PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- products/desktop/)
+                  PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- products/desktop/ packages/agent/)
 
                   if [ "$PATCH" -eq 0 ]; then
                     echo "No desktop commits since $LATEST_TAG. Nothing to release."

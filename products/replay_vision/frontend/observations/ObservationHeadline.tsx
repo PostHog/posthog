@@ -1,21 +1,20 @@
 import { IconCheckCircle, IconQuestion, IconSparkles, IconXCircle } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { LabeledRow } from '../components/LabeledRow'
 import { ObservationPrimaryOutput } from '../components/ObservationCard'
-import type { ReplayObservationApi, ScannerTypeEnumApi } from '../generated/api.schemas'
+import type { PromptValenceEnumApi, ReplayObservationApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { configFromSnapshot, type ScorerScannerConfig } from '../replay_scanners/types'
 import {
     type MonitorVerdict,
     VERDICT_LABEL,
-    confidenceLevel,
-    readConfidence,
     readFixedTags,
     readFreeformTags,
     readModelOutput,
     readScore,
     readVerdict,
 } from '../utils/observation'
+import { ConfidenceBadge } from './ConfidenceBadge'
 
 // Filled, so each category stays visible in dark mode, where a tag's outline alone fades into the card.
 const CATEGORY_CLASS =
@@ -27,13 +26,33 @@ const HEADLINE_LABEL: Record<ScannerTypeEnumApi, string> = {
     scorer: 'Score',
     classifier: 'Assigned categories',
     summarizer: 'Summary',
+    experiment: 'Summary',
 }
 
 // The `--success`/`--danger` family LemonTag uses. The `text-success` utility maps to a different, brighter green.
-const VERDICT_STYLE: Record<MonitorVerdict, { icon: typeof IconCheckCircle; className: string }> = {
-    yes: { icon: IconCheckCircle, className: 'text-success-dark dark:text-success-light' },
-    no: { icon: IconXCircle, className: 'text-danger-dark dark:text-danger-light' },
-    inconclusive: { icon: IconQuestion, className: 'text-secondary dark:text-default' },
+const GOOD_CLASS = 'text-success-dark dark:text-success-light'
+const BAD_CLASS = 'text-danger-dark dark:text-danger-light'
+
+const VERDICT_ICON: Record<MonitorVerdict, typeof IconCheckCircle> = {
+    yes: IconCheckCircle,
+    no: IconXCircle,
+    inconclusive: IconQuestion,
+}
+
+type Direction = 'good' | 'bad'
+
+function direction(valence: PromptValenceEnumApi | null): Direction | null {
+    return valence === 'good' || valence === 'bad' ? valence : null
+}
+
+function verdictClass(verdict: MonitorVerdict, yesIs: Direction | null): string {
+    if (verdict === 'inconclusive') {
+        return 'text-secondary dark:text-default'
+    }
+    if (!yesIs) {
+        return 'text-default'
+    }
+    return (verdict === 'yes') === (yesIs === 'good') ? GOOD_CLASS : BAD_CLASS
 }
 
 function scorerScale(observation: ReplayObservationApi): { min: number; max: number | null; label: string | null } {
@@ -67,25 +86,13 @@ function headlineLabel(observation: ReplayObservationApi, scannerType: ScannerTy
     return `${label} · ${shown}`
 }
 
-/** Red at the bottom of the scale, amber in the middle, green at the top. */
-function scoreColor(score: number, min: number, max: number): string {
-    const position = max > min ? Math.min(1, Math.max(0, (score - min) / (max - min))) : 1
+/** Red at the bad end of the scale through amber to green at the good end. */
+function scoreColor(score: number, min: number, max: number, highIs: Direction): string {
+    const fromMin = max > min ? Math.min(1, Math.max(0, (score - min) / (max - min))) : 1
+    const position = highIs === 'good' ? fromMin : 1 - fromMin
     return position < 0.5
         ? `color-mix(in oklab, var(--warning) ${Math.round(position * 200)}%, var(--danger))`
         : `color-mix(in oklab, var(--success) ${Math.round((position - 0.5) * 200)}%, var(--warning))`
-}
-
-function ConfidenceBadge({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
-    const confidence = readConfidence(observation)
-    if (confidence === null) {
-        return null
-    }
-    const { type, label } = confidenceLevel(confidence)
-    return (
-        <LemonTag type={type} size="small" data-attr="vision-observation-confidence">
-            {`${label} confidence · ${Math.round(confidence * 100)}%`}
-        </LemonTag>
-    )
 }
 
 function HeadlineValue({
@@ -102,10 +109,10 @@ function HeadlineValue({
         if (!verdict) {
             return <span className="text-xl font-bold text-muted">—</span>
         }
-        const { icon: Icon, className } = VERDICT_STYLE[verdict]
+        const Icon = VERDICT_ICON[verdict]
         return (
             <span
-                className={`inline-flex items-center gap-1.5 text-xl font-bold ${className}`}
+                className={`inline-flex items-center gap-1.5 text-xl font-bold ${verdictClass(verdict, direction(observation.prompt_valence))}`}
                 data-attr="vision-observation-verdict"
             >
                 <Icon className="text-2xl" />
@@ -117,12 +124,14 @@ function HeadlineValue({
     if (scannerType === 'scorer') {
         const score = readScore(observation)
         const { min, max } = scorerScale(observation)
+        const highIs = direction(observation.prompt_valence)
+        const color = score !== null && max !== null && highIs ? scoreColor(score, min, max, highIs) : null
         return (
             <span className="text-3xl font-bold tabular-nums">
                 <span
                     // The color is a position on a continuous scale, which Tailwind classes can't express.
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={score !== null && max !== null ? { color: scoreColor(score, min, max) } : undefined}
+                    style={color ? { color } : undefined}
                 >
                     {score ?? '—'}
                 </span>
@@ -174,13 +183,19 @@ function HeadlineValue({
 export function ObservationHeadline({
     observation,
     onSeek,
+    hideLabel = false,
 }: {
     observation: ReplayObservationApi
     onSeek: (timestampMs: number) => void
+    /** For when a tab around the headline already names it. */
+    hideLabel?: boolean
 }): JSX.Element | null {
     const scannerType = observation.scanner_snapshot?.scanner_type
     if (!scannerType || !readModelOutput(observation)) {
         return null
+    }
+    if (hideLabel) {
+        return <HeadlineValue observation={observation} scannerType={scannerType} onSeek={onSeek} />
     }
     return (
         // The badge sits on the heading's line, so it has the same place for every scanner type.

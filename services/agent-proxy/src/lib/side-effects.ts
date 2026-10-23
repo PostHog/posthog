@@ -186,11 +186,14 @@ const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
 const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set([
     'awaiting_input',
+    'permission_requested',
     'turn_failed',
     'budget_steer',
     'process_killed',
 ])
 const PROCESS_KILLED_METHOD = '_posthog/process_killed'
+const PERMISSION_REQUEST_TYPE = 'permission_request'
+const PERMISSION_REQUEST_METHOD = '_posthog/permission_request'
 
 interface ProcessKilledPayload {
     comm: string
@@ -248,11 +251,21 @@ function fireCallback(
         releaseClaim?: () => Promise<void>
         turnCompleted?: boolean
         turnSucceeded?: boolean
+        activityStarted?: boolean
         budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
         processKilled?: { sequence: number; payload: ProcessKilledPayload }
+        permissionRequest?: { sequence: number; requestId: string }
     } = {}
 ): void {
-    const { releaseClaim, turnCompleted, turnSucceeded, budgetSteer, processKilled } = options
+    const {
+        releaseClaim,
+        turnCompleted,
+        turnSucceeded,
+        activityStarted,
+        budgetSteer,
+        processKilled,
+        permissionRequest,
+    } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -276,12 +289,14 @@ function fireCallback(
               }
             : {}),
         ...(processKilled ? { sequence: processKilled.sequence, process_killed: processKilled.payload } : {}),
+        ...(permissionRequest ? { sequence: permissionRequest.sequence, request_id: permissionRequest.requestId } : {}),
         kind,
         agent_active: agentActive,
         task_id: taskId,
         team_id: teamId,
         turn_completed: turnCompleted,
         turn_succeeded: turnSucceeded,
+        activity_started: activityStarted,
     })
 
     const headers: Record<string, string> = {
@@ -410,6 +425,63 @@ export function captureProcessKilledIfNeeded(
     })
 }
 
+function asObject(value: unknown): Record<string, unknown> | null {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null
+}
+
+function permissionRequestPayload(event: Record<string, unknown>): Record<string, unknown> | null {
+    if (event['type'] === PERMISSION_REQUEST_TYPE) {
+        return event
+    }
+    const notification = asObject(event['notification'])
+    if (notification === null || notification['method'] !== PERMISSION_REQUEST_METHOD) {
+        return null
+    }
+    return asObject(notification['params'])
+}
+
+// permissionRequestId mirrors permission_broker.py:parse_permission_request exactly, so the proxy
+// pushes for the same events as the Django ingest. Unlike isTurnComplete and the other ACP
+// predicates, the notification shape does not need type 'notification'.
+export function permissionRequestId(event: Record<string, unknown>): string | null {
+    const payload = permissionRequestPayload(event)
+    if (payload === null) {
+        return null
+    }
+    const requestId = payload['requestId']
+    const options = payload['options']
+    const hasOption =
+        Array.isArray(options) &&
+        options.some((option) => {
+            const optionId = asObject(option)?.['optionId']
+            return typeof optionId === 'string' && optionId !== ''
+        })
+    if (typeof requestId !== 'string' || requestId === '' || asObject(payload['toolCall']) === null || !hasOption) {
+        return null
+    }
+    return requestId
+}
+
+export function notifyPermissionRequestIfNeeded(
+    runId: string,
+    sequence: number,
+    event: Record<string, unknown>,
+    taskId: string,
+    teamId: number,
+    originalToken: string,
+    config: Config
+): void {
+    const requestId = permissionRequestId(event)
+    if (requestId === null) {
+        return
+    }
+    fireCallback(runId, 'permission_requested', false, taskId, teamId, originalToken, config, {
+        permissionRequest: { sequence, requestId },
+    })
+}
+
 async function releaseMilestoneClaim(
     release: (() => Promise<void>) | undefined,
     runId: string,
@@ -426,20 +498,6 @@ async function releaseMilestoneClaim(
     }
 }
 
-// heartbeatWorkflowIfNeeded implements the side-effect decision from docs/DESIGN.md §2
-// and mirrors event_ingest.py:_heartbeat_workflow_if_needed exactly.
-//
-// Decision tree:
-//  1. isTurnComplete  -> setAgentActive(false), fire awaiting_input callback (or turn_failed
-//                        for a pi runtime error), return.
-//  2. isSessionUpdate -> setAgentActive(true), set agentActive=true.
-//  3. else            -> agentActive = getAgentActive().
-//  4. if !agentActive -> return.
-//  5. claimAgentActiveHeartbeat(30s) -> if throttled, return.
-//  6. fire heartbeat callback.
-//
-// Redis operations are awaited synchronously (they gate the callback decision).
-// The Django HTTP callback is fire-and-forget in both branches.
 export async function heartbeatWorkflowIfNeeded(
     redisStream: TaskRunRedisStream,
     runId: string,
@@ -477,8 +535,9 @@ export async function heartbeatWorkflowIfNeeded(
     }
 
     let agentActive: boolean
-    if (isSessionUpdate(event)) {
-        await redisStream.setAgentActive(true)
+    let activityStarted = false
+    if (isAgentGenerationEvent(event)) {
+        activityStarted = !(await redisStream.setAgentActive(true))
         agentActive = true
     } else {
         agentActive = await redisStream.getAgentActive()
@@ -489,9 +548,9 @@ export async function heartbeatWorkflowIfNeeded(
     }
 
     const claimed = await redisStream.claimAgentActiveHeartbeat(HEARTBEAT_THROTTLE_SECONDS)
-    if (!claimed) {
+    if (!claimed && !activityStarted) {
         return
     }
 
-    fireCallback(runId, 'heartbeat', true, taskId, teamId, originalToken, config)
+    fireCallback(runId, 'heartbeat', true, taskId, teamId, originalToken, config, { activityStarted })
 }

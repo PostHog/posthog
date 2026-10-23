@@ -209,4 +209,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "featureId": "Identifier of the matched feature. Joins to the features table.",
         },
     },
+    "segment_match_events": {
+        "description": "Segment match events, one row each time a user matches a segment.",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "segmentId": "Identifier of the matched segment. Joins to the segments table.",
+        },
+    },
+    "custom_events": {
+        "description": "Custom events your product sends to Gainsight PX, with the event name and its attributes.",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "eventName": "Name of the custom event.",
+            "attributes": "Custom attributes sent with the event.",
+            "url": "URL of the page the event was captured on.",
+            "referrer": "Referrer of the page the event was captured on.",
+            "remoteHost": "IP address the event came from.",
+        },
+    },
+    "identify_events": {
+        "description": "Identify events, one row each time a user is identified to Gainsight PX.",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "email": "Email address of the identified user.",
+        },
+    },
+    "survey_responses": {
+        "description": "Survey responses (NPS, CES, rating, boolean and multiple-question surveys) users submitted to in-app surveys.",
+        "docs_url": _EVENTS_DOCS_URL,
+        "columns": {
+            **_EVENT_COLUMNS,
+            "engagementId": "Identifier of the survey engagement. Joins to the engagements table.",
+            "contentId": "Identifier of the survey content.",
+            "contentType": "Type of the survey (e.g. IN_APP_SURVEY_NPS, IN_APP_SURVEY_CES).",
+            "executionDate": "Timestamp of the survey view. The same on all events of one view.",
+            "executionId": "Identifier of the survey view. The same on all events of one view.",
+            "surveyState": "State of the survey engagement.",
+            "contactMeAllowed": "Whether the user allowed follow-up contact.",
+            "score": "Score the user gave.",
+            "comment": "Comment the user wrote.",
+            "questionType": "Type of the survey question.",
+            "selectionIds": "Identifiers of the options the user selected.",
+        },
+    },
 }

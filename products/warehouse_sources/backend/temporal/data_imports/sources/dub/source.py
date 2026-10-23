@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
+    codebase_detection = detect(
+        env=("^DUB_API_KEY$",),
+        script_hosts=("www.dubcdn.com",),
+        npm=("dub", "@dub/analytics"),
+        pypi=("dub",),
+        composer=("dub/dub-php",),
+        go=("github.com/dubinc/dub-go",),
+        rubygems=("dub",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://dub.co/docs/api-reference/introduction"
 
@@ -127,7 +138,7 @@ class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
             caption="Create a workspace API key in your Dub workspace under Settings > API Keys. Event tables (clicks, leads, sales) and payouts require a Dub Business plan or higher.",
             docsUrl="https://posthog.com/docs/cdp/sources/dub",
             iconPath="/static/services/dub.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["dub.co", "short links", "attribution", "affiliate"],
             fields=cast(
                 list[FieldType],

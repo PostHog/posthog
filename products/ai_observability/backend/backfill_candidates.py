@@ -66,7 +66,7 @@ _UNITS_SQL = """
 SELECT
     {unit_key} AS unit_id,
     min(timestamp) AS unit_timestamp,
-    argMin(distinct_id, timestamp) AS distinct_id,
+    argMin(distinct_id, timestamp) AS unit_distinct_id,
     argMin(properties.$session_id, timestamp) AS web_session_id,
     argMin(properties.$ai_trace_id, timestamp) AS unit_trace_id
 FROM events
@@ -112,7 +112,8 @@ GROUP BY unit_id
 """
 
 # Unparsable or truncated judge responses can succeed on a later run, so they do not count
-# as evaluated. A trace that errored or a prompt over the context window skips again.
+# as evaluated. A trace that errored, a prompt over the context window, or a
+# content-filter refusal skips again.
 # Reads the shared events table rather than ai_events: the verdict rows must stay visible past the
 # ai_events retention window, so a re-run of an old backfill still sees what it already covered.
 _ALREADY_EVALUATED_SQL = """

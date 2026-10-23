@@ -903,15 +903,6 @@ export interface CanvasDraftApi {
     build_id: string | null
 }
 
-export interface PaginatedCanvasDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CanvasDraftApi[]
-}
-
 /**
  * * `write` - Write
  * * `delete` - Delete
@@ -1615,10 +1606,15 @@ export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
     /**
-     * Next entry offset, or null when complete.
+     * Next entry offset, or null when complete. Null when the request used a cursor.
      * @nullable
      */
     next_offset: number | null
+    /**
+     * Cursor for the next page, or null when complete. Pass it as cursor.
+     * @nullable
+     */
+    next_cursor: string | null
     /** True when no further entries remain for this selection. */
     complete: boolean
 }
@@ -1748,6 +1744,11 @@ export interface CanvasViewResponseApi {
     layout?: CanvasLayoutApi | null
     /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
     component_lifecycles?: CanvasComponentLifecycleApi[]
+    /**
+     * URL of the sandbox document that renders the head source project in an iframe, served from the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable.
+     * @nullable
+     */
+    readonly sandbox_document_url: string | null
 }
 
 /**
@@ -1842,6 +1843,10 @@ export type CanvasesListParams = {
      */
     channel?: string
     /**
+     * Only return canvases created by the user with this UUID.
+     */
+    created_by?: string
+    /**
      * Only return canvases of this kind. kind=component lists the component store.
      */
     kind?: CanvasesListKind
@@ -1854,6 +1859,10 @@ export type CanvasesListParams = {
      */
     offset?: number
     /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string
@@ -1865,6 +1874,13 @@ export const CanvasesListKind = {
     Component: 'component',
     Freeform: 'freeform',
     Grid: 'grid',
+} as const
+
+export type CanvasesListOrdering = (typeof CanvasesListOrdering)[keyof typeof CanvasesListOrdering]
+
+export const CanvasesListOrdering = {
+    CreatedAt: '-created_at',
+    UpdatedAt: '-updated_at',
 } as const
 
 export type CanvasesBuildsRetrieveParams = {
@@ -1921,17 +1937,6 @@ export type CanvasesCommentsRetrieveParams = {
     limit?: number
 }
 
-export type CanvasesDraftsRetrieveParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type CanvasesLayoutRetrieveParams = {
     /**
      * Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.
@@ -1951,6 +1956,12 @@ export type CanvasesSourceRetrieveParams = {
 }
 
 export type CanvasesStateRetrieveParams = {
+    /**
+     * Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
     /**
      * Only read this exact key.
      * @minLength 1
@@ -1973,7 +1984,7 @@ export type CanvasesStateRetrieveParams = {
      */
     limit?: number
     /**
-     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.
      * @minimum 0
      */
     offset?: number

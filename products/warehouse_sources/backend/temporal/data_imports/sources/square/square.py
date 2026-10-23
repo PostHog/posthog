@@ -6,9 +6,14 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import (
@@ -16,9 +21,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.square.set
     SquareEndpointConfig,
 )
 
-# Square pins API behaviour to a dated version header. Bump deliberately after
-# re-reading the changelog — newer versions can reshape responses.
-SQUARE_API_VERSION = "2024-10-17"
+SQUARE_API_VERSION_V2 = "v2"
+SQUARE_API_VERSION_2026_09_16 = "2026-09-16"
+
+# Square pins API behaviour to a dated version header. Add new versions deliberately
+# after re-reading the changelog — newer versions can reshape responses. The legacy
+# "v2" label predates per-version pins and keeps sending the header it always sent.
+SQUARE_VERSION_HEADERS: dict[str, str] = {
+    SQUARE_API_VERSION_V2: "2024-10-17",
+    SQUARE_API_VERSION_2026_09_16: "2026-09-16",
+}
 
 SQUARE_HOSTS = {
     "production": "https://connect.squareup.com",
@@ -61,6 +73,13 @@ def _is_invalid_cursor_error(response: requests.Response) -> bool:
     return any(error.get("field") == "cursor" or error.get("code") == "INVALID_CURSOR" for error in errors)
 
 
+@frozen
+class SquareCredentialProbe:
+    is_valid: bool
+    # A 403 (valid token, missing scope) as opposed to a 401 (bad token).
+    is_forbidden: bool
+
+
 @dataclasses.dataclass
 class SquareResumeConfig:
     # The next-page pagination cursor returned by Square. Square cursors expire
@@ -73,10 +92,13 @@ def _base_url(environment: str) -> str:
     return SQUARE_HOSTS.get(environment, SQUARE_HOSTS["production"])
 
 
-def _get_headers(access_token: str) -> dict[str, str]:
+def _get_headers(access_token: str, api_version: str) -> dict[str, str]:
+    square_version = SQUARE_VERSION_HEADERS.get(api_version)
+    if square_version is None:
+        raise ValueError(f"Unsupported Square API version: {api_version}")
     return {
         "Authorization": f"Bearer {access_token}",
-        "Square-Version": SQUARE_API_VERSION,
+        "Square-Version": square_version,
         "Accept": "application/json",
     }
 
@@ -116,10 +138,12 @@ def _time_filter_field(config: SquareEndpointConfig) -> Optional[str]:
     return config.incremental_fields[0]["field"]
 
 
-def validate_credentials(access_token: str, environment: str, schema_name: Optional[str] = None) -> tuple[bool, bool]:
+def validate_credentials(
+    access_token: str, environment: str, api_version: str, schema_name: Optional[str] = None
+) -> SquareCredentialProbe:
     """Probe Square to confirm the token works.
 
-    Returns ``(is_valid, is_forbidden)``. ``is_forbidden`` distinguishes a 403
+    ``is_forbidden`` on the result distinguishes a 403
     (valid token, missing scope) from a 401 (bad token) so the caller can accept
     scope gaps at source-create time but reject them for a specific schema.
     """
@@ -135,16 +159,17 @@ def validate_credentials(access_token: str, environment: str, schema_name: Optio
     url = f"{_base_url(environment)}{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
+    headers = _get_headers(access_token, api_version)
 
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), timeout=REQUEST_TIMEOUT_SECONDS)
+        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
-        return False, False
+        return SquareCredentialProbe(is_valid=False, is_forbidden=False)
 
     if response.status_code == 403:
-        return False, True
+        return SquareCredentialProbe(is_valid=False, is_forbidden=True)
 
-    return response.status_code == 200, False
+    return SquareCredentialProbe(is_valid=response.status_code == 200, is_forbidden=False)
 
 
 def get_rows(
@@ -153,11 +178,12 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SquareResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = SQUARE_ENDPOINTS[endpoint]
-    headers = _get_headers(access_token)
+    headers = _get_headers(access_token, api_version)
     url = f"{_base_url(environment)}{config.path}"
 
     initial_params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
@@ -167,7 +193,7 @@ def get_rows(
     if cursor:
         logger.debug(f"Square: resuming {endpoint} from saved cursor")
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((SquareRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
@@ -259,6 +285,7 @@ def square_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SquareResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -272,6 +299,7 @@ def square_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),

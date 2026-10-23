@@ -25,6 +25,7 @@ from products.signals.backend.scout_harness.rubrics import (
     GENERATION_TIMEOUT,
     ScoutRubricCriterion,
     ScoutRubricGenerationStatus,
+    ScoutRubricReferenceContext,
     ScoutRubricSource,
     ScoutRubricSuggestion,
     ScoutRubricSuggestionBatch,
@@ -35,10 +36,16 @@ from products.signals.backend.scout_harness.rubrics import (
     save_rubric,
     update_generation,
 )
-from products.signals.backend.scout_harness.rubrics_runner import read_selection_output, run_rubric_generation
+from products.signals.backend.scout_harness.rubrics_runner import (
+    build_rubric_reference_context,
+    read_selection_output,
+    run_rubric_generation,
+)
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -150,14 +157,112 @@ class TestScoutRubricsAPI(APIBaseTest):
 
         body["criteria"][0]["enabled"] = False
         body["criteria"][0]["pass_condition"] = "Check each conclusion against the cited evidence."
+        body["criteria"][2]["applicability"] = "Every run, including informational updates."
         saved = self.client.put(self.url, {"revision": 0, "criteria": body["criteria"]})
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json()["revision"], 1)
         stale = self.client.put(self.url, {"revision": 0, "criteria": body["criteria"]})
         self.assertEqual(stale.status_code, 409)
         reloaded = self.client.get(self.url).json()
-        self.assertFalse(reloaded["criteria"][0]["enabled"])
-        self.assertEqual(reloaded["criteria"][0]["pass_condition"], body["criteria"][0]["pass_condition"])
+        self.assertEqual(reloaded["criteria"], body["criteria"])
+        self.assertIsNone(reloaded["reference_context"])
+        self.assertIsNone(reloaded["reference_generation_id"])
+
+    def test_reference_changes_only_when_a_completed_generation_is_explicitly_adopted(self) -> None:
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name=self.config.skill_name,
+            description="Check the checkout flow.",
+            body="Inspect checkout failures and report reproducible issues.",
+            version=1,
+        )
+        reference_file = LLMSkillFile.objects.create(
+            skill=skill, path="references/reporting.md", content="Report failures that prevent completed purchases."
+        )
+        generation = read_rubric_state(reserve_generation(self.team.id, str(self.config.id)).config).generation
+        assert generation is not None
+        original_reference = build_rubric_reference_context(self.team, self.config)
+        generation.reference_context = original_reference
+        self.assertTrue(update_generation(self.team.id, str(self.config.id), generation))
+        changed_reference = original_reference.model_copy(update={"instructions": "Watch delivery delays instead."})
+        self.assertFalse(
+            update_generation(
+                self.team.id,
+                str(self.config.id),
+                generation.model_copy(update={"reference_context": changed_reference}),
+            )
+        )
+        generation.status = ScoutRubricGenerationStatus.COMPLETED
+        generation.suggestions = [custom_criterion()]
+        self.assertTrue(update_generation(self.team.id, str(self.config.id), generation))
+        criteria = [item.model_dump(mode="json") for item in [*default_criteria(), custom_criterion()]]
+        adopted = self.client.put(self.url, {"revision": 0, "criteria": criteria, "adopt_generation_id": generation.id})
+        self.assertEqual(adopted.status_code, 200)
+        self.assertEqual(adopted.json()["reference_context"], original_reference.model_dump(mode="json"))
+        self.assertEqual(adopted.json()["reference_generation_id"], generation.id)
+
+        skill.body = "Watch delivery delays instead."
+        skill.save(update_fields=["body"])
+        reference_file.content = "Report delayed deliveries."
+        reference_file.save(update_fields=["content"])
+        next_generation = read_rubric_state(reserve_generation(self.team.id, str(self.config.id)).config).generation
+        assert next_generation is not None
+        next_generation.reference_context = build_rubric_reference_context(self.team, self.config)
+        next_generation.status = ScoutRubricGenerationStatus.COMPLETED
+        self.assertTrue(update_generation(self.team.id, str(self.config.id), next_generation))
+        criteria[-1]["pass_condition"] = "Report checkout failures that prevent completed purchases."
+        edited = self.client.put(
+            self.url,
+            {
+                "revision": 1,
+                "criteria": criteria,
+                "reference_context": next_generation.reference_context.model_dump(mode="json"),
+                "reference_generation_id": next_generation.id,
+            },
+        )
+        self.assertEqual(edited.status_code, 200)
+        self.assertEqual(edited.json()["reference_context"], original_reference.model_dump(mode="json"))
+        self.assertEqual(edited.json()["reference_generation_id"], generation.id)
+
+        stale_adoption = self.client.put(
+            self.url, {"revision": 2, "criteria": criteria, "adopt_generation_id": generation.id}
+        )
+        self.assertEqual(stale_adoption.status_code, 409)
+        self.assertEqual(self.client.get(self.url).json(), edited.json())
+        rebound = self.client.put(
+            self.url, {"revision": 2, "criteria": criteria, "adopt_generation_id": next_generation.id}
+        )
+        self.assertEqual(rebound.status_code, 200)
+        self.assertEqual(rebound.json()["reference_context"], next_generation.reference_context.model_dump(mode="json"))
+        self.assertEqual(rebound.json()["reference_generation_id"], next_generation.id)
+        later = reserve_generation(self.team.id, str(self.config.id)).config
+        later_generation = read_rubric_state(later).generation
+        assert later_generation is not None
+        fail_generation(self.team.id, str(self.config.id), later_generation.id, "Generation failed.")
+        after_failure = self.client.get(self.url).json()
+        self.assertEqual(after_failure["reference_context"], rebound.json()["reference_context"])
+        self.assertEqual(after_failure["reference_generation_id"], next_generation.id)
+
+    @parameterized.expand([("queued",), ("failed",), ("completed_without_reference",)])
+    def test_adoption_rejects_unfinished_or_legacy_generations(self, state: str) -> None:
+        generation = read_rubric_state(reserve_generation(self.team.id, str(self.config.id)).config).generation
+        assert generation is not None
+        generation.status = (
+            ScoutRubricGenerationStatus.COMPLETED
+            if state == "completed_without_reference"
+            else ScoutRubricGenerationStatus(state)
+        )
+        update_generation(self.team.id, str(self.config.id), generation)
+        response = self.client.put(
+            self.url,
+            {
+                "revision": 0,
+                "criteria": [item.model_dump(mode="json") for item in default_criteria()],
+                "adopt_generation_id": generation.id,
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.get(self.url).json()["revision"], 0)
 
     @parameterized.expand([("staff", False, False), ("team", True, True)])
     def test_internal_gate_covers_every_action(self, _name: str, staff: bool, different_team: bool) -> None:
@@ -332,7 +437,8 @@ class TestScoutRubricsAPI(APIBaseTest):
             ("owner_context", None, False),
             ("saved_during_draft", None, False),
             ("complete_context", None, False),
-            ("truncated_context", None, False),
+            ("large_context", None, False),
+            ("resumed_context", None, False),
             ("report_emit", None, False, "emit"),
             ("report_edit", None, False, "edit"),
             ("report_both", None, False, "both"),
@@ -356,10 +462,10 @@ class TestScoutRubricsAPI(APIBaseTest):
         self, name: str, failed_stage: str | None, cleanup_fails: bool, report_channel: str = "none"
     ) -> None:
         body = "" if name == "description_only" else "Inspect checkout failures and report reproducible issues."
-        bounded_context = name in {"complete_context", "truncated_context"}
-        truncated = name == "truncated_context"
-        if bounded_context:
-            body = "x" * 60_000 + (" omitted instruction" if truncated else "")
+        context_with_history = name in {"complete_context", "large_context", "resumed_context"}
+        over_previous_limits = name == "large_context"
+        if context_with_history:
+            body = "x" * 60_000 + (" required instruction beyond the old limit" if over_previous_limits else "")
         allowed_tools = {
             "none": [],
             "emit": ["emit_report"],
@@ -371,7 +477,7 @@ class TestScoutRubricsAPI(APIBaseTest):
             name=self.config.skill_name,
             description="Check the checkout flow.",
             body=body,
-            version=2 if bounded_context else 1,
+            version=2 if context_with_history else 1,
             allowed_tools=allowed_tools,
         )
         normal_scout_prompt = ""
@@ -384,19 +490,19 @@ class TestScoutRubricsAPI(APIBaseTest):
             )
         reference_paths: list[str] = []
         report_ids: list[str] = []
-        if bounded_context:
-            reference_paths = [f"references/{index:02d}.md" for index in range(21 if truncated else 20)]
+        if context_with_history:
+            reference_paths = [f"references/{index:02d}.md" for index in range(21 if over_previous_limits else 20)]
             LLMSkillFile.objects.bulk_create(
                 [
                     LLMSkillFile(
                         skill=skill,
                         path=path,
-                        content="r" * (45_001 if truncated and index == 1 else 15_000),
+                        content="r" * (45_001 if over_previous_limits and index == 1 else 15_000),
                     )
                     for index, path in enumerate(reference_paths)
                 ]
             )
-            if not truncated:
+            if not over_previous_limits:
                 other_team = Team.objects.create(organization=self.organization)
                 for reference_team, version in [(self.team, 1), (other_team, 99)]:
                     other_skill = LLMSkill.objects.create(
@@ -411,15 +517,25 @@ class TestScoutRubricsAPI(APIBaseTest):
                     )
             task = Task.objects.create(team=self.team, title="Scout history", description="Check the checkout flow.")
             task_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
-            report_ids = [str(uuid4()) for _ in range(6 if truncated else 5)]
+            report_ids = [str(uuid4()) for _ in range(6 if over_previous_limits else 5)]
             SignalScoutRun.objects.for_team(self.team.id).create(
                 team_id=self.team.id,
                 task_run=task_run,
                 scout_config=self.config,
                 skill_name=self.config.skill_name,
                 skill_version=1,
-                summary="s" * 3000 + (" omitted qualification" if truncated else ""),
+                summary="s" * 3000 + (" omitted qualification" if over_previous_limits else ""),
                 emitted_report_ids=report_ids,
+            )
+            private_task = Task.objects.create(team=self.team, title="Private trial", description="Synthetic candidate")
+            SignalScoutRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                task_run=TaskRun.objects.create(task=private_task, team=self.team, status=TaskRun.Status.COMPLETED),
+                scout_config=self.config,
+                skill_name=self.config.skill_name,
+                skill_version=1,
+                summary="Private synthetic trial findings must stay outside shared rubric context.",
+                metadata={"scout_trial": {"version": 1}},
             )
         expected_criteria = default_criteria()
         if name in {"saved_choices", "owner_context"}:
@@ -438,12 +554,21 @@ class TestScoutRubricsAPI(APIBaseTest):
             save_rubric(self.team.id, str(self.config.id), revision=0, criteria=expected_criteria)
         owner_context = (
             "Check whether a new teammate can understand the proposed next step."
-            if name in {"owner_context", "start_failed", "selection_timeout"}
+            if name in {"owner_context", "resumed_context", "start_failed", "selection_timeout"}
             else ""
         )
         config = reserve_generation(self.team.id, str(self.config.id), context=owner_context).config
         generation = read_rubric_state(config).generation
         assert generation is not None
+        if name == "resumed_context":
+            generation.reference_context = build_rubric_reference_context(self.team, self.config)
+            update_generation(self.team.id, str(self.config.id), generation)
+            LLMSkill.objects.filter(pk=skill.pk).update(
+                body="Changed instructions after the worker captured its source.",
+                description="Changed description.",
+                allowed_tools=["emit_report"],
+            )
+            LLMSkillFile.objects.filter(skill=skill).update(content="Changed reference after capture.")
         criterion = custom_criterion()
         reviewed_batch = ScoutRubricSuggestionBatch(
             summary="Reviewed criteria based on the instructions. There are no recent runs.",
@@ -491,8 +616,10 @@ class TestScoutRubricsAPI(APIBaseTest):
             end=AsyncMock(side_effect=RuntimeError("Sandbox unavailable") if cleanup_fails else None),
         )
         run_id = uuid4()
+        captured_reference: ScoutRubricReferenceContext | None = None
 
         async def start(**kwargs: object) -> tuple[SimpleNamespace, str]:
+            nonlocal captured_reference
             prompt = kwargs["prompt"]
             assert isinstance(prompt, str)
             if owner_context:
@@ -505,26 +632,60 @@ class TestScoutRubricsAPI(APIBaseTest):
             bundle_text, schema_text = prompt.split("\nUntrusted source bundle:\n", 1)[1].split("\nResult schema:\n", 1)
             bundle = json.loads(bundle_text)
             scout_context = bundle["scout_context"]
+            persisted_config = await sync_to_async(
+                lambda: SignalScoutConfig.objects.for_team(self.team.id).get(id=self.config.id)
+            )()
+            persisted_generation = read_rubric_state(persisted_config).generation
+            assert persisted_generation is not None
+            captured_reference = persisted_generation.reference_context
+            assert captured_reference is not None
+            self.assertEqual(captured_reference.skill_id, str(skill.id))
+            self.assertEqual(captured_reference.skill_version, skill.version)
+            files = kwargs["files"]
+            assert isinstance(files, list)
+            self.assertEqual(len(files), 1)
+            reference_file = files[0]
+            assert isinstance(reference_file, SessionFile)
+            self.assertEqual(reference_file.name, "scout-reference.json")
+            self.assertEqual(bundle["reference_file"], reference_file.name)
+            attached_reference = ScoutRubricReferenceContext.model_validate_json(reference_file.content)
+            self.assertEqual(attached_reference, captured_reference)
+            metadata_fields = {"skill_name", "skill_version"}
+            self.assertEqual(
+                captured_reference.model_dump(mode="json", include=metadata_fields),
+                {key: scout_context[key] for key in metadata_fields},
+            )
+            self.assertEqual(captured_reference.instructions, body)
+            self.assertFalse(captured_reference.instructions_truncated)
+            self.assertEqual(captured_reference.reference_files, tuple(reference_paths))
+            self.assertFalse(captured_reference.reference_files_truncated)
+            self.assertEqual([reference.path for reference in captured_reference.reference_texts], reference_paths)
+            self.assertEqual(
+                [reference.content_type for reference in captured_reference.reference_texts],
+                ["text/plain"] * len(reference_paths),
+            )
+            self.assertEqual(
+                [reference.content for reference in captured_reference.reference_texts],
+                [
+                    "r" * (45_001 if over_previous_limits and index == 1 else 15_000)
+                    for index in range(len(reference_paths))
+                ],
+            )
+            self.assertEqual(
+                captured_reference.reference_limits.model_dump(mode="json"),
+                {"omitted_files": 0, "truncated_files": []},
+            )
             self.assertEqual(
                 json.JSONDecoder().raw_decode(schema_text)[0], ScoutRubricSuggestionBatch.model_json_schema()
             )
-            references = bundle["reference_texts"]
-            if bounded_context:
-                self.assertEqual([item["path"] for item in references], reference_paths[: 2 if truncated else 4])
-                self.assertEqual(
-                    [len(item["content"]) for item in references], [15_000, 45_000] if truncated else [15_000] * 4
-                )
-                self.assertTrue(all(set(item["content"]) == {"r"} for item in references))
-                self.assertEqual(bundle["reference_limits"]["omitted_files"], 19 if truncated else 16)
-                self.assertEqual(
-                    bundle["reference_limits"]["truncated_files"], [reference_paths[1]] if truncated else []
-                )
-            else:
-                self.assertEqual(references, [])
-                self.assertEqual(bundle["reference_limits"], {"omitted_files": 0, "truncated_files": []})
-            self.assertEqual(scout_context["description"], "Check the checkout flow.")
-            self.assertEqual(scout_context["report_channel"], report_channel)
-            disposition = scout_context["report_disposition_instructions"]
+            self.assertNotIn("reference_texts", bundle)
+            self.assertNotIn("reference_limits", bundle)
+            self.assertEqual(set(scout_context), {"skill_name", "skill_version", "recent_runs", "saved_criteria"})
+            self.assertNotIn("x" * 1000, prompt)
+            self.assertNotIn("r" * 1000, prompt)
+            self.assertEqual(attached_reference.description, "Check the checkout flow.")
+            self.assertEqual(attached_reference.report_channel, report_channel)
+            disposition = attached_reference.report_disposition_instructions
             if report_channel == "none":
                 self.assertEqual(disposition, "")
             else:
@@ -537,17 +698,13 @@ class TestScoutRubricsAPI(APIBaseTest):
                     }[report_channel],
                     disposition,
                 )
-            self.assertEqual(scout_context["instructions"], body[:60_000])
-            self.assertEqual(scout_context["instructions_truncated"], truncated)
-            self.assertEqual(scout_context["reference_files"], reference_paths[:20])
-            self.assertEqual(scout_context["reference_files_truncated"], truncated)
-            if bounded_context:
+            if context_with_history:
                 self.assertEqual(len(scout_context["recent_runs"]), 1)
                 recent_run = scout_context["recent_runs"][0]
                 self.assertEqual(recent_run["summary"], "s" * 3000)
-                self.assertEqual(recent_run["summary_truncated"], truncated)
+                self.assertEqual(recent_run["summary_truncated"], over_previous_limits)
                 self.assertEqual(recent_run["emitted_report_ids"], report_ids[:5])
-                self.assertEqual(recent_run["emitted_report_ids_truncated"], truncated)
+                self.assertEqual(recent_run["emitted_report_ids_truncated"], over_previous_limits)
             else:
                 self.assertEqual(scout_context["recent_runs"], [])
             self.assertEqual(
@@ -562,7 +719,7 @@ class TestScoutRubricsAPI(APIBaseTest):
             self.assertEqual(kwargs["origin_product"], "scout_suggestions")
             context = kwargs["context"]
             assert isinstance(context, CustomPromptSandboxContext)
-            self.assertEqual(context.posthog_mcp_scopes, [])
+            self.assertEqual(context.posthog_mcp_scopes, "read_only")
             self.assertFalse(context.github_read_access)
             self.assertEqual(context.runtime_adapter, "codex")
             self.assertEqual(context.model, "gpt-6-sol")
@@ -612,7 +769,10 @@ class TestScoutRubricsAPI(APIBaseTest):
             1 if name in {"saved_choices", "owner_context", "saved_during_draft", "oversized_selection"} else 0,
         )
         self.assertEqual(state.criteria, expected_criteria)
+        self.assertIsNone(state.reference_context)
+        self.assertIsNone(state.reference_generation_id)
         assert state.generation is not None
+        self.assertEqual(state.generation.reference_context, captured_reference)
         self.assertEqual(state.generation.context, owner_context)
         self.assertEqual(state.generation.task_run_id, str(run_id))
         self.assertEqual(state.generation.status, "failed" if failed_stage else "completed")
@@ -660,3 +820,16 @@ class TestScoutRubricsAPI(APIBaseTest):
                 status="failed" if failed_stage else "completed",
                 error="Rubric generation failed" if failed_stage else None,
             )
+        if name == "large_context":
+            assert captured_reference is not None
+            criteria = [item.model_dump(mode="json") for item in expected_criteria]
+            adopted = self.client.put(
+                self.url,
+                {"revision": state.revision, "criteria": criteria, "adopt_generation_id": generation.id},
+            )
+            self.assertEqual(adopted.status_code, 200)
+            saved = SavedScoutRubricReader(team_id=self.team.id).read(
+                config_id=self.config.id, skill_name=self.config.skill_name
+            )
+            self.assertEqual(saved["reference_context"], captured_reference.model_dump(mode="json"))
+            self.assertEqual(saved["criteria"], criteria)

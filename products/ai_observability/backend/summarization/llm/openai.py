@@ -62,6 +62,7 @@ def summarize_with_openai(
     model: OpenAIModel,
     user_id: str | None = None,
     flex: bool = False,
+    final_attempt: bool = True,
 ) -> SummarizationResponse:
     """Generate summary using OpenAI API via LLM gateway with structured outputs."""
     resolved_distinct_id = user_id or team_distinct_id(team_id)
@@ -142,11 +143,29 @@ def summarize_with_openai(
     except Exception as e:
         status_code = _provider_status(e)
         reason = _failure_reason(e, status_code)
+        # The OpenAI SDK reads this from the X-Request-ID response header, which the ai-gateway
+        # sets to the id it stamps as $ai_gateway_request_id on the generation event.
+        gateway_request_id = getattr(e, "request_id", None)
+        if not final_attempt:
+            # Temporal retries the activity, so the summary is not lost yet. Capture only failures
+            # that cost a user their summary.
+            logger.warning(
+                "OpenAI API call failed, retry pending",
+                error=str(e),
+                error_type=type(e).__name__,
+                provider_status=status_code,
+                gateway_request_id=gateway_request_id,
+                team_id=team_id,
+                model=model,
+                flex=flex,
+            )
+            raise SummarizationFailedError(f"Failed to generate summary{reason}")
         logger.exception(
             "OpenAI API call failed",
             error=str(e),
             error_type=type(e).__name__,
             provider_status=status_code,
+            gateway_request_id=gateway_request_id,
             team_id=team_id,
             model=model,
             flex=flex,
@@ -163,6 +182,7 @@ def summarize_with_openai(
                 "team_id": team_id,
                 "model": str(model),
                 "provider_status": status_code,
+                "gateway_request_id": gateway_request_id,
                 "flex": flex,
             },
         )

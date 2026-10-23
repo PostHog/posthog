@@ -1,14 +1,15 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
+import { IconLive } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { urls } from 'scenes/urls'
+
+import { useViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { miniFiltersLogic } from '../miniFiltersLogic'
@@ -69,26 +70,11 @@ export function ItemLog({ item, groupCount }: ItemLogProps): JSX.Element {
 }
 
 export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): JSX.Element {
-    const logsUrl = sessionId
-        ? `${urls.logs()}?filterGroup=${encodeURIComponent(
-              JSON.stringify({
-                  type: 'AND',
-                  values: [
-                      {
-                          type: 'AND',
-                          values: [
-                              {
-                                  key: 'session_id',
-                                  value: sessionId,
-                                  operator: 'exact',
-                                  type: 'log_attribute',
-                              },
-                          ],
-                      },
-                  ],
-              })
-          )}`
-        : urls.logs()
+    const { onClick: openSessionLogs } = useViewLogsButton({
+        sessionId,
+        timestamp: item.timestamp.toISOString(),
+        openedFrom: 'recording',
+    })
 
     const attributes =
         item.data.attributes && typeof item.data.attributes === 'object'
@@ -105,7 +91,14 @@ export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): 
             <div className="px-2 py-1 text-xs border-t">
                 <div className="flex justify-between items-center mb-2">
                     <LemonLabel>Log</LemonLabel>
-                    <LemonButton type="tertiary" size="xsmall" icon={<IconOpenInNew />} targetBlank to={logsUrl}>
+                    <LemonButton
+                        data-attr="inspector-open-logs"
+                        type="tertiary"
+                        size="xsmall"
+                        icon={<IconLive />}
+                        onClick={openSessionLogs}
+                        disabledReason={sessionId ? undefined : 'No session ID associated with this log'}
+                    >
                         View in Logs
                     </LemonButton>
                 </div>

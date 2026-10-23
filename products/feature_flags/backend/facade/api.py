@@ -3,10 +3,8 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
-``deactivate_trashed_flag`` and ``reactivate_restored_flag`` bypass the serializer, because
-file-system trash and restore flip ``active`` without the gate or validation.
 ``clear_feature_enrollment`` falls back to a raw model write when the serializer rejects
-a flag's stored filters, because enrollment cleanup must never fail.
+a flag's stored config version 1 filters, because enrollment cleanup must never fail.
 The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
 ``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
 access-control, approval-policy, representation, and request-usage logic behind
@@ -41,7 +39,10 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.policies import PolicyEngine
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    validate_stored_cohort_references as _validate_stored_cohort_references,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
@@ -186,38 +187,6 @@ def set_flag_active(
     return update_flag(flag, {"active": active}, team=team, user=user, request=request)
 
 
-def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> None:
-    """Flip ``active`` on a flag the file system trashes or restores. UNGATED on purpose.
-
-    A queryset update fires no signals. The file system then saves the flag inside
-    ``mute_selected_signals()``. That silences only the activity-log receiver, because the file
-    system writes its own trash and restore entries. The post_save receivers, such as flags cache
-    invalidation, still fire on that save. A serializer write here would log a second activity
-    entry and add the dependents check, filter validation and the approval gate. Trash never had
-    any of those.
-
-    The caller reads the row back, because the file system saves the whole instance after
-    this and would otherwise write the stale value over it.
-
-    Restore runs while the row still carries ``deleted``, which the default manager excludes,
-    so this reaches the row through ``objects_including_soft_deleted``.
-    """
-    FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).update(active=active)
-
-
-def deactivate_trashed_flag(flag_id: int, *, team_id: int) -> None:
-    """Disable a flag that the file system moves to trash. See ``_set_trashed_flag_active``."""
-    # TODO: trash disables a flag without passing a feature_flag.disable policy.
-    _set_trashed_flag_active(flag_id, team_id=team_id, active=False)
-
-
-def reactivate_restored_flag(flag_id: int, *, team_id: int) -> None:
-    """Enable a flag that the file system restores from trash. See ``_set_trashed_flag_active``."""
-    # TODO: restore enables a flag without passing a feature_flag.enable policy. It does so even
-    # when the flag was off before trash, because trash does not record the prior state.
-    _set_trashed_flag_active(flag_id, team_id=team_id, active=True)
-
-
 def archive_flag(
     flag: FeatureFlag,
     *,
@@ -245,9 +214,22 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     """Unarchive a flag through the gated serializer path.
 
     The flag stays disabled; re-enabling it is a separate, explicit write
-    (``set_flag_active``).
+    (``set_flag_active``). Raises ``ValidationError`` when a release condition targets a
+    deleted cohort.
     """
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
+
+
+def validate_flag_restorable(flag_id: int, *, team_id: int) -> None:
+    """Raise ``ValidationError`` when a release condition targets a missing or deleted cohort.
+
+    A restored flag with such a condition fails every evaluation that reaches it. ``update_flag`` runs this
+    check on a restore. A caller that restores a flag another way must run it first. A
+    hard-deleted id or another team's flag has nothing to check.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).first()
+    if flag is not None:
+        _validate_stored_cohort_references(flag)
 
 
 def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
@@ -259,6 +241,9 @@ def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
     Prefer the gated facade write (validation, activity logging); fall back to a raw
     model write when it raises. This is a system write (user=None): an enabled approval
     policy must never block cleanup with a 409, and activity is logged as system.
+
+    Another config format raises ``ConfigFormatError`` from ``set_feature_enrollment`` before
+    either write. No caller reaches it: an early access feature only links config version 1 flags.
 
     The early return covers a hard-deleted id or another team's flag, so nothing is left to
     clear. A soft-deleted flag still gets cleared, through ``objects_including_soft_deleted``:

@@ -306,7 +306,11 @@ class LazyTableResolver(TraversingVisitor):
     def visit_cte(self, node: ast.CTE):
         self.visit(node.expr)
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        with self.context.entering_select(node.view_name):
+            self._resolve_lazy_tables_in_select(node)
+
+    def _resolve_lazy_tables_in_select(self, node: ast.SelectQuery) -> None:
         select_type = node.type
         if not select_type:
             raise ResolutionError("Select query must have a type")
@@ -329,6 +333,8 @@ class LazyTableResolver(TraversingVisitor):
         # Collect all the joins we need to add to the select query
         joins_to_add: dict[str, LazyJoinToAdd] = {}
         tables_to_add: dict[str, LazyTableToAdd] = {}
+        # Field types retain the original tables after the scope replaces them with subqueries.
+        original_select_type = ast.SelectQueryType(tables=dict(select_type.tables))
 
         # First properties, then fields. This way we always get the smallest units to query first.
         matched_properties: list[ast.PropertyType | ast.FieldType] = [
@@ -721,7 +727,7 @@ class LazyTableResolver(TraversingVisitor):
             while isinstance(table_type, ast.VirtualTableType):
                 table_type = table_type.table_type
 
-            table_name = get_long_table_name(select_type, table_type)
+            table_name = get_long_table_name(original_select_type, table_type)
             try:
                 table_type = select_type.tables[table_name]
             except KeyError:

@@ -7,9 +7,8 @@ MCP CLI's ``info <tool>`` command), (2) call ``read-data-schema`` to
 verify the event exists in the team's data, and (3) only then invoke
 ``query-trends`` to build the insight.
 
-Correctness of the produced trends query itself is not scored here — that
-is ``ee/hogai/eval/ci/eval_trends.py``'s job. This eval grades ordering
-and discovery hygiene.
+The ``eval_trends`` suite scores query correctness.
+This suite scores tool order and schema discovery.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_schema_discovery"
@@ -23,6 +22,7 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, SchemaDiscoveryOrder
 
 
@@ -85,6 +85,10 @@ async def eval_schema_discovery(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-schema-discovery-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_schema_discovery::eval_schema_discovery",
+            metrics=["no_persistent_insight_save", "answer_tool_not_execute_sql", "schema_discovery_order"],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

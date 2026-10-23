@@ -22,7 +22,8 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySe
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
-from products.feature_flags.backend.facade.config import ConfigFormatError, require_v1_config
+from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
@@ -301,7 +302,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.key or "Untitled",
-            href=f"/feature_flags/{self.id}",
+            href=f"/feature-flags/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
@@ -354,6 +355,11 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     @property
     def holdout(self):
         return self._v1_filters().get("holdout", None)
+
+    @property
+    def early_exit(self) -> bool:
+        "If True, evaluation stops at the first condition whose properties match, also when the user falls outside its rollout"
+        return bool(self._v1_filters().get("early_exit", False))
 
     @property
     def _payloads(self):
@@ -427,6 +433,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
         stop_traversal_at_static: bool = False,
+        invalid_cohort_ids: InvalidIds | None = None,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -434,39 +441,40 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             seen_cohorts_cache = {}
 
         cohort_ids = set()
-        for condition in self.conditions:
-            props = condition.get("properties", [])
-            for prop in props:
-                if prop.get("type") == "cohort":
-                    cohort_id = int(prop.get("value"))
-                    try:
-                        if cohort_id in seen_cohorts_cache:
-                            cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
-                            if not cohort:
-                                continue
-                        else:
-                            cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id,
-                                team__project_id=self.team.project_id,
-                                deleted=False,
-                            )
-                            seen_cohorts_cache[cohort_id] = cohort
-
-                        cohort_ids.add(cohort.pk)
-                        cohort_ids.update(
-                            [
-                                dependency_cohort.pk
-                                for dependency_cohort in get_all_cohort_dependencies(
-                                    cohort,
-                                    using_database=using_database,
-                                    seen_cohorts_cache=seen_cohorts_cache,
-                                    stop_traversal_at_static=stop_traversal_at_static,
-                                )
-                            ]
-                        )
-                    except Cohort.DoesNotExist:
-                        seen_cohorts_cache[cohort_id] = ""
+        # Unreadable formats raise. By default, v1 raises on a non-integer id. v2 skips it, as Rust does.
+        config = decode_config(self.get_filters())
+        if invalid_cohort_ids is None:
+            invalid_cohort_ids = "raise" if isinstance(config, ConfigV1) else "skip"
+        direct_ids = references(config, invalid_cohort_ids=invalid_cohort_ids).cohort_ids
+        for cohort_id in direct_ids:
+            try:
+                if cohort_id in seen_cohorts_cache:
+                    cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
+                    if not cohort:
                         continue
+                else:
+                    cohort = Cohort.objects.db_manager(using_database).get(
+                        pk=cohort_id,
+                        team__project_id=self.team.project_id,
+                        deleted=False,
+                    )
+                    seen_cohorts_cache[cohort_id] = cohort
+
+                cohort_ids.add(cohort.pk)
+                cohort_ids.update(
+                    [
+                        dependency_cohort.pk
+                        for dependency_cohort in get_all_cohort_dependencies(
+                            cohort,
+                            using_database=using_database,
+                            seen_cohorts_cache=seen_cohorts_cache,
+                            stop_traversal_at_static=stop_traversal_at_static,
+                        )
+                    ]
+                )
+            except Cohort.DoesNotExist:
+                seen_cohorts_cache[cohort_id] = ""
+                continue
         if sort_by_topological_order:
             return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 

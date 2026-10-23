@@ -56,9 +56,13 @@ const AutocompleteTrigger = React.forwardRef<HTMLButtonElement, AutocompletePrim
 )
 AutocompleteTrigger.displayName = 'AutocompleteTrigger'
 
-function AutocompleteClear({ className, ...props }: AutocompletePrimitive.Clear.Props): React.ReactElement {
+const AutocompleteClear = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Clear>,
+    AutocompletePrimitive.Clear.Props
+>(function AutocompleteClear({ className, ...props }, ref) {
     return (
         <AutocompletePrimitive.Clear
+            ref={ref}
             data-slot="autocomplete-clear"
             render={<InputGroupButton size="icon-xs" />}
             className={cn(className)}
@@ -67,21 +71,20 @@ function AutocompleteClear({ className, ...props }: AutocompletePrimitive.Clear.
             <XIcon className="pointer-events-none" />
         </AutocompletePrimitive.Clear>
     )
-}
+})
 
-function AutocompleteInput({
-    className,
-    children,
-    disabled = false,
-    showSearchIcon = true,
-    showClear = false,
-    ...props
-}: AutocompletePrimitive.Input.Props & {
-    /** Render the leading search icon (default true). */
-    showSearchIcon?: boolean
-    /** Render the trailing clear button (default false). */
-    showClear?: boolean
-}): React.ReactElement {
+const AutocompleteInput = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Input>,
+    AutocompletePrimitive.Input.Props & {
+        /** Render the leading search icon (default true). */
+        showSearchIcon?: boolean
+        /** Render the trailing clear button (default false). */
+        showClear?: boolean
+    }
+>(function AutocompleteInput(
+    { className, children, disabled = false, showSearchIcon = true, showClear = false, ...props },
+    ref
+) {
     const anchorRef = React.useContext(AutocompleteAnchorContext)
     return (
         <div data-slot="autocomplete-input-group-wrapper">
@@ -91,12 +94,8 @@ function AutocompleteInput({
                         <SearchIcon />
                     </InputGroupAddon>
                 )}
-                <AutocompletePrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
-                {children ? (
-                    <InputGroupAddon align="inline-end">
-                        {children}
-                    </InputGroupAddon>
-                ) : null}
+                <AutocompletePrimitive.Input ref={ref} render={<InputGroupInput disabled={disabled} />} {...props} />
+                {children ? <InputGroupAddon align="inline-end">{children}</InputGroupAddon> : null}
                 {showClear && (
                     <InputGroupAddon align="inline-end">
                         <AutocompleteClear disabled={disabled} />
@@ -110,21 +109,16 @@ function AutocompleteInput({
             />
         </div>
     )
-}
+})
 
-function AutocompleteContent({
-    className,
-    side = 'bottom',
-    sideOffset = 6,
-    align = 'start',
-    alignOffset = 0,
-    anchor: anchorProp,
-    ...props
-}: AutocompletePrimitive.Popup.Props &
-    Pick<
-        AutocompletePrimitive.Positioner.Props,
-        'side' | 'align' | 'sideOffset' | 'alignOffset' | 'anchor'
-    >): React.ReactElement {
+const AutocompleteContent = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Popup>,
+    AutocompletePrimitive.Popup.Props &
+        Pick<AutocompletePrimitive.Positioner.Props, 'side' | 'align' | 'sideOffset' | 'alignOffset' | 'anchor'>
+>(function AutocompleteContent(
+    { className, side = 'bottom', sideOffset = 6, align = 'start', alignOffset = 0, anchor: anchorProp, ...props },
+    ref
+) {
     const contextAnchor = React.useContext(AutocompleteAnchorContext)
     const anchor = anchorProp ?? contextAnchor
     return (
@@ -140,6 +134,7 @@ function AutocompleteContent({
                 className="isolate"
             >
                 <AutocompletePrimitive.Popup
+                    ref={ref}
                     data-slot="autocomplete-content"
                     className={cn('quill-autocomplete__content group/autocomplete-content', className)}
                     {...props}
@@ -147,26 +142,32 @@ function AutocompleteContent({
             </AutocompletePrimitive.Positioner>
         </AutocompletePrimitive.Portal>
     )
-}
+})
 
-function AutocompleteList({ className, ...props }: AutocompletePrimitive.List.Props): React.ReactElement {
+const AutocompleteList = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.List>,
+    AutocompletePrimitive.List.Props
+>(function AutocompleteList({ className, ...props }, ref) {
     return (
         <AutocompletePrimitive.List
+            ref={ref}
             data-slot="autocomplete-list"
-            className={cn('quill-autocomplete__list scroll-mask-t-2 scroll-mask-b-4 scroll-pb-4 scroll-pt-6 empty:hidden', className)}
+            className={cn(
+                'quill-autocomplete__list scroll-mask-t-2 scroll-mask-b-4 scroll-pb-4 scroll-pt-6 empty:hidden',
+                className
+            )}
             {...props}
         />
     )
-}
+})
 
-function AutocompleteItem({
-    className,
-    children,
-    title,
-    ...props
-}: AutocompletePrimitive.Item.Props & { title?: string }): React.ReactElement {
+const AutocompleteItem = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Item>,
+    AutocompletePrimitive.Item.Props & { title?: string }
+>(function AutocompleteItem({ className, children, title, ...props }, ref) {
     return (
         <AutocompletePrimitive.Item
+            ref={ref}
             data-slot="autocomplete-item"
             className={cn('quill-autocomplete__item', className)}
             title={title ?? (typeof children === 'string' ? children : undefined)}
@@ -183,51 +184,70 @@ function AutocompleteItem({
             <span className="flex items-center gap-1.5 min-w-0 truncate">{children}</span>
         </AutocompletePrimitive.Item>
     )
-}
+})
 
-function AutocompleteGroup({ className, ...props }: AutocompletePrimitive.Group.Props): React.ReactElement {
-    return <AutocompletePrimitive.Group data-slot="autocomplete-group" className={cn('pb-1', className)} {...props} />
-}
+const AutocompleteGroup = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Group>,
+    AutocompletePrimitive.Group.Props
+>(function AutocompleteGroup({ className, ...props }, ref) {
+    return (
+        <AutocompletePrimitive.Group
+            ref={ref}
+            data-slot="autocomplete-group"
+            className={cn('pb-1', className)}
+            {...props}
+        />
+    )
+})
 
-function AutocompleteLabel({ className, ...props }: AutocompletePrimitive.GroupLabel.Props): React.ReactElement {
+const AutocompleteLabel = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.GroupLabel>,
+    AutocompletePrimitive.GroupLabel.Props
+>(function AutocompleteLabel({ className, ...props }, ref) {
     return (
         <AutocompletePrimitive.GroupLabel
+            ref={ref}
             data-slot="autocomplete-label"
             className={cn('quill-autocomplete__label mb-1 -mx-1 w-[calc(100%+var(--spacing)*2)]', className)}
             render={<MenuLabel />}
             {...props}
         />
     )
-}
+})
 
 function AutocompleteCollection({ ...props }: AutocompletePrimitive.Collection.Props): React.ReactElement {
     return <AutocompletePrimitive.Collection data-slot="autocomplete-collection" {...props} />
 }
 
-function AutocompleteEmpty({ className, ...props }: AutocompletePrimitive.Empty.Props): React.ReactElement {
+const AutocompleteEmpty = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Empty>,
+    AutocompletePrimitive.Empty.Props
+>(function AutocompleteEmpty({ className, ...props }, ref) {
     // Base UI renders the children only when nothing matches, so `empty:hidden` is the whole visibility rule.
     return (
         <AutocompletePrimitive.Empty
+            ref={ref}
             data-slot="autocomplete-empty"
             className={cn('empty:hidden', className)}
             render={<MenuEmpty />}
             {...props}
         />
     )
-}
+})
 
-function AutocompleteSeparator({
-    className,
-    ...props
-}: AutocompletePrimitive.Separator.Props): React.ReactElement {
+const AutocompleteSeparator = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Separator>,
+    AutocompletePrimitive.Separator.Props
+>(function AutocompleteSeparator({ className, ...props }, ref) {
     return (
         <AutocompletePrimitive.Separator
+            ref={ref}
             data-slot="autocomplete-separator"
             className={cn('quill-autocomplete__separator my-0', className)}
             {...props}
         />
     )
-}
+})
 
 /**
  * Walks `useFilteredItems` output and returns the total leaf count.
@@ -257,20 +277,18 @@ function countAutocompleteLeaves(items: unknown): number {
  * MUST be rendered inside `<Autocomplete>` — `useFilteredItems` reads from
  * Autocomplete's Root context and will throw if no provider is mounted.
  */
-function AutocompleteStatus({
-    className,
-    children,
-    emptyContent,
-    ...props
-}: Omit<AutocompletePrimitive.Status.Props, 'children'> & {
-    /**
-     * Override the default "{count} results" rendering. Pass a function to
-     * receive the count; pass a node to render statically.
-     */
-    children?: React.ReactNode | ((count: number) => React.ReactNode)
-    /** Rendered when the filtered count is zero. */
-    emptyContent?: React.ReactNode
-}): React.ReactElement {
+const AutocompleteStatus = React.forwardRef<
+    React.ComponentRef<typeof AutocompletePrimitive.Status>,
+    Omit<AutocompletePrimitive.Status.Props, 'children'> & {
+        /**
+         * Override the default "{count} results" rendering. Pass a function to
+         * receive the count; pass a node to render statically.
+         */
+        children?: React.ReactNode | ((count: number) => React.ReactNode)
+        /** Rendered when the filtered count is zero. */
+        emptyContent?: React.ReactNode
+    }
+>(function AutocompleteStatus({ className, children, emptyContent, ...props }, ref) {
     const filtered = AutocompletePrimitive.useFilteredItems<unknown>()
     const count = countAutocompleteLeaves(filtered)
 
@@ -287,14 +305,18 @@ function AutocompleteStatus({
 
     return (
         <AutocompletePrimitive.Status
+            ref={ref}
             data-slot="autocomplete-status"
-            className={cn('quill-autocomplete__status bg-card border-b border-border text-xs text-muted-foreground px-2 py-1.5 empty:hidden', className)}
+            className={cn(
+                'quill-autocomplete__status bg-card border-b border-border text-xs text-muted-foreground px-2 py-1.5 empty:hidden',
+                className
+            )}
             {...props}
         >
             {content}
         </AutocompletePrimitive.Status>
     )
-}
+})
 
 /**
  * Hook returning the anchor ref so consumers (e.g. an external trigger)

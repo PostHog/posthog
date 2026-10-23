@@ -17,7 +17,8 @@ use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 use crate::authorizer::Signal;
-use crate::metric_record::{compute_series_fingerprint, override_timestamp, KafkaMetricRow};
+use crate::log_record::override_timestamp;
+use crate::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use crate::service::Service;
 
 const METRIC_NAME_LABEL: &str = "__name__";
@@ -501,6 +502,8 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
+    counter!("capture_metrics_records_produced", "source" => "remote_write")
+        .increment(row_count as u64);
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,13 +1,4 @@
-"""Product analytics funnel eval cases for the sandboxed coding agent.
-
-Intent mirrors ``ee/hogai/eval/ci/eval_funnel.py`` — the CI version asserts
-on the exact ``AssistantFunnelsQuery`` Max produces, this version exercises
-the same intents end-to-end through the sandboxed agent + PostHog MCP tools
-and judges the funnel query the agent ran via the ``query-funnel`` MCP tool.
-
-To run:
-    flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_funnel"
-"""
+"""Product analytics funnel eval cases for the sandbox agent."""
 
 from __future__ import annotations
 
@@ -24,6 +15,7 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall, RequiredToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import (
     INSIGHT_WRITE_TOOLS,
     FunnelSchemaAlignment,
@@ -596,6 +588,16 @@ async def eval_funnel(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-funnels",
+        offline_suite=offline_suite(
+            "product_analytics/eval_funnel::eval_funnel",
+            metrics=[
+                "no_persistent_insight_save",
+                "answer_tool_not_execute_sql",
+                "verified_event_exists",
+                "funnel_schema_alignment",
+                "funnel_time_range_relevancy",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

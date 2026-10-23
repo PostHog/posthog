@@ -11,6 +11,7 @@ import { BillingAPIErrorCodes, billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -33,6 +34,10 @@ const creditOverviewResponse = {
 const EXTERNAL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
 const HOSTED_INVOICE_URL = 'https://invoice.stripe.com/i/acct_example/test_example'
 const UNSUBSCRIBE_ERROR_DETAIL = 'Pay your open invoices first.'
+const VERCEL_NOTICE =
+    'Billing for this organization is managed by Vercel, including the payment method and invoices. To cap your spend, set a billing limit on each product on this page.'
+const VERCEL_DISABLED_REASON =
+    'Billing for this organization is managed by Vercel. Contact support to change your plan.'
 
 const productWithUsage = (
     percentageUsage: number,
@@ -73,17 +78,112 @@ type BillingAccessCase = {
 
 describe('billingLogic', () => {
     let billingState: BillingType
+    let billingAnswer: [number, unknown] | null
+    let creditOverviewAnswer: [number, unknown]
 
     beforeEach(() => {
         billingState = billingWithProducts([productWithUsage(0.5)])
+        billingAnswer = null
+        creditOverviewAnswer = [200, creditOverviewResponse]
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': () => [200, billingState],
-                '/api/billing/credits/overview': [200, creditOverviewResponse],
+                '/api/billing': () => billingAnswer ?? [200, billingState],
+                '/api/billing/credits/overview': () => creditOverviewAnswer,
             },
         })
         initKeaTests()
+    })
+
+    it.each([
+        { case: 'an empty body', answer: [200, null] as [number, unknown] },
+        { case: 'a server error', answer: [500, { detail: 'A server error occurred.' }] as [number, unknown] },
+    ])('keeps the last billing state when billing answers with $case', async ({ answer }) => {
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toFinishAllListeners()
+            .clearHistory()
+        const loaded = billingLogic.values.billing
+        expect(loaded).not.toBeNull()
+
+        billingAnswer = answer
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toDispatchActions(['loadBillingSuccess'])
+            .toNotHaveDispatchedActions(['loadBillingFailure'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.billing).toEqual(loaded)
+    })
+
+    it('keeps ambient credit and profile refreshes for an unscoped successful billing load', async () => {
+        billingState = { ...billingState, has_active_subscription: true }
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        const organization = organizationLogic.values.currentOrganization!
+        const user = userLogic.values.user!
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        await expectLogic(billingLogic).toFinishAllListeners()
+        const ambientCredits = jest.fn(() => [200, creditOverviewResponse])
+        const ambientUser = jest.fn(() => [200, user])
+        const ambientOrganization = jest.fn(() => [200, organization])
+        useMocks({
+            get: {
+                '/api/billing/credits/overview': ambientCredits,
+                '/api/users/@me': ambientUser,
+                '/api/organizations/@current': ambientOrganization,
+            },
+        })
+        router.actions.push('/organization/billing', { success: 'true' })
+
+        jest.useFakeTimers()
+        try {
+            const expectation = expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling()
+            }).toFinishAllListeners()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectation
+            await expectLogic(userLogic).toFinishAllListeners()
+            await expectLogic(organizationLogic).toFinishAllListeners()
+
+            expect(ambientCredits).toHaveBeenCalled()
+            expect(ambientUser).toHaveBeenCalled()
+            expect(ambientOrganization).toHaveBeenCalled()
+            expect(router.values.searchParams).toEqual({})
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('reports a failed limit update as a failure, so the limit editor keeps the value', async () => {
+        useMocks({ patch: { '/api/billing': () => [500, { detail: 'A server error occurred.' }] } })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toFinishAllListeners()
+            .clearHistory()
+        const loaded = billingLogic.values.billing
+
+        await expectLogic(billingLogic, () => billingLogic.actions.updateBillingLimits({ product_analytics: 100 }))
+            .toDispatchActions(['updateBillingLimitsFailure'])
+            .toNotHaveDispatchedActions(['updateBillingLimitsSuccess'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.billing).toEqual(loaded)
+    })
+
+    it('keeps the last credit overview when billing answers with an empty body', async () => {
+        billingState = { ...billingState, has_active_subscription: true }
+        creditOverviewAnswer = [200, null]
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toFinishAllListeners()
+            .clearHistory()
+
+        await expectLogic(billingLogic, () => billingLogic.actions.loadCreditOverview())
+            .toDispatchActions(['loadCreditOverviewSuccess'])
+            .toNotHaveDispatchedActions(['loadCreditOverviewFailure'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.creditOverview.estimated_monthly_credit_amount_usd).toBeNull()
     })
 
     it.each(['/organization/billing', '/organization/billing/overview'])(
@@ -126,8 +226,26 @@ describe('billingLogic', () => {
         }
     )
 
-    it('treats exactly 100% usage as a reached limit alert', async () => {
-        billingState = billingWithProducts([productWithUsage(1)])
+    it.each([
+        {
+            name: 'self-serve billing',
+            billing: {},
+            expectedMessage:
+                'You have reached the usage limit for Product analytics. Please upgrade your plan or data loss may occur.',
+        },
+        {
+            name: 'partner-managed billing',
+            billing: { customer_id: '', billing_managed_by_partner: { partner_name: 'Example Partner' } },
+            expectedMessage:
+                'You have reached the usage limit for Product analytics. Data loss may occur. Billing for this organization is managed by Example Partner. Contact them to change your plan or payment details.',
+        },
+        {
+            name: 'Vercel-managed billing without an active subscription',
+            billing: { billing_provider: BillingProvider.Vercel, has_active_subscription: false },
+            expectedMessage: `You have reached the usage limit for Product analytics. Data loss may occur. ${VERCEL_DISABLED_REASON}`,
+        },
+    ])('treats exactly 100% usage as a reached limit alert with $name', async ({ billing, expectedMessage }) => {
+        billingState = { ...billingWithProducts([productWithUsage(1, { subscribed: false })]), ...billing }
         billingLogic.mount()
         await expectLogic(preflightLogic).toFinishAllListeners()
 
@@ -138,7 +256,7 @@ describe('billingLogic', () => {
         expect(billingLogic.values.billingAlert).toMatchObject({
             status: 'error',
             title: 'Usage limit reached',
-            message: expect.stringContaining('You have reached the usage limit for Product analytics.'),
+            message: expectedMessage,
             productKey: ProductKey.PRODUCT_ANALYTICS,
         })
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(true)
@@ -154,6 +272,128 @@ describe('billingLogic', () => {
         }).toFinishAllListeners()
 
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
+    })
+
+    it.each([
+        { name: 'eligible for credits', eligible: true, partnerName: 'Example Partner', shownName: 'Example Partner' },
+        {
+            name: 'not eligible for credits',
+            eligible: false,
+            partnerName: 'Example Partner',
+            shownName: 'Example Partner',
+        },
+        { name: 'blank partner name', eligible: false, partnerName: '', shownName: 'your partner' },
+    ])(
+        'hides the upgrade and credits heroes when a partner manages billing ($name)',
+        async ({ eligible, partnerName, shownName }) => {
+            billingState = {
+                ...billingJson,
+                customer_id: '',
+                billing_managed_by_partner: { partner_name: partnerName },
+            }
+            useMocks({ get: { '/api/billing/credits/overview': [200, { ...creditOverviewResponse, eligible }] } })
+            billingLogic.mount()
+
+            await expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling()
+            }).toFinishAllListeners()
+
+            expect(billingLogic.values).toMatchObject({
+                showCreditCTAHero: false,
+                showBillingHero: false,
+                billingManagedByPartnerNotice: `Billing for this organization is managed by ${shownName}. Contact them to change your plan or payment details.`,
+            })
+        }
+    )
+
+    it.each<{
+        name: string
+        answer: [number, Partial<BillingType> | null]
+        expected: {
+            isBillingManagedByVercel: boolean
+            billingManagedByVercelNotice: string | null
+            billingManagedByVercelDisabledReason: string | null
+            showBillingHero: boolean
+        }
+    }>([
+        {
+            name: 'Vercel with an active subscription',
+            answer: [200, { ...billingJson, billing_provider: BillingProvider.Vercel, has_active_subscription: true }],
+            expected: {
+                isBillingManagedByVercel: true,
+                billingManagedByVercelNotice: VERCEL_NOTICE,
+                billingManagedByVercelDisabledReason: null,
+                showBillingHero: true,
+            },
+        },
+        {
+            name: 'Vercel with no active subscription',
+            answer: [200, { ...billingJson, billing_provider: BillingProvider.Vercel, has_active_subscription: false }],
+            expected: {
+                isBillingManagedByVercel: true,
+                billingManagedByVercelNotice: VERCEL_DISABLED_REASON,
+                billingManagedByVercelDisabledReason: VERCEL_DISABLED_REASON,
+                showBillingHero: false,
+            },
+        },
+        {
+            name: 'PostHog with no active subscription',
+            answer: [
+                200,
+                { ...billingJson, billing_provider: BillingProvider.PostHog, has_active_subscription: false },
+            ],
+            expected: {
+                isBillingManagedByVercel: false,
+                billingManagedByVercelNotice: null,
+                billingManagedByVercelDisabledReason: null,
+                showBillingHero: true,
+            },
+        },
+        {
+            name: 'no billing loaded',
+            answer: [200, null],
+            expected: {
+                isBillingManagedByVercel: false,
+                billingManagedByVercelNotice: null,
+                billingManagedByVercelDisabledReason: null,
+                showBillingHero: false,
+            },
+        },
+    ])('sets the Vercel billing selectors for $name', async ({ answer, expected }) => {
+        billingAnswer = answer
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values).toMatchObject(expected)
+    })
+
+    // A companion has no billing limit, so its usage percentage must not raise a limit banner.
+    it.each([
+        ['reached', 1.5],
+        ['approaching', 0.9],
+    ])('raises no %s usage limit banner for a companion', async (_name, percentageUsage) => {
+        billingState = billingWithProducts([
+            productWithUsage(0),
+            productWithUsage(percentageUsage, {
+                type: 'logs_retention_custom',
+                usage_key: 'logs_retention_custom_gb_months',
+                name: 'Logs custom retention',
+                companion_of: 'logs',
+                inclusion_only: true,
+                no_billing_limit: true,
+            }),
+        ])
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billingAlert).toBeNull()
     })
 
     it('clears a stale usage limit alert when refreshed billing data no longer qualifies', async () => {

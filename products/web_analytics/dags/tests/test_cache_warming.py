@@ -1,23 +1,28 @@
 import gzip
 import json
 import threading
+from concurrent.futures import Future
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, call, patch
 
+from django.test import SimpleTestCase
 from django.utils.dateparse import parse_datetime
 
 import dagster
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache import EntryFreshness
+from posthog.scheduling.jitter import deterministic_offset
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.backend.models.web_analytics_filter_preset import WebAnalyticsFilterPreset
@@ -25,6 +30,7 @@ from products.web_analytics.dags import cache_warming
 from products.web_analytics.dags.cache_warming import (
     PRESET_LANE_MAX_PRESETS_PER_TEAM,
     PRESET_LANE_MAX_SHAPES_PER_PRESET,
+    WARMING_RELEASE_WINDOW_SECONDS,
     WarmQueriesConfig,
     build_replay_runner,
     canonicalize_lazy_replay_json,
@@ -35,10 +41,12 @@ from products.web_analytics.dags.cache_warming import (
     queries_to_keep_fresh,
     split_warmable_queries_op,
     warm_queries_op,
+    web_analytics_cache_warming_job,
+    web_analytics_cache_warming_schedule,
 )
 
 
-class TestMaybeOptIntoLazyPrecompute(BaseTest):
+class TestMaybeOptIntoLazyPrecompute(SimpleTestCase):
     def test_web_query_gets_opt_in(self) -> None:
         # If this breaks, the warmer silently stops building precompute buckets
         # for replayed shapes wherever the opt-in default still applies.
@@ -61,7 +69,7 @@ class TestMaybeOptIntoLazyPrecompute(BaseTest):
         self.assertEqual(maybe_opt_into_lazy_precompute(query), query)
 
 
-class TestMaybeExpandWarmingDateRange(BaseTest):
+class TestMaybeExpandWarmingDateRange(SimpleTestCase):
     @parameterized.expand(
         [
             # Sub-30d ranges deepen to -30d; if these stop expanding, warming
@@ -118,7 +126,7 @@ class TestMaybeExpandWarmingDateRange(BaseTest):
         self.assertEqual(maybe_expand_warming_date_range(query), query)
 
 
-class TestDeepenToWidestWarmableRange(BaseTest):
+class TestDeepenToWidestWarmableRange(SimpleTestCase):
     @parameterized.expand(
         [
             # Deepen to the widest exact range the shape's demand covers, so one
@@ -329,7 +337,7 @@ class TestBuildReplayRunner(BaseTest):
         self.assertEqual(base_runner.get_cache_key(), variant_runner.get_cache_key())
 
 
-class TestCanonicalizeLazyReplay(BaseTest):
+class TestCanonicalizeLazyReplay(SimpleTestCase):
     @parameterized.expand(
         [
             ("steps_up_to_next_multiple", "-31d", "-45d"),
@@ -456,6 +464,22 @@ class TestSplitWarmableQueries(BaseTest):
         with self.assertRaises(ValueError):
             list(split_warmable_queries_op(dagster.build_op_context(), WarmQueriesConfig(mode="bogus"), []))
 
+    def test_hourly_schedule_config_reaches_every_shard(self) -> None:
+        # The schedule writes its run config as a raw dict, so a renamed op alias or
+        # config field fails every hourly launch. Dagster checks the window bound only
+        # when the op builds WarmQueriesConfig, so the test builds it too.
+        with patch("products.web_analytics.dags.cache_warming.check_for_concurrent_runs", return_value=None):
+            request = web_analytics_cache_warming_schedule(dagster.build_schedule_context())
+        assert isinstance(request, dagster.RunRequest)
+        resolved = dagster.validate_run_config(web_analytics_cache_warming_job, request.run_config)
+        config = WarmQueriesConfig(**resolved["ops"]["warm_queries_op"]["config"])
+
+        outputs = list(
+            split_warmable_queries_op(dagster.build_op_context(), config, [self._shape(1, 1), self._shape(2, 2)])
+        )
+
+        self.assertEqual({out.value["release_window_seconds"] for out in outputs}, {WARMING_RELEASE_WINDOW_SECONDS})
+
 
 class TestFleetQuerySelection(BaseTest):
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
@@ -494,18 +518,39 @@ class TestFleetQuerySelection(BaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            # The archive path drops preset ids, so only the preset lane may still pay
+            # for the system.query_log scan.
+            ("archive", False, "FROM query_log_archive", "system.query_log"),
+            ("preset_lane_query_log", True, "system.query_log", "query_log_archive"),
+        ]
+    )
+    @patch("products.web_analytics.dags.cache_warming._apply_preset_lane", side_effect=lambda _c, rows, _m: rows)
     @patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=[])
-    def test_selection_sql_survives_driver_percent_formatting(self, mock_exec: MagicMock) -> None:
+    def test_selection_reads_the_source_its_lane_needs(
+        self,
+        _name: str,
+        preset_lane: bool,
+        expected_source: str,
+        unexpected_source: str,
+        mock_exec: MagicMock,
+        _mock_lane: MagicMock,
+    ) -> None:
         # clickhouse_driver %-formats the query when params are passed, so literal
         # % (the LIKE prefilter) must be written as %%. A bare % would crash only
         # in production, because tests mock sync_execute away.
-        queries_to_keep_fresh(dagster.build_op_context(), days=2, minimum_query_count=10, max_shapes=100)
+        queries_to_keep_fresh(
+            dagster.build_op_context(), days=2, minimum_query_count=10, max_shapes=100, preset_lane=preset_lane
+        )
 
         sql, params = mock_exec.call_args[0]
         rendered = sql % dict.fromkeys(params, "1")  # what the driver's substitution does
 
-        self.assertIn("LIKE '%Web%'", rendered)
-        self.assertIn("system.query_log", rendered)
+        self.assertIn(expected_source, rendered)
+        self.assertNotIn(unexpected_source, rendered)
+        if preset_lane:
+            self.assertIn("""LIKE '%"kind":"Web%'""", rendered)
 
     @patch("products.web_analytics.dags.cache_warming._read_cached_warmable_queries", return_value=None)
     @patch("products.web_analytics.dags.cache_warming._write_cached_warmable_queries")
@@ -545,6 +590,84 @@ class TestFleetQuerySelection(BaseTest):
         # can never be amplified into raw background scans.
         self.assertLess(entry["representative_query_count"], cache_warming.RAW_REPLAY_MIN_QUERY_COUNT)
         self.assertIsInstance(entry["normalized_query_hash"], int)
+
+
+class TestFleetQuerySelectionFromArchive(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute(f"TRUNCATE TABLE {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}")
+
+    def _insert_chain(
+        self,
+        chain_id: str,
+        query: dict,
+        lc_kind: str = "request",
+        lc_id: str = "",
+        status: str = "QueryFinish",
+        query_type: str = "web_overview_query",
+    ) -> None:
+        sync_execute(
+            f"""
+            INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
+                (initial_query_start_time, team_id, initial_query_id, is_initial_query, type,
+                 query_kind_by_root, lc_kind, lc_id, lc_feature, lc_query_type, lc_query__kind, lc_query)
+            VALUES (now64(6), %(team_id)s, %(chain_id)s, 1, %(status)s,
+                    (1, 'Select'), %(lc_kind)s, %(lc_id)s, 'query', %(query_type)s, %(kind)s, %(lc_query)s)
+            """,
+            {
+                "team_id": self.team.pk,
+                "chain_id": chain_id,
+                "status": status,
+                "lc_kind": lc_kind,
+                "lc_id": lc_id,
+                "query_type": query_type,
+                "kind": query["kind"],
+                "lc_query": json.dumps(query),
+            },
+        )
+
+    # The archive has no trigger tag, so background replays are told apart from user
+    # reads by kind and celery task id. Any of them leaking in keeps a shape hot forever.
+    @parameterized.expand(
+        [
+            ("dagster_warmer_without_kind", "", ""),
+            (
+                "stale_revalidation_task",
+                "celery",
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute",
+            ),
+            ("insight_cache_warmer_task", "celery", "posthog.caching.warming.warm_insight_cache_task"),
+            ("temporal_workflow", "temporal", ""),
+        ]
+    )
+    def test_counts_user_reads_and_ignores_background_replays(
+        self, _name: str, background_kind: str, background_task_id: str
+    ) -> None:
+        user_shape = {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}, "properties": []}
+        background_shape = {"kind": "WebStatsTableQuery", "breakdownBy": "Page", "dateRange": {"date_from": "-7d"}}
+        self._insert_chain("user-sync", user_shape)
+        # A dashboard tile computed asynchronously on a user's behalf lands in the archive as
+        # celery with the async query task's id. Without it the shape misses the demand floor.
+        self._insert_chain(
+            "user-async",
+            {**user_shape, "dateRange": {"date_from": "-30d"}},
+            lc_kind="celery",
+            lc_id="posthog.tasks.tasks.process_query_task",
+        )
+        self._insert_chain("failed", user_shape, status="ExceptionWhileProcessing")
+        self._insert_chain("bucket-build", user_shape, query_type="web_overview_lazy_insert")
+        for index in range(2):
+            self._insert_chain(
+                f"background-{index}", background_shape, lc_kind=background_kind, lc_id=background_task_id
+            )
+
+        result = queries_to_keep_fresh(dagster.build_op_context(), days=1, minimum_query_count=2, max_shapes=100)
+
+        rows = [row for row in result if row["team_id"] == self.team.pk]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["query_json"]["kind"], "WebOverviewQuery")
+        self.assertEqual(rows[0]["query_count"], 2)
+        self.assertEqual(sorted(rows[0]["observed_date_froms"]), ["-30d", "-7d"])
 
 
 class TestPresetLane(BaseTest):
@@ -1152,6 +1275,92 @@ class TestWarmQueriesOp(BaseTest):
         # true last_refresh and would return the fresh cached response, turning
         # the early warm into a silent no-op.
         self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+    @parameterized.expand([("released", False, 2), ("cancelled", True, 1), ("cancelled_backlog", True, 3)])
+    def test_release_window_delays_work_and_cancellation_wakes_workers(
+        self, _name: str, cancel: bool, shape_count: int
+    ) -> None:
+        early_team = Team.objects.create(id=987655, organization=self.organization, name="early release")
+        late_team = Team.objects.create(id=987654, organization=self.organization, name="late release")
+        window = timedelta(minutes=10)
+        early_delay = deterministic_offset(str(early_team.pk), window).total_seconds()
+        late_delay = deterministic_offset(str(late_team.pk), window).total_seconds()
+        self.assertLess(0, early_delay)
+        self.assertLess(early_delay, late_delay)
+        clock = SimpleNamespace(now=0.0)
+        entered = threading.Event()
+        stop = threading.Event()
+        finish_worker = threading.Event()
+        waits: list[float] = []
+        real_wait = cache_warming.wait
+
+        class ControlledRelease:
+            def wait(self, timeout: float) -> bool:
+                waits.append(timeout)
+                entered.set()
+                if cancel:
+                    stop.wait()
+                    finish_worker.wait()
+                    return True
+                clock.now += timeout
+                return False
+
+            def set(self) -> None:
+                stop.set()
+
+        def wait_for_work(
+            pending: set[Future[str]], timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set[Future[str]], set[Future[str]]]:
+            if cancel and return_when == "FIRST_COMPLETED":
+                self.assertTrue(entered.wait(5))
+                raise KeyboardInterrupt()
+            if cancel:
+                finish_worker.set()
+                for future in pending:
+                    if not future.cancelled():
+                        future.result(timeout=5)
+                return real_wait(pending, timeout=0)
+            done, remaining = real_wait(pending, timeout=5)
+            self.assertFalse(remaining)
+            return done, remaining
+
+        context = dagster.build_op_context()
+        try:
+            with (
+                patch(
+                    "products.web_analytics.dags.cache_warming.threading",
+                    SimpleNamespace(Lock=threading.Lock, Event=ControlledRelease),
+                ),
+                patch("products.web_analytics.dags.cache_warming.time", SimpleNamespace(monotonic=lambda: clock.now)),
+                patch("products.web_analytics.dags.cache_warming.wait", side_effect=wait_for_work),
+                patch("products.web_analytics.dags.cache_warming.WARMING_QUERIES_COUNTER") as counter,
+                patch(
+                    "products.web_analytics.dags.cache_warming.os._exit", side_effect=AssertionError("unexpected exit")
+                ),
+                override_instance_config("WEB_ANALYTICS_WARMING_SHARD_THREADS", 1),
+            ):
+                # The early team's shape comes last, so it starts first only if the shapes are sorted by release time.
+                shapes = [
+                    {"team_id": team.pk, "query_json": {"kind": "WebVitalsQuery"}, "normalized_query_hash": f"h{index}"}
+                    for index, team in enumerate([late_team] * (shape_count - 1) + [early_team])
+                ]
+                config = WarmQueriesConfig(release_window_seconds=int(window.total_seconds()))
+                if cancel:
+                    with self.assertRaises(KeyboardInterrupt):
+                        warm_queries_op(context, config, shapes)
+                    counter.labels.assert_not_called()
+                    self.assertEqual(waits, [early_delay])
+                else:
+                    warm_queries_op(context, config, shapes)
+                    self.assertEqual(
+                        counter.labels.call_args_list, [call(lane="demand", outcome="unsupported")] * shape_count
+                    )
+                    # The late team waits only for the part of its offset that the early team's wait did not cover.
+                    self.assertEqual(waits, [early_delay, late_delay - early_delay])
+                    self.assertEqual(clock.now, late_delay)
+        finally:
+            stop.set()
+            finish_worker.set()
 
     def test_cancellation_drains_or_exits_within_grace(self) -> None:
         # Cancellation mid-pass must not hand the executor a queue to drain nor

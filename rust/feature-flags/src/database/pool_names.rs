@@ -11,3 +11,4 @@ pub const PERSONS_READER: &str = "persons_reader";
 pub const PERSONS_WRITER: &str = "persons_writer";
 pub const NON_PERSONS_READER: &str = "non_persons_reader";
 pub const NON_PERSONS_WRITER: &str = "non_persons_writer";
+pub const BEHAVIORAL_COHORTS: &str = "behavioral_cohorts";

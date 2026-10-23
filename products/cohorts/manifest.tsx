@@ -14,15 +14,14 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+        '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     },
     urls: {
         cohort: (id: string | number): string => `/cohorts/${id}`,
         cohorts: (): string => '/cohorts',
         cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
         cohortsStaffTools: (cohortId?: number): string =>
-            `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
+            `/feature-flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     },
     fileSystemTypes: {
         cohort: {
@@ -33,6 +32,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-cohorts-dark)',
             ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
+            listHref: () => urls.cohorts(),
             filterKey: 'cohort',
         },
     },

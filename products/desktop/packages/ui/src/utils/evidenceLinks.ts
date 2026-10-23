@@ -13,12 +13,14 @@ import { getObjectKind } from "./objectKinds";
  */
 
 const EVIDENCE_SCHEME = "evidence:";
+export const OBJECT_LINK_HREF = "dataPosthogHref";
 const KIND_ID_RE = /^([a-z][a-z0-9-]*)\/([^/?#]+)$/;
 
 export interface EvidenceLinkTarget {
   /** Free-form kind slug; well-known kinds get a dedicated icon and source label. */
   kind: string;
   id: string;
+  href?: string;
 }
 
 function decodePart(part: string): string {
@@ -36,6 +38,7 @@ function decodePart(part: string): string {
  */
 export function parseEvidenceLink(
   href: string | undefined,
+  properties?: Record<string, unknown>,
 ): EvidenceLinkTarget | null {
   if (!href || !href.startsWith(EVIDENCE_SCHEME)) return null;
 
@@ -46,7 +49,9 @@ export function parseEvidenceLink(
   const match = KIND_ID_RE.exec(path);
   if (!match) return null;
 
-  return { kind: match[1], id: decodePart(match[2]) };
+  const target = { kind: match[1], id: decodePart(match[2]) };
+  const original = properties?.[OBJECT_LINK_HREF];
+  return typeof original === "string" ? { ...target, href: original } : target;
 }
 
 /**

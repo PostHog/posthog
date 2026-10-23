@@ -1,5 +1,6 @@
 use crate::api::errors::FlagError;
 use crate::config::Config;
+use crate::database::pool_names;
 use common_database::{get_pool_with_config, PoolConfig};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -20,6 +21,8 @@ pub struct DatabasePools {
 impl DatabasePools {
     /// Default value for max_connections when config value is invalid (matches PoolConfig::default)
     const DEFAULT_MAX_CONNECTIONS: u32 = 10;
+
+    const BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS: u64 = 1000;
 
     /// Helper to build a pool configuration, overriding specific fields from the base config.
     fn build_pool_config(
@@ -42,12 +45,71 @@ impl DatabasePools {
         }
     }
 
+    /// Lists each pool, with its statement timeout, where one call can outlast the request timeout.
+    /// A statement timeout of 0 leaves the query unbounded.
+    ///
+    /// This bounds one call, not one request. A request that runs several calls in sequence can
+    /// still outlast the request timeout.
+    ///
+    /// A pool that aliases another pool runs with that pool's statement timeout. The check skips
+    /// an aliased pool, because its own setting has no effect.
+    fn pools_over_request_timeout(config: &Config) -> Vec<(&'static str, u64)> {
+        let acquire_ms = config.acquire_timeout_secs.saturating_mul(1000);
+        let routing = config.is_persons_db_routing_enabled();
+        let writes = !*config.skip_writes;
+        [
+            (
+                pool_names::NON_PERSONS_READER,
+                config.non_persons_reader_statement_timeout_ms,
+                true,
+            ),
+            (
+                pool_names::PERSONS_READER,
+                config.persons_reader_statement_timeout_ms,
+                routing,
+            ),
+            (
+                pool_names::PERSONS_WRITER,
+                config.writer_statement_timeout_ms,
+                routing && writes,
+            ),
+            (
+                pool_names::NON_PERSONS_WRITER,
+                config.writer_statement_timeout_ms,
+                writes,
+            ),
+            (
+                pool_names::BEHAVIORAL_COHORTS,
+                Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
+                config.is_behavioral_cohorts_db_configured(),
+            ),
+        ]
+        .into_iter()
+        .filter(|&(_, statement_timeout_ms, built)| {
+            built
+                && (statement_timeout_ms == 0
+                    || acquire_ms.saturating_add(statement_timeout_ms) >= config.request_timeout_ms)
+        })
+        .map(|(pool, statement_timeout_ms, _)| (pool, statement_timeout_ms))
+        .collect()
+    }
+
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
         // Validate acquire_timeout_secs - must be at least 1 second
         if config.acquire_timeout_secs == 0 {
             return Err(FlagError::internal(anyhow::anyhow!(
                 "ACQUIRE_TIMEOUT_SECS must be at least 1 second"
             )));
+        }
+
+        for (pool, statement_timeout_ms) in Self::pools_over_request_timeout(config) {
+            tracing::warn!(
+                pool,
+                statement_timeout_ms,
+                acquire_timeout_secs = config.acquire_timeout_secs,
+                request_timeout_ms = config.request_timeout_ms,
+                "Acquire timeout plus statement timeout on this pool does not fit inside REQUEST_TIMEOUT_MS (a statement timeout of 0 means none), so a slow query outlasts the request and its connection is closed"
+            );
         }
 
         // Validate and fix max_connections if it's 0
@@ -271,8 +333,13 @@ impl DatabasePools {
         // Optional behavioral cohorts database pool for realtime cohort membership lookups.
         // Small pool (max 5 connections) with a tight 1s statement timeout for simple key lookups.
         let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
-            let pool_config =
-                Self::build_pool_config(&base_pool_config, 1, Some(5), 1000, "behavioral_cohorts");
+            let pool_config = Self::build_pool_config(
+                &base_pool_config,
+                1,
+                Some(5),
+                Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
+                pool_names::BEHAVIORAL_COHORTS,
+            );
             info!("Creating behavioral cohorts reader pool");
             Some(Arc::new(
                 get_pool_with_config(&config.behavioral_cohorts_read_database_url, pool_config)
@@ -303,6 +370,8 @@ impl DatabasePools {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use envconfig::Envconfig;
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     #[test]
@@ -322,6 +391,70 @@ mod tests {
 
         assert_eq!(config.statement_timeout_ms, None);
         assert_eq!(config.pool_name, Some("non_persons_writer".to_string()));
+    }
+
+    #[rstest::rstest]
+    #[case::defaults(&[], &[])]
+    #[case::statement_timeouts(
+        &[
+            ("NON_PERSONS_READER_STATEMENT_TIMEOUT_MS", "4000"),
+            ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "0"),
+        ],
+        &[(pool_names::NON_PERSONS_READER, 4000), (pool_names::PERSONS_READER, 0)]
+    )]
+    #[case::acquire(
+        &[("ACQUIRE_TIMEOUT_SECS", "4")],
+        &[
+            (pool_names::NON_PERSONS_READER, 2000),
+            (pool_names::PERSONS_READER, 1000),
+            (pool_names::PERSONS_WRITER, 2000),
+            (pool_names::NON_PERSONS_WRITER, 2000),
+        ]
+    )]
+    #[case::behavioral_cohorts_configured(
+        &[
+            ("ACQUIRE_TIMEOUT_SECS", "4"),
+            ("BEHAVIORAL_COHORTS_READ_DATABASE_URL", "postgres://localhost:5432/behavioral_cohorts"),
+        ],
+        &[
+            (pool_names::NON_PERSONS_READER, 2000),
+            (pool_names::PERSONS_READER, 1000),
+            (pool_names::PERSONS_WRITER, 2000),
+            (pool_names::NON_PERSONS_WRITER, 2000),
+            (pool_names::BEHAVIORAL_COHORTS, 1000),
+        ]
+    )]
+    #[case::sum_equals_request_timeout(
+        &[("ACQUIRE_TIMEOUT_SECS", "2"), ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "2500")],
+        &[(pool_names::PERSONS_READER, 2500)]
+    )]
+    #[case::longer_request_timeout(
+        &[("ACQUIRE_TIMEOUT_SECS", "4"), ("REQUEST_TIMEOUT_MS", "7000")],
+        &[]
+    )]
+    #[case::persons_pools_aliased(
+        &[
+            ("PERSONS_READ_DATABASE_URL", ""),
+            ("PERSONS_WRITE_DATABASE_URL", ""),
+            ("PERSONS_READER_STATEMENT_TIMEOUT_MS", "0"),
+        ],
+        &[]
+    )]
+    #[case::writers_aliased(
+        &[("SKIP_WRITES", "true"), ("WRITER_STATEMENT_TIMEOUT_MS", "0")],
+        &[]
+    )]
+    fn test_pools_over_request_timeout(
+        #[case] env: &[(&str, &str)],
+        #[case] expected: &[(&str, u64)],
+    ) {
+        let env: HashMap<String, String> = env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+
+        assert_eq!(DatabasePools::pools_over_request_timeout(&config), expected);
     }
 
     #[tokio::test]
@@ -350,11 +483,11 @@ mod tests {
         assert!(config.is_persons_db_routing_enabled());
         assert_eq!(
             config.get_persons_read_database_url(),
-            "postgres://posthog:posthog@localhost:5432/posthog_persons"
+            config.persons_read_database_url
         );
         assert_eq!(
             config.get_persons_write_database_url(),
-            "postgres://posthog:posthog@localhost:5432/posthog_persons"
+            config.persons_write_database_url
         );
     }
 

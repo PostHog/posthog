@@ -188,14 +188,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         self._costs_precompute_used: bool = False
         self._costs_sources_materialized: int = 0
         self._costs_grain: Optional[str] = None
+        # Why the cost read did or did not use the precompute, so a team stuck on the live union shows the cause.
+        self._costs_precompute_outcome: Optional[str] = None
         # Without this, a rollout where every query falls back to the live path looks identical to
         # one that works.
-        self._sessions_precompute_used: bool = False
         self._live_session_resolution_used: bool = False
-        # The job set backing this query, resolved once and shared by the reach and credit sides.
-        # `resolved` separates "not looked up yet" from "looked up, cannot use the precompute".
-        self._sessions_precompute_resolved: bool = False
-        self._sessions_precompute_jobs: list[str] | None = None
+        self._live_session_resolution_eligible: bool | None = None
         # Set when any read-path ensure (costs, touchpoints, conversions) was served from
         # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
         self._precompute_stale: bool = False
@@ -261,7 +259,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 "costs_precompute_used": self._costs_precompute_used,
                 "costs_sources_materialized": self._costs_sources_materialized,
                 "costs_grain": self._costs_grain,
-                "sessions_precompute_used": self._sessions_precompute_used,
+                "costs_precompute_outcome": self._costs_precompute_outcome,
                 "live_session_resolution_used": self._live_session_resolution_used,
             }
             if error is None:
@@ -398,9 +396,11 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if integration_filter and integration_filter.integrationSourceIds:
             selected_ids = integration_filter.integrationSourceIds
             mat_adapters = [a for a in mat_adapters if a.get_source_id() in selected_ids]
-        mat_adapters = [a for a in mat_adapters if a.supports_level(grain)]
+        materialization_queries = mat_factory.build_materialization_queries(mat_adapters, grain)
+        mat_adapters = [a for a in mat_adapters if str(a.get_source_id()) in materialization_queries]
         grain_value = str(grain.value)
         if not mat_adapters:
+            self._costs_precompute_outcome = "fallback_no_materializable_sources"
             logger.info(
                 "marketing_costs_precompute",
                 outcome="fallback_no_materializable_sources",
@@ -417,7 +417,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         s3_fallback_adapters: list[MarketingSourceAdapter] = []
         for adapter in mat_adapters:
             with self.timings.measure("ma_precompute_build_mat_query"):
-                insert_query = adapter.build_materialization_query(adapter.get_source_id())
+                insert_query = materialization_queries[str(adapter.get_source_id())]
             if insert_query is None:
                 logger.info(
                     "marketing_costs_precompute",
@@ -457,6 +457,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         if not materialized_source_ids:
             # Nothing materialized — let the caller read every source live, as before.
+            self._costs_precompute_outcome = "fallback_no_jobs"
             logger.info(
                 "marketing_costs_precompute",
                 outcome="fallback_no_jobs",
@@ -476,6 +477,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         self._costs_precompute_used = True
         self._costs_sources_materialized = len(mat_adapters) - len(s3_fallback_adapters)
         self._costs_grain = grain_value
+        self._costs_precompute_outcome = "used"
         logger.info(
             "marketing_costs_precompute",
             outcome="used",
@@ -1253,6 +1255,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         union_subquery = self._build_costs_from_precompute(self.query_date_range)
                     except Exception:
                         logger.exception("cost_precompute_failed", team_id=self.team.pk)
+                        self._costs_precompute_outcome = "failed"
                         union_subquery = None
             if union_subquery is None:
                 # Only the S3 fallback consumes the live adapters. When precompute serves the query
@@ -1393,11 +1396,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         matched on. Each runner passes the keys appropriate to its query shape.
         """
         column_aliases = [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+        # The GROUP BY reads the keys from the union, so the union must select them even when the user hides them.
+        union_aliases = [*column_aliases, *(key for key in key_columns if key not in column_aliases)]
 
         def _labeled_period(period: str, period_query: ast.SelectQuery) -> ast.SelectQuery:
             select: list[ast.Expr] = [
                 ast.Alias(alias=COMPARE_PERIOD_FIELD, expr=ast.Constant(value=period)),
-                *(ast.Field(chain=[alias]) for alias in column_aliases),
+                *(ast.Field(chain=[alias]) for alias in union_aliases),
             ]
             return ast.SelectQuery(
                 select=select,

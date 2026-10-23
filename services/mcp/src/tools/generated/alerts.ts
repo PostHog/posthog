@@ -44,6 +44,9 @@ const alertCreate = (): ToolBase<ReturnType<typeof AlertCreateSchema>, WithPostH
         if (params.detector_config !== undefined) {
             body['detector_config'] = params.detector_config
         }
+        if (params.evaluation_delay_intervals !== undefined) {
+            body['evaluation_delay_intervals'] = params.evaluation_delay_intervals
+        }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval
         }
@@ -206,6 +209,9 @@ const alertSimulate = (): ToolBase<ReturnType<typeof AlertSimulateSchema>, Schem
     handler: async (context: Context, params: z.infer<ReturnType<typeof AlertSimulateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.evaluation_delay_intervals !== undefined) {
+            body['evaluation_delay_intervals'] = params.evaluation_delay_intervals
+        }
         if (params.insight !== undefined) {
             body['insight'] = params.insight
         }
@@ -220,6 +226,9 @@ const alertSimulate = (): ToolBase<ReturnType<typeof AlertSimulateSchema>, Schem
         }
         if (params.config !== undefined) {
             body['config'] = params.config
+        }
+        if (params.alert !== undefined) {
+            body['alert'] = params.alert
         }
         const result = await context.api.request<Schemas.AlertSimulateResponse>({
             method: 'POST',
@@ -268,6 +277,9 @@ const alertUpdate = (): ToolBase<ReturnType<typeof AlertUpdateSchema>, WithPostH
         }
         if (params.detector_config !== undefined) {
             body['detector_config'] = params.detector_config
+        }
+        if (params.evaluation_delay_intervals !== undefined) {
+            body['evaluation_delay_intervals'] = params.evaluation_delay_intervals
         }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval

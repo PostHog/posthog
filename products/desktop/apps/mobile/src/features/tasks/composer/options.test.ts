@@ -42,7 +42,7 @@ describe("mobile composer options", () => {
       type: "select",
       currentValue: "claude-opus-5-5",
       options: [
-        { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
+        { value: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
         { value: "claude-opus-5-5", name: "Claude Opus 5.5" },
         {
           value: "claude-fable-5-1",
@@ -57,15 +57,15 @@ describe("mobile composer options", () => {
     it("maps only the offered, unrestricted, effort-valid ladder notches", () => {
       expect(getAgentPresets("claude", ladderConfig)).toEqual([
         {
-          model: "claude-sonnet-5",
+          model: "claude-sonnet-5-5",
           effort: "medium",
-          modelLabel: "Claude Sonnet 5",
+          modelLabel: "Claude Sonnet 5.5",
           effortLabel: "Medium",
         },
         {
-          model: "claude-sonnet-5",
+          model: "claude-sonnet-5-5",
           effort: "high",
-          modelLabel: "Claude Sonnet 5",
+          modelLabel: "Claude Sonnet 5.5",
           effortLabel: "High",
         },
         {
@@ -86,9 +86,9 @@ describe("mobile composer options", () => {
     it("returns the balanced middle notch", () => {
       const presets = getAgentPresets("claude", ladderConfig);
       expect(getMiddlePreset(presets)).toEqual({
-        model: "claude-sonnet-5",
+        model: "claude-sonnet-5-5",
         effort: "high",
-        modelLabel: "Claude Sonnet 5",
+        modelLabel: "Claude Sonnet 5.5",
         effortLabel: "High",
       });
       expect(getMiddlePreset([])).toBeUndefined();

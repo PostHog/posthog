@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 
 from django.db import transaction
@@ -42,16 +42,21 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
+    UnsupportedSyncTypeError,
+    discovered_schema_finder,
     mark_schema_running_unless_halted,
     resolve_destinations,
+    resolve_sync_type,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -70,8 +75,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
     purge_buffer_prefix,
+    repair_is_running,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
+    tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import (
@@ -116,6 +123,41 @@ def source_supports_row_filters(source_type: str) -> bool:
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
     return bool(source.supports_row_filters)
+
+
+ON_DEMAND_SYNC_ERROR = "This table syncs only when its data changes, so its sync schedule can't be turned on."
+
+
+def source_syncs_on_demand(source_type: str) -> bool:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return source.syncs_on_demand is True
+
+
+def manual_sync_refusal(source_model: ExternalDataSource) -> str | None:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type))
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return source.manual_sync_refusal(source_model)
+
+
+def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, ...] | None:
+    """The columns a row filter on this schema may use, or None when any column of the table may.
+
+    Each column has `name`, `data_type` and `operators`. The class stays inside the sources
+    package, so this layer does not name it.
+    """
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return source.row_filter_columns_for_schema(schema_name)
 
 
 def source_requires_exact_column_metadata(source_type: str) -> bool:
@@ -177,7 +219,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     # sync_type_config writes (and the status/initial_sync_complete save below skips the JSON
     # column, leaving no second window for the merged config to be overwritten).
     updates: dict[str, Any] = {"reset_pipeline": True, "cdc_mode": "snapshot"}
-    removes = ["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY]
+    removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
     if resnapshot_stays_in_buffer(instance):
         updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
     instance.sync_type_config = update_sync_type_config_keys(
@@ -207,6 +249,12 @@ NO_SYNC_FREQUENCY_ERROR = (
     "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
 )
 
+# The stored source settings cannot be read, for example after the instance encryption keys change.
+# Only new settings from the user can fix this, so it is not a bug to report.
+UNREADABLE_SOURCE_CONFIG_ERROR = (
+    "PostHog could not read the saved settings for this source. Reconnect the source, then try again."
+)
+
 # A CDC table's own schedule loads its captured changes, and the change buffer expires them after 14
 # days, so a slower schedule would lose changes for good.
 CDC_MAX_SYNC_FREQUENCY_INTERVAL = dt.timedelta(days=7)
@@ -223,6 +271,16 @@ SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR = (
 SCHEDULED_FULL_REFRESH_TOO_SHORT_ERROR = (
     "A full refresh runs on a scheduled sync, so the interval must be at least {days} days. "
     "Choose a longer interval, or sync more often."
+)
+
+FULL_REFRESH_TIME_OF_DAY_HELP_TEXT = (
+    "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. "
+    "The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that "
+    "syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last "
+    "refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts "
+    "the clock, so the first refresh after a save can come up to a day before a full interval has passed. "
+    "Null counts the interval from when it was saved or from the last full resync. Cleared when "
+    "full_refresh_interval_days is null."
 )
 
 
@@ -242,6 +300,62 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
         if instance.sync_frequency_interval is None:
             raise ValidationError(NO_SYNC_FREQUENCY_ERROR)
         sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
+
+
+def resync_schema(instance: ExternalDataSchema) -> Response:
+    refusal = manual_sync_refusal(instance.source)
+    if refusal is not None:
+        return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": refusal})
+
+    if is_any_external_data_schema_paused(instance.team_id):
+        return Response(
+            status=status.HTTP_400_BAD_REQUEST,
+            data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
+        )
+
+    cdc_resync = instance.is_cdc
+    if cdc_resync:
+        # Capture must finish a reset that overlaps a running streaming sync.
+        if hand_reset_to_capture_if_sync_running(instance, logger):
+            return Response(status=status.HTTP_200_OK)
+    else:
+        latest_running_job = (
+            ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+
+    updates: dict[str, Any] = {"reset_pipeline": True}
+    removes: list[str] = []
+    if cdc_resync:
+        updates["cdc_mode"] = "snapshot"
+        removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
+        # Keep buffered changes that capture wrote after the snapshot began.
+        if resnapshot_stays_in_buffer(instance):
+            updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+
+    # Save the reset before the workflow reads this schema, under the helper's row lock.
+    extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}
+    instance.sync_type_config = update_sync_type_config_keys(
+        instance.id, instance.team_id, updates=updates, removes=removes, extra_model_fields=extra
+    )
+    if cdc_resync:
+        instance.initial_sync_complete = False
+
+    try:
+        _trigger_schema_sync(instance)
+    except temporalio.service.RPCError as e:
+        # Leave the reset pending, but do not show Running without a workflow.
+        logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
+        return Response(
+            data={"detail": "Couldn't start the sync. Try again in a few minutes."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    mark_schema_running_unless_halted(instance)
+    return Response(status=status.HTTP_200_OK)
 
 
 # Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
@@ -364,6 +478,14 @@ def redact_schema_error(schema: ExternalDataSchema, context: dict[str, Any]) -> 
     return source_helpers.redact_error_message(schema.latest_error, secret_values)
 
 
+class RowFilterColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Column name to use as `column` in a row filter.")
+    data_type = serializers.CharField(help_text="Column type, which decides the format of the filter value.")
+    operators = serializers.ListField(
+        child=serializers.CharField(), help_text="Operators a row filter on this column may use."
+    )
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
@@ -429,11 +551,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the "
             "table and re-imports every row, so rows deleted at the source are removed. It runs on the first "
             "scheduled sync once the interval has passed, counted from when it was saved or from the last full "
-            "resync, and can start up to an hour early. Queries keep returning the current rows until a full "
+            "resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), "
+            "and can start up to an hour early. Queries keep returning the current rows until a full "
             "refresh finishes, and workflows and destinations that run on new rows of the table run again for "
             "every row. Available "
             "for incremental, append, and xmin syncs only, and never shorter than the sync frequency."
         ),
+    )
+    full_refresh_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
     )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
@@ -485,6 +611,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             'must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column\'s '
             "type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). "
             "Applied on the next sync — not retroactive to already-synced rows."
+        ),
+    )
+    row_filter_columns = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Columns a row filter on this schema may use, with the operators each accepts. `null` means "
+            "any column in `available_columns` with any operator, which is the case for SQL sources. "
+            "A list means the source can filter on these columns only; an empty list means this "
+            "schema accepts no row filter."
         ),
     )
     api_version = serializers.CharField(
@@ -543,6 +678,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "sync_frequency",
             "sync_time_of_day",
             "full_refresh_interval_days",
+            "full_refresh_time_of_day",
             "next_full_refresh_at",
             "description",
             "primary_key_columns",
@@ -550,6 +686,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "incremental_sync_blocked",
             "enabled_columns",
             "row_filters",
+            "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
             "source",
@@ -569,6 +706,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "incremental_sync_blocked",
             "next_full_refresh_at",
             "description",
+            "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
             "source",
@@ -674,6 +812,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         return uac.get_user_access_level(schema.table or schema.source)
 
+    @extend_schema_field(RowFilterColumnSerializer(many=True, allow_null=True))
+    def get_row_filter_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]] | None:
+        columns = source_row_filter_columns(schema.source.source_type, schema.name)
+        if columns is None:
+            return None
+        return [
+            {"name": column.name, "data_type": column.data_type, "operators": list(column.operators)}
+            for column in columns
+        ]
+
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
         # Only the schema-level override is judged here; a deprecated source pin surfaces on the
@@ -754,7 +902,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def to_representation(self, instance: ExternalDataSchema) -> dict:
         ret = super().to_representation(instance)
-        ret["sync_type"] = ExternalDataSchema.SyncType(instance.sync_type) if instance.sync_type is not None else None
+        try:
+            ret["sync_type"] = resolve_sync_type(instance.sync_type)
+        except UnsupportedSyncTypeError:
+            # Returning None keeps the list and settings pages loading so the user can pick a valid type.
+            ret["sync_type"] = None
         ret["sync_frequency"] = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
         ret["sync_time_of_day"] = (
             self.fields["sync_time_of_day"].to_representation(instance.sync_time_of_day)
@@ -821,6 +973,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
+
+        # Each scheduled run of such a table would bill the same rows again.
+        if validated_data.get("should_sync") is True and source_syncs_on_demand(instance.source.source_type):
+            raise ValidationError({"should_sync": ON_DEMAND_SYNC_ERROR})
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
@@ -909,7 +1065,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             ):
                 raise ValidationError(reason)
             try:
-                validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
+                validate_and_coerce_row_filters(
+                    validated_data["row_filters"],
+                    instance.schema_metadata,
+                    source_row_filter_columns(instance.source.source_type, instance.name),
+                )
             except RowFilterValidationError as e:
                 raise ValidationError(f"Invalid row filter: {e}")
 
@@ -1026,6 +1186,28 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if column_names and unknown_keys:
                 raise ValidationError(f"'{instance.name}' has no column named {', '.join(unknown_keys)} to merge on.")
 
+        # An incremental or append sync saves its progress as the latest value of the incremental
+        # field. Without a field no run saves progress, so every run reads the full history again.
+        # Only a request that switches the sync type, clears the field, or turns the sync on is judged,
+        # so a table already in that state still takes other edits, such as a disable. Turning the sync
+        # on is judged because source creation saves a disabled table without a field.
+        if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+            stored_incremental_field = (instance.sync_type_config or {}).get("incremental_field")
+            resulting_incremental_field = (
+                data.get("incremental_field") if "incremental_field" in data else stored_incremental_field
+            )
+            switches_sync_type = resulting_sync_type != instance.sync_type
+            turns_sync_on = validated_data.get("should_sync") is True and not instance.should_sync
+            had_incremental_field = bool(stored_incremental_field)
+            if not resulting_incremental_field and (switches_sync_type or turns_sync_on or had_incremental_field):
+                replication = (
+                    "incremental" if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL else "append only"
+                )
+                raise ValidationError(
+                    f"'{instance.name}' needs an incremental field for {replication} replication. "
+                    "Choose the field that tracks when rows change, or switch it to full table replication."
+                )
+
         trigger_refresh = False
         # Update the validated_data with incremental fields
         if resulting_sync_type in incremental_style_types:
@@ -1109,7 +1291,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # left at True repeats the full snapshot on every scheduled run. A capture
                 # position from an earlier CDC period belongs to a dropped slot.
                 payload["cdc_mode"] = "snapshot"
-                for stale_key in ("cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY):
+                for stale_key in (
+                    "cdc_last_log_position",
+                    CDC_RESET_PENDING_KEY,
+                    CDC_SNAPSHOT_LANE_KEY,
+                ):
                     payload.pop(stale_key, None)
                 instance.initial_sync_complete = False
                 validated_data["initial_sync_complete"] = False
@@ -1145,6 +1331,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # type that ever allowed 1min), clamp the inherited cadence to the floor so the switch
         # doesn't dead-end. The clamp flows through the sync_frequency handling below.
         resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        # An explicit `"sync_type": null` is saved too, so only an omitted field keeps the current type.
+        is_cdc = resulting_sync_type == ExternalDataSchema.SyncType.CDC
+        leaving_cdc = instance.sync_type == ExternalDataSchema.SyncType.CDC and not is_cdc
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
@@ -1178,10 +1367,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
-        # The schedule settings resend the interval on every save, so only a changed value restarts the clock.
+        # The schedule settings resend the interval and time on every save, so only a changed value restarts the clock.
         full_refresh_interval_days = validated_data.get(
             "full_refresh_interval_days", instance.full_refresh_interval_days
         )
+        full_refresh_time_of_day = validated_data.get("full_refresh_time_of_day", instance.full_refresh_time_of_day)
         if full_refresh_interval_days is not None and resulting_sync_type not in SCHEDULED_FULL_REFRESH_SYNC_TYPES:
             requested_days = validated_data.get("full_refresh_interval_days")
             if requested_days is not None and requested_days != instance.full_refresh_interval_days:
@@ -1200,10 +1390,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
                 }
             )
-        if full_refresh_interval_days != instance.full_refresh_interval_days:
+        # A time kept without an interval would apply silently to the next interval a caller sets.
+        if full_refresh_interval_days is None:
+            full_refresh_time_of_day = None
+            if "full_refresh_time_of_day" in validated_data:
+                validated_data["full_refresh_time_of_day"] = None
+        if (
+            full_refresh_interval_days != instance.full_refresh_interval_days
+            or full_refresh_time_of_day != instance.full_refresh_time_of_day
+        ):
             instance.full_refresh_interval_days = full_refresh_interval_days
+            instance.full_refresh_time_of_day = full_refresh_time_of_day
             instance.restart_full_refresh_clock()
             validated_data["full_refresh_interval_days"] = full_refresh_interval_days
+            validated_data["full_refresh_time_of_day"] = full_refresh_time_of_day
             validated_data["next_full_refresh_at"] = instance.next_full_refresh_at
 
         # A row can still carry a null interval from before that rejection. Turning the sync on, or
@@ -1228,13 +1428,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Catches a CDC schema being flipped on later when sync_type isn't changing — the
         # sync_type branch above doesn't run, so PK presence isn't enforced there.
-        effective_sync_type = sync_type or instance.sync_type
-        if (
-            should_sync is True
-            and not instance.should_sync
-            and effective_sync_type == ExternalDataSchema.SyncType.CDC
-            and not instance.primary_key_columns
-        ):
+        if should_sync is True and not instance.should_sync and is_cdc and not instance.primary_key_columns:
             raise ValidationError(
                 f"CDC requires a primary key on table '{instance.name}'. "
                 "Add a primary key on the source table and retry."
@@ -1244,11 +1438,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # force-projects a non-nullable `_ph_xmin` control column that no other sync type writes.
         # Reusing the existing Delta table fails the write — the column is missing on the way in, or
         # lingers on the way out — so force a full resync to rebuild the table from scratch.
-        if (
-            "sync_type" in data
-            and sync_type != instance.sync_type
-            and ExternalDataSchema.SyncType.XMIN in (sync_type, instance.sync_type)
-        ):
+        crosses_xmin = sync_type != instance.sync_type and ExternalDataSchema.SyncType.XMIN in (
+            sync_type,
+            instance.sync_type,
+        )
+        # cdc_only wrote the consolidated table only at its initial snapshot, so a sync type that goes on
+        # from that table would skip every change since then.
+        leaves_cdc_only = leaving_cdc and instance.cdc_table_mode == "cdc_only"
+        if "sync_type" in data and (crosses_xmin or leaves_cdc_only):
             if is_any_external_data_schema_paused(instance.team_id):
                 raise ValidationError(
                     "Monthly sync limit reached. Please increase your billing limit before changing "
@@ -1305,11 +1502,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 instance.table.save(update_fields=["columns"])
 
         # CDC publication management: add/remove table when toggling should_sync
-        is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
-            sync_type is None and instance.sync_type == ExternalDataSchema.SyncType.CDC
-        )
-        if is_cdc and source_type_supports_cdc(source.source_type):
-            self._handle_cdc_publication_change(instance, source, should_sync, sync_type, validated_data)
+        # A reset handed to capture paused the schedule, and capture only finishes a reset for a CDC table,
+        # so a table leaving CDC drops the pending reset and resumes its schedule itself.
+        resume_paused_schedule = leaving_cdc and bool((instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
+        if resume_paused_schedule:
+            instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
+        # Capture stops buffering the table, whoever manages the publication, so a later return to CDC
+        # must empty the buffer before its new snapshot.
+        if leaving_cdc:
+            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+        publication_removal: Callable[[], None] | None = None
+        if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
+            publication_removal = self._handle_cdc_publication_change(
+                instance, source, should_sync, sync_type, leaving_cdc, validated_data
+            )
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
@@ -1318,6 +1524,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+        if publication_removal is not None:
+            self._run_temporal_side_effect(publication_removal)
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
@@ -1343,19 +1551,40 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 self._run_temporal_side_effect(cancel_running_import)
 
         if source.supports_scheduled_sync and (
-            should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated
+            should_sync is not None
+            or was_sync_frequency_updated
+            or was_sync_time_of_day_updated
+            or resume_paused_schedule
         ):
 
             def update_schedule() -> None:
                 should_sync_value = should_sync if should_sync is not None else updated_instance.should_sync
                 # A reset left to capture keeps the schedule paused, and capture unpauses it once the reset is done.
                 reset_pending = bool((updated_instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
+                # Repair CDC unpauses the tables of a broken source, so an edit must not. A repair that
+                # is already running has listed its tables, so a table turned on now gets no hold. The
+                # lock is read first: a repair clears the markers before it releases the lock, so
+                # markers read after a free lock belong to no repair that is about to end.
+                repair_running = updated_instance.is_cdc and repair_is_running(source)
+                source_is_broken = updated_instance.is_cdc and tables_wait_for_repair(source)
+                waits_for_repair = source_is_broken and not repair_running
+                held = reset_pending or waits_for_repair
                 schedule_exists = external_data_workflow_exists(str(updated_instance.id))
 
                 if schedule_exists:
                     if should_sync is False:
                         pause_external_data_schedule(str(updated_instance.id))
-                    elif should_sync is True and not reset_pending:
+                    elif (should_sync is True or (resume_paused_schedule and should_sync_value)) and not held:
+                        unpause_external_data_schedule(str(updated_instance.id))
+                elif should_sync_value and waits_for_repair:
+                    # Repair CDC unpauses a schedule but cannot create one, and a new schedule's
+                    # first run would start even while it is paused.
+                    sync_external_data_job_workflow(
+                        updated_instance, create=True, should_sync=False, trigger_immediately=False
+                    )
+                    # A repair that started after the checks above may have resumed its tables
+                    # before this schedule existed, and it does not come back for it.
+                    if not reset_pending and (repair_is_running(source) or not tables_wait_for_repair(source)):
                         unpause_external_data_schedule(str(updated_instance.id))
                 elif should_sync_value:
                     # No schedule yet but the schema should be syncing — create (or recover) it. The
@@ -1369,9 +1598,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # schedule has nothing to update — updating a missing schedule raises "workflow not
                 # found" — so its new cadence is just saved and applies if/when it is enabled.
                 if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
-                    sync_external_data_job_workflow(
-                        updated_instance, create=False, should_sync=should_sync_value and not reset_pending
-                    )
+                    if source_is_broken:
+                        # The pause stays as it is, because a repair may have resumed the table
+                        # since the check above, and one that fails must not find it running.
+                        sync_external_data_job_workflow(
+                            updated_instance, create=False, should_sync=should_sync_value, keep_paused=True
+                        )
+                    else:
+                        sync_external_data_job_workflow(
+                            updated_instance, create=False, should_sync=should_sync_value and not reset_pending
+                        )
 
             self._run_temporal_side_effect(update_schedule)
 
@@ -1382,7 +1618,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._maybe_create_webhook(updated_instance)
 
         # Sync CDC extraction schedule after any CDC schema change
-        if is_cdc:
+        if is_cdc or leaving_cdc:
 
             def sync_cdc_schedule() -> None:
                 try:
@@ -1509,7 +1745,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not isinstance(source_impl, WebhookSource):
             return
 
-        config = source_impl.parse_config(source.job_inputs)
+        try:
+            config = source_impl.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError) as e:
+            raise ValidationError(UNREADABLE_SOURCE_CONFIG_ERROR) from e
         # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
         # rejects it), so there is no per-schema precedence to honor here.
         effective_api_version = source_impl.resolve_api_version(source.api_version)
@@ -1588,13 +1827,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         source: ExternalDataSource,
         should_sync: bool | None,
         sync_type: str | None,
+        leaving_cdc: bool,
         validated_data: dict[str, Any],
-    ) -> None:
-        """Add/remove the table from the CDC capture set when a schema is toggled or set to CDC."""
+    ) -> Callable[[], None] | None:
+        """Add/remove the table from the CDC capture set when a schema is toggled, set to CDC, or moved off CDC.
+
+        A removal comes back for the caller to run once the schema is saved. Run before the save, a
+        failed save would leave a table that capture still reads out of the publication, and the
+        changes made in the meantime would never reach it.
+        """
         adapter = get_cdc_adapter(source)
         cdc_config = adapter.parse_cdc_config(source)
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
-            return
+            return None
 
         _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
@@ -1605,9 +1850,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         newly_set_to_cdc = (
             sync_type == ExternalDataSchema.SyncType.CDC and instance.sync_type != ExternalDataSchema.SyncType.CDC
         )
-
         # Add table to capture set when enabling CDC or toggling sync on
-        if newly_set_to_cdc or (should_sync is True and not instance.should_sync):
+        if not leaving_cdc and (newly_set_to_cdc or (should_sync is True and not instance.should_sync)):
             try:
                 adapter.add_table(source, db_schema, source_table_name)
             except Exception as e:
@@ -1638,10 +1882,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 instance.initial_sync_complete = False
                 validated_data["initial_sync_complete"] = False
 
-        # Remove table from capture set when toggling sync off
-        elif should_sync is False and instance.should_sync:
-            adapter.remove_table(source, db_schema, source_table_name)
+        # Remove table from capture set when toggling sync off or moving it off CDC. Left in, capture
+        # keeps decoding the table's changes only to drop them, and the source keeps streaming them.
+        elif leaving_cdc or (should_sync is False and instance.should_sync):
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+            return lambda: adapter.remove_table(source, db_schema, source_table_name)
+        return None
 
 
 class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
@@ -1661,6 +1907,10 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     )
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this schema.")
 
+    sync_frequency = serializers.SerializerMethodField(
+        read_only=True, help_text="How often this table is scheduled to sync, or null if no interval is set."
+    )
+
     class Meta:
         model = ExternalDataSchema
         fields = [
@@ -1671,6 +1921,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "status",
             "sync_type",
             "last_synced_at",
+            "sync_frequency",
             "latest_error",
             "table",
         ]
@@ -1696,6 +1947,13 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_sync_frequency(self, schema: ExternalDataSchema) -> str | None:
+        try:
+            return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+        except ValueError:
+            return None
 
     def to_representation(self, instance: ExternalDataSchema) -> dict[str, Any]:
         ret = super().to_representation(instance)
@@ -1761,6 +2019,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSchema):
             if obj.source.is_system_managed:
                 raise PermissionDenied("This schema is managed by PostHog and cannot be changed through this API.")
+
+    def _assert_can_resume_destinations(self, schemas: Iterable[ExternalDataSchema]) -> None:
+        if is_service_auth(self.request):
+            return
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table wired to this destination.")
 
     @extend_schema(exclude=True)
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1873,6 +2140,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team_id=self.team_id,
             schema_id=schema.id,
             destination_ids=serializer.validated_data["destination_ids"],
+            authorize_resume=self._assert_can_resume_destinations,
         )
         return Response(
             status=status.HTTP_200_OK,
@@ -1927,6 +2195,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
+        refusal = manual_sync_refusal(instance.source)
+        if refusal is not None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": refusal})
+
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1974,70 +2246,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         },
     )
     @action(methods=["POST"], detail=True)
-    def resync(self, request: Request, *args: Any, **kwargs: Any):
+    def resync(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
-
-        if is_any_external_data_schema_paused(self.team_id):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
-            )
-
-        cdc_resync = instance.is_cdc
-        if cdc_resync:
-            # A sync that hands over after the reset would leave the reset pending on a streaming
-            # table, whose next run wipes it. Capture finishes the reset once that sync stops.
-            if hand_reset_to_capture_if_sync_running(instance, logger):
-                return Response(status=status.HTTP_200_OK)
-        else:
-            latest_running_job = (
-                ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
-                .order_by("-created_at")
-                .first()
-            )
-            if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
-                cancel_external_data_workflow(latest_running_job.workflow_id)
-
-        updates: dict[str, Any] = {"reset_pipeline": True}
-        removes: list[str] = []
-        if cdc_resync:
-            # Reset CDC state so the next run does a full re-snapshot
-            updates["cdc_mode"] = "snapshot"
-            removes = ["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY]
-            # Without the marker, the next capture run would empty the buffer, deleting changes a
-            # capture run already in progress wrote after the snapshot started reading.
-            if resnapshot_stays_in_buffer(instance):
-                updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
-
-        # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
-        # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source
-        # sees cdc_mode="snapshot" when it reloads the schema from DB — otherwise a race: the
-        # workflow starts, loads stale "streaming" mode, consumes the change buffer instead, and
-        # the full-refresh never runs.
-        # initial_sync_complete is saved in the same transaction as cdc_mode via extra_model_fields
-        # so no reader can observe cdc_mode="snapshot" with initial_sync_complete=True.
-        extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}
-        instance.sync_type_config = update_sync_type_config_keys(
-            instance.id, instance.team_id, updates=updates, removes=removes, extra_model_fields=extra
-        )
-        if cdc_resync:
-            instance.initial_sync_complete = False
-
-        try:
-            _trigger_schema_sync(instance)
-        except temporalio.service.RPCError as e:
-            # Only mark the schema Running once the trigger succeeded: a Running status with no
-            # workflow behind it sticks forever (nothing finalizes it) and blocks cancel. The
-            # sync_type_config reset above stays; the schema's intent is still "resync next run".
-            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-            return Response(
-                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        mark_schema_running_unless_halted(instance)
-
-        return Response(status=status.HTTP_200_OK)
+        return resync_schema(instance)
 
     @extend_schema(
         request=None,
@@ -2118,6 +2329,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=ExternalDataJob.Status.FAILED,
                     logger=logger,
                     latest_error="Sync cancelled by user",
+                    counts_as_source_failure=False,
                 )
             return Response(status=status.HTTP_200_OK)
 
@@ -2129,6 +2341,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=ExternalDataJob.Status.FAILED,
             logger=logger,
             latest_error="Sync cancelled by user",
+            counts_as_source_failure=False,
         )
         if model.status != ExternalDataJob.Status.FAILED:
             # The job reached a different terminal state concurrently (e.g. Completed).
@@ -2173,6 +2386,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
+        # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
+        # also pauses the schedule and takes a CDC table out of the publication. It runs even when
+        # should_sync is already false, so a retry after a failed pause pauses the schedule again.
+        serializer = self.get_serializer(instance, data={"should_sync": False}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)
@@ -2192,22 +2412,47 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type_enum = ExternalDataSourceType(source.source_type)
 
         new_source = SourceRegistry.get_source(source_type_enum)
-        config = new_source.parse_config(source.job_inputs)
+        try:
+            config = new_source.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError):
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
 
         effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
-        credentials_valid, credentials_error = new_source.validate_credentials(
-            config, self.team_id, instance.name, api_version=effective_api_version
-        )
+        try:
+            credentials_valid, credentials_error = new_source.validate_credentials(
+                config, self.team_id, instance.name, api_version=effective_api_version
+            )
+        except Exception as e:
+            credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
+                new_source, self.team_id, e
+            )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
+        stored_resource_id = (
+            (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
+            if new_source.uses_stable_schema_resource_ids
+            else None
+        )
         try:
             schemas = new_source.get_schemas(
                 config, self.team_id, names=[instance.name], api_version=effective_api_version
             )
+            # A stored resource id can outlive the stored name after an upstream rename. Discover every
+            # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
+            # filtered discovery.
+            if stored_resource_id is not None:
+                found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
+                found_resource_id = (
+                    (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+                )
+                if str(found_resource_id) != str(stored_resource_id):
+                    schemas = new_source.get_schemas(
+                        config, self.team_id, names=None, api_version=effective_api_version
+                    )
         except Exception as e:
             # `validate_credentials` above just probed the same connection successfully, so a
             # failure here that the source itself classifies is an expected customer or upstream
@@ -2238,7 +2483,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
-        schema = next((s for s in schemas if s.name == instance.name), None)
+        schema = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
         if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}

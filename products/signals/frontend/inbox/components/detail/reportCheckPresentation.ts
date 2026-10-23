@@ -2,7 +2,10 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SignalReportCheckApi,
+    SignalReportCheckInconclusiveReasonEnumApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportArtefact } from '../../types'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
@@ -31,17 +34,49 @@ export interface ReportCheckRowData {
     cancellable: boolean
 }
 
-/** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
+/** Mirrors `SignalReportCheck.InconclusiveReason`: why a run could not settle the claim, in plain words. */
+const CHECK_INCONCLUSIVE_REASONS: Record<SignalReportCheckInconclusiveReasonEnumApi, string> = {
+    awaiting_data: 'Not enough data yet',
+    unmeasurable: "The data it needs isn't captured",
+    needs_manual_verification: 'Needs a person to verify',
+    no_fix_to_measure: 'No fix to measure against',
+}
+
+export function inconclusiveReasonLabel(reason: string | null | undefined): string {
+    return (
+        CHECK_INCONCLUSIVE_REASONS[reason as SignalReportCheckInconclusiveReasonEnumApi] ??
+        'The evidence could not settle it'
+    )
+}
+
+export function monitoringPeriodLabel(minutes: number): string {
+    if (minutes === 0) {
+        return '0 minutes'
+    }
+    return [
+        [Math.floor(minutes / 1440), 'day'],
+        [Math.floor((minutes % 1440) / 60), 'hour'],
+        [minutes % 60, 'minute'],
+    ]
+        .filter(([value]) => Number(value) > 0)
+        .map(([value, unit]) => `${value} ${unit}${value === 1 ? '' : 's'}`)
+        .join(' ')
+}
+
+/** A soak window in the words the copy needs: "7 days", "1 day 12 hours", "2 hours", "45 minutes". */
 function soakLabel(minutes: number): string {
-    if (minutes % 1440 === 0) {
-        const days = minutes / 1440
-        return `${days} ${days === 1 ? 'day' : 'days'}`
+    const plural = (n: number, unit: string): string => `${n} ${n === 1 ? unit : `${unit}s`}`
+    if (minutes < 60) {
+        return plural(minutes, 'minute')
     }
-    if (minutes % 60 === 0) {
-        const hours = minutes / 60
-        return `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+    // Soaks the scout proposes are rarely whole hours, and a raw minute count is hard to read.
+    const totalHours = Math.round(minutes / 60)
+    if (totalHours < 24) {
+        return plural(totalHours, 'hour')
     }
-    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+    const days = Math.floor(totalHours / 24)
+    const hours = totalHours % 24
+    return hours ? `${plural(days, 'day')} ${plural(hours, 'hour')}` : plural(days, 'day')
 }
 
 /** Which scout answers an `agent` check. A `metric_threshold` check has no lane: the coordinator measures it. */
@@ -85,12 +120,57 @@ function joinDetail(parts: (string | null | undefined)[]): string {
     return parts.filter((part): part is string => !!part).join(' · ')
 }
 
+const MONITORING_CHECK_ROWS: Record<
+    NonNullable<SignalReportCheckApi['monitoring_timing']>['state'],
+    Pick<ReportCheckRowData, 'tag' | 'detail'>
+> = {
+    scheduled: {
+        tag: { label: 'Scheduled', type: 'primary' },
+        detail: 'Interim measurements collect evidence during this check’s observation window.',
+    },
+    due: {
+        tag: { label: 'Measurement due', type: 'primary' },
+        detail: 'The next interim measurement is due.',
+    },
+    window_ended: {
+        tag: { label: 'Awaiting verification', type: 'warning' },
+        detail: 'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+    },
+    no_interim_measurements: {
+        tag: { label: 'Observing', type: 'primary' },
+        detail: 'No interim measurement is scheduled before this check’s window ends.',
+    },
+    waiting: {
+        tag: { label: 'Waiting', type: 'muted' },
+        detail: 'Waiting for interim measurements to be scheduled.',
+    },
+    paused: {
+        tag: { label: 'Paused', type: 'muted' },
+        detail: 'This check is paused during Monitoring.',
+    },
+    archived: {
+        tag: { label: 'Paused', type: 'muted' },
+        detail: 'Checks are paused while this report is archived.',
+    },
+    unavailable: {
+        tag: { label: 'Timing unavailable', type: 'warning' },
+        detail: 'A Monitoring start time and a check observation window are needed to schedule measurements.',
+    },
+    expiry_reached: {
+        tag: { label: 'Expiry reached', type: 'muted' },
+        detail: 'This check has reached its expiry. No more measurements are scheduled.',
+    },
+}
+
 function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    if (check.monitoring_timing) {
+        return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
+    }
     const lane = laneLabel(check)
 
     if (check.status === 'pending') {
         const start = check.soak_minutes
-            ? `Starts ${soakLabel(check.soak_minutes)} after this report is resolved`
+            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
     }
@@ -103,7 +183,13 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
         }
     }
 
-    const work = lane ? `${lane} re-probes the claim` : 'Measures the metric again'
+    // An `awaiting_data` verdict keeps the check open, so the row says why it looks again.
+    const work =
+        check.last_outcome === 'inconclusive'
+            ? `${inconclusiveReasonLabel(check.last_outcome_reason)}, looks again`
+            : lane
+              ? `${lane} re-probes the claim`
+              : 'Measures the metric again'
     const runs = check.runs_remaining > 1 ? `${check.runs_remaining} runs left` : '1 run'
     return {
         tag: { label: `Runs ${shortDate(check.next_run_at)}`, type: 'primary' },
@@ -126,6 +212,11 @@ function terminalCheckRow(
             return {
                 tag: { label: "Couldn't measure", type: 'warning' },
                 detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
+            }
+        case 'inconclusive':
+            return {
+                tag: { label: 'Inconclusive', type: 'info' },
+                detail: joinDetail([inconclusiveReasonLabel(check.last_outcome_reason), ranOn, explanation]),
             }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }
@@ -226,6 +317,9 @@ export function splitReportCheckRows(rows: ReportCheckRowData[]): {
 
 /** The section header's right-hand summary: how many checks, and then the next thing that happens. */
 export function reportChecksMeta(checks: SignalReportCheckApi[]): string {
+    if (checks.some((check) => check.monitoring_timing)) {
+        return String(checks.length)
+    }
     if (checks.some(isRunning)) {
         // A dispatched check's `next_run_at` is the deadline its run has to answer by, so quoting it
         // as the next date would promise a run that is already under way.
@@ -256,6 +350,8 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     stopped_by_person: 'Stopped from the report before it could settle',
     stopped_by_scout: 'A scout run stopped it before it could settle',
     replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
+    replaced_by_request: 'Replaced on request by a revised check',
+    no_check_lane: 'Stopped because this project has no scout that can run it',
 }
 
 /**
@@ -268,11 +364,16 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
 
     if (content.arms_on_resolve) {
         const start = content.soak_minutes
-            ? `Starts ${soakLabel(content.soak_minutes)} after this report is resolved`
+            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return {
             tag: { label: 'Waiting for resolve', type: 'muted' },
-            detail: joinDetail([start, lane, runs]),
+            detail: joinDetail([
+                start,
+                content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
+                lane,
+                runs,
+            ]),
         }
     }
 

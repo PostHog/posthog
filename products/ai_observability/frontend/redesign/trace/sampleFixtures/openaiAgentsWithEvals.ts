@@ -1,4 +1,5 @@
-import { EvalResult, NodeProperties, ThreadMessage, TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalResult, NodeProperties, ThreadMessage } from '../types'
 import { SampleNodeDetail, SampleTraceFixture, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = 'trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE'
@@ -147,7 +148,7 @@ const planStats = sampleStats({ costUsd: 0.0016, inputTokens: 853, outputTokens:
 const answerStats = sampleStats({ costUsd: 0.0079, inputTokens: 1616, outputTokens: 586, latencyMs: 5995 })
 const runTotals = { costUsd: 0.0094, inputTokens: 2469, outputTokens: 635 }
 
-const tree: TraceTreeNode[] = [
+const tree: TraceNodeApi[] = [
     {
         id: TRACE_ID,
         kind: 'trace',

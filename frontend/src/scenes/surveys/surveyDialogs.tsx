@@ -108,6 +108,24 @@ export function openResumeSurveyDialog(survey: Pick<Survey, 'id' | 'type'>, onCo
     })
 }
 
+export function openStopSurveyDialog(onConfirm: () => void): void {
+    LemonDialog.open({
+        title: 'Stop this survey?',
+        content: <div className="text-sm text-secondary">The survey will no longer be displayed to users.</div>,
+        primaryButton: {
+            children: 'Stop',
+            type: 'primary',
+            onClick: onConfirm,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
 export function canDeleteSurvey(survey: Pick<Survey, 'archived' | 'start_date'>): boolean {
     return survey.archived || !survey.start_date
 }

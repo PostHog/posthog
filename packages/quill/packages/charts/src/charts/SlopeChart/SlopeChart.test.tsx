@@ -48,7 +48,7 @@ describe('SlopeChart', () => {
         )
         expect(chart.seriesCount).toBe(2)
         expect(chart.slopeSeriesLabels()).not.toContain('C')
-        expect(chart.slopeLegendItems().map((i) => i.label)).not.toContain('C')
+        expect(chart.legendItems().map((i) => i.label)).not.toContain('C')
     })
 
     describe('value labels', () => {
@@ -159,14 +159,14 @@ describe('SlopeChart', () => {
     describe('legend', () => {
         it('is hidden unless enabled', () => {
             const { chart } = renderHogChart(<SlopeChart series={SERIES} labels={LABELS} theme={THEME} />)
-            expect(chart.slopeLegendItems()).toHaveLength(0)
+            expect(chart.legendItems()).toHaveLength(0)
         })
 
         it('shows the label and signed change for each series', () => {
             const { chart } = renderHogChart(
                 <SlopeChart series={SERIES} labels={LABELS} config={{ legend: { show: true } }} theme={THEME} />
             )
-            expect(chart.slopeLegendItems()).toEqual([
+            expect(chart.legendItems()).toEqual([
                 { label: 'A', secondaryLabel: '+80' },
                 { label: 'B', secondaryLabel: '-60' },
             ])
@@ -184,7 +184,7 @@ describe('SlopeChart', () => {
                     theme={THEME}
                 />
             )
-            expect(chart.slopeLegendItems().map((i) => i.secondaryLabel)).toEqual(['↑80', '↓60'])
+            expect(chart.legendItems().map((i) => i.secondaryLabel)).toEqual(['↑80', '↓60'])
         })
 
         it('orders rows biggest-to-smallest by end value', () => {
@@ -197,7 +197,7 @@ describe('SlopeChart', () => {
             const { chart } = renderHogChart(
                 <SlopeChart series={series} labels={LABELS} config={{ legend: { show: true } }} theme={THEME} />
             )
-            expect(chart.slopeLegendItems().map((i) => i.label)).toEqual(['B', 'C', 'A'])
+            expect(chart.legendItems().map((i) => i.label)).toEqual(['B', 'C', 'A'])
         })
 
         it('toggles a series off and on when its legend row is clicked', () => {
@@ -214,7 +214,7 @@ describe('SlopeChart', () => {
             // The toggled-off series stays listed (so it can be restored).
             expect(
                 getHogChart(container)
-                    .slopeLegendItems()
+                    .legendItems()
                     .map((i) => i.label)
             ).toEqual(['A', 'B'])
 

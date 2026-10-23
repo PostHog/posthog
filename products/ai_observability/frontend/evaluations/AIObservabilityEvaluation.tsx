@@ -35,13 +35,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
-import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
-import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { CategoricalEvaluationConfig } from './components/CategoricalEvaluationConfig'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
+import { EvaluationModelPicker } from './components/EvaluationModelPicker'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
@@ -50,8 +48,8 @@ import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
 import {
-    EVALUATION_RUNS_QUERY_LIMIT,
     formatNumericEvaluationScore,
+    booleanOutputConfigError,
     numericOutputConfigError,
     categoricalOutputConfigError,
 } from './constants'
@@ -102,12 +100,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnable,
         canEnableReason,
         modelSelectionRequired,
+        numericBoundsRequired,
+        usesDecisionModel,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
-    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -124,7 +122,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
-    const categoricalEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CATEGORICAL_EVALS]
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
@@ -141,9 +138,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-        evaluation.id &&
-        evaluation.model_configuration?.provider !== 'system_one'
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesDecisionModel
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -189,8 +184,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
             : evaluation.output_type === 'categorical'
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
-                ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
-                : undefined
+                ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
+                : (booleanOutputConfigError(evaluation.output_config) ?? undefined)
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -253,15 +248,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-6">
+        <div className="@container/evaluation min-w-0 space-y-6">
             <SceneBreadcrumbBackButton />
             {/* Header */}
-            <SceneStickyBar hasSceneTitleSection={false} className="flex justify-between items-start gap-2 space-y-0">
+            <SceneStickyBar
+                hasSceneTitleSection={false}
+                className="flex flex-col justify-between items-start gap-4 space-y-0 @min-[64rem]/evaluation:flex-row"
+            >
                 <div className="space-y-2 min-w-0">
                     <h1 className="text-2xl font-semibold break-words">
                         {isNewEvaluation ? 'New evaluation' : evaluation.name}
                     </h1>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {isNewEvaluation ? (
                             <LemonTag type="primary">New</LemonTag>
                         ) : (
@@ -280,7 +278,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         )}
                     </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex flex-wrap gap-2 max-w-full">
                     {trendInsightUrl ? (
                         <LemonButton
                             type="secondary"
@@ -374,12 +372,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <div className="min-w-0">
                                         <p className="text-muted text-sm m-0">
                                             History of when this evaluation has been executed.
-                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
-                                                <>
-                                                    {' '}
-                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
-                                                </>
-                                            )}
                                         </p>
 
                                         {isReportableEvaluation && (
@@ -413,7 +405,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 ? '–'
                                                                 : `${runsSummary.successRate}%`}
                                                         </div>
-                                                        <div className="text-muted">Success rate</div>
+                                                        <div className="text-muted">Pass rate</div>
                                                     </div>
                                                 )}
                                                 {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (
@@ -424,12 +416,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Applicable</div>
                                                     </div>
                                                 )}
-                                                <div className="text-center">
-                                                    <div className="font-semibold text-lg text-danger">
-                                                        {runsSummary.errors}
-                                                    </div>
-                                                    <div className="text-muted">Errors</div>
-                                                </div>
                                             </div>
                                             <div className="text-muted text-xs">
                                                 {runsBackfillId
@@ -502,19 +488,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 />
                             ),
                         },
-                    !isNewEvaluation &&
-                        backfillsEnabled && {
-                            key: 'backfills',
-                            label: 'Backfills',
-                            'data-attr': 'llma-evaluation-backfills-tab',
-                            content: (
-                                <EvaluationBackfillsTab
-                                    evaluationId={evaluation.id}
-                                    userAccessLevel={evaluation.user_access_level ?? undefined}
-                                    onConfigurationClick={() => setActiveTab('configuration')}
-                                />
-                            ),
-                        },
+                    !isNewEvaluation && {
+                        key: 'backfills',
+                        label: 'Backfills',
+                        'data-attr': 'llma-evaluation-backfills-tab',
+                        content: (
+                            <EvaluationBackfillsTab
+                                evaluationId={evaluation.id}
+                                userAccessLevel={evaluation.user_access_level ?? undefined}
+                                onConfigurationClick={() => setActiveTab('configuration')}
+                            />
+                        ),
+                    },
                     {
                         key: 'configuration',
                         label: 'Configuration',
@@ -523,7 +508,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             <div className="max-w-4xl">
                                 <div className="space-y-6">
                                     {/* Basic Information */}
-                                    <div className="bg-bg-light border rounded p-6">
+                                    <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
                                         <h3 className="text-lg font-semibold mb-4">Basic information</h3>
 
                                         <div className="space-y-4">
@@ -613,9 +598,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </LemonField.Pure>
                                                     <p className="text-muted text-sm -mt-2">
                                                         {isSessionTarget
-                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for generations that have an $ai_session_id property.'
                                                             : evaluation.target === 'trace'
-                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              ? 'Runs once per trace on all of its events together, after it settles. Only fires for generations that have an $ai_trace_id property.'
                                                               : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
                                                     {isAggregateTarget && (
@@ -732,22 +717,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         value={evaluation.output_type}
                                                         options={[
                                                             { value: 'boolean', label: 'Boolean' },
-                                                            {
-                                                                value: 'categorical',
-                                                                label: 'Categorical',
-                                                                disabledReason:
-                                                                    isNewEvaluation && !categoricalEvaluationsEnabled
-                                                                        ? 'Categorical evaluations are not enabled for this project.'
-                                                                        : undefined,
-                                                            },
-                                                            {
-                                                                value: 'numeric',
-                                                                label: 'Numeric score',
-                                                                disabledReason:
-                                                                    isNewEvaluation && !numericEvaluationsEnabled
-                                                                        ? 'Numeric evaluations are not enabled for this project.'
-                                                                        : undefined,
-                                                            },
+                                                            { value: 'categorical', label: 'Categorical' },
+                                                            { value: 'numeric', label: 'Numeric score' },
                                                         ]}
                                                         onChange={(value) =>
                                                             setOutputType(
@@ -773,6 +744,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <NumericEvaluationConfig
                                                     config={evaluation.output_config}
                                                     onChange={patchOutputConfig}
+                                                    requiresBounds={numericBoundsRequired}
                                                 />
                                             )}
                                             <LemonField.Pure label="Description (optional)">
@@ -785,7 +757,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 />
                                             </LemonField.Pure>
 
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <Tooltip
                                                     title={canEnableReason}
                                                     visible={canEnableReason ? undefined : false}
@@ -825,7 +797,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         </div>
                                                     }
                                                 >
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex flex-wrap items-center gap-2">
                                                         <LemonSwitch
                                                             checked={evaluation.output_config.allows_na ?? false}
                                                             onChange={setAllowsNA}
@@ -854,7 +826,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         </div>
                                                     }
                                                 >
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex flex-wrap items-center gap-2">
                                                         <LemonSwitch
                                                             checked={evaluation.output_config.true_is_failure ?? false}
                                                             onChange={setTrueIsFailure}
@@ -873,7 +845,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                     {/* Prompt / Code Configuration */}
                                     {hasEditableCriteria && (
-                                        <div className="bg-bg-light border rounded p-6">
+                                        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
                                             <h3 className="text-lg font-semibold mb-4">
                                                 {isHog ? 'Evaluation code' : 'Evaluation prompt'}
                                             </h3>
@@ -887,7 +859,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     )}
 
                                     {/* Trigger Configuration */}
-                                    <div ref={triggersRef} className="bg-bg-light border rounded p-6">
+                                    <div
+                                        ref={triggersRef}
+                                        className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6"
+                                    >
                                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
                                         <p className="text-muted text-sm mb-4">
                                             The evaluation runs on generations that match any one of these condition
@@ -938,64 +913,28 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                         <EvaluationReportConfig evaluationId={evaluation.id} />
                                     </div>
                                 )}
+                                <div className="flex justify-end mt-6">
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Evaluation}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={evaluation.user_access_level ?? undefined}
+                                    >
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={handleSave}
+                                            disabledReason={saveButtonDisabledReason}
+                                            loading={evaluationFormSubmitting}
+                                            data-attr="llma-evaluation-save-bottom"
+                                        >
+                                            {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </div>
                             </div>
                         ),
                     },
                 ]}
             />
-        </div>
-    )
-}
-
-function EvaluationModelPicker(): JSX.Element {
-    const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
-        useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation } =
-        useValues(llmEvaluationLogic)
-    const { selectModelFromPicker } = useActions(llmEvaluationLogic)
-
-    // Evals always run on the team's own provider key, so only BYOK models are offered.
-    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
-    const groups = evaluationProviderModelGroups.filter(
-        (group) => evaluation?.output_type === 'boolean' || group.provider !== 'system_one'
-    )
-    const loading = byokModelsLoading || providerKeysLoading
-
-    const footerLink = getModelPickerFooterLink(groups.some((group) => !group.disabledReason))
-
-    return (
-        <div className="bg-bg-light border rounded p-6">
-            <h3 className="text-lg font-semibold mb-2">Judge model</h3>
-            <p className="text-muted text-sm mb-4">
-                Select which LLM provider and model to use for running this evaluation.
-            </p>
-
-            <div className="space-y-4">
-                <LemonField.Pure label="Model">
-                    <div>
-                        <ModelPicker
-                            model={selectedModel}
-                            selectedProviderKeyId={selectedPickerProviderKeyId}
-                            onSelect={selectModelFromPicker}
-                            groups={groups}
-                            loading={loading}
-                            footerLink={footerLink}
-                            selectedModelName={selectedModelName}
-                            data-attr="evaluation-model-selector"
-                        />
-                        <ByokModelPickerNotice forEvaluation />
-                        {evaluation?.model_configuration?.provider === 'system_one' && (
-                            <p className="text-sm text-muted mt-2">
-                                This judge returns a probability without written reasoning. A probability of 50% or
-                                higher produces a true result.
-                            </p>
-                        )}
-                        {modelSelectionRequired && !selectedModel && (
-                            <p className="text-sm text-danger mt-1">Select a judge model.</p>
-                        )}
-                    </div>
-                </LemonField.Pure>
-            </div>
         </div>
     )
 }

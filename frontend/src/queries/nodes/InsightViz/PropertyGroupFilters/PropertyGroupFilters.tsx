@@ -29,7 +29,7 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    hasDataWarehouseSeries?: boolean
+    globalFiltersUnsupported?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -39,7 +39,7 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    hasDataWarehouseSeries,
+    globalFiltersUnsupported,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { featureFlags } = useValues(featureFlagLogic)
@@ -62,7 +62,7 @@ export function PropertyGroupFilters({
         [propertyGroupFilter.values]
     )
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = hasDataWarehouseSeries
+    const disabledReason = globalFiltersUnsupported
         ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
         : undefined
     return (

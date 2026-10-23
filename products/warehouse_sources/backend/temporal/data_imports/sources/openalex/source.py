@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,6 +45,8 @@ FILTERABLE_ENDPOINTS: dict[str, str] = {
 
 @SourceRegistry.register
 class OpenalexSource(ResumableSource[OpenalexSourceConfig, OpenAlexResumeConfig]):
+    codebase_detection = detect(env=("^OPENALEX_",), pypi=("pyalex",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # OpenAlex serves a single unversioned API at api.openalex.org: no version path segment,
     # header or param, so there is nothing to pin.
@@ -129,7 +132,7 @@ Keys are free and take about a minute to create at [openalex.org/settings/api](h
 OpenAlex indexes over 300 million works and 120 million authors, which is more than a free key's daily allowance covers. Use the filter fields to narrow the works, authors and awards tables to the records you care about, for example `authorships.institutions.lineage:i27837315` for one institution's papers. The [filtering guide](https://developers.openalex.org/guides/filtering) lists the available filter fields. Leave a filter blank to sync the whole entity.""",
             iconPath="/static/services/openalex.png",
             docsUrl="https://posthog.com/docs/cdp/sources/openalex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["research", "scholarly", "citations", "publications"],
             fields=cast(
                 list[FieldType],

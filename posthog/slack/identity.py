@@ -2,9 +2,10 @@
 
 Token-agnostic: every function takes a ``slack_sdk.WebClient`` so the caller supplies the
 workspace's bot token (the conversations SupportHog bot, the generic Slack ``Integration``,
-etc.). Profile and avatar lookups are cached in Redis. Slack user ids are only guaranteed
-unique per workspace, so profile cache keys are namespaced by the required ``workspace``
-(the Slack team id); email keys are globally unique already.
+etc.). Profile and avatar lookups are cached in Redis. Neither a Slack user id nor an email
+address identifies the same person across workspaces — an id is only unique within one, and
+one address can belong to different people in two — so every cache key is namespaced by
+``workspace`` (the Slack team id the client's token points at).
 """
 
 from types import MappingProxyType
@@ -22,7 +23,7 @@ logger = structlog.get_logger(__name__)
 
 # Short TTLs keep cached Slack profiles/avatars reasonably fresh.
 SLACK_USER_CACHE_TTL = 5 * 60  # 5 minutes
-SLACK_AVATAR_CACHE_TTL = 5 * 60  # 5 minutes
+SLACK_PROFILE_CACHE_TTL = 5 * 60  # 5 minutes
 
 _UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None, "team_id": None})
 
@@ -52,9 +53,10 @@ def set_cached_slack_user(slack_user_id: str, user_info: dict, workspace: str) -
         logger.warning("slack_identity_cache_set_error", key=key)
 
 
-def get_cached_slack_avatar(email: str) -> str | None:
-    """Get cached Slack avatar URL for an email. Returns None on cache miss, empty string for negative cache."""
-    key = _make_cache_key("slack_avatar", email.lower())
+def get_cached_slack_profile(email: str, workspace: str) -> dict | None:
+    """Get the cached Slack profile for an email in this workspace. Returns None on cache miss,
+    an empty dict for negative cache."""
+    key = _make_cache_key("slack_profile", workspace, email.lower())
     try:
         return cache.get(key)
     except Exception:
@@ -62,11 +64,11 @@ def get_cached_slack_avatar(email: str) -> str | None:
         return None
 
 
-def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
-    """Cache a Slack avatar URL (or empty string for negative cache)."""
-    key = _make_cache_key("slack_avatar", email.lower())
+def set_cached_slack_profile(email: str, profile: dict, workspace: str) -> None:
+    """Cache a Slack profile (or an empty dict for negative cache)."""
+    key = _make_cache_key("slack_profile", workspace, email.lower())
     try:
-        cache.set(key, avatar_url, timeout=SLACK_AVATAR_CACHE_TTL)
+        cache.set(key, profile, timeout=SLACK_PROFILE_CACHE_TTL)
     except Exception:
         logger.warning("slack_identity_cache_set_error", key=key)
 
@@ -117,14 +119,26 @@ def resolve_slack_user(client: WebClient, slack_user_id: str, *, workspace: str)
         return dict(_UNKNOWN_USER)
 
 
-def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
-    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
+def resolve_slack_profile_by_email(client: WebClient, email: str, *, workspace: str | None) -> dict | None:
+    """Look up a Slack user by email and return ``{"name", "avatar"}``. Cached in Redis.
+
+    ``None`` when the email matches no Slack user (or the lookup failed), so callers can
+    tell "no Slack identity" apart from "matched, but no avatar set". Needs the
+    ``users:read.email`` scope on the token.
+
+    The profile belongs to whichever workspace ``client``'s token points at, and the same
+    email can resolve to different people in two of them, so ``workspace`` (the Slack team
+    id) namespaces the cache. Pass ``None`` when the caller can't identify the workspace:
+    the lookup then bypasses the cache entirely rather than sharing one unkeyed entry
+    between workspaces.
+    """
     if not email:
         return None
 
-    cached = get_cached_slack_avatar(email)
-    if cached is not None:
-        return cached or None  # empty string = negative cache
+    if workspace:
+        cached = get_cached_slack_profile(email, workspace)
+        if cached is not None:
+            return cached or None  # empty dict = negative cache
 
     try:
         response = client.users_lookupByEmail(email=email)
@@ -132,18 +146,29 @@ def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
         data: dict = raw_data if isinstance(raw_data, dict) else {}
 
         if not data.get("ok"):
-            set_cached_slack_avatar(email, "")
+            if workspace:
+                set_cached_slack_profile(email, {}, workspace)
             return None
 
         profile = (data.get("user") or {}).get("profile") or {}
-        avatar = profile.get("image_72") or ""
-        set_cached_slack_avatar(email, avatar)
-        return avatar or None
+        resolved = {
+            "name": profile.get("display_name") or profile.get("real_name") or "",
+            "avatar": profile.get("image_72") or "",
+        }
+        if workspace:
+            set_cached_slack_profile(email, resolved, workspace)
+        return resolved
     except Exception:
         # Don't negative-cache on transient errors (rate limits, network)
         # so the next reply retries the lookup.
-        logger.warning("slack_avatar_lookup_failed", email=email)
+        logger.warning("slack_profile_lookup_failed", email=email)
         return None
+
+
+def resolve_slack_avatar_by_email(client: WebClient, email: str, *, workspace: str | None) -> str | None:
+    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
+    profile = resolve_slack_profile_by_email(client, email, workspace=workspace)
+    return (profile or {}).get("avatar") or None
 
 
 def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:

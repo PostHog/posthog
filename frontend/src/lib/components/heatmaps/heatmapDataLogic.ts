@@ -32,6 +32,20 @@ import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
+export interface HeatmapDateRangeOverride {
+    date_from: string
+    date_to: string
+    timestamp_from: string
+    timestamp_to: string
+}
+
+export interface HeatmapHistoryView {
+    owner: string
+    dateRange: HeatmapDateRangeOverride
+    width: number
+    imageUrl: string
+}
+
 // The endpoint defaults to a bounded page for API callers; the overlay renders every point.
 const UNBOUNDED_HEATMAP_LIMIT = 0
 
@@ -171,6 +185,8 @@ export interface heatmapDataLogicValues {
     areaEventsLoadingMore: boolean
     commonFilters: CommonFilters
     dateRange: string | null
+    dateRangeOverride: HeatmapDateRangeOverride | null
+    effectiveCommonFilters: CommonFilters
     filteredHeatmapElements: HeatmapElement[]
     heatmapBoundsFilter: HeatmapBoundsFilter | null
     heatmapColorPalette: string | null
@@ -182,6 +198,7 @@ export interface heatmapDataLogicValues {
     heatmapTooltipNoun: string
     heatmapTooltipSuppressed: boolean
     heightOverride: number
+    historyView: HeatmapHistoryView | null
     href: string | null
     hrefMatchType: HrefMatchType
     isHeightCapped: boolean
@@ -288,6 +305,9 @@ export interface heatmapDataLogicActions {
     setHeatmapTooltipSuppressed: (suppressed: boolean) => {
         suppressed: boolean
     }
+    setHistoryView: (view: HeatmapHistoryView | null) => {
+        view: HeatmapHistoryView | null
+    }
     setHref: (href: string) => {
         href: string
     }
@@ -312,9 +332,18 @@ export interface heatmapDataLogicActions {
 export interface heatmapDataLogicMeta {
     key: 'in-app' | 'toolbar'
     __keaTypeGenInternalSelectorTypes: {
+        dateRangeOverride: (historyView: HeatmapHistoryView | null) => HeatmapDateRangeOverride | null
+        effectiveCommonFilters: (
+            commonFilters: CommonFilters,
+            dateRangeOverride: HeatmapDateRangeOverride | null
+        ) => CommonFilters
         dateRange: (commonFilters: CommonFilters) => string | null
         heatmapElements: (rawHeatmap: HeatmapResponseType | null) => HeatmapElement[]
-        analysisWidth: (windowWidthOverride: number | null, windowWidth: number) => number
+        analysisWidth: (
+            windowWidthOverride: number | null,
+            windowWidth: number,
+            historyView: HeatmapHistoryView | null
+        ) => number
         viewportRange: (
             heatmapFilters: HeatmapFilters,
             analysisWidth: number
@@ -355,6 +384,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
     actions({
         loadHeatmap: true,
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
+        setHistoryView: (view: HeatmapHistoryView | null) => ({ view }),
         setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
@@ -390,6 +420,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 setCommonFilters: (_, { filters }) => filters,
             },
         ],
+        historyView: [null as HeatmapHistoryView | null, { setHistoryView: (_, { view }) => view }],
         heatmapFilters: [
             DEFAULT_HEATMAP_FILTERS,
             { persist: true },
@@ -497,7 +528,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     actions.setIsReady(false)
 
-                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } =
+                        values.effectiveCommonFilters
                     const { type, aggregation } = values.heatmapFilters
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -506,6 +538,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
+                            timestamp_from: values.dateRangeOverride?.timestamp_from,
+                            timestamp_to: values.dateRangeOverride?.timestamp_to,
                             url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
                             url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
                             viewport_width_min: values.viewportRange.min,
@@ -539,7 +573,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     await breakpoint(100)
 
-                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids, events } =
+                        values.effectiveCommonFilters
                     const { type } = values.heatmapFilters
 
                     const apiURL = `${heatmapApiPath(props.context, 'events/')}${encodeParams(
@@ -547,6 +582,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
+                            timestamp_from: values.dateRangeOverride?.timestamp_from,
+                            timestamp_to: values.dateRangeOverride?.timestamp_to,
                             url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
                             url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
                             viewport_width_min: values.viewportRange.min,
@@ -568,6 +605,17 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
     })),
     selectors(({ props }) => ({
+        dateRangeOverride: [
+            (s) => [s.historyView],
+            (view: HeatmapHistoryView | null): HeatmapDateRangeOverride | null => view?.dateRange ?? null,
+        ],
+        effectiveCommonFilters: [
+            (s) => [s.commonFilters, s.dateRangeOverride],
+            (commonFilters: CommonFilters, dateRangeOverride: HeatmapDateRangeOverride | null): CommonFilters =>
+                dateRangeOverride
+                    ? { ...commonFilters, date_from: dateRangeOverride.date_from, date_to: dateRangeOverride.date_to }
+                    : commonFilters,
+        ],
         dateRange: [
             (s) => [s.commonFilters],
             (commonFilters: Partial<FilterType>) => {
@@ -613,9 +661,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         // match that width and not the width of the analyst's own browser. In the toolbar the
         // overlay sits on the real page, so the live window width is the right anchor.
         analysisWidth: [
-            (s) => [s.windowWidthOverride, s.windowWidth],
-            (windowWidthOverride: number | null, windowWidth: number): number =>
-                windowWidthOverride ?? (props.context === 'in-app' ? DEFAULT_HEATMAP_WIDTH : windowWidth),
+            (s) => [s.windowWidthOverride, s.windowWidth, s.historyView],
+            (windowWidthOverride: number | null, windowWidth: number, historyView: HeatmapHistoryView | null): number =>
+                historyView?.width ??
+                windowWidthOverride ??
+                (props.context === 'in-app' ? DEFAULT_HEATMAP_WIDTH : windowWidth),
         ],
 
         viewportRange: [
@@ -741,6 +791,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             actions.clearSelectedArea()
             actions.loadHeatmap()
         },
+        setHistoryView: () => {
+            actions.clearSelectedArea()
+            actions.setIsReady(false)
+            actions.resetHeatmapData()
+            actions.loadHeatmap()
+        },
         setHeatmapFilters: () => {
             actions.loadHeatmap()
         },
@@ -752,9 +808,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             actions.loadHeatmap()
         },
         setHref: () => {
-            actions.loadHeatmap()
-        },
-        setWindowWidthOverride: () => {
             actions.loadHeatmap()
         },
         setSelectedArea: ({ area }) => {
@@ -770,7 +823,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 return
             }
 
-            const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.commonFilters
+            const { date_from, date_to, filter_test_accounts, cohort_ids, events } = values.effectiveCommonFilters
             const { type } = values.heatmapFilters
             const nextOffset = currentEvents.results.length
 
@@ -779,6 +832,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     type,
                     date_from,
                     date_to,
+                    timestamp_from: values.dateRangeOverride?.timestamp_from,
+                    timestamp_to: values.dateRangeOverride?.timestamp_to,
                     url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
                     url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
                     viewport_width_min: values.viewportRange.min,
@@ -816,10 +871,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
-        windowWidth: () => {
-            actions.loadHeatmap()
-        },
-        windowHeight: () => {
+        analysisWidth: () => {
             actions.loadHeatmap()
         },
     })),

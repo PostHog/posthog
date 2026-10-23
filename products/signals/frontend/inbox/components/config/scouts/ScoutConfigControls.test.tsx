@@ -31,13 +31,23 @@ const config: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
+    precheck_disabled: false,
+    effective_precheck_query: null,
+    precheck_query_source: 'off',
+    last_precheck_at: null,
+    last_precheck_outcome: null,
+    last_precheck_row_count: null,
     tags: [],
     source_product: null,
     source_id: null,
@@ -77,15 +87,19 @@ describe('ScoutConfigForm', () => {
         expect(onUpdate).toHaveBeenCalledWith('config-1', { emit: expectedPatch })
     })
 
-    // Settable while the scout is off, so a dry-run posture can be chosen before the enable
-    // sends the first run out.
-    it('leaves the dry-run switch editable while the scout is disabled', () => {
+    // Settable while the scout is off: a dry-run posture has to be chosen before the enable sends
+    // the first run out, and the lock decides who may resume a paused scout.
+    it.each([
+        ['dry-run', emitSwitchLabel],
+        ['owner lock', 'signals-scout-general only the owner can pause or delete'],
+        ['show in inbox', 'signals-scout-general show in inbox'],
+    ])('leaves the %s switch editable while the scout is disabled', (_name, label) => {
         const onUpdate = jest.fn()
         const { getByLabelText } = render(
             <ScoutConfigForm config={{ ...config, enabled: false }} onUpdate={onUpdate} />
         )
 
-        expect(getByLabelText(emitSwitchLabel)).not.toBeDisabled()
+        expect(getByLabelText(label)).not.toBeDisabled()
     })
 
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
@@ -204,8 +218,12 @@ describe('ScoutConfigForm', () => {
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
     it.each([
-        ['Claude Sonnet 5', 'claude-sonnet-5'],
+        ['Claude Sonnet 5.5', 'claude-sonnet-5-5'],
+        ['Claude Opus 5.5', 'claude-opus-5-5'],
+        ['GPT-6 Luna', 'gpt-6-luna'],
         ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+        ['GPT-6.1 Sol', 'gpt-6.1-sol'],
+        ['GPT-6 Sol', 'gpt-6-sol'],
         ['GPT-6 Astra', 'gpt-6-astra'],
     ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
         featureFlagLogic.mount()
@@ -229,6 +247,47 @@ describe('ScoutConfigForm', () => {
         unmount()
     })
 
+    it('keeps showing a stored pin that the picker no longer offers', () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
+            [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
+        })
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, model: 'claude-opus-5' }} onUpdate={jest.fn()} />
+        )
+
+        const select = getByLabelText('signals-scout-general model')
+        expect(select).toHaveTextContent('claude-opus-5')
+        expect(select).not.toHaveTextContent('Default')
+        unmount()
+    })
+
+    // An update replaces the stored destinations, so a toggle that sends only the inbox flag
+    // would silently turn off Slack delivery and drop the webhook.
+    it.each([
+        ['hides', true, false],
+        ['shows', false, true],
+    ])('%s the scout in the inbox and keeps its Slack and webhook destinations', (_action, inbox, expected) => {
+        const onUpdate = jest.fn()
+        const outputDestinations = {
+            slack: { integration_id: 7, channel: 'C123', thread_reports: false },
+            webhook: { hog_function_id: 'hog-function-1' },
+            inbox,
+        }
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, output_destinations: outputDestinations }} onUpdate={onUpdate} />
+        )
+        const inboxSwitch = getByLabelText(`${config.skill_name} show in inbox`)
+        expect(inboxSwitch).toHaveAttribute('aria-checked', String(inbox))
+
+        fireEvent.click(inboxSwitch)
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', {
+            output_destinations: { ...outputDestinations, inbox: expected },
+        })
+        unmount()
+    })
+
     it('adds normalized tags as a full replacement set', () => {
         const onUpdate = jest.fn()
         const { getByLabelText, unmount } = render(
@@ -240,6 +299,28 @@ describe('ScoutConfigForm', () => {
         fireEvent.keyDown(input, { key: 'Enter' })
 
         expect(onUpdate).toHaveBeenCalledWith('config-1', { tags: ['on-call', 'revenue'] })
+        unmount()
+    })
+
+    // The scout page keeps the form mounted when the URL moves to another scout, so a draft left on
+    // one scout would otherwise sit in the next scout's editor, ready to save there.
+    it('drops an unsaved schema draft when the form moves to another scout', () => {
+        const onUpdate = jest.fn()
+        const draft = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
+        const { getByText, getByLabelText, queryByDisplayValue, rerender, unmount } = render(
+            <ScoutConfigForm config={config} onUpdate={onUpdate} />
+        )
+        fireEvent.click(getByText('Structured output'))
+        fireEvent.change(getByLabelText(`${config.skill_name} record schema`), { target: { value: draft } })
+
+        rerender(
+            <ScoutConfigForm
+                config={{ ...config, id: 'config-2', skill_name: 'signals-scout-other' }}
+                onUpdate={onUpdate}
+            />
+        )
+
+        expect(queryByDisplayValue(draft)).toBeNull()
         unmount()
     })
 })

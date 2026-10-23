@@ -4,32 +4,29 @@ from dataclasses import (
 )
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class UtmIssueSeverity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
 
 
-class UtmIssueKind(StrEnum):
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class UtmIssueKind(LabeledStrEnum):
     # Campaign name matches zero events. Safest fix: update platform URLs.
-    NOT_LINKED = "not_linked"
+    NOT_LINKED = "not_linked", "not_linked"
     # Campaign name matches events on another integration but not this one.
-    NAME_COLLISION = "name_collision"
+    NAME_COLLISION = "name_collision", "name_collision"
     # Campaign name matches events, but with a utm_source that belongs to another integration.
     # Mapping would break the other integration's attribution.
-    NO_TAGGED_EVENTS = "no_tagged_events"
+    NO_TAGGED_EVENTS = "no_tagged_events", "no_tagged_events"
     # Campaign name matches events with a utm_source unknown to every integration.
     # Safe to suggest a custom source mapping as an alternative to fixing the URLs.
-    UNKNOWN_SOURCE = "unknown_source"
+    UNKNOWN_SOURCE = "unknown_source", "unknown_source"
     # Campaign name matches events, but they carry no utm_source at all (empty/missing).
     # Common for auto-tagged campaigns (e.g. Performance Max) that set utm_campaign only.
-    MISSING_SOURCE = "missing_source"
-
-
-# Choice list for the API serializer. Derived from the enum so the two can't drift, and referenced
-# by name from SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"] so the generated schema keeps a stable
-# enum name instead of a hash-suffixed one.
-UTM_ISSUE_KIND_CHOICES = [kind.value for kind in UtmIssueKind]
+    MISSING_SOURCE = "missing_source", "missing_source"
 
 
 class SuggestedAction(StrEnum):
@@ -47,7 +44,7 @@ class SuggestedAction(StrEnum):
     ADD_CAMPAIGN_NAME_MAPPING = "add_campaign_name_mapping"
 
 
-# Same reason as UTM_ISSUE_KIND_CHOICES above: a stable enum name in the generated schema.
+# Choice list for the API serializer. Derived from the enum so the two can't drift.
 SUGGESTED_ACTION_CHOICES = [action.value for action in SuggestedAction]
 
 

@@ -1,1 +1,1 @@
-0158_signalscoutconfig_managed_by
+0197_signalscratchpad_trgm_fastupdate_off

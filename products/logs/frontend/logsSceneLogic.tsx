@@ -18,6 +18,7 @@ import {
     LogsViewerGroupBy,
     LogsViewerViewMode,
     MAX_GROUP_BY_DIMENSIONS,
+    PatternsBaselineMode,
 } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
@@ -53,6 +54,8 @@ export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${
 export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
 
 const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
+
+const VALID_BASELINE_MODES: PatternsBaselineMode[] = ['preceding', 'lastWeek']
 
 const VALID_GROUP_BY_SOURCES = Object.values(LogsGroupBySourceEnumApi)
 
@@ -158,6 +161,8 @@ export interface logsSceneLogicValues {
     facetNameSearch: string // facetRailLogic
     anomaliesDateRange: DateRange // logsAnomaliesLogic
     anomaliesService: string | null // logsAnomaliesLogic
+    baselineMode: PatternsBaselineMode // logsViewerConfigLogic
+    compareEnabled: boolean // logsViewerConfigLogic
     groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
     viewMode: LogsViewerViewMode // logsViewerConfigLogic
@@ -202,6 +207,12 @@ export interface logsSceneLogicActions {
     ) => {
         groupBy: LogsViewerGroupBy
         index: number
+    } // logsViewerConfigLogic
+    setBaselineMode: (mode: PatternsBaselineMode) => {
+        mode: PatternsBaselineMode
+    } // logsViewerConfigLogic
+    setCompareEnabled: (enabled: boolean) => {
+        enabled: boolean
     } // logsViewerConfigLogic
     setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
         groupBys: LogsViewerGroupBy[]
@@ -274,7 +285,16 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['setOrderBy', 'setViewMode', 'setGroupBys', 'addGroupBy', 'removeGroupByAt', 'replaceGroupByAt'],
+            [
+                'setOrderBy',
+                'setViewMode',
+                'setGroupBys',
+                'addGroupBy',
+                'removeGroupByAt',
+                'replaceGroupByAt',
+                'setCompareEnabled',
+                'setBaselineMode',
+            ],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -290,7 +310,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['orderBy', 'viewMode', 'groupBys'],
+            ['orderBy', 'viewMode', 'groupBys', 'compareEnabled', 'baselineMode'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -302,6 +322,18 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         ],
     })),
     urlToAction(({ actions, values, cache }) => {
+        // An absent or unrecognised param turns compare off. Set the baseline first, so that
+        // turning compare on loads one diff, against the linked baseline.
+        const applyCompareParam = (raw: unknown): void => {
+            const baseline = VALID_BASELINE_MODES.find((mode) => mode === raw) ?? null
+            if (baseline && baseline !== values.baselineMode) {
+                actions.setBaselineMode(baseline)
+            }
+            if (!!baseline !== values.compareEnabled) {
+                actions.setCompareEnabled(!!baseline)
+            }
+        }
+
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return
@@ -417,6 +449,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (groupBys && !equal(groupBys, values.groupBys)) {
                 actions.setGroupBys(groupBys)
             }
+            applyCompareParam(params.compare)
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
@@ -568,6 +601,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             )
         }
 
+        const syncCompare = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'compare', values.compareEnabled ? values.baselineMode : null, null)
+                    return params
+                })
+            )
+        }
+
         const syncGroupBys = (): ReturnType<typeof syncSearchParams> => {
             return withUrlSyncGuard(() =>
                 syncSearchParams(router, (params: Params) => {
@@ -595,6 +637,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             addGroupBy: () => syncGroupBys(),
             removeGroupByAt: () => syncGroupBys(),
             replaceGroupByAt: () => syncGroupBys(),
+            setCompareEnabled: () => syncCompare(),
+            setBaselineMode: () => syncCompare(),
         }
     }),
 

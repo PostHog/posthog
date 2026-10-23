@@ -1,4 +1,5 @@
-import { ConversationState, LabeledLink, TimelineRowData, TraceMode, TraceTreeNode } from '../types'
+import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
+import { ConversationState, LabeledLink, TraceMode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
 import { Thread } from './Thread'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
@@ -14,13 +15,14 @@ export interface TraceViewReadyProps {
     summary: TraceSummaryBarProps
     mode: TraceMode
     onModeChange: (mode: TraceMode) => void
-    tree: TraceTreeNode[]
+    tree: TraceNodeApi[]
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
+    onPrefetchNode: (id: string) => void
     onSelectFromView: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode'> | null
     thread: ConversationState
-    timeline: { rows: TimelineRowData[]; totalMs: number }
+    timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
 }
 
 export type TraceViewProps =
@@ -45,6 +47,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     tree={props.tree}
                     selectedNodeId={props.selectedNodeId}
                     onSelectNode={props.onSelectNode}
+                    onPrefetchNode={props.onPrefetchNode}
                     detail={props.detail}
                 />
             ) : props.mode === 'thread' ? (
@@ -55,6 +58,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     totalMs={props.timeline.totalMs}
                     selectedNodeId={props.selectedNodeId}
                     onSelectNode={props.onSelectFromView}
+                    onPrefetchNode={props.onPrefetchNode}
                 />
             )}
         </div>

@@ -10,6 +10,9 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+from posthog.scopes import APIScopeObject
+
 
 class PropertyAccessLevel(str, Enum):
     """Effective access level for a property."""
@@ -21,6 +24,10 @@ class PropertyAccessLevel(str, Enum):
     def grants_access(self) -> bool:
         """Returns True if this level allows the property to be read in queries."""
         return self in (PropertyAccessLevel.READ_WRITE, PropertyAccessLevel.READ)
+
+
+class UserNotOrganizationMemberError(ValueError):
+    """The user has no membership in the organization, so their property access cannot be resolved."""
 
 
 # --- Output DTOs ---
@@ -60,14 +67,35 @@ class PropertyAccessControlState:
 # --- Input DTOs ---
 
 
-@dataclass(frozen=True)
+@frozen
+class ObjectAccessRef:
+    """The fields object-level access control reads from one object, without the model.
+
+    A view that serves a facade contract passes this to `check_object_permissions` in place of a
+    model instance. Resolution needs only the resource, the object id, and the creator. A resource
+    that inherits access from a parent object through a foreign key (`RESOURCE_FALLBACK_MAP`)
+    cannot be resolved from a reference, so the check raises for it.
+    """
+
+    resource: APIScopeObject
+    id: str
+    team_id: int
+    created_by_id: int | None
+
+
+@frozen
 class UpsertPropertyAccessControlInput:
     """Input for creating or updating an access control rule."""
 
-    property_definition_id: str
     access_level: PropertyAccessLevel
+    property_definition_id: str | None = None
+    ai_property: str | None = None
     organization_member_id: UUID | None = None
     role_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if (self.property_definition_id is None) == (self.ai_property is None):
+            raise ValueError("Provide exactly one of property_definition_id or ai_property.")
 
 
 @dataclass(frozen=True)
@@ -109,3 +137,14 @@ class ObjectAccessControlRule:
     access_level: str
     organization_member_id: UUID | None
     role_id: UUID | None
+
+
+@frozen
+class TerraformLock:
+    """The state of the Terraform lock of one project. has_terraform_account is true when Terraform
+    wrote access rules to the project at least once. An enabled lock with no account refuses all
+    writes until that first write."""
+
+    managed: bool
+    terraform_last_applied_at: datetime | None
+    has_terraform_account: bool

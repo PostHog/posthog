@@ -1,0 +1,77 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product aeo
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product aeo
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: AI citation tracking
+feature: aeo
+url_prefix: /web/content-autopilot
+ui_apps: {}
+tools:
+    aeo-prompts-get:
+        operation: aeo_prompts_retrieve
+        enabled: true
+        title: Get a tracked AI prompt
+        description: >
+            Get one AI citation tracking prompt by id, with its topic, on/off state, when it last ran, and
+            `latest_checks`, the newest result per answer engine. Get the id from `aeo-prompts-list`.
+        param_overrides:
+            id:
+                description: The prompt id (a UUID), from `aeo-prompts-list`.
+        feature_flag: aeo-citation-tracking
+    aeo-prompts-import:
+        operation: aeo_prompts_bulk_import
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Import AI prompts to track
+        description: >
+            Add prompts to the project's AI citation tracking set, up to 2000 per call. Each item has the `prompt` text,
+            an optional `topic` and an optional `external_visibility` (0-100). Prompts are matched to existing ones by
+            normalized text (case and whitespace ignored), so importing the same set again does not create duplicates: a
+            match updates the topic and visibility and keeps the prompt's on/off state. Empty prompts, and prompts too
+            long for the answer engines, are skipped. Returns the `created`, `updated` and `skipped` counts. New prompts
+            run in the next daily check. Write prompts the way a person would ask an AI assistant, and ask the user to
+            confirm the list before you import it.
+        feature_flag: aeo-citation-tracking
+    aeo-prompts-list:
+        operation: aeo_prompts_list
+        enabled: true
+        list: true
+        title: List tracked AI prompts
+        description: >
+            List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to
+            check whether their answers cite the project's site. Each prompt has its text, topic, on/off state
+            (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`,
+            `check_failed`, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an
+            empty string selects prompts with no topic) and by `active`. Results are paginated with `limit`/`offset` and
+            ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find
+            a prompt id before calling `aeo-prompts-update`.
+        feature_flag: aeo-citation-tracking
+    aeo-prompts-topics-list:
+        operation: aeo_prompts_topics
+        enabled: true
+        title: List tracked AI prompt topics
+        description: >
+            List the topics in the project's AI citation tracking prompt set, with the number of prompts in each. An
+            empty topic groups the prompts that have no topic. Use the values as the `topic` filter of
+            `aeo-prompts-list`.
+        feature_flag: aeo-citation-tracking
+    aeo-prompts-update:
+        operation: aeo_prompts_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Turn a tracked AI prompt on or off
+        description: >
+            Turn one AI citation tracking prompt on (`active: true`) or off (`active: false`). Only active prompts run
+            in the daily check. Turning a prompt off keeps its past results, and turning it on again resumes the checks.
+            This is the only field you can change; the prompt text and topic change only through `aeo-prompts-import`.
+            Returns the updated prompt.
+        param_overrides:
+            id:
+                description: The prompt id (a UUID), from `aeo-prompts-list`.
+        feature_flag: aeo-citation-tracking

@@ -17,7 +17,11 @@ export function ObservationFacts({ observation }: { observation: ReplayObservati
         <FactList>
             <Fact label="Person">
                 {observation.distinct_id ? (
-                    <Link to={urls.personByDistinctId(observation.distinct_id)} className="block truncate">
+                    <Link
+                        data-attr="vision-observation-open-person"
+                        to={urls.personByDistinctId(observation.distinct_id)}
+                        className="block truncate"
+                    >
                         {person}
                     </Link>
                 ) : observation.recording_subject_email ? (

@@ -4,17 +4,17 @@ from typing import Any, cast
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.auth import InternalAPIUser
 from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_ATTACHED_SKILLS,
     OUTPUT_FIELD_TYPES,
+    WorkflowTaskAICreditsExhausted,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
@@ -28,25 +28,19 @@ from products.tasks.backend.facade.workflow_tasks import (
     build_output_schema,
     create_workflow_task,
 )
-from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
-from products.workflows.backend.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.facade.api import (
+    WorkflowNotFound,
+    get_workflow_owner_id,
+    get_workflow_task_daily_limits,
+)
+from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
 
 logger = structlog.get_logger(__name__)
 
 
-class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
+class WorkflowTasksJWTAuthentication(WorkflowStepJWTAuthentication):
     purpose = TASKS_CREATE_PURPOSE
-
-    # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
-        user, _ = super()._authenticate_claims(request, claims)
-        # The workflow is identified by the verified token, never by the request body, so a
-        # token minted for one workflow can't create tasks attributed to another.
-        try:
-            hog_flow_id = uuid.UUID(str(claims.get("hog_flow_id")))
-        except ValueError:
-            raise AuthenticationFailed("Service token is missing its workflow claim.")
-        return user, hog_flow_id
 
 
 class WorkflowTaskSlackContextSerializer(serializers.Serializer):
@@ -218,15 +212,8 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
         if owner_id is None:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-        config = (
-            TeamWorkflowsConfig.objects.filter(team_id=team_id)
-            .only("workflow_task_rate_limit_per_day", "workflow_task_team_rate_limit_per_day")
-            .first()
-        )
-        rate_limits = WorkflowTaskRateLimits(
-            per_workflow=config.workflow_task_rate_limit_per_day if config is not None else None,
-            per_team=config.workflow_task_team_rate_limit_per_day if config is not None else None,
-        )
+        daily_limits = get_workflow_task_daily_limits(team_id=team_id)
+        rate_limits = WorkflowTaskRateLimits(per_workflow=daily_limits.per_workflow, per_team=daily_limits.per_team)
 
         try:
             result = create_workflow_task(
@@ -311,6 +298,17 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 "Task creation resumes when the limit resets.",
                 status.HTTP_409_CONFLICT,
             )
+        except WorkflowTaskAICreditsExhausted:
+            logger.info(
+                "workflow_task_create_ai_credits_exhausted",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+            )
+            return _rejected(
+                "This project has used its monthly PostHog AI credits, so no task was created. "
+                "Raise the AI credit limit in billing settings, or wait for the next billing period.",
+                status.HTTP_409_CONFLICT,
+            )
 
         return Response(
             WorkflowTaskResponseSerializer({"id": result.task_id, "run_id": result.run_id}).data,
@@ -326,7 +324,7 @@ def _resolve_workflow_owner(team_id: int, hog_flow_id: uuid.UUID) -> int | None:
     """The workflow's creator, who the run executes as. Read from the row rather than the
     request so a token can never assert a different user. Eligibility (active account,
     current project access) is enforced in-transaction by the tasks service."""
-    hog_flow = HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).only("created_by_id").first()
-    if hog_flow is None or hog_flow.created_by_id is None:
+    try:
+        return get_workflow_owner_id(team_id=team_id, workflow_id=hog_flow_id)
+    except WorkflowNotFound:
         return None
-    return hog_flow.created_by_id

@@ -5,6 +5,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 
@@ -20,6 +21,8 @@ from posthog.models.user import User
 from products.slack_app.backend.api import _app_mention_ignore_reason
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
+
+_EU_ADHOC_INSIGHT_URL = "https://eu.posthog.com/project/2/insights/new#q=%7B%22kind%22%3A%22InsightVizNode%22%7D"
 
 
 class TestLinkSharedUrlRegion(SimpleTestCase):
@@ -40,6 +43,9 @@ class TestLinkSharedUrlRegion(SimpleTestCase):
                 ["https://eu.posthog.com/project/2/replay/abc", "https://us.posthog.com/i/abc"],
                 "US",
             ),
+            ("adhoc_insight_alone", [_EU_ADHOC_INSIGHT_URL], "EU"),
+            # Beside another link the handler drops an ad hoc link, so it must not route the event.
+            ("adhoc_insight_beside_a_saved_link", [_EU_ADHOC_INSIGHT_URL, "https://us.posthog.com/i/abc"], "US"),
         ]
     )
     def test_region_from_link_hosts(self, _name: str, urls: list[str], expected: str | None) -> None:
@@ -602,6 +608,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        self.posthog_code_integration.config = {**self.posthog_code_integration.config, "app_id": "A123"}
+        self.posthog_code_integration.save()
         mock_post_feedback.return_value = True
 
         from products.slack_app.backend.api import (
@@ -622,6 +630,10 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_post_feedback.assert_called_once()
         feedback_text = mock_post_feedback.call_args.args[4]
         assert "stranger@example.com" in feedback_text
+        # The install holds the identity scopes, so the reply points to linking an existing
+        # account. An invite to the Slack email can't be accepted from a different email.
+        assert "Settings > Personal integrations" in feedback_text
+        assert "<slack://app?team=T12345&id=A123&tab=home|my Home tab>" in feedback_text
         assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message") is True
 
         # The mention is still reported to analytics with ``posthog_user_identified=False``
@@ -806,6 +818,79 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @parameterized.expand(
         [
+            (
+                "pull_request_command",
+                "<@UBOT123> review --deep <https://github.com/acme/widgets/pull/7|acme/widgets#7>",
+                "review",
+                True,
+            ),
+            ("anything_else", "<@UBOT123> review --deep <https://github.com/acme/widgets/pull/7>", None, True),
+            ("no_subject", "<@UBOT123> can you review this deeply", "review", False),
+            ("addressed_to_someone_else", "<@UALICE> review <https://github.com/acme/widgets/pull/7>", "review", False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.bare_mention.clear_awaited_request")
+    @patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="UBOT123")
+    @patch("products.slack_app.backend.api.commands_api.accept_slack_mention")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_mention_with_a_pull_request_command_runs_it_without_the_agent(
+        self,
+        _name,
+        text,
+        accepted_verb,
+        reaches_commands,
+        mock_sync_connect,
+        mock_asyncio_run,
+        mock_accept,
+        _bot,
+        mock_clear_awaited,
+    ):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        mock_accept.return_value = accepted_verb
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        result = route_posthog_code_event_to_relevant_region(request, {**self.event, "text": text}, "T12345")
+
+        if reaches_commands:
+            mention = mock_accept.call_args.args[0]
+            assert mention.text == "review --deep https://github.com/acme/widgets/pull/7"
+            assert mention.organization_ids == (str(self.organization.id),)
+            assert mention.user_ids[0] == self.user.id
+            assert (mention.channel, mention.thread_ts, mention.message_ts) == ("C001", "1234.5678", "1234.5678")
+        else:
+            mock_accept.assert_not_called()
+        if accepted_verb and reaches_commands:
+            assert result == ROUTE_HANDLED_LOCALLY
+            mock_sync_connect.assert_not_called()
+            # A bare mention earlier in the thread waited for this request, so a later reply is not one.
+            mock_clear_awaited.assert_called_once_with("T12345", "C001", "1234.5678")
+        else:
+            mock_sync_connect.return_value.start_workflow.assert_called_once()
+
+    @patch("products.slack_app.backend.api.linked_posthog_user_ids", side_effect=OperationalError("statement timeout"))
+    @patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="UBOT123")
+    @patch("products.slack_app.backend.api.commands_api.accept_slack_mention")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_a_failed_linked_account_lookup_leaves_the_mention_to_the_agent(
+        self, mock_sync_connect, _asyncio_run, mock_accept, _bot, _linked
+    ):
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        text = "<@UBOT123> review <https://github.com/acme/widgets/pull/7>"
+
+        route_posthog_code_event_to_relevant_region(request, {**self.event, "text": text}, "T12345")
+
+        mock_accept.assert_not_called()
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
             ("top_level", {}, None),
             ("thread_opener", {"thread_ts": "1234.5678"}, None),
             ("thread_reply", {"thread_ts": "1111.2222"}, "1111.2222"),
@@ -841,10 +926,19 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         passed_integration = mock_unfurl.call_args[0][1]
         assert passed_integration.id == self.posthog_code_integration.id
 
+    @parameterized.expand(
+        [
+            ("task_link", "https://us.posthog.com/project/{team}/tasks/{task}"),
+            (
+                "artifact_download_link",
+                "https://us.posthog.com/api/projects/{team}/tasks/{task}/runs/{task}/artifacts/a1/download/",
+            ),
+        ]
+    )
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_link_shared_routes_to_project_integration(self, mock_claims, mock_unfurl):
+    def test_link_shared_routes_to_project_integration(self, _name, url_template, mock_claims, mock_unfurl):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_integration = Integration.objects.create(
             team=other_team,
@@ -857,7 +951,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         event = {
             "type": "link_shared",
             "channel": "C001",
-            "links": [{"url": f"https://us.posthog.com/project/{other_team.id}/tasks/{task_id}"}],
+            "links": [{"url": url_template.format(team=other_team.id, task=task_id)}],
         }
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
@@ -1703,9 +1797,8 @@ class TestQueueWorkflowDispatch(TestCase):
         # Every message in a conversation must land in ONE per-thread workflow
         # via signal-with-start — the conversation ID anchors on the thread
         # root so followups reach the same instance.
-        from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
-
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentionWorkflow
 
         mock_slack.return_value.missing_scopes.return_value = set()
         event = {
@@ -1761,12 +1854,19 @@ class TestUntaggedFollowupPrompt(SimpleTestCase):
 
 
 class TestPostSlackUserEphemeral(SimpleTestCase):
-    def test_request_timeout_applies_to_the_client_that_makes_the_call(self):
+    @parameterized.expand(
+        [
+            ("ephemeral", lambda slack, api: api._post_slack_user_ephemeral(slack, "C001", "U123", None, "nope")),
+            ("feedback", lambda slack, api: api._post_slack_user_feedback(slack, "C001", "U123", "1.0", "nope")),
+        ]
+    )
+    def test_request_timeout_applies_to_the_client_that_makes_the_call(self, _name, post):
         # ``SlackIntegration.client`` builds a fresh WebClient on every access, so setting
         # the timeout on one access and calling on another leaves the request on the SDK
         # default. Nothing about the app's behavior changes when that happens, so only an
         # assertion on the client instance catches it.
-        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+        from products.slack_app.backend import api
+        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS
 
         built_clients: list[MagicMock] = []
 
@@ -1776,7 +1876,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
                 built_clients.append(MagicMock())
                 return built_clients[-1]
 
-        posted = _post_slack_user_ephemeral(cast(SlackIntegration, _NewClientPerAccess()), "C001", "U123", None, "nope")
+        posted = post(cast(SlackIntegration, _NewClientPerAccess()), api)
 
         assert posted is True
         assert len(built_clients) == 1

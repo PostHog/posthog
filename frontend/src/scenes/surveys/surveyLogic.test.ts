@@ -2,8 +2,10 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import {
+    getSurveyTranslationDraftPayload,
     mergeResponsesByQuestion,
     processOpenEndedResults,
     processResultsForSurveyQuestions,
@@ -247,6 +249,116 @@ describe('translation validation', () => {
                 },
             ],
         })
+    })
+
+    it.each(['introScreenHeader', 'introScreenDescription', 'introScreenButtonText'] as const)(
+        'validates the %s translation like the confirmation message',
+        async (field) => {
+            const survey = {
+                ...createPersistedSurvey(),
+                appearance: { displayIntroScreen: true, [field]: 'Welcome' },
+                translations: { fr: { [field]: '[Translation needed]' } },
+            } as Survey
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(survey)
+            }).toMatchValues({
+                translationValidationErrors: [
+                    {
+                        language: 'fr',
+                        questionIndex: -1,
+                        field,
+                        error: 'Contains placeholder "[Translation needed]"',
+                    },
+                ],
+            })
+        }
+    )
+
+    it.each([
+        [
+            'on',
+            true,
+            [
+                {
+                    language: 'fr',
+                    questionIndex: -1,
+                    field: 'backButtonText',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ],
+        ],
+        ['off', false, []],
+    ] as const)('validates the back button translation with going back %s', async (_name, allowGoBack, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { allowGoBack },
+            translations: { fr: { backButtonText: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it.each([
+        ['an empty button text', 'introScreenButtonText', '', []],
+        ['an unset button text', 'introScreenButtonText', undefined, []],
+        [
+            'an empty header',
+            'introScreenHeader',
+            '',
+            [
+                {
+                    language: 'default',
+                    questionIndex: -1,
+                    field: 'introScreenHeader',
+                    error: 'Cannot be empty (has translation)',
+                },
+            ],
+        ],
+    ] as const)('checks a translated intro field against %s', async (_name, field, base, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: true, [field]: base },
+            translations: { fr: { [field]: 'Commencer' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it('skips intro translation checks while the intro is off', async () => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: false, introScreenHeader: 'Welcome' },
+            translations: { fr: { introScreenHeader: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: [] })
+    })
+
+    it.each([
+        ['an enabled intro with no button text', { displayIntroScreen: true }, 'Get started'],
+        ['an enabled intro with button text', { displayIntroScreen: true, introScreenButtonText: 'Go' }, 'Go'],
+        ['a disabled intro', { displayIntroScreen: false }, undefined],
+    ] as const)('sends the effective intro button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.introScreenButtonText).toBe(expected)
+    })
+
+    it.each([
+        ['back enabled with no button text', { allowGoBack: true }, 'Back'],
+        ['back enabled with button text', { allowGoBack: true, backButtonText: 'Go back' }, 'Go back'],
+        ['back disabled', { allowGoBack: false, backButtonText: 'Go back' }, undefined],
+    ] as const)('sends the effective back button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.backButtonText).toBe(expected)
     })
 
     it('does not validate survey root description translations', async () => {
@@ -1456,27 +1568,78 @@ describe('survey filters', () => {
         expect((exportSource as { query: string }).query).not.toContain('AS response,')
     })
 
-    it('adds only the chosen context columns to the responses table and the export', async () => {
-        const tableQuery = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
+    it.each([
+        {
+            column: { type: TaxonomicFilterGroupType.EventProperties, key: '$current_url' } as const,
+            tableSelect: 'column_0 AS "properties.$current_url"',
+            tableRead: 'properties.$current_url AS column_0',
+            exportAlias: '"Current URL"',
+        },
+        {
+            column: { type: TaxonomicFilterGroupType.PersonProperties, key: 'plan tier' } as const,
+            tableSelect: 'column_0 AS "person.properties.plan tier"',
+            tableRead: 'person.properties."plan tier" AS column_0',
+            exportAlias: '"Person: plan tier"',
+        },
+        {
+            column: { type: TaxonomicFilterGroupType.EventProperties, key: 'Status' } as const,
+            tableSelect: 'column_0 AS "properties.Status"',
+            tableRead: 'properties.Status AS column_0',
+            exportAlias: '"Status (2)"',
+        },
+        {
+            column: {
+                type: TaxonomicFilterGroupType.EventProperties,
+                key: 'Q1: Which types of content would you like to see more of?',
+            } as const,
+            tableSelect: 'column_0 AS "properties.Q1: Which types of content would you like to see more of?"',
+            tableRead: 'properties."Q1: Which types of content would you like to see more of?" AS column_0',
+            exportAlias: '"Q1: Which types of content would you like to see more of? (2)"',
+        },
+        {
+            column: { type: TaxonomicFilterGroupType.EventProperties, key: '`a`, 1 AS `b`' } as const,
+            tableSelect: 'column_0 AS "properties.`a`, 1 AS `b`"',
+            tableRead: 'properties."`a`, 1 AS `b`" AS column_0',
+            exportAlias: '"`a`, 1 AS `b`"',
+        },
+        {
+            column: { type: 'person_id' } as const,
+            tableSelect: 'person_id AS person_id',
+            tableRead: 'argMax(person_id, tuple(timestamp, event_uuid)) AS person_id',
+            exportAlias: '"Person ID"',
+        },
+    ])(
+        'adds the column selected as $tableSelect to the responses table and the export',
+        async ({ column, tableSelect, tableRead, exportAlias }) => {
+            const tableQuery = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
+            const exportQuery = (): string => (logic.values.responsesExportQuery?.source as { query: string }).query
 
-        await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
-        }).toDispatchActions(['loadSurveySuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            }).toDispatchActions(['loadSurveySuccess'])
 
-        expect(tableQuery()).not.toContain('current_url')
-        expect(logic.values.responsesExportQuery?.columns).not.toContain('Current URL')
+            expect(tableQuery()).not.toContain(tableSelect)
+            expect(exportQuery()).not.toContain(`AS ${exportAlias}`)
 
-        await expectLogic(logic, () => {
-            logic.actions.setResponseContextColumn('current_url', true)
-        }).toDispatchActions(['setResponseContextColumn'])
+            await expectLogic(logic, () => {
+                logic.actions.addResponseColumn(column)
+                logic.actions.addResponseColumn(column)
+            }).toDispatchActions(['addResponseColumn', 'addResponseColumn'])
 
-        expect(tableQuery()).toContain('properties.`$current_url` AS current_url')
-        // Row actions render in the rightmost column, so context columns come before them.
-        expect(tableQuery()).toContain('current_url AS current_url,\nuuid AS actions')
-        expect(tableQuery()).not.toContain('person_id AS person_id')
-        expect(logic.values.responsesExportQuery?.columns).toContain('Current URL')
-        expect(logic.values.responsesExportQuery?.columns).not.toContain('Person ID')
-    })
+            expect(tableQuery()).toContain(tableRead)
+            // Row actions render in the rightmost column, so chosen columns come before them.
+            expect(tableQuery()).toContain(`${tableSelect},\nuuid AS actions`)
+            expect(tableQuery().split(tableSelect)).toHaveLength(2)
+            expect(exportQuery()).toContain(`AS ${exportAlias}`)
+
+            await expectLogic(logic, () => {
+                logic.actions.removeResponseColumn(column)
+            }).toDispatchActions(['removeResponseColumn'])
+
+            expect(tableQuery()).not.toContain(tableSelect)
+            expect(exportQuery()).not.toContain(`AS ${exportAlias}`)
+        }
+    )
 
     it('keeps question text out of the generated HogQL', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question

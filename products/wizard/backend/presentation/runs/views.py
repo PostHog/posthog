@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import cast
 from uuid import UUID
 
@@ -37,6 +38,7 @@ from products.wizard.backend.presentation.runs.serializers import (
     WizardRunTaskListSerializer,
 )
 from products.wizard.backend.presentation.runs.stream import wizard_run_event_stream
+from products.wizard.backend.presentation.security import refuse_blocked_gateway_identity
 from products.wizard.backend.presentation.sessions.views import EventStreamRenderer, _wizard_sync_killswitch_enabled
 from products.wizard.backend.presentation.throttles import WizardRunCreateThrottle, WizardRunReadThrottle
 
@@ -78,7 +80,12 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 style="form",
                 explode=False,
                 description="Filter by one or more comma-separated run statuses.",
-            )
+            ),
+            OpenApiParameter(
+                name="created_after",
+                type=datetime,
+                description="Only return runs created after this timestamp.",
+            ),
         ],
         description="List Wizard runs for this project, ordered from newest to oldest.",
     )
@@ -109,6 +116,7 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if params.environment == WizardRunEnvironment.CLOUD:
             self._validate_cloud_creation(request)
+            refuse_blocked_gateway_identity(request, self.team.organization_id, call_site="wizard_run")
 
         try:
             result = wizard_facade.create_run_with_result(params)

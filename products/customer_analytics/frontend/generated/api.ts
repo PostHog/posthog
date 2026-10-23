@@ -486,7 +486,7 @@ export const getAccountViewsCreateUrl = (projectId: string) => {
 }
 
 /**
- * @summary Create a private account view
+ * @summary Create a personal account view
  */
 export const accountViewsCreate = async (
     projectId: string,
@@ -2693,7 +2693,7 @@ export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id:
 }
 
 /**
- * Get the requesting user's account sidebar and task digest configuration for this project. The first read creates an empty configuration row.
+ * Get the requesting user's account sidebar and task digest configuration for this project. Project defaults are returned until the user saves a personal pinned-property selection.
  * @summary Get account sidebar configuration
  */
 export const userCustomerAnalyticsConfigRetrieve = async (
@@ -2712,7 +2712,7 @@ export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string
 }
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdate = async (

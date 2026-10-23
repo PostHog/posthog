@@ -38,8 +38,10 @@ class Env0EndpointConfig:
     # Terraform output) and secret-bearing fields (deployment variable values, injected
     # OIDC/VCS tokens) that must not be persisted to the warehouse.
     strip_fields: tuple[str, ...] = ()
-    # Endpoint supports env0's server-side fromDate/toDate window (must be passed together).
+    # Endpoint supports env0's server-side date window (both bounds must be passed together).
     supports_date_window: bool = False
+    # Query params that carry the window's lower and upper bound.
+    date_window_params: tuple[str, str] = ("fromDate", "toDate")
     # Fan-out parent fields copied onto each row, mapped to the column they land in. The
     # parent id keeps the primary key unique table-wide; a parent timestamp gives a child with
     # no time field of its own an incremental cursor.
@@ -47,6 +49,9 @@ class Env0EndpointConfig:
     # Nested object lifted into the row root, for endpoints that bury the row's identity one
     # level down (organization users wrap everything but role and status under "user").
     flatten_field: Optional[str] = None
+    # Rows without this field are dropped, for single-object endpoints that answer with an empty
+    # object when the resource is not configured (a project with no budget).
+    required_field: Optional[str] = None
     # Safety overlap subtracted from the incremental watermark on every run, re-pulling a
     # window that merge dedupes on the primary key. Deployments mutate after creation
     # (status/finishedAt land when the run completes), so re-pulling the last day refreshes
@@ -179,6 +184,92 @@ ENV0_ENDPOINTS: dict[str, Env0EndpointConfig] = {
                 "label": "deployment_started_at",
                 "type": IncrementalFieldType.DateTime,
                 "field": "deployment_started_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "deployment_steps": Env0EndpointConfig(
+        name="deployment_steps",
+        path="/deployments/{parent_id}/steps",
+        scope="deployment",
+        # A step's id is optional in the API schema; its position and name within the deployment
+        # are always present.
+        primary_keys=["deployment_id", "order", "name"],
+        inject_parent_fields={"id": "deployment_id", "startedAt": "deployment_started_at"},
+        supports_date_window=True,
+        incremental_lookback=timedelta(hours=24),
+        incremental_fields=[
+            {
+                "label": "deployment_started_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "deployment_started_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "roles": Env0EndpointConfig(
+        name="roles",
+        path="/roles",
+        scope="organization",
+        org_id_param="organizationId",
+        # Built-in roles can come back without an id; role names are unique within an organization.
+        primary_keys=["organization_id", "name"],
+        inject_parent_fields={"id": "organization_id"},
+    ),
+    "team_role_assignments": Env0EndpointConfig(
+        name="team_role_assignments",
+        path="/roles/assignments/teams?projectId={parent_id}",
+        scope="project",
+        # A team can hold a direct and an inherited assignment on the same project.
+        primary_keys=["project_id", "teamId", "id"],
+        inject_parent_fields={"id": "project_id"},
+    ),
+    "user_role_assignments": Env0EndpointConfig(
+        name="user_role_assignments",
+        # env0 only exposes user role assignments at environment scope.
+        path="/roles/assignments/users?environmentId={parent_id}",
+        scope="environment",
+        primary_keys=["environment_id", "userId"],
+        inject_parent_fields={"id": "environment_id"},
+        # The nested user carries identity provider access and refresh tokens. userId joins to
+        # organization_users instead.
+        strip_fields=("user",),
+    ),
+    "project_budgets": Env0EndpointConfig(
+        name="project_budgets",
+        path="/costs/project/{parent_id}/budget",
+        scope="project",
+        primary_keys=["projectId"],
+        required_field="projectId",
+    ),
+    "project_budget_summaries": Env0EndpointConfig(
+        name="project_budget_summaries",
+        # The endpoint takes a comma-separated list, but the fan-out resolves one project at a time.
+        path="/costs/budget/summary?projectIds={parent_id}",
+        scope="project",
+        primary_keys=["projectId"],
+    ),
+    "audit_logs": Env0EndpointConfig(
+        name="audit_logs",
+        path="/audit/events",
+        scope="organization",
+        org_id_param="organizationId",
+        # Returns {"events": [...], "nextPageKey": ...}; the next request sends nextPageKey back as
+        # `offset`. 1000 is the documented page size maximum.
+        paginated=True,
+        data_key="events",
+        params={"limit": "1000"},
+        partition_key="timestamp",
+        # actor and attributedToUser embed the full user, identity provider tokens included.
+        # actorId and attributedTo keep the ids.
+        strip_fields=("actor", "attributedToUser"),
+        supports_date_window=True,
+        date_window_params=("from", "to"),
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],

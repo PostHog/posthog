@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock
 
 from django.contrib.gis.geoip2 import GeoIP2, GeoIP2Exception
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from posthog.geoip import geoip, get_geoip_properties
 
@@ -36,7 +36,7 @@ def test_geoip_results(test_input, expected_country):
     assert len(properties) >= 5
 
 
-class TestGeoIPDBError(TestCase):
+class TestGeoIPDBError(SimpleTestCase):
     def setUp(self) -> None:
         self.geoip_city_method = cast(GeoIP2, geoip).city
         geoip.city = Mock(side_effect=GeoIP2Exception("GeoIP file not found"))  # type: ignore
@@ -50,7 +50,7 @@ class TestGeoIPDBError(TestCase):
         self.assertEqual(properties, {})
 
 
-class TestGeoIPError(TestCase):
+class TestGeoIPError(SimpleTestCase):
     def test_geoip_on_localhost_ip_returns_successfully(self):
         properties = get_geoip_properties(localhost_ip)
 

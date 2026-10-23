@@ -12,12 +12,12 @@ import {
     tableKeyString,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { MlDecodedMessage, ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage } from './image-shard-store'
 import {
-    CAPTURE_TIMESTAMP_HEADER,
     CONTENT_ENCODING_HEADER,
     CONTENT_TYPE_HEADER,
     InvalidImageTransportError,

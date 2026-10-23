@@ -64,6 +64,7 @@ from posthog.temporal.alerts.admission import (
     hold_evaluation_slot,
     inflight_alert_ids,
 )
+from posthog.temporal.alerts.investigation import MAX_INVESTIGATIONS_PER_EPISODE
 from posthog.temporal.alerts.retry_policy import SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -82,8 +83,9 @@ from products.alerts.backend.facade.api import (
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.facade.contracts import AlertDelivery
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -396,7 +398,7 @@ class TestPrepareAlert:
             interval=IntervalType.DAY,
             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         ).model_dump()
-        a = await _create_alert(ateam, query=query, detector_config={"type": "llm", "threshold": 0.7, "window": 90})
+        a = await _create_alert(ateam, query=query, detector_config={"type": "llm"})
 
         env = ActivityEnvironment()
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
@@ -1018,6 +1020,67 @@ class TestEvaluateAlert:
         assert check.state == AlertState.FIRING
         assert check.targets_notified == {}
 
+    @pytest.mark.parametrize(
+        "investigated,previous_verdict,owner,expect_investigation,expect_notify,expect_held",
+        [
+            (1, "false_positive", PlatformAlertOwner.SOURCE, True, True, False),
+            (MAX_INVESTIGATIONS_PER_EPISODE, "false_positive", PlatformAlertOwner.SOURCE, False, False, True),
+            (MAX_INVESTIGATIONS_PER_EPISODE, "true_positive", PlatformAlertOwner.SOURCE, False, True, False),
+            (1, "false_positive", PlatformAlertOwner.PLATFORM, False, False, False),
+        ],
+    )
+    async def test_gated_alert_holds_each_fire_on_a_verdict(
+        self,
+        ateam,
+        investigated: int,
+        previous_verdict: str,
+        owner: PlatformAlertOwner,
+        expect_investigation: bool,
+        expect_notify: bool,
+        expect_held: bool,
+    ) -> None:
+        alert = await _create_alert(ateam, state=AlertState.FIRING, detector_config={"type": "zscore"})
+
+        @sync_to_async
+        def _seed_episode() -> None:
+            AlertConfiguration.objects.filter(id=alert.id).update(
+                investigation_agent_enabled=True,
+                investigation_gates_notifications=True,
+                owner=owner,
+                owner_changed_at=datetime.now(UTC),
+            )
+            episode_start = datetime.now(UTC) - timedelta(days=5)
+            AlertCheck.objects.create(alert_configuration=alert, state=AlertState.NOT_FIRING)
+            AlertCheck.objects.filter(alert_configuration=alert).update(created_at=episode_start)
+            for index in range(investigated):
+                earlier = AlertCheck.objects.create(
+                    alert_configuration=alert,
+                    state=AlertState.FIRING,
+                    investigation_status=InvestigationStatus.DONE,
+                    investigation_verdict=previous_verdict,
+                )
+                AlertCheck.objects.filter(id=earlier.id).update(created_at=episode_start + timedelta(days=index + 1))
+
+        await _seed_episode()
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
+        assert result.should_start_investigation is expect_investigation
+        assert result.should_gate_notification is expect_investigation
+        assert result.should_notify is expect_notify
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.notification_suppressed_by_agent is expect_held
+        if owner == PlatformAlertOwner.PLATFORM:
+            await alert.arefresh_from_db()
+            assert check.notification_sent_at is not None
+            assert alert.last_notified_at == check.notification_sent_at
+
     async def test_evaluate_errored_when_permanent_exception(self, alert) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
@@ -1038,6 +1101,39 @@ class TestEvaluateAlert:
         # Only prepare-time validate_alert_config failures call disable_invalid_alert.
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
+
+    @pytest.mark.parametrize("state", [AlertState.FIRING, AlertState.NOT_FIRING])
+    async def test_delayed_data_skips_without_recovery_or_investigation(self, ateam, state) -> None:
+        alert = await _create_alert(
+            ateam,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "order completed"}],
+                "interval": "hour",
+            },
+            state=state,
+        )
+        alert.evaluation_delay_intervals = 2
+        await sync_to_async(alert.save)(update_fields=["evaluation_delay_intervals"])
+        dates = ["2026-01-15T08:00:00Z", "2026-01-15T09:00:00Z", "2026-01-15T10:00:00Z"]
+        with (
+            patch(
+                "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+                return_value=MagicMock(result=[{"data": [0, 0, 0], "dates": dates, "label": "Orders"}]),
+            ),
+            patch("posthog.temporal.alerts.activities.decide_investigation") as investigate,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+        assert result.new_state == state
+        assert result.should_notify is False
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.state == state
+        assert check.calculated_value is None
+        assert check.triggered_metadata is not None
+        assert check.triggered_metadata["skipped_reason"]
+        investigate.assert_not_called()
 
     async def test_unavailable_data_records_error_without_disabling(self, alert_with_user) -> None:
         with (
@@ -1124,7 +1220,6 @@ class TestEvaluateAlert:
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
-
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
@@ -1233,7 +1328,7 @@ class TestEvaluateAlert:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestRecordFailedEvaluation:
-    @pytest.mark.parametrize("change", [None, "detector", "insight", "threshold"])
+    @pytest.mark.parametrize("change", [None, "detector", "insight", "threshold", "owner"])
     async def test_failure_only_records_against_the_prepared_inputs(self, alert, change) -> None:
         env = ActivityEnvironment()
         prepared = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
@@ -1248,6 +1343,10 @@ class TestRecordFailedEvaluation:
         elif change == "threshold":
             await sync_to_async(Threshold.objects.filter(id=alert.threshold_id).update)(
                 configuration={"type": "absolute", "bounds": {"upper": 200.0}}
+            )
+        elif change == "owner":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+                owner=PlatformAlertOwner.PLATFORM, owner_changed_at=datetime.now(UTC)
             )
         before = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
         due_before = before.next_check_at
@@ -1286,6 +1385,7 @@ class TestRecordFailedEvaluation:
                 ),
             )
             assert result_again.alert_check_id is not None
+            assert result_again.should_notify is (change != "owner")
 
     @pytest.mark.parametrize(
         "error_type,expected_outcomes",
@@ -1355,8 +1455,16 @@ class TestRecordFailedEvaluation:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestNotifyAlert:
-    async def test_noop_when_not_firing(self, alert_with_user) -> None:
-        check = await _create_alert_check(alert_with_user, state=AlertState.NOT_FIRING)
+    @pytest.mark.parametrize(
+        "state,owner",
+        [
+            (AlertState.NOT_FIRING, PlatformAlertOwner.SOURCE),
+            (AlertState.FIRING, PlatformAlertOwner.PLATFORM),
+        ],
+    )
+    async def test_noop_when_not_firing_or_platform_owned(self, alert_with_user, state, owner) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert_with_user.id).update)(owner=owner)
+        check = await _create_alert_check(alert_with_user, state=state)
 
         with (
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_breaches,
@@ -1365,7 +1473,9 @@ class TestNotifyAlert:
             env = ActivityEnvironment()
             await env.run(
                 notify_alert,
-                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id), alert_check_id=str(check.id), breaches=["value above threshold"]
+                ),
             )
 
         mock_breaches.assert_not_called()
@@ -1378,7 +1488,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics"),
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -1402,7 +1512,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=[_email_delivery("alice@posthog.com")],
@@ -1635,12 +1745,38 @@ class TestNotifyAlert:
 
     async def test_error_notification_excludes_subscriber_without_insight_access(self, alert_with_user) -> None:
         with patch(
-            "posthog.tasks.alerts.utils.UserAccessControl.check_access_level_for_object",
+            "products.alerts.backend.logic.alert_email.UserAccessControl.check_access_level_for_object",
             return_value=False,
         ):
             recipients = await sync_to_async(get_alert_error_notification_recipients)(alert_with_user)
 
         assert recipients == []
+
+    async def test_firing_notification_excludes_subscriber_without_insight_access(self, alert_with_user) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+                return_value=[_email_delivery("alice@posthog.com")],
+            ),
+            patch(
+                "products.alerts.backend.logic.alert_email.UserAccessControl.check_access_level_for_object",
+                return_value=False,
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    alert_check_id=str(check.id),
+                    breaches=["value above threshold"],
+                ),
+            )
+
+        mock_create_notification.assert_not_called()
 
     async def test_error_realtime_notification_failure_does_not_block_recording_delivery(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": "boom"})
@@ -1708,7 +1844,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),

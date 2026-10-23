@@ -2,12 +2,15 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
+from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -19,26 +22,52 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_covers_batch
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
+    DeltaWriter,
+    commit_covers_batch,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    SUMMARY_EVENT,
+    post_load_phase,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    INCOMPLETE_RUN_ERROR,
+    IncompleteRunError,
     _apply_partitioning,
+    _dedupe_before_write,
     _enrich_cdc_rows,
+    _file_count_after_write,
     _get_write_type,
     _mark_job_completed,
+    _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _rebuild_compaction_due,
+    _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
     process_message,
     process_messages,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    GroupTableHandles,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import manifest_table
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
+from products.warehouse_sources_queue.backend.core.jobs_db import LoadedPrefix, UnfinishedEarlierBatches
+
+_COMPLETE_RUN = UnfinishedEarlierBatches(count=0, first_batch_index=None, states=())
 
 
 @pytest.fixture(autouse=True)
@@ -50,6 +79,33 @@ def _no_close_old_connections():
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.close_old_connections"
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _unfinished_earlier_batches() -> Iterator[MagicMock]:
+    # The completion check reads the queue DB, which these unit tests do not have.
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
+            return_value=_COMPLETE_RUN,
+        ) as check,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_batches_of_jobs_sync",
+            return_value=_COMPLETE_RUN,
+        ),
+    ):
+        yield check
+
+
+@pytest.fixture(autouse=True)
+def _table_handles() -> Iterator[GroupTableHandles]:
+    # The loader's registry is process-wide, so a handle that one test left would reach the next.
+    handles = GroupTableHandles()
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.GROUP_TABLE_HANDLES",
+        handles,
+    ):
+        yield handles
 
 
 class TestGetWriteType:
@@ -85,8 +141,8 @@ def _schema(**overrides: Any) -> MagicMock:
     return schema
 
 
-_COL_ID = pa.field("id", pa.int64())
-_COL_PARTITION = pa.field(PARTITION_KEY, pa.string())
+_COL_ID: pa.Field[pa.DataType] = pa.field("id", pa.int64())
+_COL_PARTITION: pa.Field[pa.DataType] = pa.field(PARTITION_KEY, pa.string())
 
 
 class TestApplyPartitioning:
@@ -259,6 +315,10 @@ def _message(**overrides: Any) -> dict[str, Any]:
 
 
 _PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
+_REPLACE_ROWS = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.replace_rows"
+_REPLACE_SCOPE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope"
+_IDEMPOTENCY = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency"
+_POST_LOAD_RESULT = PostLoadResult(queryable_folder="folder", table_size_written=True)
 
 
 class TestProcessMessageOwnershipGate:
@@ -493,11 +553,81 @@ class TestMarkJobCompleted:
         mock_finish_row_tracking.assert_not_awaited()
         mock_release.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "aged_out_batch_never_loaded",
+                UnfinishedEarlierBatches(count=1, first_batch_index=2, states=("pending",)),
+            ),
+            ("earlier_batch_failed", UnfinishedEarlierBatches(count=1, first_batch_index=0, states=("failed",))),
+            (
+                "several_batches_left",
+                UnfinishedEarlierBatches(count=3, first_batch_index=1, states=("pending", "waiting_retry")),
+            ),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.release_v3_pipeline_lock")
+    @patch(f"{_PROCESSOR}.ExternalDataSchema.objects")
+    @patch(f"{_PROCESSOR}.update_external_job_status")
+    def test_a_run_with_an_unfinished_earlier_batch_does_not_complete(
+        self,
+        _case: str,
+        unfinished: UnfinishedEarlierBatches,
+        mock_update: MagicMock,
+        mock_schema_objects: MagicMock,
+        mock_release: MagicMock,
+    ) -> None:
+        signal = self._make_signal()
+        signal.batch_index = 5
+
+        with (
+            patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync", return_value=unfinished) as check,
+            pytest.raises(IncompleteRunError, match=INCOMPLETE_RUN_ERROR),
+        ):
+            _mark_job_completed(signal)
+
+        assert check.call_args.kwargs == {
+            "team_id": 1,
+            "schema_id": "schema-1",
+            "run_uuid": "run-abc-a1",
+            "before_batch_index": 5,
+        }
+        mock_update.assert_not_called()
+        mock_schema_objects.get.return_value.promote_staged_incremental_values.assert_not_called()
+        # The consumer fails the run on this error, and its fail path releases the lock.
+        mock_release.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_continued_job_batch_failed", ["job-stopped"], 1, True),
+            ("every_continued_job_batch_loaded", ["job-stopped"], 0, False),
+            ("no_continued_job", [], 1, False),
+        ]
+    )
+    def test_a_run_that_continues_a_stopped_job_completes_only_once_that_job_loaded(
+        self, _case: str, continued_job_ids: list[str], unfinished_count: int, refused: bool
+    ) -> None:
+        signal = self._make_signal()
+        signal.continued_job_ids = continued_job_ids
+        unfinished = UnfinishedEarlierBatches(count=unfinished_count, first_batch_index=0, states=("failed",))
+
+        with patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_batches_of_jobs_sync", return_value=unfinished) as check:
+            if refused:
+                with pytest.raises(IncompleteRunError, match=INCOMPLETE_RUN_ERROR):
+                    _refuse_incomplete_run(signal)
+            else:
+                _refuse_incomplete_run(signal)
+
+        if continued_job_ids:
+            assert check.call_args.kwargs == {"team_id": 1, "schema_id": "schema-1", "job_ids": ["job-stopped"]}
+        else:
+            check.assert_not_called()
+
 
 class TestRedeliveredFinalBatchPostLoad:
     @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
-    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
+    @patch(f"{_PROCESSOR}.read_parquet_first_values", return_value=pa.table({"id": [1], "payload": ['{"a": 1}']}))
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     def test_forwards_the_batch_write_mode(
@@ -513,7 +643,7 @@ class TestRedeliveredFinalBatchPostLoad:
         # write (register the _cdc table, leave schema.table alone) or a snapshot to seed the
         # companion from. Dropping it here let a redelivered streaming batch re-seed the companion,
         # wiping its SCD2 history, and point schema.table at the companion's folder.
-        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID])))
+        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID, pa.field("payload", pa.string())])))
         mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
         mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=delta_table)
 
@@ -524,6 +654,11 @@ class TestRedeliveredFinalBatchPostLoad:
 
         assert mock_post_load.await_args is not None
         assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
+        # The table schema alone types the column as a plain string; the batch's first value says JSON.
+        assert mock_post_load.await_args.kwargs["table_schema_dict"] == {
+            "id": "IntegerDatabaseField",
+            "payload": "StringJSONDatabaseField",
+        }
 
 
 class TestPostWriteHandleReads:
@@ -531,7 +666,18 @@ class TestPostWriteHandleReads:
     # types survive that lag, a file list does not: partial data loading must read its file list
     # through the ref, which catches the handle up, and a plain batch must not pay that read.
 
-    @parameterized.expand([("plain_batch", False, 1), ("partial_data_loading", True, 2)])
+    @parameterized.expand(
+        [
+            ("plain_batch", 1, False, 1, 1, 1, None),
+            ("partial_data_loading", 1, True, 1, 1, 2, None),
+            # Batch 0 is a file-count sample and is the only batch of most runs.
+            ("sampled_batch_after_a_deltalite_commit", 0, False, 1, 1, 1, 3),
+            ("sampled_batch_on_a_current_handle", 0, False, 0, None, 1, 2),
+            ("sampled_batch_behind_by_a_foreign_commit", 0, False, 2, 1, 2, 5),
+            ("sampled_batch_with_no_commit_stats", 0, False, 1, None, 2, 5),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.mark_batch_as_processed")
     @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
@@ -544,8 +690,12 @@ class TestPostWriteHandleReads:
     def test_file_list_readers_go_through_the_ref(
         self,
         _case: str,
+        batch_index: int,
         is_first_ever_sync: bool,
+        commits_behind: int,
+        deltalite_file_count_change: int | None,
         expected_handle_reads: int,
+        expected_file_count: int | None,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_writer_cls: MagicMock,
@@ -555,23 +705,64 @@ class TestPostWriteHandleReads:
         mock_partial: AsyncMock,
         _mark: MagicMock,
         _analytics: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
         returned = MagicMock()
         returned.schema.return_value = pa.schema([_COL_ID])
+        returned.version.return_value = 7
+        returned.file_uris.return_value = ["a", "b"]
         current = MagicMock()
         current.schema.return_value = pa.schema([_COL_ID])
-        current.file_uris.return_value = []
+        current.file_uris.return_value = ["a", "b", "c", "d", "e"]
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=current)
+        helper.latest_known_version.return_value = 7 + commits_behind
         mock_writer_cls.return_value.write = AsyncMock(return_value=returned)
+        mock_writer_cls.return_value.deltalite_file_count_change = deltalite_file_count_change
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
-        process_message(_message(batch_index=1, is_first_ever_sync=is_first_ever_sync))
+        process_message(_message(batch_index=batch_index, is_first_ever_sync=is_first_ever_sync))
 
         # One read opens the table before the write; only a file-list reader adds a second.
         assert helper.get_delta_table.await_count == expected_handle_reads
         assert mock_partial.await_args is not None
-        assert mock_partial.await_args.kwargs["delta_table"] is (current if is_first_ever_sync else returned)
+        assert mock_partial.await_args.kwargs["delta_table"] is (current if expected_handle_reads == 2 else returned)
+        written = [call for call in mock_logger.debug.call_args_list if call.args[0] == "batch_written_to_delta_lake"]
+        assert len(written) == 1
+        assert written[0].kwargs["file_count"] == expected_file_count
+
+
+class TestFileCountAfterWrite:
+    def test_the_count_from_memory_is_the_count_in_the_log(self, tmp_path: Path) -> None:
+        # The sampled file count comes from the handle `write` returns plus the commit's own numbers,
+        # with no read of the log. If the handle's lag or the upsert stats stop meaning what the
+        # arithmetic assumes, the log line goes wrong without an error.
+        path = str(tmp_path / "table")
+        seed = pa.table({"id": pa.array([1, 2, 101], pa.int64()), PARTITION_KEY: ["a", "a", "b"], "v": ["x", "y", "z"]})
+        write_deltalake(path, seed, partition_by=PARTITION_KEY)
+        ref = make_local_table_ref(path)
+        writer = DeltaWriter(ref)
+        handle_lags: set[int] = set()
+
+        writes: list[tuple[list[int], list[str], Any, list[str] | None]] = [
+            ([1], ["a"], "incremental", ["id"]),
+            ([500], ["c"], "incremental", ["id"]),
+            ([1, 101, 500, 900], ["a", "b", "c", "d"], "incremental", ["id"]),
+            ([7], ["a"], "append", None),
+        ]
+        for ids, partitions, write_type, primary_keys in writes:
+            batch = pa.table({"id": pa.array(ids, pa.int64()), PARTITION_KEY: partitions, "v": ["new"] * len(ids)})
+            returned = async_to_sync(writer.write)(
+                data=batch, write_type=write_type, should_overwrite_table=False, primary_keys=primary_keys
+            )
+            handle_lags.add(ref.latest_known_version(returned) - returned.version())
+
+            file_count = _file_count_after_write(returned, ref, writer.deltalite_file_count_change)
+
+            assert file_count == len(DeltaTable(path).file_uris())
+
+        # Both a current handle and one that a deltalite commit left behind were read.
+        assert handle_lags == {0, 1}
 
 
 class TestFinalDataBatch:
@@ -617,6 +808,146 @@ class TestFinalDataBatch:
         mock_mark_completed.assert_not_called()
 
 
+class TestStagedCursorWaitsForTheFinalBatch:
+    # A descending source stages the newest value of its run from the first batch. Promoting it on a
+    # batch before the final one moves the watermark above rows that are not loaded yet.
+
+    @parameterized.expand([("mid_run_batch", False, 0, 1), ("final_batch", True, 1, 0)])
+    @override_settings(DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED=True)
+    def test_a_staged_cursor_is_promoted_only_by_the_final_batch(
+        self, _name: str, is_final_batch: bool, promotions: int, prefix_promotions: int
+    ) -> None:
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        with ExitStack() as stack:
+            for target in (
+                "posthoganalytics",
+                "mark_batch_as_processed",
+                "_trigger_post_import_workflow",
+                "_trigger_ducklake_register_data_imports",
+                "transaction",
+                "release_v3_pipeline_lock",
+            ):
+                stack.enter_context(patch(f"{_PROCESSOR}.{target}"))
+            stack.enter_context(patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock))
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
+            )
+            stack.enter_context(patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]})))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            mock_writer_cls = stack.enter_context(patch(f"{_PROCESSOR}.DeltaWriter"))
+            mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+            mock_helper_cls = stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef"))
+            mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+            mock_job_cls = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            mock_update = stack.enter_context(patch(f"{_PROCESSOR}.update_external_job_status"))
+            mock_update.return_value.status = mock_job_cls.Status.COMPLETED
+            mock_schema_objects = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataSchema.objects"))
+            stack.enter_context(
+                patch(
+                    f"{_PROCESSOR}.BatchQueue.get_loaded_prefix_sync",
+                    return_value=LoadedPrefix(is_complete=True, cursor=_PREFIX_CURSOR),
+                )
+            )
+
+            process_message(_message(is_final_batch=is_final_batch, run_uuid="wfrun-1-a2"))
+
+        promote = mock_schema_objects.get.return_value.promote_staged_incremental_values
+        assert promote.call_count == promotions
+        if promotions:
+            promote.assert_called_with("wfrun-1-a2", merge_source_cursors=ANY)
+        # The final batch promotes the full staged value, so only a batch before it promotes a prefix.
+        promote_prefix = mock_job_cls.objects.prefetch_related.return_value.get.return_value.schema
+        assert promote_prefix.promote_loaded_prefix_value.call_count == prefix_promotions
+
+
+_PREFIX_CURSOR = {"field": "id", "value": 30, "job_rows_synced": 7}
+
+
+class _PromoteMocks(NamedTuple):
+    get_prefix: MagicMock
+    promote: MagicMock
+
+
+class TestPromoteLoadedPrefixes:
+    @staticmethod
+    def _signals(*indexes: int, **overrides: Any) -> list[ExportSignalMessage]:
+        return [ExportSignalMessage.from_dict(_message(batch_index=index, **overrides)) for index in indexes]
+
+    @staticmethod
+    def _promote(
+        signals: list[ExportSignalMessage],
+        prefix: LoadedPrefix | Exception,
+        *,
+        finals: list[ExportSignalMessage] | None = None,
+        enabled: bool = True,
+    ) -> _PromoteMocks:
+        schema = MagicMock()
+        with (
+            override_settings(DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED=enabled),
+            patch(f"{_PROCESSOR}.BatchQueue.get_loaded_prefix_sync", side_effect=[prefix]) as get_prefix,
+            patch(f"{_PROCESSOR}.capture_exception"),
+        ):
+            _promote_loaded_prefixes(signals, finals or [], schema)
+        return _PromoteMocks(get_prefix=get_prefix, promote=schema.promote_loaded_prefix_value)
+
+    def test_a_loaded_prefix_promotes_the_value_of_the_last_batch_of_the_write(self) -> None:
+        get_prefix, promote = self._promote(
+            self._signals(3, 4, 5), LoadedPrefix(is_complete=True, cursor=_PREFIX_CURSOR)
+        )
+
+        assert get_prefix.call_args.kwargs == {
+            "team_id": 1,
+            "schema_id": "schema-1",
+            "run_uuid": "run-1",
+            "first_batch_index": 3,
+            "last_batch_index": 5,
+        }
+        promote.assert_called_once_with(run_uuid="run-1", job_id="job-1", field="id", value=30, job_rows_synced=7)
+
+    @parameterized.expand(
+        [
+            # An earlier batch is missing, aged out, failed or waits for a retry.
+            ("gap_before_the_write", LoadedPrefix(is_complete=False, cursor=_PREFIX_CURSOR)),
+            # A pod without the setting, or a run that cannot promote, queued the batch.
+            ("batch_has_no_cursor", LoadedPrefix(is_complete=True, cursor=None)),
+            ("cursor_in_an_unknown_shape", LoadedPrefix(is_complete=True, cursor={"value": 30})),
+            # A queue read that fails must not fail a batch that already landed.
+            ("queue_read_fails", RuntimeError("queue down")),
+        ]
+    )
+    def test_no_promotion(self, _name: str, prefix: LoadedPrefix | Exception) -> None:
+        _get_prefix, promote = self._promote(self._signals(2), prefix)
+
+        promote.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("setting_off", {}, False, False),
+            ("final_batch_promotes_the_full_value", {}, True, True),
+            ("append", {"sync_type": "append"}, False, True),
+            ("full_refresh", {"sync_type": "full_refresh"}, False, True),
+            ("cdc", {"cdc_write_mode": "scd2_append"}, False, True),
+            ("first_ever_sync", {"is_first_ever_sync": True}, False, True),
+        ]
+    )
+    def test_a_write_that_cannot_promote_a_prefix_reads_nothing(
+        self, _name: str, overrides: dict[str, Any], completes_here: bool, enabled: bool
+    ) -> None:
+        signals = self._signals(2, **overrides)
+
+        get_prefix, promote = self._promote(
+            signals,
+            LoadedPrefix(is_complete=True, cursor=_PREFIX_CURSOR),
+            finals=signals if completes_here else None,
+            enabled=enabled,
+        )
+
+        get_prefix.assert_not_called()
+        promote.assert_not_called()
+
+
 def _set_messages(count: int, *, sync_type: str = "full_refresh", final: bool = True) -> list[dict[str, Any]]:
     return [
         _message(
@@ -641,7 +972,7 @@ class TestProcessMessages:
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
     @patch(f"{_PROCESSOR}.read_parquet")
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
@@ -685,7 +1016,12 @@ class TestProcessMessages:
         assert mock_post_load.await_args is not None
         assert mock_post_load.await_args.kwargs["row_count"] == 6
         mock_mark_completed.assert_called_once()
-        mock_trigger.assert_called_once()
+        # Without the flag the post-import workflow opens the table again to measure a size that
+        # post-load already recorded.
+        mock_trigger.assert_called_once_with(ANY, True)
+        # The completion check counts the batches below this index as earlier writes. The tail index
+        # would count the set's own members, which are still executing, and fail every coalesced run.
+        assert mock_mark_completed.call_args.args[0].batch_index == 0
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet")
@@ -776,8 +1112,11 @@ class TestProcessMessages:
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
-    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
+    @patch(
+        f"{_PROCESSOR}.read_parquet",
+        side_effect=lambda path: pa.table({"id": [int(path.rsplit("/", 1)[1].removesuffix(".parquet"))]}),
+    )
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableRef")
@@ -919,6 +1258,86 @@ class TestCrossRunKeyResolution:
         assert not commit_covers_batch(set_commit, "run-2", 1)
 
 
+class TestSourceCopiesHeldThroughTheUpsert:
+    # Coalesced sets are sized by `_ARROW_COPIES_HELD`. If the loader keeps the set as read alive
+    # next to its deduplicated copy, a set takes twice the memory its cap allows.
+
+    _ROWS = 2_000
+
+    @staticmethod
+    def _batch(batch_no: int, ids: list[int]) -> pa.Table:
+        return pa.table({"id": ids, "payload": [f"{batch_no}:{pos:0>200}" for pos in range(len(ids))]})
+
+    @pytest.mark.parametrize(
+        "batch_ids",
+        [
+            [list(range(0, _ROWS)), list(range(_ROWS, 2 * _ROWS))],
+            [[*range(0, _ROWS), 0, 1], list(range(_ROWS, 2 * _ROWS))],
+            [list(range(0, _ROWS)), list(range(_ROWS // 2, _ROWS + _ROWS // 2))],
+        ],
+        ids=["unique_keys", "key_repeated_in_one_batch", "keys_repeated_across_the_set"],
+    )
+    def test_the_upsert_gets_one_copy_of_the_set_with_the_last_row_of_each_key(
+        self, batch_ids: list[list[int]], tmp_path: Path
+    ) -> None:
+        table_path = str(tmp_path / "table")
+        write_deltalake(table_path, self._batch(9, [0]))
+        paths = [f"s3://bucket/run-1/{3 + n}.parquet" for n in range(len(batch_ids))]
+        expected = pa.concat_tables([self._batch(n, ids) for n, ids in enumerate(batch_ids)]).to_pylist()
+        last_row_by_id = {row["id"]: row for row in expected}
+        expected_rows = sorted(last_row_by_id.values(), key=lambda row: expected.index(row))
+        one_copy_bytes = pa.concat_tables([self._batch(n, ids) for n, ids in enumerate(batch_ids)]).nbytes
+        seen: dict[str, Any] = {}
+
+        async def record_upsert_source(writer: DeltaWriter, **kwargs: Any) -> bool:
+            seen["held_bytes"] = pa.total_allocated_bytes() - baseline
+            seen["rows"] = kwargs["data"].select(["id", "payload"]).to_pylist()
+            return False
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(
+                patch(
+                    f"{_PROCESSOR}.read_parquet",
+                    side_effect=lambda path: self._batch(paths.index(path), batch_ids[paths.index(path)]),
+                )
+            )
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=lambda **kwargs: make_local_table_ref(table_path))
+            )
+            stack.enter_context(patch.object(DeltaWriter, "_write_via_deltalite", record_upsert_source))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+            baseline = pa.total_allocated_bytes()
+            process_messages(_run_messages("run-1", start=3, count=len(batch_ids), final=False))
+
+        assert seen["rows"] == expected_rows
+        assert seen["held_bytes"] < one_copy_bytes * 1.5
+        landed = DeltaTable(table_path).to_pyarrow_table().select(["id", "payload"]).sort_by("id").to_pylist()
+        assert landed == sorted(expected_rows, key=lambda row: row["id"])
+
+    @parameterized.expand(
+        [
+            ("no_partition_column", None, [1, 2]),
+            ("key_in_one_partition", ["p0", "p0", "p0"], [1, 2]),
+            # The writer keys on the partition too, so a key that moved partition lands in both.
+            ("key_moved_partition", ["p0", "p0", "p1"], [0, 1, 2]),
+        ]
+    )
+    def test_dedupe_before_write_keeps_what_the_writer_keeps(
+        self, _name: str, partitions: list[str] | None, kept_positions: list[int]
+    ) -> None:
+        columns: dict[str, list[Any]] = {"id": [1, 2, 1], "pos": [0, 1, 2]}
+        if partitions is not None:
+            columns[PARTITION_KEY] = partitions
+
+        result = _dedupe_before_write(pa.table(columns), ["id"])
+
+        assert result.column("pos").to_pylist() == kept_positions
+
+
 class TestPostImportTrigger:
     """The V3 hand-off to `data-import-post-import`: without it the load-dependent
     post-import steps (signals, enrichment, statistics, table size, DuckLake copy)
@@ -929,7 +1348,7 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
@@ -965,7 +1384,9 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
+    @patch(
+        f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=PostLoadResult(queryable_folder=None)
+    )
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
@@ -1107,6 +1528,22 @@ class TestPostImportTrigger:
         assert mock_connect.call_count == 2
         mock_capture.assert_not_called()
 
+    @parameterized.expand([("size_written", True), ("size_not_written", False)])
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_tells_the_workflow_whether_post_load_wrote_the_table_size(
+        self, _case: str, table_size_written: bool, mock_connect: AsyncMock
+    ) -> None:
+        # The workflow skips its size activity on True. A dropped False would leave a table that
+        # post-load could not size with no size at all.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=None)
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal(), table_size_written)
+
+        assert client.start_workflow.await_args is not None
+        assert client.start_workflow.await_args.args[1].table_size_written is table_size_written
+
     @patch(f"{_PROCESSOR}.capture_exception")
     @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
     def test_persistent_rpc_timeout_is_captured_after_retries_exhausted(
@@ -1164,7 +1601,6 @@ class TestEnrichCdcRows:
             table,
             primary_keys=["id"],
             cdc_write_mode=cdc_write_mode,
-            team_id="2",
         )
 
     def test_the_merge_lane_collapses_a_key_to_its_latest_version(self):
@@ -1213,10 +1649,9 @@ class TestEnrichCdcRows:
                     existing_delta_table=DeltaTable(path),
                     batch_index=0,
                     verify_deletes=True,
-                    team_id="2",
                 )
 
-            violations.labels.assert_not_called()
+            violations.inc.assert_not_called()
 
     def test_verification_reports_a_delete_that_would_null_target_data(self):
         with tempfile.TemporaryDirectory() as path:
@@ -1235,11 +1670,9 @@ class TestEnrichCdcRows:
                     existing_delta_table=DeltaTable(path),
                     batch_index=0,
                     verify_deletes=True,
-                    team_id="2",
                 )
 
-            violations.labels.assert_called_once_with(team_id="2")
-            violations.labels.return_value.inc.assert_called_once_with(1)
+            violations.inc.assert_called_once_with(1)
 
     def test_verification_is_skipped_when_the_flag_is_off(self):
         with tempfile.TemporaryDirectory() as path:
@@ -1446,13 +1879,24 @@ class TestReadExistingRowsByFirstPk:
             assert set(result.column("id").to_pylist()) == set(expected_ids)
 
 
+def _post_load_summary(mock_logger: MagicMock) -> dict[str, Any]:
+    summaries = [call.kwargs for call in mock_logger.info.call_args_list if call.args == (SUMMARY_EVENT,)]
+    assert len(summaries) == 1
+    return summaries[0]
+
+
 class TestBatchPhaseReports:
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.report_phase")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}.mark_batch_as_processed")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=None)
+    @patch(
+        f"{_PROCESSOR}.run_post_load_operations",
+        new_callable=AsyncMock,
+        return_value=PostLoadResult(queryable_folder=None),
+    )
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
@@ -1471,7 +1915,13 @@ class TestBatchPhaseReports:
         _trigger: MagicMock,
         _analytics: MagicMock,
         mock_report_phase: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
+        async def post_load(**_kwargs: Any) -> PostLoadResult:
+            with post_load_phase("delta_maintenance"):
+                return PostLoadResult(queryable_folder=None)
+
+        _post_load.side_effect = post_load
         delta_table = MagicMock()
         delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
         delta_table.file_uris.return_value = []
@@ -1488,12 +1938,18 @@ class TestBatchPhaseReports:
             "post_load",
             "finalize",
         ]
+        summary = _post_load_summary(mock_logger)
+        assert summary["phase_names"] == ["delta_maintenance", "job_completion", "post_import_trigger"]
+        assert (summary["external_data_job_id"], summary["run_uuid"], summary["outcome"]) == ("job-1", "run-9", "ok")
 
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.report_phase")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
+    @patch(
+        f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=PostLoadResult(queryable_folder=None)
+    )
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
@@ -1509,9 +1965,590 @@ class TestBatchPhaseReports:
         _trigger: MagicMock,
         _analytics: MagicMock,
         mock_report_phase: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         process_message(_message(is_final_batch=True))
 
         assert [call.args[0] for call in mock_report_phase.call_args_list] == ["deliver", "post_load", "finalize"]
+        assert _post_load_summary(mock_logger)["phase_names"] == ["job_completion", "post_import_trigger"]
+
+
+_WORKFLOW_RUN = "0190aaaa-0000-7000-8000-000000000001"
+
+
+class TestTableRebuildLoad:
+    # Batches of 3 keys each. `_SOURCE_REPEATS_A_KEY` holds key 4 in two batches.
+    _SOURCE = [{"id": [1, 2, 3]}, {"id": [4, 5, 6]}, {"id": [7, 8, 9]}]
+    _SOURCE_REPEATS_A_KEY = [{"id": [1, 2, 3]}, {"id": [4, 5, 6]}, {"id": [4, 8, 9]}]
+
+    @staticmethod
+    def _rows(run_uuid: str, index: int, ids: list[int]) -> pa.Table:
+        return pa.table({"id": ids, "name": [f"{run_uuid[-2:]}_b{index}_{row_id}" for row_id in ids]})
+
+    @contextmanager
+    def _loader(self, table_path: str, batches: dict[str, pa.Table], config: dict[str, Any]) -> Iterator[None]:
+        def local_ref(**kwargs: Any) -> DeltaTableRef:
+            ref = make_local_table_ref(table_path)
+            ref._is_first_sync = kwargs["is_first_sync"]
+            return ref
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(patch(f"{_PROCESSOR}.read_parquet", side_effect=lambda path: batches[path]))
+            stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=local_ref))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job = MagicMock()
+            job.schema.sync_type_config = config
+            job_model.objects.prefetch_related.return_value.get.return_value = job
+            yield
+
+    def _load(
+        self,
+        table_path: str,
+        attempt: int,
+        source: list[dict[str, list[int]]],
+        *,
+        rebuild: bool,
+        indexes: list[int] | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> None:
+        run_uuid = f"{_WORKFLOW_RUN}-a{attempt}"
+        batches = {
+            f"s3://bucket/{run_uuid}/{index}": self._rows(run_uuid, index, rows["id"])
+            for index, rows in enumerate(source)
+        }
+        with self._loader(table_path, batches, config if config is not None else {}):
+            for index in indexes if indexes is not None else range(len(source)):
+                process_message(
+                    _message(
+                        run_uuid=run_uuid,
+                        batch_index=index,
+                        s3_path=f"s3://bucket/{run_uuid}/{index}",
+                        is_first_ever_sync=rebuild,
+                    )
+                )
+
+    @staticmethod
+    def _table_rows(table_path: str) -> list[tuple[int, str]]:
+        rows = DeltaTable(table_path).to_pyarrow_table().to_pydict()
+        return sorted(zip(rows["id"], rows["name"]))
+
+    @parameterized.expand(
+        [
+            ("one_attempt", []),
+            ("an_attempt_replaced_after_two_batches", [0, 1]),
+            ("an_attempt_replaced_before_its_first_batch_loads", []),
+        ]
+    )
+    def test_a_rebuild_gives_the_table_that_a_merge_of_each_batch_gives(
+        self, case: str, first_attempt_batches: list[int]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rebuilt, merged = f"{tmp}/rebuilt", f"{tmp}/merged"
+            last_attempt = 1 if case == "one_attempt" else 2
+            config: dict[str, Any] = {}
+
+            if last_attempt == 2:
+                self._load(rebuilt, 1, self._SOURCE, rebuild=True, indexes=first_attempt_batches, config=config)
+                config["table_rebuild_run_uuid"] = f"{_WORKFLOW_RUN}-a2"
+            self._load(rebuilt, last_attempt, self._SOURCE, rebuild=True, indexes=[0, 1], config=config)
+            if last_attempt == 2:
+                # A batch of the first attempt that the loader takes after the second attempt started.
+                self._load(rebuilt, 1, self._SOURCE, rebuild=True, indexes=[2], config=config)
+            self._load(rebuilt, last_attempt, self._SOURCE, rebuild=True, indexes=[2], config=config)
+
+            self._load(merged, last_attempt, self._SOURCE, rebuild=False)
+
+            assert len(self._table_rows(rebuilt)) == 9
+            assert self._table_rows(rebuilt) == self._table_rows(merged)
+            operations = [commit["operation"] for commit in DeltaTable(rebuilt).history()]
+            assert "MERGE" not in operations
+
+    def test_a_run_after_the_rebuild_merges_on_the_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._load(tmp, 1, self._SOURCE, rebuild=True)
+            later = pa.table({"id": [9, 10], "name": ["later_9", "later_10"]})
+            with self._loader(tmp, {"s3://bucket/later/0": later}, {"table_rebuild_run_uuid": f"{_WORKFLOW_RUN}-a1"}):
+                process_message(_message(run_uuid="0190bbbb-a1", batch_index=0, s3_path="s3://bucket/later/0"))
+
+            rows = dict(self._table_rows(tmp))
+            assert len(self._table_rows(tmp)) == 10
+            assert (rows[9], rows[10]) == ("later_9", "later_10")
+
+    def test_a_key_that_the_source_holds_twice_stays_twice_until_a_later_run_merges_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._load(tmp, 1, self._SOURCE_REPEATS_A_KEY, rebuild=True)
+            assert [name for row_id, name in self._table_rows(tmp) if row_id == 4] == ["a1_b1_4", "a1_b2_4"]
+
+            later = pa.table({"id": [4], "name": ["later_4"]})
+            with self._loader(tmp, {"s3://bucket/later/0": later}, {}):
+                process_message(_message(run_uuid="0190bbbb-a1", batch_index=0, s3_path="s3://bucket/later/0"))
+
+            assert [name for row_id, name in self._table_rows(tmp) if row_id == 4] == ["later_4"]
+
+
+FileRows = dict[str, list[int]]
+
+
+class TestReplaceScopeLoad:
+    # The table before the run: the rows of three files of the bucket.
+    _SEED: FileRows = {"a.csv": [1, 2], "b.csv": [3, 4], "c.csv": [5]}
+
+    @staticmethod
+    def _table(file_rows: FileRows) -> pa.Table:
+        if not file_rows:
+            # What the pipeline queues for a run that read no rows.
+            return pa.table({"_file_name": pa.array([], pa.string())})
+        names = [name for name, ids in file_rows.items() for _ in ids]
+        ids = [row_id for row_ids in file_rows.values() for row_id in row_ids]
+        return pa.table({"_file_name": pa.array(names, pa.string()), "id": pa.array(ids, pa.int64())})
+
+    @contextmanager
+    def _loader(
+        self, table_path: str, files: dict[str, pa.Table], config: dict[str, Any], *, redis: bool = False
+    ) -> Iterator[None]:
+        def local_ref(**kwargs: Any) -> DeltaTableRef:
+            ref = make_local_table_ref(table_path)
+            ref._is_first_sync = kwargs["is_first_sync"]
+            return ref
+
+        def update_config(*args: Any, updates: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+            config.update(updates)
+            return config
+
+        @contextmanager
+        def no_redis() -> Iterator[None]:
+            yield None
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            if not redis:
+                # The redelivery check then reads the table history, which is what finds a landed write.
+                stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(patch(f"{_IDEMPOTENCY}.get_redis_client", no_redis))
+            for module in (_PROCESSOR, _REPLACE_ROWS):
+                stack.enter_context(patch(f"{module}.read_parquet", side_effect=lambda path: files[path]))
+            stack.enter_context(patch(f"{_REPLACE_SCOPE}.update_sync_type_config_keys", side_effect=update_config))
+            stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=local_ref))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job = MagicMock()
+            job.schema.sync_type_config = config
+            job_model.objects.prefetch_related.return_value.get.return_value = job
+            yield
+
+    def _load(
+        self,
+        table_path: str,
+        attempt: int,
+        batches: list[FileRows],
+        scope: ReplaceScope,
+        *,
+        indexes: list[int] | None = None,
+        config: dict[str, Any] | None = None,
+        is_first_ever_sync: bool = False,
+        delivery: int = 1,
+        redis: bool = False,
+    ) -> None:
+        run_uuid = f"{_WORKFLOW_RUN}-a{attempt}"
+        manifest_path = f"s3://bucket/{run_uuid}/replace_scope.parquet"
+        files = {f"s3://bucket/{run_uuid}/{index}": self._table(rows) for index, rows in enumerate(batches)}
+        files[manifest_path] = manifest_table(scope)
+        with self._loader(table_path, files, config if config is not None else {}, redis=redis):
+            for index in indexes if indexes is not None else range(len(batches)):
+                process_message(
+                    _message(
+                        run_uuid=run_uuid,
+                        batch_index=index,
+                        s3_path=f"s3://bucket/{run_uuid}/{index}",
+                        primary_keys=None,
+                        is_first_ever_sync=is_first_ever_sync,
+                        replace_scope={"column": "_file_name", "manifest_path": manifest_path},
+                    ),
+                    attempt=delivery,
+                )
+
+    @staticmethod
+    def _scope(replaced: set[str], retained: set[str]) -> ReplaceScope:
+        return ReplaceScope(column="_file_name", replaced=frozenset(replaced), retained=frozenset(retained))
+
+    @staticmethod
+    def _rows_by_file(table_path: str) -> FileRows:
+        rows: FileRows = {}
+        for name, row_id in sorted(
+            zip(*DeltaTable(table_path).to_pyarrow_table().select(["_file_name", "id"]).to_pydict().values())
+        ):
+            rows.setdefault(name, []).append(row_id)
+        return rows
+
+    @staticmethod
+    def _operations(table_path: str) -> list[str]:
+        return [commit["operation"] for commit in DeltaTable(table_path).history()]
+
+    @parameterized.expand(
+        [
+            ("a_deleted_file_loses_its_rows", [{}], set(), {"a.csv", "c.csv"}, {"a.csv": [1, 2], "c.csv": [5]}),
+            (
+                "a_shrunk_file_keeps_only_its_new_rows_and_a_new_file_adds_its_rows",
+                [{"b.csv": [3]}, {"d.csv": [7, 8]}],
+                {"b.csv", "d.csv"},
+                {"a.csv", "b.csv", "c.csv", "d.csv"},
+                {"a.csv": [1, 2], "b.csv": [3], "c.csv": [5], "d.csv": [7, 8]},
+            ),
+        ]
+    )
+    def test_the_table_mirrors_the_files_of_the_scope(
+        self, _name: str, batches: list[FileRows], replaced: set[str], retained: set[str], expected: FileRows
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_deltalake(tmp, self._table(self._SEED))
+
+            self._load(tmp, 1, batches, self._scope(replaced, retained))
+
+            assert self._rows_by_file(tmp) == expected
+            assert "MERGE" not in self._operations(tmp)
+
+    @parameterized.expand(
+        [
+            ("an_attempt_replaced_after_two_batches", [0, 1]),
+            ("an_attempt_replaced_before_its_first_batch_loads", []),
+        ]
+    )
+    def test_a_retried_run_gives_the_table_of_one_attempt(self, _name: str, first_attempt_batches: list[int]) -> None:
+        batches: list[FileRows] = [{"b.csv": [3]}, {"d.csv": [7]}, {"e.csv": [9]}]
+        scope = self._scope({"b.csv", "d.csv", "e.csv"}, {"a.csv", "b.csv", "c.csv", "d.csv", "e.csv"})
+        with tempfile.TemporaryDirectory() as tmp:
+            retried, once = f"{tmp}/retried", f"{tmp}/once"
+            write_deltalake(retried, self._table(self._SEED))
+            write_deltalake(once, self._table(self._SEED))
+            config: dict[str, Any] = {}
+
+            self._load(retried, 1, batches, scope, indexes=first_attempt_batches, config=config)
+            self._load(retried, 2, batches, scope, indexes=[0], config=config)
+            # A batch of the first attempt that the loader takes after the second attempt started.
+            self._load(retried, 1, batches, scope, indexes=[2], config=config)
+            self._load(retried, 2, batches, scope, indexes=[1, 2], config=config)
+            self._load(once, 1, batches, scope)
+
+            assert self._rows_by_file(retried) == self._rows_by_file(once)
+            assert self._rows_by_file(once) == {"a.csv": [1, 2], "b.csv": [3], "c.csv": [5], "d.csv": [7], "e.csv": [9]}
+
+    def test_a_first_batch_redelivered_after_its_deletes_still_writes(self) -> None:
+        scope = self._scope({"b.csv"}, {"a.csv", "b.csv", "c.csv"})
+        original_write = DeltaWriter.write
+
+        async def worker_dies_once(writer: DeltaWriter, **kwargs: Any) -> DeltaTable:
+            if not crashed:
+                crashed.append(True)
+                raise RuntimeError("the worker died before the write")
+            return await original_write(writer, **kwargs)
+
+        crashed: list[bool] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            write_deltalake(tmp, self._table(self._SEED))
+            with patch.object(DeltaWriter, "write", worker_dies_once), pytest.raises(RuntimeError):
+                self._load(tmp, 1, [{"b.csv": [3]}], scope, redis=True)
+            assert "DELETE" in self._operations(tmp)
+
+            with patch.object(DeltaWriter, "write", worker_dies_once):
+                self._load(tmp, 1, [{"b.csv": [3]}], scope, delivery=2, redis=True)
+
+            assert self._rows_by_file(tmp) == {"a.csv": [1, 2], "b.csv": [3], "c.csv": [5]}
+
+    @parameterized.expand([("a_first_sync", True, True), ("no_table", False, False)])
+    def test_nothing_is_deleted_without_rows_to_replace(
+        self, _name: str, is_first_ever_sync: bool, seeded: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            if seeded:
+                write_deltalake(tmp, self._table(self._SEED))
+
+            self._load(
+                tmp,
+                1,
+                [{"b.csv": [3]}],
+                self._scope({"b.csv"}, {"b.csv"}),
+                is_first_ever_sync=is_first_ever_sync,
+            )
+
+            assert self._rows_by_file(tmp) == {"b.csv": [3]}
+            assert "DELETE" not in self._operations(tmp)
+
+    def test_an_empty_batch_never_creates_a_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            table_path = f"{tmp}/table"
+
+            with pytest.raises(ValueError, match="is missing"):
+                self._load(table_path, 1, [{}], self._scope(set(), {"a.csv"}))
+
+            assert not DeltaTable.is_deltatable(table_path)
+
+
+def _batch_rows(index: int) -> pa.Table:
+    # Each batch updates one row of the batch before it and adds two rows.
+    ids = [index * 2, index * 2 + 1, index * 2 + 2]
+    return pa.table({"id": ids, "name": [f"batch_{index}_{row_id}" for row_id in ids]})
+
+
+def _data_commits(table_path: str) -> list[tuple[str, str | None]]:
+    commits = [commit for commit in DeltaTable(table_path).history() if commit["operation"] != "SET TBLPROPERTIES"]
+    return [(commit["operation"], commit.get("batch_index")) for commit in reversed(commits)]
+
+
+class TestTableHandleReuse:
+    _SEED = pa.table({"id": [0, 1], "name": ["seed_0", "seed_1"]})
+
+    @contextmanager
+    def _loader(self, table_path: str, opens: list[int]) -> Iterator[None]:
+        open_table = DeltaTableRef._open_delta_table
+
+        async def counted_open(ref: DeltaTableRef) -> DeltaTable | None:
+            opens.append(1)
+            return await open_table(ref)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.read_parquet", side_effect=lambda path: _batch_rows(int(path.rsplit("/", 1)[1])))
+            )
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=lambda **kwargs: make_local_table_ref(table_path))
+            )
+            stack.enter_context(patch.object(DeltaTableRef, "_open_delta_table", counted_open))
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.run_post_load_operations", new=AsyncMock(return_value=_POST_LOAD_RESULT))
+            )
+            stack.enter_context(patch(f"{_PROCESSOR}._complete_run"))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+            yield
+
+    @staticmethod
+    def _batch(index: int, **overrides: Any) -> dict[str, Any]:
+        return _message(**{"batch_index": index, "s3_path": f"s3://bucket/run-1/{index}", **overrides})
+
+    @parameterized.expand(
+        [
+            ("append", "append", 1),
+            ("merge", "incremental", 1),
+            ("full_refresh", "full_refresh", 0),
+        ]
+    )
+    def test_reuse_gives_the_table_and_the_commits_of_an_open_per_batch(
+        self, _name: str, sync_type: str, first_index: int
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reused_path, opened_path = f"{tmp}/reused", f"{tmp}/opened"
+            reused_opens: list[int] = []
+            opened_opens: list[int] = []
+            for table_path, opens, reuse in ((reused_path, reused_opens, True), (opened_path, opened_opens, False)):
+                write_deltalake(table_path, self._SEED)
+                with ExitStack() as stack:
+                    stack.enter_context(self._loader(table_path, opens))
+                    if not reuse:
+                        stack.enter_context(patch.object(GroupTableHandles, "take", return_value=None))
+                    for index in range(first_index, first_index + 4):
+                        process_message(self._batch(index, sync_type=sync_type))
+
+            assert (len(reused_opens), len(opened_opens)) == (1, 4)
+            reused_rows = (
+                DeltaTable(reused_path).to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")])
+            )
+            opened_rows = (
+                DeltaTable(opened_path).to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")])
+            )
+            assert reused_rows.num_rows > self._SEED.num_rows
+            assert reused_rows.to_pydict() == opened_rows.to_pydict()
+            assert _data_commits(reused_path) == _data_commits(opened_path)
+
+    @parameterized.expand(
+        [
+            ("redelivery", {"attempt": 2}, {}),
+            ("another_run", {}, {"run_uuid": "run-2", "job_id": "job-2"}),
+            ("another_resource", {}, {"resource_name": "other"}),
+            ("batch_gap", {}, {"batch_index": 4}),
+            ("same_batch_again", {}, {"batch_index": 2}),
+            ("first_batch", {}, {"batch_index": 0, "is_resume": True}),
+        ]
+    )
+    def test_a_batch_the_handle_was_not_kept_for_opens_the_table(
+        self, _name: str, process_kwargs: dict[str, Any], overrides: dict[str, Any]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_deltalake(tmp, self._SEED)
+            opens: list[int] = []
+            with self._loader(tmp, opens):
+                process_message(self._batch(2, sync_type="append"))
+                process_message(self._batch(3, sync_type="append", **overrides), **process_kwargs)
+
+            assert len(opens) == 2
+
+    @parameterized.expand(
+        [
+            ("lease_lost",),
+            ("read_failed",),
+            ("final_batch",),
+            ("group_run_ended",),
+            ("waited_too_long",),
+        ]
+    )
+    def test_the_handle_is_released(self, case: str) -> None:
+        now = [0.0]
+        handles = GroupTableHandles(max_idle_seconds=60.0, clock=lambda: now[0])
+
+        def lose_lease() -> None:
+            raise _LeaseLost()
+
+        with tempfile.TemporaryDirectory() as tmp, patch(f"{_PROCESSOR}.GROUP_TABLE_HANDLES", handles):
+            write_deltalake(tmp, self._SEED)
+            opens: list[int] = []
+            with self._loader(tmp, opens):
+                process_message(self._batch(2, sync_type="append"))
+                assert len(handles) == 1
+
+                if case == "lease_lost":
+                    with pytest.raises(_LeaseLost):
+                        process_message(self._batch(3, sync_type="append"), verify_ownership=lose_lease)
+                elif case == "read_failed":
+                    with (
+                        patch(f"{_PROCESSOR}.read_parquet", side_effect=OSError("read failed")),
+                        pytest.raises(OSError),
+                    ):
+                        process_message(self._batch(3, sync_type="append"))
+                elif case == "final_batch":
+                    process_message(self._batch(3, sync_type="append", is_final_batch=True, total_rows=6))
+                elif case == "group_run_ended":
+                    handles.release(1, "schema-1")
+                else:
+                    now[0] = 61.0
+                    process_message(self._batch(9, sync_type="append", schema_id="schema-2"))
+                    handles.release(1, "schema-2")
+
+                assert len(handles) == 0
+                opens_before = len(opens)
+                next_index = 4 if case == "final_batch" else 3
+                process_message(self._batch(next_index, sync_type="append"))
+
+            assert len(opens) == opens_before + 1
+
+    def test_a_commit_from_another_writer_is_in_the_reused_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_deltalake(tmp, self._SEED)
+            opens: list[int] = []
+            seen_columns: list[list[str]] = []
+            apply_partitioning = _apply_partitioning
+
+            def record_snapshot(export_signal: Any, pa_table: pa.Table, existing: DeltaTable, schema: Any) -> pa.Table:
+                seen_columns.append([field.name for field in existing.schema().fields])
+                return apply_partitioning(export_signal, pa_table, existing, schema)
+
+            with (
+                self._loader(tmp, opens),
+                patch(f"{_PROCESSOR}._apply_partitioning", side_effect=record_snapshot),
+                patch(f"{_PROCESSOR}.logger") as mock_logger,
+            ):
+                process_message(self._batch(2, sync_type="append"))
+                write_deltalake(
+                    tmp, pa.table({"id": [100], "name": ["other"], "added": ["x"]}), mode="append", schema_mode="merge"
+                )
+                process_message(self._batch(3, sync_type="append"))
+
+            assert len(opens) == 1
+            assert seen_columns == [["id", "name"], ["id", "name", "added"]]
+            written = [
+                call.kwargs
+                for call in mock_logger.debug.call_args_list
+                if call.args[0] == "batch_written_to_delta_lake"
+            ]
+            assert [fields["table_handle"] for fields in written] == ["opened", "reused"]
+            assert "table_open_ms" in written[0] and "table_refresh_ms" not in written[0]
+            assert "table_refresh_ms" in written[1] and "table_open_ms" not in written[1]
+            assert {"parquet_read_ms", "partition_ms", "schema_evolve_ms", "write_ms"} <= written[1].keys()
+            rows = DeltaTable(tmp).to_pyarrow_table()
+            assert rows.sort_by("id").column("id").to_pylist() == [0, 1, 4, 5, 6, 6, 7, 8, 100]
+            assert rows.schema.names == ["id", "name", "added"]
+
+
+class TestCompactionDuringRebuild:
+    @staticmethod
+    def _schema(source_type: str = "Postgres") -> MagicMock:
+        schema = MagicMock()
+        schema.source.source_type = source_type
+        return schema
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {"sync_type": "full_refresh"}, None, None, True),
+            ("first_sync_incremental", {"is_first_ever_sync": True}, None, None, True),
+            ("first_sync_append", {"sync_type": "append", "is_first_ever_sync": True}, None, None, True),
+            ("incremental_on_an_existing_table", {}, None, None, False),
+            ("append_on_an_existing_table", {"sync_type": "append"}, None, None, False),
+            ("cdc", {"is_first_ever_sync": True, "cdc_write_mode": "upsert"}, None, None, False),
+            ("partial_data_loading", {"is_first_ever_sync": True}, ExternalDataSourceType.STRIPE, None, False),
+            ("set_spanning_two_runs", {"sync_type": "full_refresh"}, None, [("run-0", 9), ("run-1", 10)], False),
+            (
+                "set_crossing_a_check",
+                {"sync_type": "full_refresh", "batch_index": 9},
+                None,
+                [("run-1", 9), ("run-1", 10)],
+                True,
+            ),
+            ("between_checks", {"sync_type": "full_refresh", "batch_index": 11}, None, None, False),
+            ("first_batch", {"sync_type": "full_refresh", "batch_index": 0}, None, None, False),
+        ]
+    )
+    def test_which_writes_check_for_compaction(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        source_type: str | None,
+        members: list[tuple[str, int]] | None,
+        expected: bool,
+    ) -> None:
+        signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
+        members = members or [(signal.run_uuid, signal.batch_index)]
+        with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=True):
+            assert _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), members) is expected
+
+    def test_the_flag_turns_it_off(self) -> None:
+        signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
+        with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=False):
+            assert _rebuild_compaction_due(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+
+    def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
+        write_deltalake(table_path, TestTableHandleReuse._SEED)
+        with (
+            override_settings(DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES=3),
+            patch(f"{_PROCESSOR}.REBUILD_COMPACT_CHECK_EVERY", 5),
+            TestTableHandleReuse()._loader(table_path, []),
+            patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=enabled),
+        ):
+            for index in range(first_index, first_index + 12):
+                process_message(TestTableHandleReuse._batch(index, sync_type=sync_type))
+
+    @parameterized.expand(
+        [
+            ("rebuild_run_compacts_as_it_loads", "full_refresh", 0, True),
+            ("append_on_an_existing_table_waits_for_post_load", "append", 1, False),
+        ]
+    )
+    def test_compaction_between_batches_keeps_the_rows(
+        self, _name: str, sync_type: str, first_index: int, compacts: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            on_path, off_path = f"{tmp}/on", f"{tmp}/off"
+            self._load(on_path, sync_type, first_index, enabled=True)
+            self._load(off_path, sync_type, first_index, enabled=False)
+
+            on_table, off_table = DeltaTable(on_path), DeltaTable(off_path)
+            assert (
+                on_table.to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")]).to_pydict()
+                == off_table.to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")]).to_pydict()
+            )
+            assert (len(on_table.file_uris()) < len(off_table.file_uris())) is compacts

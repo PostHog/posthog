@@ -1,18 +1,31 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.temporal.ai_observability.evaluation_types import GENERATION_NOT_FOUND
 from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.utils import ensure_utc
 
 from products.ai_observability.backend.ai_event_lookup import fetch_generation_event
 
-# A generation can reach `events`, where a backfill finds it, before it reaches `ai_events`, where
-# it is read, so a miss gets two retries before it fails the run.
+# A generation can reach `events`, where a backfill finds it, or the scheduler's Kafka consumer
+# before it reaches `ai_events`, where it is read, so a miss gets two retries before it fails the
+# run. Only a live reference waits between them: a backfill miss is usually an expired row.
 GENERATION_NOT_FOUND_MAX_ATTEMPTS = 3
+GENERATION_NOT_FOUND_RETRY_DELAY = timedelta(seconds=15)
+
+
+class GenerationNotFoundError(NonReportableApplicationError):
+    """The last miss on a reference that has no ingestion to wait for.
+
+    Only a backfill sends such a reference, and it selects candidates from `events`, which keeps
+    rows longer than `ai_events`. So the row most likely aged out of `ai_events`. An evaluation
+    catches this and records a skip. A caller that does not catch it fails the run, and the error
+    stays out of error tracking.
+    """
 
 
 def as_utc_datetime(value: str | datetime) -> datetime:
@@ -75,7 +88,8 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
     Capture accepts an AI event up to 8 MiB while a Temporal payload is capped near 2 MiB, so a
     large generation cannot cross the workflow boundary at all. A backfill dispatcher therefore
     ships the uuid, plus the timestamp and trace id that turn the read into a point lookup on the
-    ai_events sort key, and every activity that needs the body reads it here.
+    ai_events sort key, and every activity that needs the body reads it here. The live scheduler
+    sends the same reference, marked `awaiting_ingestion`, for an event over its size threshold.
     """
     if "properties" in event_data:
         return event_data
@@ -88,7 +102,13 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
     )
     if event is None:
         if temporalio.activity.in_activity() and temporalio.activity.info().attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
-            # Only the last miss reaches error tracking: an earlier one is usually the lag above.
-            raise NonReportableApplicationError("Generation not found", type="generation_not_found")
-        raise ApplicationError("Generation not found", type="generation_not_found", non_retryable=True)
+            raise NonReportableApplicationError(
+                "Generation not found",
+                type=GENERATION_NOT_FOUND,
+                next_retry_delay=GENERATION_NOT_FOUND_RETRY_DELAY if event_data.get("awaiting_ingestion") else None,
+            )
+        # A live reference still fails the run and reaches error tracking: the scheduler saw the
+        # event, so a miss after the retries means ingestion lost or delayed it.
+        error_class = ApplicationError if event_data.get("awaiting_ingestion") else GenerationNotFoundError
+        raise error_class("Generation not found", type=GENERATION_NOT_FOUND, non_retryable=True)
     return event

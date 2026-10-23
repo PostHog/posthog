@@ -16,7 +16,6 @@ const mockBilling: BillingType = {
     subscription_level: 'paid',
     has_active_subscription: true,
     billing_plan: BillingPlan.Paid,
-    deactivated: false,
     current_total_amount_usd: '100.00',
     projected_total_amount_usd: '150.00',
     projected_total_amount_usd_after_discount: '135.00',
@@ -233,9 +232,9 @@ const mockBillingUsageResponse: BillingUsageResponse = {
             breakdown_value: 'events',
         },
     ],
-    status: 'ok',
-    type: 'timeseries',
-    customer_id: '123',
+    count: 1,
+    next: null,
+    previous: null,
 }
 
 const mockBillingSpendResponse: BillingSpendResponse = {
@@ -249,9 +248,9 @@ const mockBillingSpendResponse: BillingSpendResponse = {
             breakdown_value: 'events',
         },
     ],
-    status: 'ok',
-    type: 'timeseries',
-    customer_id: '123',
+    count: 1,
+    next: null,
+    previous: null,
 }
 
 const mockDestinations: HogFunctionType[] = [
@@ -266,8 +265,9 @@ describe('maxBillingContextLogic', () => {
         useMocks({
             get: {
                 '/api/billing/': mockBilling,
-                '/api/billing/usage/': mockBillingUsageResponse,
-                '/api/billing/spend/': mockBillingSpendResponse,
+                '/api/organizations/@current/billing/usage/timeseries/': mockBillingUsageResponse,
+                '/api/organizations/@current/billing/spend/timeseries/': mockBillingSpendResponse,
+                '/api/organizations/@current/billing/projects/': { count: 0, next: null, previous: null, results: [] },
                 '/api/billing/usage_limit_alerts/': [],
                 '/api/billing/compute_spend': {},
                 '/api/organizations/@current/': {
@@ -316,7 +316,6 @@ describe('maxBillingContextLogic', () => {
                 has_active_subscription: true,
                 subscription_level: 'paid',
                 billing_plan: 'paid',
-                is_deactivated: false,
                 total_current_amount_usd: '100.00',
                 projected_total_amount_usd: '150.00',
                 projected_total_amount_usd_after_discount: '135.00',
