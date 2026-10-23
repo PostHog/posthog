@@ -151,7 +151,7 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         self._record(self._sent_at(first_at), "sent", first_at, recipient_hash=SOMEONE_ELSE_HASH)
         other_team = Team.objects.create(organization=self.organization)
         self._record(self._sent_at(first_at), "sent", first_at, team_id=other_team.id)
-        older_than_kept = datetime.now(UTC) - timedelta(days=31)
+        older_than_kept = datetime.now(UTC) - timedelta(days=30, hours=1)
         self._record(self._sent_at(older_than_kept), "sent", older_than_kept)
 
         first_page = self._list({"to": "  Jane.Doe@Example.COM ", "limit": 2})
