@@ -8,6 +8,7 @@ import { createExampleInvocation } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CdpOutput } from '../../cdp-services'
 import {
+    ATTACHMENTS_OMITTED,
     HogInvocationResultRow,
     HogInvocationResultsService,
     decodeInvocationGlobals,
@@ -204,6 +205,7 @@ describe('HogInvocationResultsService', () => {
             expect(globals.send.attachments).toEqual([
                 { filename: 'invite.ics', contentType: 'text/calendar', size: 32 },
             ])
+            expect(globals[ATTACHMENTS_OMITTED]).toBe(true)
             expect(JSON.stringify(globals)).not.toContain(content)
         })
 

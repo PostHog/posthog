@@ -209,6 +209,7 @@ const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
 // snapshot keeps no variables or accepted send either, and a rerun can't rebuild the send.
 const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'send'])
 export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
+export const ATTACHMENTS_OMITTED = 'attachments_omitted'
 
 const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
     if (value === null || typeof value !== 'object') {
@@ -250,7 +251,7 @@ const sendsSensitiveEmail = (invocation: CyclotronJobInvocationHogFlow): boolean
 }
 
 // A code send's attachments can hold the send route's whole size cap, so a snapshot lists each file
-// without its content.
+// without its content, and marks that a rerun can't rebuild the send.
 const describeAttachments = (state: CyclotronJobInvocationHogFlow['state']): object => {
     const send = state?.send
     if (!send?.attachments) {
@@ -260,7 +261,7 @@ const describeAttachments = (state: CyclotronJobInvocationHogFlow['state']): obj
         ...file,
         size: Buffer.byteLength(content, 'base64'),
     }))
-    return { ...state, send: { ...send, attachments } }
+    return { ...state, send: { ...send, attachments }, [ATTACHMENTS_OMITTED]: true }
 }
 
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {

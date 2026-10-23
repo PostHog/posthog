@@ -6,7 +6,7 @@ import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-pos
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
+import { ATTACHMENTS_OMITTED, HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import { RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
@@ -143,6 +143,38 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         expect(invocation.state?.send).toEqual(persistedState.send)
         // Sticky rerun counter still increments so max_attempts guards apply.
         expect(invocation.state?.rerunAttempts).toBe(1)
+    })
+
+    it('skips a code send whose attachments were not stored and reruns the rest of the page', async () => {
+        const row = (invocationId: string, persistedState: Record<string, unknown>): Record<string, unknown> => ({
+            invocation_id: invocationId,
+            parent_run_id: '',
+            attempts: 0,
+            last_scheduled_at: '2026-06-01 09:00:00.000000',
+            first_scheduled_at: '2026-06-01 09:00:00.000000',
+            invocation_globals: JSON.stringify(persistedState),
+        })
+        const event = { uuid: 'evt-3', distinct_id: 'd-3', properties: {}, timestamp: '2026-06-01T09:00:00Z' }
+        const rows = [
+            row('inv-attachments', {
+                event,
+                send: {
+                    tracking: { captureEngagement: true },
+                    attachments: [{ filename: 'invite.ics', contentType: 'text/calendar', size: 32 }],
+                },
+                [ATTACHMENTS_OMITTED]: true,
+            }),
+            row('inv-plain', { event, actionStepCount: 0, variables: {} }),
+        ]
+        const hogFlowQueue = {
+            queueInvocations: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
+
+        const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue)
+        await paginator.processPage(teamId, state, { jobId: 'rerun-3', createdAt: DateTime.now() })
+
+        const enqueued = hogFlowQueue.queueInvocations.mock.calls.flatMap(([invocations]) => invocations)
+        expect(enqueued.map((invocation) => invocation.id)).toEqual(['inv-plain'])
     })
 
     it('leaves currentAction undefined for a flow that never progressed (fresh start is correct there)', async () => {

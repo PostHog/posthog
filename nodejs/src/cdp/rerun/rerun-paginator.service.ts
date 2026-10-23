@@ -13,6 +13,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import {
+    ATTACHMENTS_OMITTED,
     HogInvocationResultsService,
     SENSITIVE_VARIABLES_OMITTED,
     decodeInvocationGlobals,
@@ -770,6 +771,14 @@ export class RerunPaginatorService {
             const persistedState = parsedGlobals as Record<string, any>
             if (persistedState[SENSITIVE_VARIABLES_OMITTED]) {
                 logger.warn('⚠️', 'Skipping rerun of a sensitive email whose message data was not stored', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
+            if (persistedState[ATTACHMENTS_OMITTED]) {
+                logger.warn('⚠️', 'Skipping rerun of a code send whose attachments were not stored', {
                     functionId,
                     teamId,
                     invocation_id: row.invocation_id,
