@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -14,7 +15,9 @@ from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -42,6 +45,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
     new_connection_test_table,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
+    DestinationConnectLinkQuerySerializer,
     ExternalDataDestinationViewSet,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -1245,3 +1249,89 @@ class TestDestinationResumeAccessControl(DestinationAPITestBase):
         self.hidden_link.refresh_from_db()
         assert self.destination.status == ExternalDataDestination.Status.PAUSED
         assert self.hidden_link.enabled is False
+
+
+class TestDestinationConnectLinkQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("posthog_warehouse", {"destination_type": "PostHogWarehouse"}, "destination_type"),
+            ("unknown_type", {"destination_type": "Oracle"}, "destination_type"),
+            ("kind_of_another_type", {"destination_type": "S3", "integration_kind": "snowflake"}, "integration_kind"),
+            (
+                "second_kind_on_single_kind_type",
+                {"destination_type": "Snowflake", "integration_kind": "aws-s3"},
+                "integration_kind",
+            ),
+        ]
+    )
+    def test_rejects(self, _name: str, query: dict[str, str], field: str) -> None:
+        serializer = DestinationConnectLinkQuerySerializer(data=query)
+
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+
+class TestDestinationConnectLink(DestinationAPITestBase):
+    @parameterized.expand(
+        [
+            ("single_kind", "destination_type=Snowflake", "Snowflake", "snowflake"),
+            ("s3_defaults_to_aws", "destination_type=S3", "S3", "aws-s3"),
+            ("s3_compatible", "destination_type=S3&integration_kind=s3-compatible", "S3", "s3-compatible"),
+        ]
+    )
+    def test_points_at_the_connect_page_for_the_integration_kind(
+        self, _name: str, query: str, destination_type: str, kind: str
+    ) -> None:
+        response = self.client.get(f"{self.base}/connect_link?{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["destination_type"] == destination_type
+        assert data["integration_kind"] == kind
+        assert data["connect_url"].endswith(f"/project/{self.team.pk}/data-warehouse/connect-destination?kind={kind}")
+        assert f"kind='{kind}'" in data["instructions"]
+        assert f"type='{destination_type}'" in data["instructions"]
+
+    def test_rejects_a_kind_the_type_does_not_accept(self) -> None:
+        response = self.client.get(f"{self.base}/connect_link?destination_type=Postgres&integration_kind=aws-s3")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "integration_kind"
+
+
+class TestDestinationAPIKeyScopes(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.destination = self._create_destination(
+            type=ExternalDataDestination.Type.BIGQUERY,
+            integration=self._integration(Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT).pk,
+            config={"dataset": "analytics"},
+        )
+        self.client.force_authenticate(None)
+
+    @parameterized.expand(
+        [
+            ("external_data_source:read", "connect_link", status.HTTP_200_OK),
+            ("external_data_source:read", "add_sources", status.HTTP_403_FORBIDDEN),
+            ("external_data_source:write", "add_sources", status.HTTP_200_OK),
+            ("external_data_source:read", "test_connection", status.HTTP_403_FORBIDDEN),
+            ("external_data_source:write", "test_connection", status.HTTP_200_OK),
+        ]
+    )
+    def test_custom_actions_map_to_scopes(self, scope: str, action: str, expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, label="test", secure_value=hash_key_value(value), scopes=[scope])
+        headers = {"authorization": f"Bearer {value}"}
+
+        if action == "connect_link":
+            response = self.client.get(f"{self.base}/connect_link?destination_type=Postgres", headers=headers)
+        elif action == "add_sources":
+            response = self.client.post(
+                f"{self.base}/{self.destination.id}/add_sources",
+                {"source_ids": [str(self.source.id)]},
+                headers=headers,
+            )
+        else:
+            response = self.client.post(f"{self.base}/{self.destination.id}/test_connection", headers=headers)
+
+        assert response.status_code == expected_status, response.json()
