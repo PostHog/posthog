@@ -1,4 +1,5 @@
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Optional
 from uuid import UUID
@@ -119,13 +120,19 @@ def find_orphaned_ch_persons(team_id: int, uuids: Optional[list[str]] = None) ->
 
 
 def tombstone_orphaned_ch_persons(
-    team_id: int, orphans: list[OrphanedPerson], *, dry_run: bool = True
+    team_id: int,
+    orphans: list[OrphanedPerson],
+    *,
+    dry_run: bool = True,
+    on_outcome: Optional[Callable[[str, str], None]] = None,
 ) -> OrphanRepairResult:
     """Tombstone orphaned persons in the persons DB one version above ClickHouse, then publish those tombstones.
 
     Each ClickHouse tombstone carries the exact stored version, so a later revival lands above it and a rerun
     republishes the same versions. Distinct ids get no tombstone of their own, because the ClickHouse deletion
     sweep removes every live mapping of a person it deletes.
+
+    Once applied, ``on_outcome`` receives each orphan's uuid with "tombstoned", "republished" or "skipped_live".
     """
     result = OrphanRepairResult(orphaned_person_uuids=sorted(o.uuid for o in orphans), dry_run=dry_run)
     if not orphans:
@@ -153,12 +160,16 @@ def tombstone_orphaned_ch_persons(
                 uuid = str(floor.uuid)
                 if floor.outcome == VersionFloorOutcome.LIVE:
                     result.skipped_live_persons += 1
+                    if on_outcome is not None:
+                        on_outcome(uuid, "skipped_live")
                     continue
                 stored = stored_by_uuid.get(uuid)
                 if stored is None:
                     result.tombstoned_persons += 1
                 else:
                     result.republished_persons += 1
+                if on_outcome is not None:
+                    on_outcome(uuid, "tombstoned" if stored is None else "republished")
                 tombstone = PersonTombstone(
                     uuid=floor.uuid, version=floor.version, distinct_ids=stored.distinct_ids if stored else []
                 )

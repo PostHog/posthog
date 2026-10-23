@@ -29,6 +29,7 @@ from posthog.test.insight_queries import browser_filtered_pageview_query, defaul
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.api import (
     AI_REPORT_CHARTS_KEY,
@@ -54,6 +55,7 @@ from products.subscriptions.backend.tests.subscriptions_test_factory import crea
 
 from ee.api.test.base import APILicensedTest
 
+WAREHOUSE_ACCESS_CONTROL_FLAG = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
 GALLERY_ON_PROMPT_ERROR = (
     "post_all_insights_in_main_message only applies to insight and dashboard subscriptions. This "
@@ -4792,3 +4794,99 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert body["attr"] == "dashboard", body
         assert "Viewer access to every insight on this dashboard" in body["detail"], body
         self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def _insight_over_a_governed_view(self) -> Insight:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        return Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataTableNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+            },
+        )
+
+    def _deny_warehouse_tables(self) -> None:
+        self._rule("warehouse_objects", for_member=False)
+
+    def _insight_target(self, insight: Insight) -> dict:
+        return {"insight": insight.id}
+
+    def _dashboard_target(self, insight: Insight) -> dict:
+        return {"dashboard": self._dashboard_with_tiles(insight).id, "dashboard_export_insights": [insight.id]}
+
+    @parameterized.expand([("an insight", "_insight_target"), ("a dashboard tile", "_dashboard_target")])
+    def test_create_is_rejected_when_the_caller_cannot_read_a_delivered_table(self, _name, target_builder):
+        insight = self._insight_over_a_governed_view()
+        self._deny_warehouse_tables()
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions", self._payload(**getattr(self, target_builder)(insight))
+            )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert "Can't save this subscription" in body["detail"], body
+        assert "governed_view" in body["detail"], body
+        assert not Subscription.objects.filter(team_id=self.team.id).exists()
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_create_allows_a_member_who_can_read_the_delivered_table(self):
+        insight = self._insight_over_a_governed_view()
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=insight.id)
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_update_recipients_is_rejected_when_a_selected_tile_is_hidden(self):
+        insight = self._insight_over_a_governed_view()
+        dashboard = self._dashboard_with_tiles(insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        subscription.dashboard_export_insights.add(insight)
+        # A hidden tile leaves the delivery; a tile restore brings it back without a subscription write.
+        DashboardTile.objects.filter(dashboard=dashboard, insight=insight).update(deleted=True)
+        self._deny_warehouse_tables()
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+                {"target_value": "attacker@example.com"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "governed_view" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("a new recipient", {}, {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),
+            ("turning it off", {}, {"deleted": True}, status.HTTP_200_OK),
+            ("disabling it", {}, {"enabled": False}, status.HTTP_200_OK),
+            # The recipient change would outlive the disable, so turning it off does not excuse it.
+            (
+                "disabling it and changing recipients",
+                {},
+                {"enabled": False, "target_value": "attacker@example.com"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("restoring it", {"deleted": True}, {"deleted": False}, status.HTTP_400_BAD_REQUEST),
+            ("re-enabling it", {"enabled": False}, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_update_by_a_caller_denied_a_delivered_table_may_only_turn_it_off(self, _name, state, body, expected):
+        subscription = self._subscription_for(insight=self._insight_over_a_governed_view(), **state)
+        self._deny_warehouse_tables()
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
+
+        assert response.status_code == expected, response.json()
+        subscription.refresh_from_db()
+        assert subscription.target_value == "test1@posthog.com,test2@posthog.com"

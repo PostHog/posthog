@@ -1652,6 +1652,31 @@ class TestUnfinishedEarlierBatchesSync:
         assert self._check(_db_url).count == 0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "states,expected_count",
+        [
+            (["succeeded", "succeeded"], 0),
+            (["succeeded", "failed"], 1),
+            (["pending", "succeeded"], 1),
+        ],
+    )
+    async def test_reports_the_batches_of_continued_jobs_that_did_not_succeed(
+        self, conn, _db_url, states, expected_count
+    ):
+        for index, state in enumerate(states):
+            bid = await _insert_batch(conn, batch_index=index, job_id="job-stopped", run_uuid="run-stopped-a1")
+            if state != "pending":
+                await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+        await _insert_batch(conn, batch_index=0, job_id="job-other", run_uuid="run-other-a1")
+        await _insert_batch(conn, batch_index=0, job_id="job-stopped", run_uuid="run-stopped-a1", schema_id="schema-2")
+
+        unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
+            _db_url, team_id=1, schema_id="schema-1", job_ids=["job-stopped"], connect_timeout_seconds=5
+        )
+
+        assert unfinished.count == expected_count
+
+    @pytest.mark.asyncio
     async def test_reports_the_aged_out_batch_that_the_claim_skipped(self, conn, _db_url):
         # The run gates do not read an aged-out 'pending' batch, so the claim hands out the final
         # batch of its run. The completion check must still see the aged batch.
