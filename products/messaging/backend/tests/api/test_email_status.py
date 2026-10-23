@@ -124,8 +124,9 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["code"] == "not_found"
         assert response.json()["why"] and response.json()["fix"]
 
-    def test_answers_not_found_for_an_id_that_is_not_a_uuid(self, _flag):
-        response = self._client(["hog_flow:read"]).get(self._url("not-a-uuid"))
+    @parameterized.expand([("not_a_uuid", "not-a-uuid"), ("not_a_uuidt", "ffffffff-ffff-4fff-8fff-ffffffffffff")])
+    def test_answers_not_found_for_an_id_no_email_can_have(self, _flag, _name, message_id):
+        response = self._client(["hog_flow:read"]).get(self._url(message_id))
 
         assert (response.status_code, response.json()["code"]) == (status.HTTP_404_NOT_FOUND, "not_found")
 
@@ -159,6 +160,21 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
             cursor=EmailStatusCursor(created_at=records[0].created_at, message_id=records[0].message_id),
         )
         assert [record.message_id for record in next_page] == [first]
+
+    def test_lists_a_recipients_emails_recorded_before_a_salt_key_rotation(self, _flag):
+        sent_at = datetime.now(UTC) - timedelta(hours=1)
+        message_id = self._sent_at(sent_at)
+        with override_settings(ENCRYPTION_SALT_KEYS=["00beef0000beef0000beef0000beef00"]):
+            self._record(message_id, "sent", sent_at)
+
+        with override_settings(
+            ENCRYPTION_SALT_KEYS=["11cafe0011cafe0011cafe0011cafe00", "00beef0000beef0000beef0000beef00"]
+        ):
+            records = list_email_statuses_by_recipient(
+                self.team.id, "jane@example.com", since=sent_at - timedelta(minutes=1), limit=10
+            )
+
+        assert [record.message_id for record in records] == [message_id]
 
     @parameterized.expand(["by_id", "by_recipient"])
     def test_tags_its_clickhouse_reads(self, _flag, read):
