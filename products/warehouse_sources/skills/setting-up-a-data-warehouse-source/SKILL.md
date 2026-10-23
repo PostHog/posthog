@@ -5,7 +5,8 @@ description: >
   Salesforce, BigQuery, Snowflake, and so on. Use when the user wants to "connect Stripe", "import data from
   Postgres", "add a new data source", "sync my warehouse tables", or wants to pick sync methods for each table. Walks
   through source-type discovery, credential validation, table discovery, per-table sync_type selection, and the
-  final create call. Also covers picking a good prefix and what to do right after creation.
+  final create call. Also covers picking a good prefix, what to do right after creation, and sending a source's
+  tables to the user's own warehouse (Snowflake, BigQuery, Postgres, S3 and other destinations).
 ---
 
 # Setting up a data warehouse source
@@ -40,6 +41,10 @@ hand-pick which tables sync or set non-default sync types per table.
 | `external-data-sources-update-webhook-inputs-create`   | Supply the signing secret manually when auto-registration failed                                                          |
 | `external-data-sources-list`                           | After creation, confirm the source is listed and see its initial status                                                   |
 | `external-data-schemas-list`                           | See per-table sync status once the source is created                                                                      |
+| `external-data-destinations-connect-link`              | Secure browser link where the user enters a destination's credentials; returns nothing secret                             |
+| `external-data-destinations-create`                    | Create a destination from the integration the connect page saved                                                          |
+| `external-data-destinations-add-sources`               | Attach existing sources to a destination                                                                                  |
+| `external-data-destinations-test-connection`           | Re-test a destination that is failing or paused                                                                           |
 
 ## Pre-flight: credential gotchas that cause most failures
 
@@ -328,6 +333,28 @@ If the user wants near-real-time replication from Postgres:
 3. Once prerequisites pass, proceed to db-schema and create. Set `sync_type: "cdc"` on the tables that need it, and
    include `primary_key_columns` for each (CDC requires them).
 
+## Sending a source to the user's own warehouse (optional, when requested)
+
+Only do this when the user asks for their data in their own Snowflake, BigQuery, Postgres, Redshift, Databricks, S3 or
+Azure Blob storage. These tools exist only when the feature is on for the project. Every source keeps writing to the
+PostHog warehouse as well.
+
+1. Call `external-data-destinations-list` first. If a destination for that target already exists, reuse it.
+2. Call `external-data-destinations-connect-link` with the `destination_type` (for S3-compatible storage such as R2 or
+   MinIO, also pass `integration_kind: "s3-compatible"`). Share `connect_url` and wait until the user says they are
+   done. The page saves an integration and shows its id.
+3. Find that integration with `integrations-list` (filter by the returned `integration_kind`, newest first), or use the
+   id the user reads off the page.
+4. Ask the user for the target (database and schema, dataset, bucket and prefix, and so on), then call
+   `external-data-destinations-create` with `type`, `name`, `integration` and `config`. Creation tests the
+   connection. A 400 names the field to fix. The target cannot change later, so confirm it before creating.
+5. Call `external-data-destinations-add-sources` with the source ids. A source that has already synced sends only
+   new rows to the destination. Offer `resync: true` to copy the history, and say that a resync re-reads every row
+   and bills every destination the source writes to.
+
+If a destination later shows `status: "failing"` or `"paused"`, run `external-data-destinations-test-connection`
+and relay the message of the first failed step.
+
 ## Important notes
 
 - **Always validate creds with db-schema before create.** The create endpoint will accept invalid creds and then fail
@@ -340,7 +367,7 @@ If the user wants near-real-time replication from Postgres:
 - **A new source syncs to the PostHog warehouse.** That is the default and it needs no setup: a source nobody
   configured destinations for writes here and nowhere else. Some projects can also send a source's tables to their
   own database (`external-data-sources-destinations-retrieve` shows where a source writes, when the feature is on for
-  the project). Setting that up is a separate step and never something to do as part of creating a source — adding a
+  the project). Setting that up is a separate step (see "Sending a source to the user's own warehouse") and never something to do as part of creating a source — adding a
   destination to a source that has already synced leaves it holding none of the history until the tables are resynced,
   and a resync bills every destination the source writes to.
 - **Prefix is load-bearing.** It's part of every HogQL query the user will ever write against these tables. Pick
