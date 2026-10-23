@@ -77,6 +77,8 @@ function materialize(
         dismissal_note: null,
         created_asset: null,
         asset_outcome: null,
+        realized_seconds_saved_per_month: null,
+        realized_bytes_saved_per_month: null,
         can_act: canAct,
     }
 }
