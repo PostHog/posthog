@@ -29,7 +29,6 @@ import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -38,7 +37,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
     ApprovalDecisionStatus,
@@ -2332,6 +2330,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
         processNotebookUpdate: async ({ notebookId, notebookContent }) => {
             try {
+                const [{ notebookLogic }, { openNotebook }] = await Promise.all([
+                    import('scenes/notebooks/Notebook/notebookLogic'),
+                    import('~/models/notebooksModel'),
+                ])
                 const currentPath = router.values.location.pathname
                 const notebookPath = urls.notebook(notebookId)
 

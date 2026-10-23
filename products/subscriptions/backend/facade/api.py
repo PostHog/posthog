@@ -94,6 +94,7 @@ __all__ = [
     "WEEKDAY_CHOICES",
     "ai_query_plan_status",
     "create_subscription",
+    "dashboard_has_active_full_subscription",
     "dashboard_ids_with_subscriptions",
     "delete_insight_subscriptions",
     "failed_delivery_counts",
@@ -101,6 +102,7 @@ __all__ = [
     "get_subscription_delivery",
     "get_subscription_ref",
     "get_summary_quota",
+    "insight_has_active_subscription",
     "insight_ids_with_subscriptions",
     "is_ai_prompt_subscription",
     "list_subscription_deliveries",
@@ -187,6 +189,16 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
             "dashboard_id", flat=True
         )
     )
+
+
+def insight_has_active_subscription(insight_id: int) -> bool:
+    """Whether an enabled subscription delivers this insight, directly or as a dashboard tile."""
+    return queries.insight_has_active_subscription(insight_id)
+
+
+def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
+    """Whether an enabled subscription delivers every insight on this dashboard."""
+    return queries.dashboard_has_active_full_subscription(dashboard_id)
 
 
 # The subscription API. Each function takes the team the request is scoped to. A refusal is raised as

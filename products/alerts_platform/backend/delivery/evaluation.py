@@ -15,6 +15,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
@@ -41,6 +42,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     LegacyEventEmission,
+    MessageLink,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
 
@@ -185,6 +187,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         )
 
     thread_store = DatabaseThreadStore(request.team_id)
+    project = MessageLink(label=team.name, url=absolute_uri(f"/project/{team.id}"))
     sent = 0
     skipped = 0
     busy: list[str] = []
@@ -257,6 +260,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     source_incident_key=source_incident_key(request.destination_alert_id)
                     if request.owned_by_platform
                     else None,
+                    project=project,
                 )
             except ThreadBusy as error:
                 busy.append(str(error))

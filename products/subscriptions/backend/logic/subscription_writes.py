@@ -31,7 +31,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import human_list
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.facade.api import live_tile_insight_ids
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
@@ -625,7 +624,11 @@ class _SubscriptionWrite:
                 )
 
             # Ensure all selected insights belong to the dashboard (and are not deleted)
-            dashboard_insight_ids = set(live_tile_insight_ids(dashboard.id))
+            dashboard_insight_ids = set(
+                dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values_list(
+                    "insight_id", flat=True
+                )
+            )
             invalid_ids = selected_ids - dashboard_insight_ids
 
             if invalid_ids:
@@ -645,7 +648,10 @@ class _SubscriptionWrite:
     def _require_viewer_access_to_every_live_tile(
         self, dashboard: Dashboard, *, error_field: str = "dashboard"
     ) -> None:
-        live_tile_insights = Insight.objects.filter(team_id=self.team_id, id__in=live_tile_insight_ids(dashboard.id))
+        live_tile_insights = Insight.objects.filter(
+            team_id=self.team_id,
+            id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
+        )
         if blocked_target_ids(self.viewer, live_tile_insights, "insight").exists():
             raise SubscriptionRequestInvalidError(
                 {
