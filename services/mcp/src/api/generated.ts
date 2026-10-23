@@ -77622,6 +77622,8 @@ export namespace Schemas {
        * * `closed` - Closed
        * * `merged` - Merged */
       readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+      readonly suppression_source: SignalReportSuppressionSourceEnum | null;
     }
 
     export interface ReportPlan {
