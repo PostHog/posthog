@@ -522,7 +522,8 @@ class TestDenialCacheSurvivesSerialization(SimpleTestCase):
 
         from products.managed_warehouse.backend.managed_ingress import _NO_TARGET
 
-        restored = pickle.loads(pickle.dumps(_NO_TARGET))  # nosemgrep
+        serialized = pickle.dumps(_NO_TARGET)  # nosemgrep
+        restored = pickle.loads(serialized)  # nosemgrep
         assert restored == _NO_TARGET
 
     def test_a_cached_denial_is_returned_without_a_control_plane_call(self) -> None:
