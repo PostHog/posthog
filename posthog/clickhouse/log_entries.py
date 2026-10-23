@@ -53,6 +53,7 @@ def KAFKA_LOG_ENTRIES_TABLE_SQL(on_cluster=True, group: str = "group1"):
     )
 
 
+LOG_ENTRIES_DATA_TABLE = "log_entries_data"
 KAFKA_LOG_ENTRIES_AUX_TABLE = "kafka_log_entries_aux"
 
 

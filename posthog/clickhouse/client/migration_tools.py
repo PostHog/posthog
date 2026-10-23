@@ -24,4 +24,4 @@ def get_migrations_cluster() -> ClickhouseCluster:
 
 
 def collapses_to_all_nodes() -> bool:
-    return (settings.E2E_TESTING or not run_mode().is_deployed_cloud) and not settings.MULTINODE_CLICKHOUSE
+    return settings.E2E_TESTING or not run_mode().is_deployed_cloud
