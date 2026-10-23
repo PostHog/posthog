@@ -207,8 +207,7 @@ async fn process_request_inner(
         // Internal requests skip the check. Django calls from a private pod IP without an
         // `Origin`, so a team that blocks a private range would see every flag off in its own
         // PostHog app.
-        // `context.ip` is the leftmost `X-Forwarded-For` entry, which the caller controls, so
-        // the check also reads the entries that our edge appended on the right.
+        // `context.ip` is the leftmost `X-Forwarded-For` entry, which the caller controls.
         let block_reason = if is_internal {
             None
         } else {

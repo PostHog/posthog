@@ -6,8 +6,7 @@
 use axum::http::HeaderMap;
 use std::net::IpAddr;
 
-/// The number of entries [`addresses`] reads, counted from the right. The chains that reach
-/// the flags service have a few entries, and a caller can send any number.
+/// The chains that reach the flags service have a few entries, and a caller can send any number.
 pub const MAX_FORWARDED_ADDRESSES: usize = 20;
 
 /// Parses one entry. An entry can carry a port (`203.0.113.7:8080`, `[2001:db8::1]:8080`),
@@ -40,10 +39,8 @@ pub fn parse_entry(entry: &str) -> Option<IpAddr> {
     ip_without_port.parse().ok()
 }
 
-/// The addresses in every `X-Forwarded-For` header, right to left, from at most
-/// [`MAX_FORWARDED_ADDRESSES`] entries. Reading from the right keeps the entries our edge
-/// appended, even when the caller pads the left side. An entry that is not an address is
-/// skipped, so one bad entry cannot hide the others.
+/// Right to left, so that padding on the left cannot push the entries our edge appended
+/// past [`MAX_FORWARDED_ADDRESSES`].
 pub fn addresses(headers: &HeaderMap) -> impl Iterator<Item = IpAddr> + '_ {
     headers
         .get_all("x-forwarded-for")
