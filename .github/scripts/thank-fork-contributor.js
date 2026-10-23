@@ -1,19 +1,15 @@
 // Runs through actions/github-script when a pull request merges. If its body
-// carries the line that the recreating-fork-prs skill writes
-// ("Contributed by @<login> in #<n>"), it tells the contributor on fork PR #<n>
+// carries the hidden marker that the recreating-fork-prs skill writes
+// ("<!-- fork-pr: <n> @<login> -->"), it tells the contributor on fork PR #<n>
 // where their change landed, then closes that PR.
 
-const MARKER = '<!-- fork-contribution-landed -->'
+const THANKS_MARKER = '<!-- fork-contribution-landed -->'
+const FORK_PR_MARKER = /<!-- fork-pr: (\d+) @([A-Za-z0-9-]+) -->/
 const HANDBOOK_URL = 'https://posthog.com/handbook/engineering/fork-pull-requests'
 
-// Accepts "#123" and a markdown link to a pull request in this repository.
-function parseContribution(body, repoFullName) {
-    const repoPath = repoFullName.replace(/\./g, '\\.')
-    const pattern = new RegExp(
-        `Contributed by @([A-Za-z0-9-]+) in (?:#|\\[[^\\]]*\\]\\(https://github\\.com/${repoPath}/pull/)(\\d+)`
-    )
-    const match = pattern.exec(body || '')
-    return match ? { login: match[1], forkPrNumber: Number(match[2]) } : null
+function parseContribution(body) {
+    const match = FORK_PR_MARKER.exec(body || '')
+    return match ? { forkPrNumber: Number(match[1]), login: match[2] } : null
 }
 
 function sameLogin(a, b) {
@@ -36,12 +32,12 @@ function skipReason(forkPr, login) {
 }
 
 function alreadyTold(forkPr) {
-    return forkPr.comments.nodes.some((comment) => comment.body.includes(MARKER))
+    return forkPr.comments.nodes.some((comment) => comment.body.includes(THANKS_MARKER))
 }
 
 function buildComment({ login, mergedPrNumber, credited }) {
     const coAuthor = credited ? ', with you as co-author' : ''
-    return `${MARKER}\nThank you for your contribution @${login}! Fork PRs can't run our backend CI, so we merged your change through #${mergedPrNumber}${coAuthor} ([why](${HANDBOOK_URL})).`
+    return `${THANKS_MARKER}\nThank you for your contribution @${login}! Fork PRs can't run our backend CI, so we merged your change through #${mergedPrNumber}${coAuthor} ([why](${HANDBOOK_URL})).`
 }
 
 const MERGED_PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -82,9 +78,9 @@ module.exports = async ({ github, context, core }) => {
     const mergedPrNumber = context.payload.pull_request.number
 
     const mergedPr = await fetchPullRequest(github, MERGED_PR_QUERY, { owner, name: repo, number: mergedPrNumber })
-    const contribution = parseContribution(mergedPr.body, `${owner}/${repo}`)
+    const contribution = parseContribution(mergedPr.body)
     if (!contribution) {
-        core.info(`#${mergedPrNumber} has no "Contributed by" line`)
+        core.info(`#${mergedPrNumber} has no fork-pr marker`)
         return
     }
     const { login, forkPrNumber } = contribution
@@ -108,7 +104,7 @@ module.exports = async ({ github, context, core }) => {
     }
 }
 
-module.exports.MARKER = MARKER
+module.exports.THANKS_MARKER = THANKS_MARKER
 module.exports.parseContribution = parseContribution
 module.exports.skipReason = skipReason
 module.exports.alreadyTold = alreadyTold

@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const thankForkContributor = require('./thank-fork-contributor')
-const { MARKER, parseContribution, skipReason, buildComment } = thankForkContributor
+const { THANKS_MARKER, parseContribution, skipReason, buildComment } = thankForkContributor
 
 const forkPr = (overrides = {}) => ({
     state: 'OPEN',
@@ -15,7 +15,7 @@ const forkPr = (overrides = {}) => ({
 })
 
 const MERGED_PR = {
-    body: 'Contributed by @Jane-Doe in #1001, which cannot merge.',
+    body: '<!-- fork-pr: 1001 @Jane-Doe -->',
     mergeCommit: { authors: { nodes: [{ user: { login: 'Jane-Doe' } }] } },
 }
 
@@ -45,19 +45,14 @@ const core = { info: () => {}, warning: () => {} }
 test.describe('thank-fork-contributor', () => {
     for (const [body, expected] of [
         [
-            '- Contributed by @Jane-Doe in #1001, which cannot merge because backend CI does not run for fork PRs.',
-            { login: 'Jane-Doe', forkPrNumber: 1001 },
+            '## Problem\n\n<!-- fork-pr: 1001 @Jane-Doe -->\n- Contributed by @Jane-Doe in #1001.',
+            { forkPrNumber: 1001, login: 'Jane-Doe' },
         ],
-        [
-            'Contributed by @Jane-Doe in [fix filters](https://github.com/PostHog/posthog/pull/1001), which cannot merge.',
-            { login: 'Jane-Doe', forkPrNumber: 1001 },
-        ],
-        ['Contributed by @Jane-Doe in [sdk fix](https://github.com/PostHog/posthog-js/pull/1001).', null],
-        ['Fixes the bug reported in #1001.', null],
+        ['- Contributed by @Jane-Doe in #1001, which cannot merge.', null],
         [null, null],
     ]) {
         test(`parseContribution(${JSON.stringify(body)})`, () => {
-            assert.deepEqual(parseContribution(body, 'PostHog/posthog'), expected)
+            assert.deepEqual(parseContribution(body), expected)
         })
     }
 
@@ -91,7 +86,7 @@ test.describe('thank-fork-contributor', () => {
         ],
         [
             'a rerun after a failed close only closes',
-            forkPr({ comments: { nodes: [{ body: MARKER }] } }),
+            forkPr({ comments: { nodes: [{ body: THANKS_MARKER }] } }),
             [['close', 1001]],
         ],
         ['a closed fork PR only gets the comment', forkPr({ state: 'CLOSED' }), [['comment', 1001]]],

@@ -99,7 +99,8 @@ Then add your own fixes as separate commits, so the history shows which part is 
 
 Write the body with `/writing-pr-descriptions` and the repo template. Then add:
 
-- In Problem, this exact line: "Contributed by @<login> in #<n>, which cannot merge because backend CI does not run for fork PRs."
+- In Problem: "Contributed by @<login> in #<n>, which cannot merge because backend CI does not run for fork PRs."
+- Anywhere in the body, this hidden marker, exactly: `<!-- fork-pr: <n> @<login> -->`. It is not a leftover template comment, so keep it through later body edits.
 - The `Closes #<issue>` line from the fork PR.
 - Screenshots linked from the fork PR, not uploaded again.
 - In Agent context: cherry-picked or squashed, and which commits are your follow-ups.
@@ -107,6 +108,6 @@ Write the body with `/writing-pr-descriptions` and the repo template. Then add:
 Do not add a `Co-authored-by` trailer.
 The merge queue squash-merges, and GitHub adds a `Co-authored-by` line for every commit author other than the PR author.
 
-When the new PR merges, the `Thank fork contributor` job in `.github/workflows/pr-closed.yml` reads the "Contributed by" line.
+When the new PR merges, the `Thank fork contributor` job in `.github/workflows/pr-closed.yml` reads the marker.
 It comments on the fork PR with a link to the merged PR, then closes the fork PR.
 Leave the fork PR open until then.
