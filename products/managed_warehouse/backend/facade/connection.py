@@ -13,10 +13,15 @@ __all__ = [
     "get_active_managed_warehouse_source_generation",
     "get_managed_warehouse_source_generation",
     "reconcile_managed_warehouse_tables",
+    "reserve_internal_warehouse",
     "soft_delete_legacy_managed_warehouse_sources",
     "soft_delete_managed_warehouse_sources",
     "update_managed_warehouse_root_password",
 ]
+
+
+def reserve_internal_warehouse(*, organization_id: str | UUID) -> bool:
+    return connection_logic.reserve_internal_warehouse(organization_id=organization_id)
 
 
 def get_active_managed_warehouse_source_generation(*, organization_id: str | UUID) -> int | None:
@@ -27,10 +32,13 @@ def get_managed_warehouse_source_generation(*, organization_id: str | UUID) -> i
     return connection_logic.get_managed_warehouse_source_generation(organization_id=organization_id)
 
 
-def activate_managed_warehouse_source_lifecycle(*, organization_id: str | UUID, expected_generation: int) -> int | None:
+def activate_managed_warehouse_source_lifecycle(
+    *, organization_id: str | UUID, expected_generation: int, internal_only: bool = False
+) -> int | None:
     return connection_logic.activate_managed_warehouse_source_lifecycle(
         organization_id=organization_id,
         expected_generation=expected_generation,
+        internal_only=internal_only,
     )
 
 

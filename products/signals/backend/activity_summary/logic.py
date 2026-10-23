@@ -61,6 +61,7 @@ class UpdateStatus(StrEnum):
     OK = "ok"
     FAILED = "failed"
     SKIPPED_AI_NOT_APPROVED = "skipped_ai_not_approved"
+    SKIPPED_NOT_ENROLLED = "skipped_not_enrolled"
     SKIPPED_NOT_ELIGIBLE_YET = "skipped_not_eligible_yet"
     SKIPPED_TOO_FEW_UNITS = "skipped_too_few_units"
 
@@ -78,6 +79,8 @@ class ActivitySummaryUpdate:
     inputs_used: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
     rebuilt: bool = False
+    # The pair had no generated summary before this update.
+    new_summary: bool = False
 
 
 class StoredSummaryVersion(Protocol):
@@ -316,6 +319,7 @@ def update_activity_summary(
         inputs_used=inputs_used,
         input_watermark=watermark if outcome.summary is not None else None,
         rebuilt=rebuild,
+        new_summary=stored is None or stored.generated_at is None,
     )
     if dry_run:
         return result

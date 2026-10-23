@@ -13,7 +13,20 @@ export namespace Schemas {
     /**
      *
      */
+    export interface AEOPromptEngineCheck {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** Whether the answer cited a URL on one of the target domains. */
+      cited: boolean;
+      /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
+      check_failed: boolean;
+      /** When the check ran. */
+      checked_at: string;
+    }
+
     export interface AEOPrompt {
+      /** The most recent check for each answer engine that ran the prompt. Empty when the prompt never ran. */
+      latest_checks: AEOPromptEngineCheck[];
       /** Prompt id. */
       id: string;
       /** The question asked to the answer engines, as a user would phrase it. */
@@ -81,6 +94,13 @@ export namespace Schemas {
       updated: number;
       /** Prompts that were empty or too long for the answer engines. */
       skipped: number;
+    }
+
+    export interface AEOPromptTopic {
+      /** Topic name. Empty for prompts that have no topic. */
+      topic: string;
+      /** How many prompts in the set have this topic. */
+      prompts: number;
     }
 
     export interface AIContextAccountProperty {
@@ -6831,6 +6851,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -6921,7 +6943,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7986,7 +8012,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8019,6 +8049,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8104,7 +8136,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8142,7 +8178,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -9070,7 +9110,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -9176,7 +9220,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -28063,7 +28111,52 @@ export namespace Schemas {
     export type DashboardPersistedVariables = { [key: string]: unknown } | null;
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupColorEnum = typeof DashboardTileGroupColorEnum[keyof typeof DashboardTileGroupColorEnum];
+
+
+    export const DashboardTileGroupColorEnum = {
+      Blue: 'blue',
+      Purple: 'purple',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+    } as const;
+
+    export interface DashboardTileGroup {
+      /**
+         * Heading for the group. When it is blank or omitted, the heading shows the number of tiles.
+         * @maxLength 200
+         */
+      title?: string;
+      /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+      collapsed?: boolean;
+      /** Color of a dot before the group heading. Null or omitted shows no dot.
+       *
+       * * `blue` - Blue
+       * * `purple` - Purple
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red */
+      color?: DashboardTileGroupColorEnum | null;
+    }
+
+    /**
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    export type DashboardGroups = {[key: string]: DashboardTileGroup} | null;
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     export type DashboardGroupTitles = {[key: string]: string} | null;
@@ -28119,7 +28212,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     */
+    export type DashboardCustomizationGroups = {[key: string]: DashboardTileGroup};
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      */
     export type DashboardCustomizationGroupTitles = {[key: string]: string};
 
@@ -28138,7 +28236,9 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
-      /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+      /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
+      groups?: DashboardCustomizationGroups;
+      /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
       group_titles?: DashboardCustomizationGroupTitles;
     }
 
@@ -28226,7 +28326,12 @@ export namespace Schemas {
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
       /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+         * @nullable
+         */
+      groups?: DashboardGroups;
+      /**
+         * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
          * @nullable
          */
       group_titles?: DashboardGroupTitles;
@@ -28604,7 +28709,7 @@ export namespace Schemas {
       /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
       show_description?: boolean;
       /**
-         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its group.
          * @maxLength 100
          * @nullable
          */
@@ -36696,6 +36801,54 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
+    export interface DevUserUsage {
+      /**
+         * PostHog user id. Null when no user has this distinct_id.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * The user's email. Null when no user has this distinct_id.
+         * @nullable
+         */
+      email: string | null;
+      /** distinct_id pinned on the user's tokens as $ai_user. */
+      distinct_id: string;
+      /** Tokens minted in the last 24 hours. */
+      tokens_minted_24h: number;
+      /** Tokens minted in the last 30 days. */
+      tokens_minted_30d: number;
+      /** Tokens that are neither revoked nor expired. */
+      live_tokens: number;
+      /** Tokens minted in the last 30 days that were revoked. */
+      revoked_30d: number;
+      /**
+         * Token caps minted in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      reserved_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 7 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_7d: string;
+      /**
+         * Settled gateway spend in the last 30 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_30d: string;
+      /**
+         * When the user last minted a token.
+         * @nullable
+         */
+      last_minted_at: string | null;
+    }
+
     /**
      * * `web` - Web
      * * `cli` - CLI
@@ -36707,6 +36860,43 @@ export namespace Schemas {
       Web: 'web',
       Cli: 'cli',
     } as const;
+
+    export interface DevTokenActivity {
+      /** When the action happened. */
+      at: string;
+      /** What happened to the token: minted or revoked. */
+      activity: string;
+      /**
+         * Who did it. Null when the user was deleted.
+         * @nullable
+         */
+      actor_email: string | null;
+      /**
+         * Whose token it is. Null when the token row is gone, e.g. a refused mint.
+         * @nullable
+         */
+      owner_email: string | null;
+      /** Where the token was minted.
+       *
+       * * `web` - Web
+       * * `cli` - CLI */
+      client: DevTokenClientEnum | null;
+      /**
+         * Most the token can spend, in USD.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string | null;
+    }
+
+    export interface DevTeamUsage {
+      /** Project whose wallet pays for developer mode tokens. */
+      paying_team_id: number;
+      /** One row per user with tokens or spend, highest spend first. */
+      users: DevUserUsage[];
+      /** Mints and revokes in the last 30 days, newest first, at most 1000. */
+      activity: DevTokenActivity[];
+    }
 
     /**
      * * `live` - Live
@@ -36753,6 +36943,12 @@ export namespace Schemas {
        * * `revoked` - Revoked
        * * `expired` - Expired */
       status: DevTokenStatusEnum;
+      /**
+         * Budget left on a live token, net of in-flight requests, in USD. Null when not live or unknown.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      remaining_usd: string | null;
     }
 
     export interface DevTokenRefusal {
@@ -36773,6 +36969,14 @@ export namespace Schemas {
     export interface DevTokenRevoked {
       /** How many tokens the gateway revoked. */
       revoked_count: number;
+    }
+
+    export interface DevTokenStatusRequest {
+      /**
+         * The phe_ bearer to look up. Only its sha256 is compared.
+         * @pattern ^phe_[A-Za-z0-9_-]{1,252}$
+         */
+      token: string;
     }
 
     export interface DevTokenUsage {
@@ -38519,10 +38723,12 @@ export namespace Schemas {
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
      * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wrong_assignee` - Wrong assignee
      * * `wrong_repo` - Agent picked the wrong repository
      * * `wontfix_intentional` - Won't fix - intentional behavior
-     * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+     * * `wontfix_irrelevant` - Not relevant to this project
      * * `fixed_outside_posthog` - Fixed outside PostHog
+     * * `verified_manually` - Verified manually
      * * `no_action_needed` - No action needed
      * * `pr_merged` - PR was merged
      * * `other` - Something else…
@@ -38534,10 +38740,12 @@ export namespace Schemas {
       AlreadyFixed: 'already_fixed',
       ReportUnclear: 'report_unclear',
       AnalysisWrong: 'analysis_wrong',
+      WrongAssignee: 'wrong_assignee',
       WrongRepo: 'wrong_repo',
       WontfixIntentional: 'wontfix_intentional',
       WontfixIrrelevant: 'wontfix_irrelevant',
       FixedOutsidePosthog: 'fixed_outside_posthog',
+      VerifiedManually: 'verified_manually',
       NoActionNeeded: 'no_action_needed',
       PrMerged: 'pr_merged',
       Other: 'other',
@@ -39643,6 +39851,12 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
+      /**
+         * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
+         * @maxItems 10
+         * @nullable
+         */
+      tags?: string[] | null;
       /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
       supersedes_implementation?: boolean;
       /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
@@ -39718,6 +39932,11 @@ export namespace Schemas {
          * @nullable
          */
       suggested_prompts_set: number | null;
+      /**
+         * How many tags the report now carries, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit removed the report's tags.
+         * @nullable
+         */
+      tags_set: number | null;
       /** Whether this edit actually rewrote the report's title or summary. False for a note, a reviewer change, or a re-send of the text the report already had. */
       is_content_revision: boolean;
       /** How many times a scout has rewritten this report's title or summary, counting this edit. */
@@ -40315,6 +40534,11 @@ export namespace Schemas {
          */
       links?: ReportLinkWrite[];
       /**
+         * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
+         * @maxItems 10
+         */
+      tags?: string[];
+      /**
          * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
          * @maxLength 200
          * @nullable
@@ -40452,75 +40676,6 @@ export namespace Schemas {
          * @nullable
          */
       saved_query_id?: string | null;
-    }
-
-    /**
-     * The live materialization rules, for agents that want to rewrite a rejected query themselves.
-     */
-    export interface EndpointMaterializationConditions {
-      /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
-      conditions_source: string;
-      /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
-      rewrite_contract: string;
-    }
-
-    /**
-     * * `ok` - ok
-     * * `cannot_fix` - cannot_fix
-     * * `invalid` - invalid
-     * * `model_error` - model_error
-     */
-    export type SuggestionStatusEnum = typeof SuggestionStatusEnum[keyof typeof SuggestionStatusEnum];
-
-
-    export const SuggestionStatusEnum = {
-      Ok: 'ok',
-      CannotFix: 'cannot_fix',
-      Invalid: 'invalid',
-      ModelError: 'model_error',
-    } as const;
-
-    /**
-     * AI-suggested query rewrite that would make the endpoint materializable.
-     */
-    export interface EndpointMaterializationSuggestion {
-      /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
-       *
-       * * `ok` - ok
-       * * `cannot_fix` - cannot_fix
-       * * `invalid` - invalid
-       * * `model_error` - model_error */
-      suggestion_status: SuggestionStatusEnum;
-      /**
-         * The complete rewritten SQL query, or null when no rewrite was produced.
-         * @nullable
-         */
-      suggested_query: string | null;
-      /**
-         * User-facing explanation of what was changed and why, or why no fix exists.
-         * @nullable
-         */
-      explanation: string | null;
-      /** How many suggest→validate rounds were used. */
-      attempts: number;
-      /**
-         * Last validation failure when the suggestion did not pass the checks.
-         * @nullable
-         */
-      error: string | null;
-      /** The materialization blocker that triggered the suggestion. */
-      original_reason: string;
-    }
-
-    /**
-     * Request body for the AI materialization-fix suggestion action.
-     */
-    export interface EndpointMaterializationSuggestionRequest {
-      /**
-         * Endpoint version to suggest a fix for. Defaults to the latest version.
-         * @nullable
-         */
-      version?: number | null;
     }
 
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
@@ -41849,6 +42004,62 @@ export namespace Schemas {
       current_from: string;
     }
 
+    /**
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear
+     */
+    export type IssueSummaryCategoryEnum = typeof IssueSummaryCategoryEnum[keyof typeof IssueSummaryCategoryEnum];
+
+
+    export const IssueSummaryCategoryEnum = {
+      OwnCode: 'own_code',
+      ThirdParty: 'third_party',
+      Network: 'network',
+      Bots: 'bots',
+      Expected: 'expected',
+      Unclear: 'unclear',
+    } as const;
+
+    export interface ErrorTrackingIssueSummary {
+      /** What the error is and where it happens, in plain language. */
+      what_happened: string;
+      /** The model's best guess at the cause. A hypothesis to check against the code, never a finding. */
+      likely_cause: string;
+      /** Which users, sessions or platforms the error reaches. */
+      who_is_affected: string;
+      /** One concrete step to investigate or fix the error. */
+      suggested_next_step: string;
+      /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
+       *
+       * * `own_code` - Own Code
+       * * `third_party` - Third Party
+       * * `network` - Network
+       * * `bots` - Bots
+       * * `expected` - Expected
+       * * `unclear` - Unclear */
+      category?: IssueSummaryCategoryEnum;
+      /** When the summary was written. */
+      generated_at: string;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `unavailable` - Unavailable
+     */
+    export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
+
+
+    export const IssueSummaryStatusEnum = {
+      Ready: 'ready',
+      Generating: 'generating',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface ErrorTrackingIssueDetail {
       /** Error tracking issue ID. */
       id: string;
@@ -41909,6 +42120,14 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      summary?: ErrorTrackingIssueSummary;
+      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `unavailable` - Unavailable */
+      summary_status: IssueSummaryStatusEnum;
     }
 
     /**
@@ -42248,6 +42467,43 @@ export namespace Schemas {
     export interface ErrorTrackingIssueSuccessResponse {
       /** Whether the update completed successfully. */
       success: boolean;
+    }
+
+    export interface ErrorTrackingStoredIssueSummary {
+      /** What the exception is and where it happens. */
+      what_happened: string;
+      /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
+      likely_cause: string;
+      /** Which users, sessions or environments see the issue. */
+      who_is_affected: string;
+      /** One concrete step to investigate or fix the issue. */
+      suggested_next_step: string;
+      /** Broad source of the issue, or null when the category model did not answer.
+       *
+       * * `own_code` - Own Code
+       * * `third_party` - Third Party
+       * * `network` - Network
+       * * `bots` - Bots
+       * * `expected` - Expected
+       * * `unclear` - Unclear */
+      category: IssueSummaryCategoryEnum | null;
+      /** Model that wrote the summary. */
+      model: string;
+      /** When the summary was written. */
+      generated_at: string;
+      /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+      checked_at: string;
+    }
+
+    export interface ErrorTrackingIssueSummaryResponse {
+      /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `unavailable` - Unavailable */
+      status: IssueSummaryStatusEnum;
+      /** The stored summary, or null when none exists yet. */
+      summary: ErrorTrackingStoredIssueSummary | null;
     }
 
     export interface ErrorTrackingIssueValue {
@@ -81023,6 +81279,16 @@ export namespace Schemas {
          * @nullable
          */
       dismissal_note: string | null;
+      /**
+         * Query time an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month: what the view would cost without the change minus what it costs now. For materialize, people's reads cost what they cost per read before acceptance, at today's read volume, and the cost now is those reads plus refreshes. For unmaterialize, the cost without the change is its refreshes, and the cost now is every read. Negative when the change costs more than it saves. Null until 30 days have passed since acceptance, when a materialized view has no refresh in that time, and for other kinds.
+         * @nullable
+         */
+      realized_seconds_saved_per_month: number | null;
+      /**
+         * Bytes read that an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month, measured the same way as realized_seconds_saved_per_month.
+         * @nullable
+         */
+      realized_bytes_saved_per_month: number | null;
       /** Whether the caller has edit access to the subject and so may accept, dismiss or resume. */
       can_act: boolean;
     }
@@ -86792,7 +87058,13 @@ export namespace Schemas {
     }
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    export type PatchedPatchedDashboardOpenApiGroups = {[key: string]: DashboardTileGroup} | null;
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     export type PatchedPatchedDashboardOpenApiGroupTitles = {[key: string]: string} | null;
@@ -86844,7 +87116,12 @@ export namespace Schemas {
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
       /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+         * @nullable
+         */
+      groups?: PatchedPatchedDashboardOpenApiGroups;
+      /**
+         * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
          * @nullable
          */
       group_titles?: PatchedPatchedDashboardOpenApiGroupTitles;
@@ -87156,6 +87433,18 @@ export namespace Schemas {
     export interface TeamFeatureFlagPolicyConfig {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
+      /**
+         * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      blocked_hosts?: string[];
+      /**
+         * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      blocked_ips?: string[];
     }
 
     /**
@@ -87987,6 +88276,8 @@ export namespace Schemas {
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host?: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -93429,6 +93720,8 @@ export namespace Schemas {
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -96571,7 +96864,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -96604,6 +96901,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -96689,7 +96988,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -96716,7 +97019,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97120,7 +97427,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97153,6 +97464,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97238,7 +97551,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97265,7 +97582,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -106374,6 +106695,7 @@ export namespace Schemas {
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
+     * * `monitoring` - monitoring
      */
     export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
@@ -106382,24 +106704,28 @@ export namespace Schemas {
       Suppressed: 'suppressed',
       Potential: 'potential',
       Resolved: 'resolved',
+      Monitoring: 'monitoring',
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
-       * * `resolved` - resolved */
+       * * `resolved` - resolved
+       * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
        * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wrong_assignee` - Wrong assignee
        * * `wrong_repo` - Agent picked the wrong repository
        * * `wontfix_intentional` - Won't fix - intentional behavior
-       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `wontfix_irrelevant` - Not relevant to this project
        * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `verified_manually` - Verified manually
        * * `no_action_needed` - No action needed
        * * `pr_merged` - PR was merged
        * * `other` - Something else… */
@@ -106735,21 +107061,24 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
-       * * `resolved` - resolved */
+       * * `resolved` - resolved
+       * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
        * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wrong_assignee` - Wrong assignee
        * * `wrong_repo` - Agent picked the wrong repository
        * * `wontfix_intentional` - Won't fix - intentional behavior
-       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `wontfix_irrelevant` - Not relevant to this project
        * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `verified_manually` - Verified manually
        * * `no_action_needed` - No action needed
        * * `pr_merged` - PR was merged
        * * `other` - Something else… */
@@ -125287,6 +125616,11 @@ export namespace Schemas {
 
     export type AeoPromptsListParams = {
     /**
+     * Only list prompts that are on (true) or off (false). Omit to list both.
+     * @nullable
+     */
+    active?: boolean | null;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -125294,6 +125628,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only list prompts with this topic. An empty value lists the prompts that have no topic.
+     * @maxLength 200
+     */
+    topic?: string;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
