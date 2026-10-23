@@ -162,6 +162,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.aws_guardduty_findings import AWS_GUARDDUTY_CONFIG
+    from products.signals.backend.emission.aws_inspector_findings import AWS_INSPECTOR_CONFIG
+    from products.signals.backend.emission.aws_security_hub_findings import AWS_SECURITY_HUB_CONFIG
     from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
@@ -176,6 +179,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
     from products.signals.backend.emission.datadog_incidents import DATADOG_CONFIG
     from products.signals.backend.emission.datadog_monitor_alerts import DATADOG_MONITOR_ALERTS_CONFIG
+    from products.signals.backend.emission.decagon_conversations import DECAGON_CONFIG
     from products.signals.backend.emission.discourse_posts import DISCOURSE_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.dynamics365_cases import DYNAMICS365_CONFIG
@@ -194,6 +198,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
     from products.signals.backend.emission.grafana_irm_incidents import GRAFANA_IRM_CONFIG
+    from products.signals.backend.emission.helpscout_conversations import HELPSCOUT_CONFIG
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
@@ -205,6 +210,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.microsoft_defender_cloud_apps_alerts import (
+        MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG,
+    )
     from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
     from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
@@ -246,6 +254,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.typeform_responses import TYPEFORM_CONFIG
     from products.signals.backend.emission.usersnap_feedbacks import USERSNAP_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
+    from products.signals.backend.emission.vitally_conversations import VITALLY_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
     from products.signals.backend.emission.zoho_crm_cases import ZOHO_CRM_CONFIG
@@ -303,6 +312,10 @@ def _register_all_emitters() -> None:
     # CRM case tools (record kind: ticket)
     register_signal_source(ExternalDataSourceType.DYNAMICS365, "Cases", DYNAMICS365_CONFIG)
     register_signal_source(ExternalDataSourceType.ZOHOCRM, "Cases", ZOHO_CRM_CONFIG)
+    # Tier-2 support tools (record kind: ticket)
+    register_signal_source(ExternalDataSourceType.HELPSCOUT, "conversations", HELPSCOUT_CONFIG)
+    register_signal_source(ExternalDataSourceType.DECAGON, "conversations", DECAGON_CONFIG)
+    register_signal_source(ExternalDataSourceType.VITALLY, "Conversations", VITALLY_CONFIG)
     # Search analytics (record kind: search_opportunity)
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
@@ -361,6 +374,13 @@ def _register_all_emitters() -> None:
     # Business and product reviews (record kind: review)
     register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
     register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)
+    # Cloud security (record kind: scanner_finding)
+    register_signal_source(ExternalDataSourceType.AWSSECURITYHUB, "findings", AWS_SECURITY_HUB_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSGUARDDUTY, "findings", AWS_GUARDDUTY_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSINSPECTOR, "findings", AWS_INSPECTOR_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.MICROSOFTDEFENDERCLOUDAPPS, "alerts", MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG
+    )
 
 
 _register_all_emitters()
