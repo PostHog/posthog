@@ -406,6 +406,55 @@ const MCPToolSampleIntentsQuery = z.object({
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
+const MCPIntentTopicsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPIntentTopicsQuery').default('MCPIntentTopicsQuery'),
+    limit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .describe('Maximum topics to return, by calls. Default 20.')
+        .optional(),
+    toolName: z.string().describe('Optional effective tool name to scope to.').optional(),
+})
+
+const MCPToolIntentProfileQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolIntentProfileQuery').default('MCPToolIntentProfileQuery'),
+    limit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(20)
+        .describe('Top topics to return with sparklines. Default 5.')
+        .optional(),
+    toolName: z.string().describe('The effective tool name to profile.'),
+})
+
+const MCPSimilarToolsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPSimilarToolsQuery').default('MCPSimilarToolsQuery'),
+    limit: z.coerce.number().int().min(1).max(100).describe('Default 10.').optional(),
+    toolName: z.string(),
+})
+
+const MCPIntentMapBounds = z.object({
+    x_max: z.coerce.number(),
+    x_min: z.coerce.number(),
+    y_max: z.coerce.number(),
+    y_min: z.coerce.number(),
+})
+
+const MCPIntentMapQuery = z.object({
+    bounds: MCPIntentMapBounds.optional(),
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPIntentMapQuery').default('MCPIntentMapQuery'),
+    limit: z.coerce.number().int().min(1).max(5000).describe('Default 2000.').optional(),
+    toolName: z.string().optional(),
+    topicId: z.string().optional(),
+})
+
 const MCPToolDescriptionsQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
@@ -428,6 +477,10 @@ const MCPMissingCapabilitiesQuery = z.object({
         )
         .optional(),
     search: z.string().describe('Case-insensitive substring match over the report text.').optional(),
+})
+
+const QueryMcpIntentMapSchema = MCPIntentMapQuery.extend({
+    limit: MCPIntentMapQuery.shape.limit.default(50).optional(),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -476,6 +529,29 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-tool-sample-intents',
         schema: MCPToolSampleIntentsQuery,
         kind: 'MCPToolSampleIntentsQuery',
+    }),
+    'query-mcp-intent-topics': createQueryWrapper({
+        name: 'query-mcp-intent-topics',
+        schema: MCPIntentTopicsQuery,
+        kind: 'MCPIntentTopicsQuery',
+        responseFields: ['coverage'],
+    }),
+    'query-mcp-tool-intent-profile': createQueryWrapper({
+        name: 'query-mcp-tool-intent-profile',
+        schema: MCPToolIntentProfileQuery,
+        kind: 'MCPToolIntentProfileQuery',
+        responseFields: ['focus', 'drift', 'outliers', 'coverage'],
+    }),
+    'query-mcp-similar-tools': createQueryWrapper({
+        name: 'query-mcp-similar-tools',
+        schema: MCPSimilarToolsQuery,
+        kind: 'MCPSimilarToolsQuery',
+    }),
+    'query-mcp-intent-map': createQueryWrapper({
+        name: 'query-mcp-intent-map',
+        schema: QueryMcpIntentMapSchema,
+        kind: 'MCPIntentMapQuery',
+        responseFields: ['topics', 'total_points'],
     }),
     'query-mcp-tool-descriptions': createQueryWrapper({
         name: 'query-mcp-tool-descriptions',

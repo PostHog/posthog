@@ -640,6 +640,37 @@ describe('createQueryWrapper warnings', () => {
     })
 })
 
+describe('createQueryWrapper responseFields', () => {
+    const schema = z.object({ kind: z.string() })
+    const data = { results: [], focus: { score: 1 }, coverage: null, hogql: 'SELECT 1' }
+
+    function contextWithRunQuery(): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue(data) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it('forwards only the configured top-level fields, including null values', async () => {
+        const tool = createQueryWrapper({
+            name: 'test',
+            schema,
+            kind: 'MCPToolIntentProfileQuery',
+            responseFields: ['focus', 'coverage', 'drift'],
+        })()
+
+        const result = (await tool.handler(contextWithRunQuery(), { kind: 'MCPToolIntentProfileQuery' })) as any
+
+        expect(result.focus).toEqual({ score: 1 })
+        expect(result).toHaveProperty('coverage', null)
+        expect(result).not.toHaveProperty('drift')
+        expect(result).not.toHaveProperty('hogql')
+    })
+})
+
 describe('createQueryWrapper cursor pagination', () => {
     const schema = z.object({ kind: z.string(), after: z.string().optional() })
 

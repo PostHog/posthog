@@ -41,6 +41,7 @@ Lead with these when the user is unsure what to ask:
 | "Who uses tool X the most?"                       | `posthog:query-mcp-tool-top-users` — top callers (incl. person email/name)                      |
 | "What gets called right before/after tool X?"     | `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`)                        |
 | "What are agents trying to do with tool X?"       | `posthog:query-mcp-tool-sample-intents` — recent agent intents                                  |
+| "How is tool X used? Is it focused? Drifting?"    | `exploring-mcp-intent-topics` — topics, focus, drift, outliers, similar tools                   |
 | "What description is tool X registered with?"     | `posthog:query-mcp-tool-descriptions` — distinct descriptions seen                              |
 | "Which harnesses use my MCP, how reliably?"       | `posthog:query-mcp-harness-breakdown` — calls/errors/sessions per client                        |
 | "What are agents trying to do, across all tools?" | `exploring-mcp-intent-clusters` — semantic goal clusters                                        |
