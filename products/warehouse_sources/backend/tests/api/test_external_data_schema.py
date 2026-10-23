@@ -37,6 +37,7 @@ from products.data_warehouse.backend.facade.api import (
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
+    ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
     update_sync_type_config_keys,
@@ -5106,7 +5107,18 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         self, _name: str, stored: list[str] | None, requested: list[str], resyncs: bool
     ) -> None:
         schema = self._create(masked_columns=stored)
-        with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow") as mock_trigger:
+        # A running sync would make the schedule skip the trigger, so the rebuild would wait a whole interval.
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="running-workflow-id",
+        )
+        with (
+            mock.patch(f"{self.VIEWS}.trigger_external_data_workflow") as mock_trigger,
+            mock.patch(f"{self.VIEWS}.cancel_external_data_workflow") as mock_cancel,
+        ):
             response = self._patch(schema, {"masked_columns": requested})
 
         assert response.status_code == 200, response.json()
@@ -5114,20 +5126,7 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert schema.masked_columns == requested
         assert schema.sync_type_config.get("reset_pipeline") is (True if resyncs else None)
         assert mock_trigger.call_count == (1 if resyncs else 0)
-
-    def test_a_newly_masked_column_is_hidden_from_queries_until_the_rebuild_loads(self) -> None:
-        # A rebuild that extracts no rows never republishes the table, so the old plaintext would stay queryable.
-        string_column = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}
-        table = DataWarehouseTable.objects.create(
-            team=self.team, columns={"id": string_column, "password": string_column, "email": string_column}
-        )
-        schema = self._create(table=table)
-        with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
-            response = self._patch(schema, {"masked_columns": ["Password"]})
-
-        assert response.status_code == 200, response.json()
-        table.refresh_from_db()
-        assert set(table.columns) == {"id", "email"}
+        assert mock_cancel.call_args_list == ([mock.call("running-workflow-id")] if resyncs else [])
 
     def test_a_patch_without_the_field_keeps_the_masks(self) -> None:
         schema = self._create(masked_columns=["password"])

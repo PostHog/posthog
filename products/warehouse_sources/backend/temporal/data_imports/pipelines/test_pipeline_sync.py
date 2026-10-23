@@ -912,8 +912,6 @@ class TestValidateSchemaAndUpdateTable:
             pytest.param({"delta_schema_json": '{"fields": ["id", "email"]}'}, True, id="delta_schema_changed"),
             # The user deselected a column: the projection over the same introspection changes.
             pytest.param({"enabled_columns": ["id"]}, True, id="enabled_columns_changed"),
-            # A mask change hid the column from HogQL, and a masked text column keeps its Delta type.
-            pytest.param({"masked_columns": ["email"]}, True, id="masked_columns_changed"),
             # The loader typed a column differently (JSON detection): the merge changes.
             pytest.param({"table_schema_dict": {"id": "StringJSONDatabaseField"}}, True, id="table_schema_changed"),
         ],
@@ -939,8 +937,6 @@ class TestValidateSchemaAndUpdateTable:
             assert get_columns.call_count == 1
             if "enabled_columns" in changes:
                 ExternalDataSchema.objects.filter(id=schema.id).update(enabled_columns=changes["enabled_columns"])
-            if "masked_columns" in changes:
-                ExternalDataSchema.objects.filter(id=schema.id).update(masked_columns=changes["masked_columns"])
             self._register(
                 team,
                 schema,

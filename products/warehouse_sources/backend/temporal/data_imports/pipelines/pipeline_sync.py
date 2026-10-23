@@ -97,7 +97,6 @@ def registered_schema_fingerprint(
     enabled_columns: Any,
     primary_keys: Any,
     incremental_field: Any,
-    masked_columns: Any = None,
 ) -> str:
     """Hash of everything `columns` is a pure function of, apart from the introspection itself.
 
@@ -112,10 +111,6 @@ def registered_schema_fingerprint(
         "primary_keys": primary_keys,
         "incremental_field": incremental_field,
     }
-    # A mask change hides the column until the next load, and masking a text column leaves the Delta
-    # schema unchanged. Only masked schemas carry the key, so every other fingerprint stays the same.
-    if masked_columns:
-        payload["masked_columns"] = masked_columns
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -558,7 +553,6 @@ async def validate_schema_and_update_table(
                     external_data_schema.enabled_columns,
                     effective_primary_keys,
                     external_data_schema.incremental_field,
-                    external_data_schema.masked_columns,
                 )
                 if (
                     fingerprint == (external_data_schema.sync_type_config or {}).get(REGISTERED_SCHEMA_FINGERPRINT_KEY)

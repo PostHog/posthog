@@ -1646,21 +1646,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 instance.table.columns = projected_columns
                 instance.table.save(update_fields=["columns"])
 
-        # Synced rows keep a newly masked column in plaintext until the rebuild replaces them, and a
-        # rebuild that extracts no rows never does. Hide the column from queries now. The next sync
-        # that loads rows registers it again, with the masked values.
-        if masked_columns_changed and instance.table is not None and not source.is_direct_query:
-            newly_masked = {fold_column_name(column) for column in validated_data["masked_columns"] or []} - {
-                fold_column_name(column) for column in instance.masked_columns or []
-            }
-            current_columns = instance.table.columns or {}
-            visible_columns = {
-                name: column for name, column in current_columns.items() if fold_column_name(name) not in newly_masked
-            }
-            if visible_columns != current_columns:
-                instance.table.columns = visible_columns
-                instance.table.save(update_fields=["columns"])
-
         # CDC publication management: add/remove table when toggling should_sync
         # A reset handed to capture paused the schedule, and capture only finishes a reset for a CDC table,
         # so a table leaving CDC drops the pending reset and resumes its schedule itself.
@@ -1690,7 +1675,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
         # one table. Cancel it; the user decides when to sync again.
-        if api_version_changed:
+        # A mask change cancels it too, as the resync button does, so the masking rebuild starts now
+        # instead of waiting for the next schedule tick.
+        if api_version_changed or (masked_columns_changed and not is_cdc):
             running_job = (
                 ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
                 .order_by("-created_at")
@@ -1703,7 +1690,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         cancel_external_data_workflow(running_job.workflow_id)
                     except temporalio.service.RPCError as e:
                         logger.exception(
-                            "Could not cancel running workflow after api_version change",
+                            "Could not cancel running workflow after a schema change",
                             schema_id=str(instance.id),
                             exc_info=e,
                         )
