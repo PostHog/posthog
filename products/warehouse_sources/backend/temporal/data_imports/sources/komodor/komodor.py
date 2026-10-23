@@ -140,11 +140,27 @@ def _search_units(clusters: list[str], types: tuple[str, ...], start: int, until
     ]
 
 
+def _retention_floor(now: int) -> int:
+    return now - SEARCH_RETENTION_SECONDS + SEARCH_RETENTION_MARGIN_SECONDS
+
+
 def _search_start(until: int, db_incremental_field_last_value: Any) -> int:
-    start = until - SEARCH_RETENTION_SECONDS + SEARCH_RETENTION_MARGIN_SECONDS
-    if isinstance(db_incremental_field_last_value, int) and not isinstance(db_incremental_field_last_value, bool):
-        start = max(start, db_incremental_field_last_value - SEARCH_INCREMENTAL_OVERLAP_SECONDS)
-    return start
+    start = _retention_floor(until)
+    try:
+        last_value = int(db_incremental_field_last_value)
+    except (TypeError, ValueError):
+        return start
+    # A watermark ahead of our clock still reads the latest window.
+    return min(max(start, last_value - SEARCH_INCREMENTAL_OVERLAP_SECONDS), until - SEARCH_WINDOW_SECONDS)
+
+
+def _owns(unit: SearchUnit, start: int, until: int, row: dict[str, Any]) -> bool:
+    start_time = row.get("startTime")
+    if not isinstance(start_time, int | float):
+        return True
+    after_start = unit.window_start == start or start_time >= unit.window_start
+    before_end = unit.window_end == until or start_time < unit.window_end
+    return after_start and before_end
 
 
 def iter_windowed_search(
@@ -207,15 +223,16 @@ def iter_windowed_search(
                 )
             )
 
-        # A search can return an issue or event again in the next window, and a full refresh does not merge.
-        seen: set[tuple[Any, ...]] = set()
-        primary_keys = PRIMARY_KEYS[endpoint]
         for index in range(first, len(units)):
             unit = units[index]
+            # A long or resumed run can age its oldest windows past the 7-day limit, which Komodor rejects.
+            floor = _retention_floor(int(datetime.now(UTC).timestamp()))
+            if unit.window_end <= floor:
+                continue
             manager.safe_point()
             props: dict[str, Any] = {
                 "type": unit.search_type,
-                "fromEpoch": unit.window_start,
+                "fromEpoch": max(unit.window_start, floor),
                 # Both bounds are inclusive, so the next window starts one second later.
                 "toEpoch": unit.window_end - 1,
             }
@@ -231,13 +248,8 @@ def iter_windowed_search(
                 initial_paginator_state={"cursor": cursor} if cursor is not None else None,
                 page_state_hook=partial(stage, index),
             ):
-                rows = []
-                for row in page:
-                    row = {**row, "cluster": unit.cluster}
-                    key = tuple(row.get(field) for field in primary_keys)
-                    if key not in seen:
-                        seen.add(key)
-                        rows.append(row)
+                # A search can return an issue or event in two windows, so only the window that holds its start keeps it.
+                rows = [{**row, "cluster": unit.cluster} for row in page if _owns(unit, start, until, row)]
                 if rows:
                     yield rows
                 else:
