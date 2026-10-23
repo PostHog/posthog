@@ -4,6 +4,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
+export const DUPLICATE_REFUSED_EDITS_REASON = 'To keep your changes, use "Duplicate with my changes"'
+
 export function RefusedEditsBanner(props: MessageTemplateLogicProps): JSX.Element | null {
     const logic = messageTemplateLogic(props)
     const { refusedEdits, isDuplicating } = useValues(logic)

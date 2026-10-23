@@ -45,7 +45,7 @@ import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { QuillMessageTemplateActions } from './QuillMessageTemplateActions'
 import { ReadOnlyTemplatePreview } from './ReadOnlyTemplatePreview'
-import { RefusedEditsBanner } from './RefusedEditsBanner'
+import { DUPLICATE_REFUSED_EDITS_REASON, RefusedEditsBanner } from './RefusedEditsBanner'
 import { openReleaseTemplateDialog } from './releaseTemplateDialog'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
@@ -301,9 +301,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 duplicateDisabledReason={
                                     isDuplicating
                                         ? 'Duplicating…'
-                                        : templateChanged
-                                          ? 'Save your changes before duplicating'
-                                          : undefined
+                                        : refusedEdits
+                                          ? DUPLICATE_REFUSED_EDITS_REASON
+                                          : templateChanged
+                                            ? 'Save your changes before duplicating'
+                                            : undefined
                                 }
                                 templateChanged={templateChanged && !draftsEnabled && !isCodeManaged}
                                 saving={isTemplateSubmitting || templateLoading}

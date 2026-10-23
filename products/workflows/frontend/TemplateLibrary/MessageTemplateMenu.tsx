@@ -7,12 +7,14 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
+import { DUPLICATE_REFUSED_EDITS_REASON } from './RefusedEditsBanner'
 import { openReleaseTemplateDialog } from './releaseTemplateDialog'
 
 export function MessageTemplateMenu(props: MessageTemplateLogicProps): JSX.Element {
     const logic = messageTemplateLogic(props)
     const { duplicateTemplate, deleteTemplate, releaseTemplate } = useActions(logic)
-    const { originalTemplate, hasUnsavedChanges, templateLoading, isCodeManaged, isDuplicating } = useValues(logic)
+    const { originalTemplate, hasUnsavedChanges, templateLoading, isCodeManaged, isDuplicating, refusedEdits } =
+        useValues(logic)
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
     return (
@@ -36,7 +38,13 @@ export function MessageTemplateMenu(props: MessageTemplateLogicProps): JSX.Eleme
                                 fullWidth
                                 onClick={duplicateTemplate}
                                 loading={isDuplicating}
-                                disabledReason={hasUnsavedChanges ? 'Save your changes before duplicating' : undefined}
+                                disabledReason={
+                                    refusedEdits
+                                        ? DUPLICATE_REFUSED_EDITS_REASON
+                                        : hasUnsavedChanges
+                                          ? 'Save your changes before duplicating'
+                                          : undefined
+                                }
                             >
                                 Duplicate
                             </LemonButton>
