@@ -8016,16 +8016,16 @@ Note: The Clarity Data Export API has exactly one endpoint: GET https://www.clar
 
 ## Mighty Networks — gaps
 
-Today (9): `Badges`, `Events`, `Members`, `Plans`, `Posts`, `Purchases`, `Spaces`, `Subscriptions`, `Tags`
+Today (14): `Badges`, `EventRsvps`, `Events`, `MemberBadges`, `MemberTags`, `Members`, `PlanMembers`, `Plans`, `Posts`, `Purchases`, `SpaceMembers`, `Spaces`, `Subscriptions`, `Tags`
 
 Diffed against: <https://api.mn.co/admin/v1/spec.json>
 
-- [ ] `Space members (GET /admin/v1/networks/{network_id}/spaces/{space_id}/members)` — connect members to spaces to measure community participation and access (high)
-- [ ] `Plan members (GET /admin/v1/networks/{network_id}/plans/{plan_id}/members)` — measure plan access, including memberships that payment subscriptions do not represent (high)
+- [x] `Space members (GET /admin/v1/networks/{network_id}/spaces/{space_id}/members)` — connect members to spaces to measure community participation and access (high)
+- [x] `Plan members (GET /admin/v1/networks/{network_id}/plans/{plan_id}/members)` — measure plan access, including memberships that payment subscriptions do not represent (high)
 - [ ] `Post comments (GET /admin/v1/networks/{network_id}/posts/{post_id}/comments)` — analyze member discussion activity and engagement on existing posts (medium)
 - [ ] `Post reactions (GET /admin/v1/networks/{network_id}/posts/{post_id}/reactions)` — measure reactions by member and post to identify engaging content (medium)
-- [ ] `Event RSVPs (GET /admin/v1/networks/{network_id}/events/{event_id}/rsvps)` — measure event registration and response status by member (medium)
-- [ ] `Member tags and badges (GET /admin/v1/networks/{network_id}/members/{member_id}/tags; GET /admin/v1/networks/{network_id}/members/{member_id}/badges)` — connect members to existing tag and badge catalogs for segmentation and recognition analysis (medium)
+- [x] `Event RSVPs (GET /admin/v1/networks/{network_id}/events/{event_id}/rsvps)` — measure event registration and response status by member (medium)
+- [x] `Member tags and badges (GET /admin/v1/networks/{network_id}/members/{member_id}/tags; GET /admin/v1/networks/{network_id}/members/{member_id}/badges)` — connect members to existing tag and badge catalogs for segmentation and recognition analysis (medium)
 - [ ] `Custom field answers (GET /admin/v1/networks/{network_id}/custom_fields/{custom_field_id}/members/{member_id}/answers)` — segment members by profile answers; field definitions and option lists provide labels for those answers (medium)
 - [ ] `Invites (GET /admin/v1/networks/{network_id}/invites; GET /admin/v1/networks/{network_id}/plans/{plan_id}/invites)` — analyze invitation volume, recipients, and senders for network and plan acquisition (medium)
 - [ ] `Polls (GET /admin/v1/networks/{network_id}/polls)` — analyze community questions, poll choices, and publishing activity that the post schema does not expose (medium)
