@@ -9,7 +9,7 @@ from django.conf import settings
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
-from products.messaging.backend.facade.contracts import EmailStatus, EmailStatusCursor, EmailStatusRecord
+from products.messaging.backend.facade.contracts import EmailStatus, EmailStatusRecord
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_TTL_DAYS
 
 RECIPIENT_HASH_CONTEXT = b"email-recipient-hash-v1"
@@ -70,7 +70,7 @@ def _keyed_hash(salt_key: str, address: bytes) -> str:
 
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatusRecord | None:
     """None for an unknown id, another team's id, and an email whose first status has not arrived yet."""
-    created_at = _created_at(message_id)
+    created_at = message_created_at(message_id)
     if created_at is None:
         return None
     rows = _execute(
@@ -88,7 +88,7 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatusRecord | None
 
 
 def list_email_statuses_by_recipient(
-    team_id: int, recipient: str, *, since: datetime, limit: int, cursor: EmailStatusCursor | None = None
+    team_id: int, recipient: str, *, since: datetime, limit: int, cursor: UUID | None = None
 ) -> list[EmailStatusRecord]:
     """The latest status of each email sent to the address since `since`, newest first, after `cursor`."""
     recipient_hashes = _recipient_hashes(recipient)
@@ -103,7 +103,7 @@ def list_email_statuses_by_recipient(
     cursor_clause = ""
     if cursor is not None:
         cursor_clause = "AND (created_at, message_id) < (%(cursor_created_at)s, %(cursor_message_id)s)"
-        params |= {"cursor_created_at": cursor.created_at, "cursor_message_id": cursor.message_id}
+        params |= {"cursor_created_at": message_created_at(cursor), "cursor_message_id": cursor}
     query = _STATUSES_BY_RECIPIENT_QUERY.format(latest_status=_LATEST_STATUS, cursor_clause=cursor_clause)
     return [_record(row) for row in _execute(team_id, "email_statuses_by_recipient", query, params)]
 
@@ -113,7 +113,8 @@ def _execute(team_id: int, query_type: str, query: str, params: dict[str, Any]) 
         return sync_execute(query, params)
 
 
-def _created_at(message_id: UUID) -> datetime | None:
+def message_created_at(message_id: UUID) -> datetime | None:
+    """When PostHog accepted the email, or None for an id that no email can have."""
     # A message id is a UUIDT, whose first 48 bits are its creation time in milliseconds.
     created_ms = int(message_id.hex[:12], 16)
     # Another UUID can decode to a time past what datetime holds. No email was created after now.

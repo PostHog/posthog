@@ -320,11 +320,3 @@ class EmailStatusRecord:
     created_at: datetime
     status_at: datetime
     reason: str | None
-
-
-@frozen
-class EmailStatusCursor:
-    """Where a page of a recipient's emails ends. The next page starts after it."""
-
-    created_at: datetime
-    message_id: UUID

@@ -169,6 +169,11 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
             ("not_an_address", {"to": "jane-at-example.com"}, "to"),
             ("page_too_large", {"to": "jane@example.com", "limit": 101}, "limit"),
             ("cursor_from_nowhere", {"to": "jane@example.com", "cursor": "not-a-cursor"}, "cursor"),
+            (
+                "cursor_no_email_can_have",
+                {"to": "jane@example.com", "cursor": "ffffffff-ffff-4fff-8fff-ffffffffffff"},
+                "cursor",
+            ),
         ]
     )
     def test_refuses_a_lookup_it_cannot_run_without_echoing_the_address(self, _flag, _name, query, attr):

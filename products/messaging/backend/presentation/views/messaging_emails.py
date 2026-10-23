@@ -1,10 +1,8 @@
-from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -15,10 +13,10 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from products.messaging.backend.facade.email_status import (
     EMAIL_STATUS_RETENTION,
     EmailStatus,
-    EmailStatusCursor,
     EmailStatusRecord,
     get_email_status,
     list_email_statuses_by_recipient,
+    message_created_at,
 )
 from products.messaging.backend.presentation.views.transactional_email_api import (
     TRANSACTIONAL_EMAIL_THROTTLES,
@@ -30,6 +28,7 @@ from products.messaging.backend.presentation.views.transactional_email_api impor
 
 LOOKUP_PAGE_SIZE = 50
 LOOKUP_MAX_PAGE_SIZE = 100
+CURSOR_NOT_FROM_A_PAGE = "This cursor did not come from a previous page of this lookup."
 
 
 class EmailStatusSerializer(serializers.Serializer):
@@ -58,26 +57,6 @@ class EmailStatusSerializer(serializers.Serializer):
         return super().to_representation(representation)
 
 
-@extend_schema_field(OpenApiTypes.STR)
-class EmailStatusCursorField(serializers.Field):
-    default_error_messages = {"invalid": "This cursor did not come from a previous page of this lookup."}
-
-    def to_representation(self, value: EmailStatusCursor) -> str:
-        token = f"{value.created_at.isoformat()}|{value.message_id}"
-        return urlsafe_b64encode(token.encode()).decode().rstrip("=")
-
-    def to_internal_value(self, data: Any) -> EmailStatusCursor:
-        token = str(data)
-        try:
-            created_at, message_id = urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode().split("|")
-            cursor = EmailStatusCursor(created_at=datetime.fromisoformat(created_at), message_id=UUID(message_id))
-        except ValueError:
-            self.fail("invalid")
-        if cursor.created_at.tzinfo is None:
-            self.fail("invalid")
-        return cursor
-
-
 class EmailLookupSerializer(serializers.Serializer):
     to = serializers.EmailField(
         help_text="The recipient's address. Case and the spaces around it do not matter. A send's `cc` and `bcc` "
@@ -89,15 +68,21 @@ class EmailLookupSerializer(serializers.Serializer):
         default=LOOKUP_PAGE_SIZE,
         help_text=f"How many emails a page holds, from 1 to {LOOKUP_MAX_PAGE_SIZE}.",
     )
-    cursor = EmailStatusCursorField(
+    cursor = serializers.UUIDField(
         required=False,
+        error_messages={"invalid": CURSOR_NOT_FROM_A_PAGE},
         help_text="The `next_cursor` of the previous page. Leave it out to read the first page.",
     )
+
+    def validate_cursor(self, cursor: UUID) -> UUID:
+        if message_created_at(cursor) is None:
+            raise serializers.ValidationError(CURSOR_NOT_FROM_A_PAGE)
+        return cursor
 
 
 class EmailStatusPageSerializer(serializers.Serializer):
     results = EmailStatusSerializer(many=True, help_text="The recipient's emails, newest first.")
-    next_cursor = EmailStatusCursorField(
+    next_cursor = serializers.UUIDField(
         allow_null=True,
         help_text="Pass this as `cursor` to read the next page. Null on the last page.",
     )
@@ -113,19 +98,14 @@ def invalid_lookup(errors: Any) -> TemplateRefusal:
 
 
 def recipient_email_page(
-    team_id: int, to: str, limit: int, cursor: EmailStatusCursor | None = None
-) -> dict[str, list[EmailStatusRecord] | EmailStatusCursor | None]:
+    team_id: int, to: str, limit: int, cursor: UUID | None = None
+) -> dict[str, list[EmailStatusRecord] | UUID | None]:
     # One extra row tells whether a next page exists without a second query.
     records = list_email_statuses_by_recipient(
         team_id, to, since=datetime.now(UTC) - EMAIL_STATUS_RETENTION, limit=limit + 1, cursor=cursor
     )
     page = records[:limit]
-    next_cursor = (
-        EmailStatusCursor(created_at=page[-1].created_at, message_id=page[-1].message_id)
-        if len(records) > limit
-        else None
-    )
-    return {"results": page, "next_cursor": next_cursor}
+    return {"results": page, "next_cursor": page[-1].message_id if len(records) > limit else None}
 
 
 def email_not_found(message_id: str) -> TemplateRefusal:
