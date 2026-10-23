@@ -103,6 +103,7 @@ export interface TrendsResultItem {
     count?: number
     aggregated_value?: number
     compare_label?: string
+    breakdown_value?: string | number | (string | number)[]
     /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
      * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
     incomplete_end?: boolean

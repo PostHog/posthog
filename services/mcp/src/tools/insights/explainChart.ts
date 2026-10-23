@@ -3,6 +3,7 @@ import type { z } from 'zod'
 import { wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
+import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
 import { applyProjectTestAccountDefault } from '@/tools/query-wrapper-factory'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } from '@/tools/types'
 
@@ -35,6 +36,12 @@ const TIME_SERIES_DISPLAYS = new Set([
 ])
 
 const NOT_TRENDS = 'This tool only explains trends charts. For other kinds, write the explanation in the chat instead.'
+const BOX_PLOT =
+    'This tool explains a trends chart over time, and a box plot shows a distribution. Write the explanation in the chat instead.'
+
+// The walkthrough redraws evidence through `query-trends`, whose schema is narrower than a TrendsQuery's, so evidence
+// it would refuse keeps its link and no chart.
+const redrawSchema = GENERATED_TOOLS['query-trends']!().schema
 
 interface StoryChart {
     query: StoryTrendsQuery
@@ -49,6 +56,9 @@ function asTrendsQuery(query: unknown): StoryTrendsQuery {
     }
     const trends = { ...inner } as StoryTrendsQuery
     const display = trends.trendsFilter?.display
+    if (display === 'BoxPlot') {
+        throw new Error(BOX_PLOT)
+    }
     if (typeof display === 'string' && !TIME_SERIES_DISPLAYS.has(display)) {
         trends.trendsFilter = { ...trends.trendsFilter, display: 'ActionsLineGraph' }
     }
@@ -148,7 +158,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
             evidence: (chapter.evidence ?? []).map((item) => ({
                 text: item.text,
                 url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
-                query: item.query ?? null,
+                query: item.query && redrawSchema.safeParse(item.query).success ? item.query : null,
             })),
         }
     })
