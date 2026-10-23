@@ -14,11 +14,12 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
+    AsyncClient,
     Client as DjangoClient,
     RequestFactory,
     SimpleTestCase,
 )
-from django.urls import reverse
+from django.urls import path, reverse
 
 import structlog
 from loginas import settings as la_settings
@@ -30,12 +31,14 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
+    UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
     user_logging_context_middleware,
 )
@@ -44,7 +47,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.settings import SITE_URL
+from posthog.run_mode import derive_run_mode
+from posthog.settings import SITE_URL, base_variables
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -414,6 +418,59 @@ class TestFix204Middleware(SimpleTestCase):
 
         assert response.content == b""
         assert "Content-Length" not in response.headers
+
+
+class TestUnversionedStaticPathMiddleware(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("versioned_script", "/static/1.438.12/posthog-recorder.js", "/static/posthog-recorder.js"),
+            ("prerelease_version", "/static/1.438.12-beta.1/array.js", "/static/array.js"),
+            ("nested_file", "/static/1.438.12/icons/a.png", "/static/icons/a.png"),
+            ("unversioned_script", "/static/posthog-recorder.js", "/static/posthog-recorder.js"),
+            ("hashed_asset_folder", "/static/chunks/1.2.js", "/static/chunks/1.2.js"),
+            ("version_outside_static", "/api/1.438.12/foo", "/api/1.438.12/foo"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_rewrites_only_versioned_static_paths(self, _name: str, path: str, expected_path: str) -> None:
+        seen_paths: list[str] = []
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen_paths.append(request.path_info)
+            return HttpResponse()
+
+        UnversionedStaticPathMiddleware(get_response)(RequestFactory().get(path))
+
+        assert seen_paths == [expected_path]
+
+    @parameterized.expand(
+        [
+            ("us_cloud", "US", False),
+            ("eu_cloud", "EU", False),
+            ("cloud_dev", "DEV", False),
+            ("local_development", None, True),
+        ]
+    )
+    def test_never_rewrites_outside_hobby(self, _name: str, cloud_deployment: str | None, debug: bool) -> None:
+        seen_paths: list[str] = []
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen_paths.append(request.path_info)
+            return HttpResponse()
+
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
+            UnversionedStaticPathMiddleware(get_response)(RequestFactory().get("/static/1.438.12/array.js"))
+
+        assert seen_paths == ["/static/1.438.12/array.js"]
+
+    def test_registered_only_in_hobby_and_before_whitenoise(self) -> None:
+        middleware = list(settings.MIDDLEWARE)
+        name = "posthog.middleware.UnversionedStaticPathMiddleware"
+        registered_expected = derive_run_mode(base_variables.CLOUD_DEPLOYMENT, base_variables.DEBUG).is_hobby
+
+        assert (name in middleware) == registered_expected
+        if registered_expected:
+            assert middleware.index(name) < middleware.index("whitenoise.middleware.WhiteNoiseMiddleware")
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
@@ -2638,6 +2695,30 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     assert captured["source"] == expected_source
     assert captured["product"] is None
     assert captured["feature"] is None
+
+
+def _http_request_id_probe(request: HttpRequest) -> HttpResponse:
+    return HttpResponse(str(get_query_tags().http_request_id))
+
+
+urlpatterns = [path("api/_http_request_id_probe/", _http_request_id_probe)]
+
+
+@pytest.mark.parametrize(
+    "header_value,expected_tag",
+    [
+        pytest.param("0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", "0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", id="uuid"),
+        # django-structlog binds the client's X-Request-ID header without checking that it is a UUID.
+        pytest.param("not-a-uuid", "None", id="not_a_uuid"),
+    ],
+)
+@override_settings(ROOT_URLCONF=__name__)
+async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value, expected_tag):
+    # AsyncClient runs settings.MIDDLEWARE through the ASGI handler, as production does.
+    # There, django-structlog binds request_id on the event loop. CHQueries reads it from a worker thread.
+    response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
+
+    assert response.content.decode() == expected_tag
 
 
 @parameterized.expand(

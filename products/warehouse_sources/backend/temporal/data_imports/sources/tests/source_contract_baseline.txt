@@ -8,9 +8,12 @@ AppleSearchAds not-checkable:no-request
 AppsFlyer fail:safe-point
 Appsignal fail:safe-point
 Attentive not-checkable:database
+AwsAthena not-checkable:schemas
 AwsCostExplorer fail:safe-point
+AwsDocumentDB not-checkable:driver:pymongo
 AzureBlob not-checkable:schemas
 AzureCostManagement not-checkable:no-request
+AzureLogAnalytics not-checkable:schemas
 Baserow not-checkable:schemas
 BigMailer fail:safe-point
 BigQuery not-checkable:driver:google.cloud
@@ -25,6 +28,7 @@ CircleCI fail:safe-point
 CircleciInsights fail:safe-point
 CiscoDuo not-checkable:no-request
 ClickHouse not-checkable:schemas
+CloudflareD1 not-checkable:schemas
 CloudflareR2 not-checkable:schemas
 Coda fail:safe-point
 Codecov fail:safe-point
@@ -47,6 +51,7 @@ EcbDataPortal fail:safe-point
 Elasticsearch not-checkable:schemas
 Fastly fail:safe-point
 Featurebase not-checkable:database
+FileUpload not-checkable:no-request
 FinancialModelling fail:safe-point
 Firebase not-checkable:schemas
 Flagsmith fail:safe-point

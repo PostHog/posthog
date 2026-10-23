@@ -647,6 +647,38 @@
             "readOnlyHint": true
         }
     },
+    "activity-summary-get": {
+        "description": "Get a summary of what the current user has been working on in this project: a one-page markdown profile, a short headline, the main focus areas with the day each was last seen, and the PostHog products they use. It is built only from the user's own recent activity in PostHog, such as tasks they gave to PostHog AI and things they created, changed or opened. It updates at most once a day, when there is enough new activity. Use it to tailor answers and suggestions to what this person works on. `status: not_ready` means no summary exists yet, which is normal for new or quiet users. `stale: true` means a newer version will replace it soon. A 404 means activity summaries are not available for this project.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get your activity summary",
+        "title": "Get your activity summary",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/activity_summary/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "activity-summary"
+    },
+    "activity-summary-versions-list": {
+        "description": "List earlier versions of the current user's activity summary in this project, newest first, to see how their focus changed over time. Each version has a headline, the focus areas and `recent_shift`, which says what changed since the version before it. The list leaves out the profile to stay small. Pass `version` to get one version with its full profile. A 404 means activity summaries are not available for this project, or that the requested version does not exist.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List your activity summary versions",
+        "title": "List your activity summary versions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/activity_summary/versions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "activity-summary"
+    },
     "advanced-activity-logs-filters": {
         "description": "Get the valid filter values for activity logs — the scopes, activity types, and users that actually have logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and don't know the exact scope or activity strings to pass; skip it when you already know them.",
         "category": "Platform Features",
@@ -2939,7 +2971,7 @@
         }
     },
     "cohorts-partial-update": {
-        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.",
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.\n\nAn update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the first population right after 'cohorts-create' with a query. Before you send the next query, call 'cohorts-retrieve' and wait until 'is_calculating' is false.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Update cohort",
@@ -4108,11 +4140,11 @@
         }
     },
     "data-catalog-metric-create": {
-        "description": "Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands 'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
+        "description": "Create a canonical metric (always lands 'proposed'). If a live metric already holds the name, the call fails with a 409 'metric_name_taken' error, and the existing metric stays unchanged. Never overwrite on your own: tell the user that the name is taken, show them the existing metric with metric-describe, and ask whether to overwrite it, use a different name, or edit the existing metric with data-catalog-metric-update. Only after the user explicitly agrees to overwrite, call this tool again with 'overwrite' set to true. Overwriting an approved metric with a changed meaning resets it to 'proposed'. A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
         "category": "Data catalog",
         "feature": "data_catalog",
-        "summary": "Create or refine a catalog metric",
-        "title": "Create or refine a catalog metric",
+        "summary": "Create a catalog metric",
+        "title": "Create a catalog metric",
         "required_scopes": ["data_catalog:write"],
         "api_operations": ["POST /api/projects/{project_id}/data_catalog/metrics/"],
         "annotations": {
@@ -16568,7 +16600,7 @@
         }
     },
     "warehouse-suggestions-accept-execute": {
-        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (execute)",
@@ -16584,7 +16616,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-accept-prepare": {
-        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (prepare)",
@@ -16615,7 +16647,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-get": {
-        "description": "Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface` those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background included. `days_with_data` is how many days of the window PostHog has read history for, not how active this project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
+        "description": "Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface` those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background included. `days_with_data` is how many days of the window PostHog has read history for, not how active this project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated, materialized or unmaterialized before accepting.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Get a warehouse suggestion",
@@ -16631,7 +16663,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-list": {
-        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
+        "description": "Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion, compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
@@ -17191,6 +17223,37 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "workflows-make-email-template-transactional-execute": {
+        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (execute)",
+        "title": "Make email template transactional (execute)",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
+    "workflows-make-email-template-transactional-prepare": {
+        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (prepare)",
+        "title": "Make email template transactional (prepare)",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-patch-action-email": {
         "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
