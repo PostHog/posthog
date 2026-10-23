@@ -3300,6 +3300,13 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "edge case",
             ),
             (
+                "suppress_with_wrong_assignee",
+                {"state": "suppressed", "dismissal_reason": "wrong_assignee"},
+                SignalReport.Status.SUPPRESSED,
+                "wrong_assignee",
+                None,
+            ),
+            (
                 "snooze_with_reason_and_note",
                 {
                     "state": "potential",

@@ -9,9 +9,10 @@ export const DISMISSAL_REASON_OPTIONS = [
     { value: 'already_fixed', label: 'Already fixed' },
     { value: 'report_unclear', label: 'Report is unclear to me' },
     { value: 'analysis_wrong', label: "Agent's analysis is wrong" },
+    { value: 'wrong_assignee', label: 'Wrong assignee' },
     { value: 'wrong_repo', label: 'Agent picked the wrong repository' },
     { value: 'wontfix_intentional', label: "Won't fix - intentional behavior" },
-    { value: 'wontfix_irrelevant', label: "Won't fix - issue is real but insignificant" },
+    { value: 'wontfix_irrelevant', label: 'Not relevant to this project' },
     { value: 'other', label: 'Something else…' },
 ] as const
 

@@ -18,3 +18,8 @@ What a fork contributor sees:
 Never push a fork's head to a branch inside this repository before it is reviewed.
 An in-repo branch is trusted: every secret-gated step runs, with the fork's code in control of the job.
 Review the fork PR as it is, then re-create it in-repo.
+
+Re-creating keeps the contributor's credit when their commits keep them as author.
+The merge queue squash-merges, and GitHub adds a `Co-authored-by` line for each commit author, which counts on their profile when the email is linked to their account.
+When the re-created PR merges, a bot comments on the fork PR with a link to the merged PR and closes it.
+The [`recreating-fork-prs` skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/recreating-fork-prs/SKILL.md) has the steps.

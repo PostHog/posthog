@@ -77,6 +77,10 @@ The final summary renders after teardown, logging is flushed, and the transcript
 The comparison checks every configuration first with `--check`, then forwards child output into its combined transcript.
 `--results-file` writes a validated run report using the reporter's existing scores, status counts, and case selection.
 The comparison retains these reports after each model and checks that case and scorer selections match.
+It reuses the first model's archived branch-skill snapshot for later models and checks that their snapshot hashes match.
+Saved snapshots include a source fingerprint. Reuse stops if the branch's skill sources or commit changed.
+With `--keep-sandbox-containers`, mounted skill files remain under `logs/skill-snapshots/` after the run so preserved containers can still read them.
+Cases with `interaction_origin="posthog_ai"` also receive the production PostHog AI system prompt from this checkout before the task starts. The interaction origin alone does not supply that prompt. Compare skill versions only with the same client prompt and scorer versions.
 No prompts, model answers, or credentials are included in the comparison report.
 
 The reporter emits plain-text records with stable labels so terminals and agents can scan the same output.

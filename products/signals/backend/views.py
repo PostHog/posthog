@@ -702,9 +702,10 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("already_fixed", "Already fixed"),
     ("report_unclear", "Report is unclear to me"),
     ("analysis_wrong", "Agent's analysis is wrong"),
+    ("wrong_assignee", "Wrong assignee"),
     ("wrong_repo", "Agent picked the wrong repository"),
     ("wontfix_intentional", "Won't fix - intentional behavior"),
-    ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
+    ("wontfix_irrelevant", "Not relevant to this project"),
     ("fixed_outside_posthog", "Fixed outside PostHog"),
     ("verified_manually", "Verified manually"),
     ("no_action_needed", "No action needed"),
@@ -714,7 +715,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
-    "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
+    "report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
     "fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
@@ -724,8 +725,9 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
     "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
     "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
-    "The dismissal codes (report_unclear, analysis_wrong, "
+    "The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, "
     "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
+    "'wrong_assignee' when the report was routed to the wrong person or team. "
     "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
     "corrected_repository naming the right one. "
     "Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. "
