@@ -58,8 +58,10 @@ if TYPE_CHECKING:
 
 # The tab scopes to $mcp_tool_call events that carry a tool name. Category and tool are event-supplied
 # and bound as constants (never interpolated).
+_P25 = "round(quantile(0.25)(toFloat(properties.$mcp_duration_ms)))"
 _P50 = "round(quantile(0.5)(toFloat(properties.$mcp_duration_ms)))"
 _P95 = "round(quantile(0.95)(toFloat(properties.$mcp_duration_ms)))"
+_P75 = "round(quantile(0.75)(toFloat(properties.$mcp_duration_ms)))"
 _P99 = "round(quantile(0.99)(toFloat(properties.$mcp_duration_ms)))"
 _IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
 _TOOL_ROW_DEFAULT_LIMIT = 50
@@ -403,7 +405,12 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 {_IS_ERROR} AS errors,
                 {_P50} AS p50,
                 {_P95} AS p95,
-                {_P99} AS p99
+                {_P99} AS p99,
+                min(toFloat(properties.$mcp_duration_ms)) AS min,
+                {_P25} AS p25,
+                round(avg(toFloat(properties.$mcp_duration_ms))) AS mean,
+                {_P75} AS p75,
+                max(toFloat(properties.$mcp_duration_ms)) AS max
             FROM events
             WHERE {where}
             GROUP BY day
@@ -413,6 +420,8 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
             placeholders={
                 "interval": ast.Constant(value=interval),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
+                "_P25": parse_expr(_P25),
+                "_P75": parse_expr(_P75),
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
                 "_P99": parse_expr(_P99),
@@ -452,6 +461,11 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 p50=float(row[3] or 0),
                 p95=float(row[4] or 0),
                 p99=float(row[5] or 0),
+                min=float(row[6] or 0),
+                p25=float(row[7] or 0),
+                mean=float(row[8] or 0),
+                p75=float(row[9] or 0),
+                max=float(row[10] or 0),
             )
             for row in (response.results or [])
         ]

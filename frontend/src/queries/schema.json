@@ -33819,7 +33819,23 @@
                 "errors": {
                     "$ref": "#/definitions/integer"
                 },
+                "max": {
+                    "type": "number"
+                },
+                "mean": {
+                    "type": "number"
+                },
+                "min": {
+                    "description": "Latency spread for the box plot view. Optional so responses cached before these fields existed still parse.",
+                    "type": "number"
+                },
+                "p25": {
+                    "type": "number"
+                },
                 "p50": {
+                    "type": "number"
+                },
+                "p75": {
                     "type": "number"
                 },
                 "p95": {

@@ -2,21 +2,30 @@ import { useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
+    BoxPlot,
+    type BoxPlotConfig,
+    type BoxPlotSeries,
     ChartLegend,
     type ChartTheme,
     type Series,
     type TimeInterval,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
+    createXAxisTickCallback,
     legendItemsFromSeries,
 } from '@posthog/quill-charts'
+import { ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
 import { formatMsAsSeconds } from '../dashboard/formatters'
-import { type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
+import { type ChartViewChange, type ChartViews, type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
+
+function formatCompactPercentage(value: number): string {
+    return formatPercentage(value, { compact: true })
+}
 
 function buildConfig(
     timezone: string,
@@ -35,19 +44,57 @@ function buildConfig(
     }
 }
 
+function ChartViewToggle<C extends ChartViewChange>({
+    chart,
+    view,
+    options,
+    onChange,
+}: {
+    chart: C['chart']
+    view: C['view']
+    options: { value: C['view']; label: string }[]
+    onChange: (change: C) => void
+}): JSX.Element {
+    return (
+        <ToggleGroup
+            value={[view]}
+            onValueChange={(next) => {
+                const picked = options.find(({ value }) => value === next[0])
+                if (picked) {
+                    onChange({ chart, view: picked.value } as C)
+                }
+            }}
+            aria-label="Chart view"
+        >
+            {options.map(({ value, label }) => (
+                <ToggleGroupItem
+                    key={value}
+                    value={value}
+                    size="sm"
+                    data-attr={`mcp-tool-quality-${chart}-chart-view-${value}`}
+                >
+                    {label}
+                </ToggleGroupItem>
+            ))}
+        </ToggleGroup>
+    )
+}
+
 function ChartCard({
     title,
+    action,
     loading,
     isEmpty,
     children,
 }: {
     title: string
+    action: React.ReactNode
     loading: boolean
     isEmpty: boolean
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <Card title={title}>
+        <Card title={title} action={action}>
             <CardState
                 loading={loading}
                 isEmpty={isEmpty}
@@ -74,6 +121,8 @@ export function ToolQualityCharts({
     timezone,
     interval,
     incompleteTail,
+    views,
+    onViewChange,
 }: {
     data: DailyChartData
     loading: boolean
@@ -84,6 +133,8 @@ export function ToolQualityCharts({
     // partial period doesn't read as a fall in calls or an improvement in latency. Required rather
     // than optional: an omitted prop silently renders the partial bucket as settled data.
     incompleteTail: boolean
+    views: ChartViews
+    onViewChange: (change: ChartViewChange) => void
 }): JSX.Element {
     const isEmpty = data.labels.length === 0
 
@@ -94,12 +145,25 @@ export function ToolQualityCharts({
         [incompleteTail, data.labels.length]
     )
 
+    const showCallsShare = views.calls === 'percentage'
     const callsSeries = useMemo<Series[]>(
         () => [
-            { key: 'calls', label: 'Calls', color: theme.colors[0], data: data.calls, stroke: partialStroke },
-            { key: 'errors', label: 'Errors', color: theme.colors[4], data: data.errors, stroke: partialStroke },
+            {
+                key: 'calls',
+                label: 'Calls',
+                color: theme.colors[0],
+                data: showCallsShare ? data.callsShare : data.calls,
+                stroke: partialStroke,
+            },
+            {
+                key: 'errors',
+                label: 'Errors',
+                color: theme.colors[4],
+                data: showCallsShare ? data.errorsShare : data.errors,
+                stroke: partialStroke,
+            },
         ],
-        [data, theme, partialStroke]
+        [data, theme, partialStroke, showCallsShare]
     )
     const successSeries = useMemo<Series[]>(
         () => [
@@ -121,50 +185,119 @@ export function ToolQualityCharts({
         ],
         [data, theme, partialStroke]
     )
+    const latencyBoxSeries = useMemo<BoxPlotSeries[]>(
+        () => [{ key: 'latency', label: 'Latency', color: theme.colors[0], data: data.latencyBoxes }],
+        [data, theme]
+    )
 
     const countsConfig = useChartConfig(() => buildConfig(timezone, interval), [timezone, interval])
-    const percentConfig = useChartConfig(
-        () =>
-            buildConfig(timezone, interval, {
-                tickFormatter: (value: number) => formatPercentage(value, { compact: true }),
-            }),
+    const sharesConfig = useChartConfig(
+        () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage }),
         [timezone, interval]
+    )
+    const successRateConfig = useChartConfig(
+        () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage, scale: views.successRate }),
+        [timezone, interval, views.successRate]
     )
     const latencyConfig = useChartConfig(
         () => buildConfig(timezone, interval, { tickFormatter: formatMsAsSeconds }),
         [timezone, interval]
     )
+    const latencyBoxConfig = useChartConfig<BoxPlotConfig>(
+        () => ({
+            showGrid: true,
+            showAxisLines: true,
+            yTickFormatter: formatMsAsSeconds,
+            xTickFormatter: createXAxisTickCallback({ allDays: data.labels, timezone, interval }),
+        }),
+        [data.labels, timezone, interval]
+    )
 
     return (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <ChartCard title="Calls and errors" loading={loading} isEmpty={isEmpty}>
+            <ChartCard
+                title="Calls and errors"
+                action={
+                    <ChartViewToggle
+                        chart="calls"
+                        view={views.calls}
+                        options={[
+                            { value: 'counts', label: 'Counts' },
+                            { value: 'percentage', label: 'Percent' },
+                        ]}
+                        onChange={onViewChange}
+                    />
+                }
+                loading={loading}
+                isEmpty={isEmpty}
+            >
                 <TimeSeriesLineChart
                     series={callsSeries}
                     labels={data.labels}
-                    config={countsConfig}
+                    config={showCallsShare ? sharesConfig : countsConfig}
                     theme={theme}
                     dataAttr="mcp-tool-quality-calls-chart"
                 />
             </ChartCard>
-            <ChartCard title="Success rate" loading={loading} isEmpty={isEmpty}>
+            <ChartCard
+                title="Success rate"
+                action={
+                    <ChartViewToggle
+                        chart="successRate"
+                        view={views.successRate}
+                        options={[
+                            { value: 'linear', label: 'Linear' },
+                            { value: 'log', label: 'Log' },
+                        ]}
+                        onChange={onViewChange}
+                    />
+                }
+                loading={loading}
+                isEmpty={isEmpty}
+            >
                 <TimeSeriesLineChart
                     series={successSeries}
                     labels={data.labels}
-                    config={percentConfig}
+                    config={successRateConfig}
                     theme={theme}
                     dataAttr="mcp-tool-quality-success-rate-chart"
                 />
             </ChartCard>
-            <ChartCard title="Latency (p50 / p95 / p99)" loading={loading} isEmpty={isEmpty}>
-                <ChartLegend items={legendItemsFromSeries(latencySeries, theme)} position="top" align="end">
-                    <TimeSeriesLineChart
-                        series={latencySeries}
-                        labels={data.labels}
-                        config={latencyConfig}
-                        theme={theme}
-                        dataAttr="mcp-tool-quality-latency-chart"
+            <ChartCard
+                title={views.latency === 'boxPlot' ? 'Latency' : 'Latency (p50 / p95 / p99)'}
+                action={
+                    <ChartViewToggle
+                        chart="latency"
+                        view={views.latency}
+                        options={[
+                            { value: 'lines', label: 'Trends' },
+                            { value: 'boxPlot', label: 'Box plot' },
+                        ]}
+                        onChange={onViewChange}
                     />
-                </ChartLegend>
+                }
+                loading={loading}
+                isEmpty={isEmpty}
+            >
+                {views.latency === 'boxPlot' ? (
+                    <BoxPlot
+                        series={latencyBoxSeries}
+                        labels={data.labels}
+                        config={latencyBoxConfig}
+                        theme={theme}
+                        dataAttr="mcp-tool-quality-latency-box-plot"
+                    />
+                ) : (
+                    <ChartLegend items={legendItemsFromSeries(latencySeries, theme)} position="top" align="end">
+                        <TimeSeriesLineChart
+                            series={latencySeries}
+                            labels={data.labels}
+                            config={latencyConfig}
+                            theme={theme}
+                            dataAttr="mcp-tool-quality-latency-chart"
+                        />
+                    </ChartLegend>
+                )}
             </ChartCard>
         </div>
     )

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -7,7 +8,13 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
-import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import {
+    type ChartViewChange,
+    DEFAULT_CHART_VIEWS,
+    type DailyToolStat,
+    buildDailyChartData,
+    mcpAnalyticsToolQualityLogic,
+} from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
 jest.mock('~/queries/query', () => ({
@@ -39,6 +46,58 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(data.successRate[0]).toBeCloseTo(90)
             expect(data.successRate[1]).toBeNaN()
             expect(data.p99).toEqual([2100, NaN, 1500])
+            expect(data.callsShare.map((v) => Math.round(v))).toEqual([67, 0, 33])
+            expect(data.errorsShare).toEqual([100, 0, 0])
+        })
+
+        it.each([
+            ['all errors are zero', 0, [0, 0]],
+            ['errors split evenly', 5, [50, 50]],
+        ])('gives each bucket its share of the window when %s', (_label, errors, expected) => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({ day: '2026-06-05', calls: 10, errors }),
+                    dailyStat({ day: '2026-06-06', calls: 10, errors }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00']
+            )
+            expect(data.errorsShare).toEqual(expected)
+        })
+
+        it('builds a latency box per bucket with whiskers clipped at p99', () => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({
+                        day: '2026-06-05',
+                        calls: 3,
+                        min: 10,
+                        p25: 50,
+                        p50: 100,
+                        mean: 120,
+                        p75: 200,
+                        p95: 900,
+                        p99: 2100,
+                        max: 60000,
+                    }),
+                    dailyStat({ day: '2026-06-06', calls: 1, p50: 100, p95: 100, p99: 100 }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
+            )
+            expect(data.latencyBoxes).toEqual([
+                {
+                    day: '2026-06-05 00:00:00',
+                    min: 10,
+                    p25: 50,
+                    median: 100,
+                    mean: 120,
+                    p75: 200,
+                    max: 60000,
+                    whiskerMax: 2100,
+                },
+                // A row cached before the spread fields existed has no box to draw.
+                null,
+                null,
+            ])
         })
 
         it('returns empty series for empty bucket keys', () => {
@@ -72,6 +131,33 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             [Infinity, '—'],
         ])('formats %s ms as %s', (input, expected) => {
             expect(formatMsAsSeconds(input)).toBe(expected)
+        })
+    })
+
+    describe('chart views', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            localStorage.clear()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        it.each<ChartViewChange>([
+            { chart: 'calls', view: 'percentage' },
+            { chart: 'successRate', view: 'log' },
+            { chart: 'latency', view: 'boxPlot' },
+        ])('switches the $chart chart to $view and reports it', async (change) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setChartView(change)
+            }).toMatchValues({
+                chartViews: { ...DEFAULT_CHART_VIEWS, [change.chart]: change.view },
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('mcp analytics tool quality chart view changed', change)
         })
     })
 

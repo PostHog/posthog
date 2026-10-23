@@ -3917,6 +3917,12 @@ export interface MCPToolQualityDailyStatItem {
     p50: number
     p95: number
     p99: number
+    /** Latency spread for the box plot view. Optional so responses cached before these fields existed still parse. */
+    min?: number
+    p25?: number
+    mean?: number
+    p75?: number
+    max?: number
 }
 
 export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryResponseBase {

@@ -104,8 +104,9 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
         availableCategoriesLoading,
         categoryCountsLoading,
         toolRowsPageLoading,
+        chartViews,
     } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setDateFilter, reloadAll } = useActions(mcpAnalyticsToolQualityLogic)
+    const { setDateFilter, reloadAll, setChartView } = useActions(mcpAnalyticsToolQualityLogic)
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
@@ -139,6 +140,8 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
                     timezone={timezone}
                     interval={interval}
                     incompleteTail={incompleteTail}
+                    views={chartViews}
+                    onViewChange={setChartView}
                 />
                 <ToolQualityTable />
             </div>
