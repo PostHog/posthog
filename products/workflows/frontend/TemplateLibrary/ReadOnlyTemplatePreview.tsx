@@ -1,33 +1,25 @@
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { EmailHtmlFrame } from './EmailHtmlFrame'
-
-function PreviewField({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-xs font-semibold text-secondary">{label}</span>
-            {children}
-        </div>
-    )
-}
 
 export function ReadOnlyTemplatePreview({ email }: { email: EmailTemplate }): JSX.Element {
     return (
         <div className="flex flex-col flex-1 gap-4 min-h-0" data-attr="message-template-read-only-preview">
             <div className="flex flex-col gap-3 rounded border bg-surface-primary p-3">
-                <PreviewField label="Subject">
+                <LemonField.Pure label="Subject" className="gap-1 min-w-0">
                     <span className="break-words">{email.subject}</span>
-                </PreviewField>
+                </LemonField.Pure>
                 {email.preheader && (
-                    <PreviewField label="Preheader">
+                    <LemonField.Pure label="Preheader" className="gap-1 min-w-0">
                         <span className="break-words text-secondary">{email.preheader}</span>
-                    </PreviewField>
+                    </LemonField.Pure>
                 )}
             </div>
-            <PreviewField label="HTML">
+            <LemonField.Pure label="HTML" className="gap-1 min-w-0">
                 <EmailHtmlFrame html={email.html} className="h-128 rounded border" />
-            </PreviewField>
-            <PreviewField label="Plain text">
+            </LemonField.Pure>
+            <LemonField.Pure label="Plain text" className="gap-1 min-w-0">
                 {email.text ? (
                     <pre className="m-0 rounded border bg-surface-primary p-3 text-sm whitespace-pre-wrap break-words">
                         {email.text}
@@ -35,7 +27,7 @@ export function ReadOnlyTemplatePreview({ email }: { email: EmailTemplate }): JS
                 ) : (
                     <span className="text-secondary">This template has no plain text version.</span>
                 )}
-            </PreviewField>
+            </LemonField.Pure>
         </div>
     )
 }
