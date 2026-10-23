@@ -195,14 +195,13 @@ def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
             team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`
         )
 
-        candidates = [
+        # The teams with an enabled source come first, because they are far fewer than the approved teams.
+        candidates = teams.filter(id__in=team_ids_with_enabled_source()).exclude(organization_id__in=listed)
+        team_ids |= {
             team_id
-            for team_id, organization_id in teams.exclude(organization_id__in=listed).values_list(
-                "id", "organization_id"
-            )
+            for team_id, organization_id in candidates.values_list("id", "organization_id")
             if _in_rollout(config, organization_id)
-        ]
-        team_ids |= team_ids_with_enabled_source(candidates)
+        }
     return sorted(team_ids)
 
 
@@ -398,12 +397,13 @@ def _add_pending(pending: _Pending) -> None:
         )
 
 
-def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime) -> int:
+def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: list[int] | None = None) -> int:
     """Move each source cursor forward and add the rows it passes to the queue state. Returns the pairs fed.
 
     A source with no cursor starts at the current end, so the backfill command seeds the earlier rows.
     """
-    team_ids = enrolled_team_ids(config)
+    if team_ids is None:
+        team_ids = enrolled_team_ids(config)
     end = now - FEED_LAG
     fed = 0
     for source in queue_sources(config):
@@ -588,7 +588,9 @@ def _tier_stats(
     return stats
 
 
-def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> PairSelection:
+def select_pairs(
+    config: ActivitySummaryConfig, now: datetime.datetime, limit: int, team_ids: list[int] | None = None
+) -> PairSelection:
     """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
 
     A pair is due when it has a row in the last `window_days` and its due time is empty or past. A pair
@@ -600,7 +602,8 @@ def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: i
     least `max_overdue_factor` staleness, for `paying_budget_share` of `limit`. The second pass ranks the
     other free pairs for the budget that is left.
     """
-    team_ids = enrolled_team_ids(config)
+    if team_ids is None:
+        team_ids = enrolled_team_ids(config)
     if not team_ids:
         return PairSelection(pairs=[], due_pairs=0, tiers=[])
     states = _states(config, now, team_ids)

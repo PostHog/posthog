@@ -1,7 +1,7 @@
 import json
 import uuid
 import dataclasses
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -585,16 +585,14 @@ def has_enabled_source(team_id: int) -> bool:
     return _has_emitting_replay_scanner(team_id)
 
 
-def team_ids_with_enabled_source(team_ids: Collection[int]) -> set[int]:
-    """The teams in `team_ids` that `has_enabled_source` is true for, in two queries."""
-    if not team_ids:
-        return set()
+def team_ids_with_enabled_source() -> set[int]:
+    """Every team that `has_enabled_source` is true for, in two queries."""
     from products.replay_vision.backend.facade.api import (
         team_ids_with_signal_emitting_scanner,  # noqa: PLC0415 — keeps the Replay Vision stack off this import path
     )
 
-    with_config = set(_enabled_source_configs().filter(team_id__in=team_ids).values_list("team_id", flat=True))
-    return with_config | team_ids_with_signal_emitting_scanner(set(team_ids) - with_config)
+    with_config = set(_enabled_source_configs().values_list("team_id", flat=True))
+    return with_config | team_ids_with_signal_emitting_scanner()
 
 
 def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
