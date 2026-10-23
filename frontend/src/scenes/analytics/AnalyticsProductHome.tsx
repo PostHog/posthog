@@ -17,8 +17,7 @@ export const scene: SceneExport = {
 /** The product analytics home dashboard on its own, without the Insights tabs around it. */
 export function AnalyticsProductHome(): JSX.Element {
     const railEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const homeEnabled = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
-    if (!railEnabled || !homeEnabled) {
+    if (!railEnabled) {
         return <NotFound object="page" />
     }
     return (
