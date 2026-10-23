@@ -331,6 +331,19 @@ describe('customerTasksLogic', () => {
         expect(mockList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ assigned_to: 'me' }))
     })
 
+    test.each([
+        ['feature_flag_required', true],
+        ['permission_denied', false],
+    ])('a 403 with code %s marks tasks unavailable: %s', async (code, unavailable) => {
+        mockList.mockRejectedValue(new ApiError('Forbidden', 403, undefined, { code }))
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.tasksUnavailable).toBe(unavailable)
+        await expectLogic(logic).toDispatchActions([unavailable ? 'loadTaskPageSuccess' : 'loadTaskPageFailure'])
+    })
+
     test('keeps a newer role when a superseded role request fails', async () => {
         let rejectStaleRequest: (error: unknown) => void = () => {}
         mockList.mockImplementationOnce(
