@@ -22,7 +22,7 @@ async def _signal_github_recovery(workflow_id: str) -> None:
 
 
 @shared_task(
-    queue=CeleryQueue.DEFAULT.value,
+    queue=CeleryQueue.LONG_RUNNING.value,
     ignore_result=True,
     soft_time_limit=240,
     time_limit=300,
