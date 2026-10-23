@@ -171,6 +171,8 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
     # run's window instead of walking the whole table on every poll. The 60s pad absorbs clock skew between
     # the Django clock that stamped started_at and the ClickHouse clock behind event_time.
     since = (recalc.started_at or recalc.created_at) - timedelta(seconds=60)
+    # timeout_overflow_mode must be 'throw'. Under a 'break' profile, a query that reaches max_execution_time
+    # returns zero rows for this keyless aggregate instead of an error. The throw goes to the except below.
     try:
         with tags_context(product=Product.EXPERIMENTS, feature=Feature.CACHE_WARMUP, team_id=recalc.team_id):
             rows = sync_execute(
@@ -195,7 +197,7 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
                         AND event_date >= toDate(toDateTime(%(since)s))
                         AND event_time >= toDateTime(%(since)s)
                 )
-                SETTINGS skip_unavailable_shards=1, max_execution_time=2
+                SETTINGS skip_unavailable_shards=1, max_execution_time=2, timeout_overflow_mode='throw'
                 """,
                 {"cluster": CLICKHOUSE_CLUSTER, "prefix": prefix, "since": int(since.timestamp())},
                 workload=Workload.ONLINE,
