@@ -158,10 +158,10 @@ export function ExplainChartView({
                 >
                     {/* Beside the chart, the panel takes the chart's height and the page scrolls inside it. */}
                     <div className="flex flex-col @3xl/story:absolute @3xl/story:inset-0">
-                        <div className="min-h-0 flex-1 p-4 @3xl/story:overflow-y-auto">
+                        {/* Keyed on the page, so each chapter opens at its top and an evidence chart keeps the scroll. */}
+                        <div key={activeIndex} className="min-h-0 flex-1 p-4 @3xl/story:overflow-y-auto">
                             {hasChapter(active) ? (
                                 <StoryChapterView
-                                    key={activeIndex}
                                     page={active}
                                     openLink={openLink}
                                     canShowChart={(item) => !!item.query && !!evidenceCharts?.canShow(item.query)}
