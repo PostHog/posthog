@@ -1629,12 +1629,12 @@ class SignalReportArtefact(UUIDModel):
         if isinstance(content, TaskRunArtefact) and content.task_id != attribution.task_id:
             raise ArtefactContentValidationError("task_run content.task_id must match the artefact's attributed task")
         if attribution.task_id and not claim_id and artefact_type_for(content) in {"commit", "note", "task_run"}:
-            from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
+            from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
 
             active = get_active_claim(team_id=team_id, report_id=report_id)
             if (
                 active
-                and actor_owns_claim(active, attribution)
+                and actor_works_under_claim(active, attribution)
                 and cls.objects.filter(team_id=team_id, id=active.claim_id).exists()
             ):
                 claim_id = str(active.claim_id)
@@ -1689,7 +1689,7 @@ class SignalReportArtefact(UUIDModel):
             # The rules import this model; load them only on a reviewer write.
             from posthog.models.team.team import Team
 
-            from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
+            from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
             from products.signals.backend.reviewer_rules import ReviewerRules
 
             rules = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
@@ -1699,7 +1699,11 @@ class SignalReportArtefact(UUIDModel):
                 )
                 if claim_id:
                     claim = get_active_claim(team_id=team_id, report_id=report_id)
-                    if claim is None or str(claim.claim_id) != claim_id or not actor_owns_claim(claim, attribution):
+                    if (
+                        claim is None
+                        or str(claim.claim_id) != claim_id
+                        or not actor_works_under_claim(claim, attribution)
+                    ):
                         raise ArtefactContentValidationError("Claim is stale or belongs to another actor.")
                 update = rules.prepare(content, attribution=attribution, proposal=reviewer_proposal, edit=reviewer_edit)
                 if update.corrections is not None:

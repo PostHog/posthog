@@ -608,6 +608,9 @@ export interface inboxReportDetailLogicActions {
     selectPullRequest: (url: string) => {
         url: string
     }
+    setClaimSaving: (saving: boolean) => {
+        saving: boolean
+    }
     setDetailTab: (tab: ReportDetailTab) => {
         tab: ReportDetailTab
     }
@@ -622,9 +625,6 @@ export interface inboxReportDetailLogicActions {
     }
     setFeedbackSubmitting: (submitting: boolean) => {
         submitting: boolean
-    }
-    setClaimSaving: (saving: boolean) => {
-        saving: boolean
     }
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null

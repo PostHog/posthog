@@ -27,5 +27,9 @@ export function reportClaimRequest(report: Pick<SignalReport, 'assignee'>, claim
         return { release: true }
     }
     const assignee = report.assignee
-    return { takeover: !!assignee && assignee.kind !== 'user' }
+    if (!assignee || assignee.kind === 'user') {
+        return { takeover: false }
+    }
+    // Naming the expected claim makes the server refuse the takeover when a person claimed meanwhile.
+    return assignee.claim_id ? { takeover: true, takeover_claim_id: assignee.claim_id } : { takeover: true }
 }

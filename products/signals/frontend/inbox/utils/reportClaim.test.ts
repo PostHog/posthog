@@ -14,14 +14,24 @@ describe('report claim', () => {
     })
 
     it.each([
-        { case: 'unclaimed', current: null, claimable: true, takeover: false },
-        { case: 'held by a person', current: assignee('user'), claimable: false, takeover: false },
-        { case: 'held by an agent', current: assignee('agent'), claimable: true, takeover: true },
-        { case: 'held by a task', current: assignee('task'), claimable: true, takeover: true },
-    ])('claims a report $case', ({ current, claimable, takeover }) => {
+        { case: 'unclaimed', current: null, claimable: true, request: { takeover: false } },
+        { case: 'held by a person', current: assignee('user'), claimable: false, request: { takeover: false } },
+        {
+            case: 'held by an agent',
+            current: assignee('agent'),
+            claimable: true,
+            request: { takeover: true, takeover_claim_id: 'claim-1' },
+        },
+        {
+            case: 'held by a task',
+            current: assignee('task'),
+            claimable: true,
+            request: { takeover: true, takeover_claim_id: 'claim-1' },
+        },
+    ])('claims a report $case', ({ current, claimable, request }) => {
         const report = { assignee: current, status: SignalReportStatus.READY }
         expect(isReportClaimable(report)).toBe(claimable)
-        expect(reportClaimRequest(report, true)).toEqual({ takeover })
+        expect(reportClaimRequest(report, true)).toEqual(request)
     })
 
     it.each([

@@ -57,7 +57,7 @@ export function SuggestedReviewerClaimControls({
             {isMe && (
                 <LemonButton
                     type="secondary"
-                    size="xsmall"
+                    size="xxsmall"
                     loading={claim.saving}
                     disabledReason={claim.saving ? 'Updating…' : undefined}
                     onClick={() => claim.onSetClaimed(!claimant)}

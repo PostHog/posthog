@@ -417,6 +417,9 @@ const inboxReportsClaim = (): ToolBase<
         if (params.takeover !== undefined) {
             body['takeover'] = params.takeover
         }
+        if (params.takeover_claim_id !== undefined) {
+            body['takeover_claim_id'] = params.takeover_claim_id
+        }
         if (params.pr_url !== undefined) {
             body['pr_url'] = params.pr_url
         }

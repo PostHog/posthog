@@ -35,6 +35,7 @@ from products.signals.backend.pull_requests import (
 from products.signals.backend.report_claims import (
     ReportClaim,
     actor_owns_claim,
+    actor_works_under_claim,
     claim_from_artefact,
     get_active_claim,
     is_user_claim_of_task_creator,
@@ -377,6 +378,7 @@ def claim_report(
     pull_requests: list[str] | None = None,
     claim_id: str | None = None,
     takeover: bool = False,
+    takeover_claim_id: str | None = None,
 ) -> ReportClaim | None:
     """Claim, release, or attach a PR to one report and return the current assignment."""
     if release and (pr_url or pull_requests or takeover):
@@ -393,7 +395,7 @@ def claim_report(
         before = assignment_snapshot(locked_report, assignment)
         if claim_id and (assignment is None or str(assignment.claim_id) != claim_id):
             raise ReportClaimConflict("This claim is no longer active.")
-        if claim_id and assignment is not None and not actor_owns_claim(assignment, actor):
+        if claim_id and assignment is not None and not actor_works_under_claim(assignment, actor):
             raise ReportClaimConflict("This claim belongs to another actor.")
 
         if release:
@@ -414,12 +416,14 @@ def claim_report(
                 if (
                     not takeover
                     and assignment is not None
-                    and actor_owns_claim(assignment, actor)
+                    and actor_works_under_claim(assignment, actor)
                     and all((pr.repository, pr.number) in existing_prs for pr in details)
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")
-            if assignment is not None and not actor_owns_claim(assignment, actor):
+            if assignment is not None and not actor_works_under_claim(assignment, actor):
+                if takeover_claim_id and str(assignment.claim_id) != takeover_claim_id:
+                    raise ReportClaimConflict("The report's claim changed. Reload the report and try again.")
                 if not takeover:
                     raise ReportClaimConflict(
                         "This report already has an active claim. Use takeover=true to take ownership."

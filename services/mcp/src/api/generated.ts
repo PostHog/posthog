@@ -105238,6 +105238,8 @@ export namespace Schemas {
       pull_requests?: string[];
       /** Explicitly end another actor's claim and take ownership. */
       takeover?: boolean;
+      /** With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. */
+      takeover_claim_id?: string;
       /** Compatibility alias for adding one PR. Prefer pull_requests for new callers. */
       pr_url?: string;
       /** Release ownership while preserving any attached pull request. */
