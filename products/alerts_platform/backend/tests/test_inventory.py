@@ -109,7 +109,7 @@ def test_push_replaces_the_group_with_the_dashboard_labels() -> None:
         push_inventory([inventory])
 
     assert push.call_args.args[0] == "alerts_platform_inventory"
-    assert push.call_args.kwargs == {"replace_group": True}
+    assert push.call_args.kwargs == {"replace_group": True, "timeout": 5}
     registry = push.call_args.args[1]
     assert registry.get_sample_value("alerts_platform_configurations", {"source": "logs", "enabled": "true"}) == 3
     assert registry.get_sample_value("alerts_platform_configurations", {"source": "logs", "enabled": "false"}) == 1

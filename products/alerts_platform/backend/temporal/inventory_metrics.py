@@ -13,9 +13,13 @@ from posthog.metrics import pushed_metrics_registry
 
 from products.alerts_platform.backend.logic.inventory import SourceInventory
 
+# The timeout applies to the connect and to the response separately, so a stalled PushGateway
+# holds the push for up to 10 seconds. That stays inside the 20-second activity timeout.
+PUSH_TIMEOUT_SECONDS = 5
+
 
 def push_inventory(inventories: Sequence[SourceInventory]) -> None:
-    with pushed_metrics_registry("alerts_platform_inventory") as registry:
+    with pushed_metrics_registry("alerts_platform_inventory", timeout=PUSH_TIMEOUT_SECONDS) as registry:
         configurations = Gauge(
             "alerts_platform_configurations",
             "Platform alert configurations, by source and whether they are enabled",
