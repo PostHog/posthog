@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .from_env_lossy(),
         )
         .init();
-    tracing::info!(topic = %config.kafka_topic, group = %config.kafka_consumer_group, sample = config.sample_percentage, "starting replay-recorder-v4");
+    tracing::info!(topic = %config.kafka_topic, overflow_topic = %config.kafka_overflow_topic, group = %config.kafka_consumer_group, sample = config.sample_percentage, "starting replay-recorder-v4");
 
     let mut manager = Manager::builder("replay-recorder-v4")
         .with_global_shutdown_timeout(Duration::from_secs(30))
@@ -143,7 +143,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.kafka,
         &config.kafka_consumer_group,
         &config.kafka_consumer_offset_reset,
-        &config.kafka_topic,
+        &[
+            config.kafka_topic.clone(),
+            config.kafka_overflow_topic.clone(),
+        ],
     )?;
     let settings = Settings {
         sample_percentage: config.sample_percentage,
