@@ -24,7 +24,15 @@ def backfill_owner_spend(apps, schema_editor):
                 if source.is_task:
                     run = (
                         Run._base_manager.using(alias)
-                        .select_related("task")
+                        .select_related("task__signal_report")
+                        .only(
+                            "id",
+                            "created_at",
+                            "task_id",
+                            "task__id",
+                            "task__signal_report_id",
+                            "task__signal_report__billing_exempt_reason",
+                        )
                         .filter(id=source.source_id, team_id=source.team_id)
                         .first()
                     )
@@ -32,7 +40,11 @@ def backfill_owner_spend(apps, schema_editor):
                         continue
                     if source.scout_run_id:
                         defaults["kind"] = "scout_run"
-                        scout = Scout._base_manager.using(alias).get(id=source.scout_run_id, team_id=source.team_id)
+                        scout = (
+                            Scout._base_manager.using(alias)
+                            .only("created_at", "trial_state")
+                            .get(id=source.scout_run_id, team_id=source.team_id)
+                        )
                         defaults["billing_exempt"] = scout.trial_state is not None
                     elif source.stage == "implementation" and run.task.signal_report_id:
                         # Legacy receipts did not distinguish implementation triggers; keep the default implementation kind.

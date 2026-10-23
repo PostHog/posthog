@@ -1405,9 +1405,10 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @parameterized.expand(
         [
-            ("manual_implementation", False, "implementation", "implementation", None),
-            ("pipeline_after_manual", True, "implementation", None, "implementation"),
-            ("pipeline_discussion", True, "discussion", "implementation", None),
+            ("manual_implementation", False, "implementation", "implementation", None, True),
+            ("pipeline_after_manual", True, "implementation", None, "implementation", True),
+            ("pipeline_after_ui_task", True, "implementation", None, "implementation", False),
+            ("pipeline_discussion", True, "discussion", "implementation", None, True),
         ]
     )
     def test_run_task_resume_of_a_pipeline_task_stamps_only_requested_pipeline_runs(
@@ -1417,12 +1418,13 @@ class TestFacadeReadsAndMappers(TestCase):
         relationship: str,
         previous_stage: str | None,
         expected_stage: str | None,
+        internal: bool,
     ):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalSpend
         from products.signals.backend.task_run_artefacts import record_report_task
 
         report = SignalReport.objects.create(team=self.team)
-        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=internal)
         record_report_task(
             team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
         )
@@ -1447,6 +1449,14 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("ai_stage"), expected_stage)
         self.assertEqual(new_run.state.get("billing_product"), None if expected_stage else "posthog_ai")
+        spend = SignalSpend.objects.for_team(self.team.id).filter(task_run_id=new_run.id).first()
+        if expected_stage:
+            assert spend is not None
+            assert spend.kind == SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION
+            assert spend.report_id == report.id
+            assert spend.signal_id is None
+        else:
+            assert spend is None
         task.refresh_from_db()
         self.assertEqual(task.origin_product, Task.OriginProduct.SIGNAL_REPORT)
 

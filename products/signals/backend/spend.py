@@ -415,7 +415,6 @@ def finish_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None
 def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = None) -> None:
     from products.tasks.backend.facade.billing import (  # noqa: PLC0415
         TaskTokenUsageUnavailable,
-        get_task_runs_spend,
         locked_task_run_spend,
         process_pending_gateway_usage,
     )
@@ -428,18 +427,16 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
             spend = SignalSpend.objects.for_team(team_id).get(task_run_id=run_id)
         else:
             legacy = LegacySignalSpend.objects.for_team(team_id).filter(source_id=run_id, is_task=True).first()
-            runs = get_task_runs_spend(team_id=team_id, run_ids=[UUID(run_id)]) if legacy else []
-            if not legacy or not runs or legacy.stage not in {"research", "repo_selection", "implementation"}:
+            if not legacy or legacy.stage not in {"research", "repo_selection", "implementation"}:
                 return
-            run = runs[0]
             record_task_spend(
                 team_id=team_id,
                 run_id=run_id,
                 stage=legacy.stage,
                 signal_id=str(legacy.signal_id) if legacy.signal_id else None,
-                report_id=str(run.report_id) if run.report_id else None,
+                report_id=report_id,
             )
-            spend = SignalSpend.objects.for_team(team_id).get(task_run_id=run.run_id)
+            spend = SignalSpend.objects.for_team(team_id).get(task_run_id=run_id)
     if spend.finalized_at is None:
         with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
             if not run.is_terminal:

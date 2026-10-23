@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from django.apps import apps
 from django.db import IntegrityError, connection, connections, transaction
+from django.db.migrations.loader import MigrationLoader
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -869,8 +870,9 @@ class TestSignalSpend(BaseTest):
             token_cost_microusd=200,
         )
         migration = import_module("products.signals.backend.migrations.0199_backfill_owner_spend")
+        historical_apps = MigrationLoader(connection).project_state([("signals", "0198_owner_spend")]).apps
         for _ in range(2):
-            migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
+            migration.backfill_owner_spend(historical_apps, SimpleNamespace(connection=connection))
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
         assert SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).created_at == old.created_at
         owner = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
