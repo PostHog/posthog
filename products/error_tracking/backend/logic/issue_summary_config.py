@@ -25,6 +25,11 @@ ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL = timedelta(hours=24)
 
 # Holds one generation per issue at a time. It is never released, so it also spaces out retries after a failure.
 ISSUE_SUMMARY_LOCK_TTL_SECONDS = 300
+# Marks a queued task until a worker claims it, so page polls queue at most one task per issue in this window.
+# A lost task keeps reads on "generating" for this long, so it stays short.
+ISSUE_SUMMARY_QUEUED_TTL_SECONDS = 60
+# Bounds the lock calls and the publish when a read queues a task, so a slow Redis cannot hold the request.
+ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS = 1.0
 # An issue with no recent exception event, or a team out of budget, is not tried again for this long.
 # Each try runs the ClickHouse queries before it can find either outcome.
 ISSUE_SUMMARY_HOLD_SECONDS = 3600
