@@ -9,14 +9,17 @@ from posthog.exceptions_capture import capture_exception
 CleaningMarker = bool | dict[int, "CleaningMarker"]
 
 
-def _null_non_finite(value):
+def _for_stdlib_json(value):
     # Matches orjson, which writes NaN and infinity as null; the stdlib encoder would emit invalid JSON.
     if isinstance(value, float) and not math.isfinite(value):
         return None
+    # Raw cached results reach this renderer as pre-encoded fragments, which only orjson can write.
+    if isinstance(value, orjson.Fragment):
+        return orjson.loads(orjson.dumps(value))
     if isinstance(value, dict):
-        return {key: _null_non_finite(item) for key, item in value.items()}
+        return {key: _for_stdlib_json(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
-        return [_null_non_finite(item) for item in value]
+        return [_for_stdlib_json(item) for item in value]
     return value
 
 
@@ -38,7 +41,7 @@ class SafeJSONRenderer(JSONRenderer):
             if str(e) != "Recursion limit reached":
                 raise
             capture_exception(e)
-            return super().render(_null_non_finite(data), accepted_media_type, renderer_context)
+            return super().render(_for_stdlib_json(data), accepted_media_type, renderer_context)
 
 
 class ServerSentEventRenderer(BaseRenderer):

@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+import orjson
+
 from posthog.renderers import SafeJSONRenderer
 
 
@@ -106,10 +108,17 @@ class TestCleanDataForJSON(SimpleTestCase):
             node.update(leaf)
             return root
 
+        response = {
+            "query": nested({"key": "platform", "value": float("nan")}),
+            "result": orjson.Fragment(b'[{"count":1.5}]'),
+        }
         with patch("posthog.renderers.capture_exception") as mock_capture:
-            data = SafeJSONRenderer().render(nested({"key": "platform", "value": float("nan")}))
+            data = SafeJSONRenderer().render(response)
 
-        self.assertEqual(json.loads(data), nested({"key": "platform", "value": None}))
+        self.assertEqual(
+            json.loads(data),
+            {"query": nested({"key": "platform", "value": None}), "result": [{"count": 1.5}]},
+        )
         mock_capture.assert_called_once()
 
     def test_unserializable_payload_raises_without_the_fallback(self):
