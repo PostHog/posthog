@@ -153,8 +153,6 @@ class TeamDiscoveryInput:
     # a child workflow and its sampling query. Without a window, discovery uses the flag's lookback days.
     window_start: str | None = None
     window_end: str | None = None
-    # A coordinator that samples one event type sets it, so a team with other AI events but none of that type
-    # is not discovered. Without it, discovery uses LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS.
     trigger_events: list[str] | None = None
 
 

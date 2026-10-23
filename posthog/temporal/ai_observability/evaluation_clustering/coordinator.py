@@ -26,6 +26,7 @@ from posthog.temporal.ai_observability.evaluation_clustering.models import (
 from posthog.temporal.ai_observability.evaluation_clustering.workflow import (
     AIObservabilityEvaluationClusteringWorkflow,
     AIObservabilityEvaluationSamplerWorkflow,
+    SamplerWindow,
     sampler_window,
 )
 from posthog.temporal.ai_observability.trace_clustering.constants import WORKFLOW_EXECUTION_TIMEOUT
@@ -71,7 +72,7 @@ class _LevelCoordinatorInputs:
     results_so_far: dict[str, Any] | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SamplerCoordinatorInputs(_LevelCoordinatorInputs):
     window_start: str | None = None
     window_end: str | None = None
@@ -124,6 +125,14 @@ async def _discover_teams_and_jobs(
     return team_ids, per_team_jobs
 
 
+def _run_window(inputs: SamplerCoordinatorInputs) -> SamplerWindow:
+    if inputs.window_start and inputs.window_end:
+        return SamplerWindow(start=inputs.window_start, end=inputs.window_end)
+    # workflow_start_time, not now(): a continue_as_new leg carries the window, and a run that a worker picks
+    # up late must still sample the hour it was scheduled for.
+    return sampler_window(workflow.info().workflow_start_time)
+
+
 def _evaluation_jobs_for_team(team_jobs: list[JobConfig]) -> list[JobConfig]:
     """Pick the evaluation-level jobs for a team.
 
@@ -149,13 +158,8 @@ class AIObservabilityEvaluationSamplerCoordinatorWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SamplerCoordinatorInputs) -> SamplerCoordinatorResult:
-        # workflow_start_time, not now(): a continue_as_new leg carries the window, and a run that a worker picks
-        # up late must still sample the hour it was scheduled for.
-        window_start, window_end = (
-            (inputs.window_start, inputs.window_end)
-            if inputs.window_start and inputs.window_end
-            else sampler_window(workflow.info().workflow_start_time)
-        )
+        window = _run_window(inputs)
+        window_start, window_end = window.start, window.end
         if inputs.remaining_team_ids is not None:
             team_ids = inputs.remaining_team_ids
             per_team_jobs: dict[int, list[JobConfig]] = {}

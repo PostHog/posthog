@@ -6,6 +6,7 @@ import structlog
 import temporalio.exceptions
 from temporalio import workflow
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
     CLUSTERING_WORKFLOW_NAME,
     SAMPLER_ACTIVITY_HEARTBEAT,
@@ -33,10 +34,16 @@ from posthog.temporal.common.base import PostHogWorkflow
 logger = structlog.get_logger(__name__)
 
 
-def sampler_window(now: datetime) -> tuple[str, str]:
-    window_end = now - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
-    window_start = window_end - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
-    return window_start.strftime("%Y-%m-%dT%H:%M:%SZ"), window_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+@frozen
+class SamplerWindow:
+    start: str
+    end: str
+
+
+def sampler_window(now: datetime) -> SamplerWindow:
+    end = now - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
+    start = end - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
+    return SamplerWindow(start=start.strftime("%Y-%m-%dT%H:%M:%SZ"), end=end.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
 
 @workflow.defn(name=SAMPLER_WORKFLOW_NAME)
@@ -65,7 +72,8 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
             window_start = inputs.window_start
             window_end = inputs.window_end
         else:
-            window_start, window_end = sampler_window(workflow.now())
+            window = sampler_window(workflow.now())
+            window_start, window_end = window.start, window.end
 
         max_samples = inputs.max_samples or SAMPLER_MAX_SAMPLES_PER_JOB
 
