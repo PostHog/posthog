@@ -1,8 +1,12 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import transaction
 from django.test import TestCase
 from django.utils import timezone
+
+from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.models.user import User
 
@@ -53,6 +57,28 @@ class TestHogFlow(TestCase):
             mock_reload.assert_not_called()
 
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
+
+    @parameterized.expand([("save",), ("delete",)])
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_a_failed_reload_publish_keeps_the_committed_change_and_the_callbacks_after_it(self, change, mock_reload):
+        hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
+        hog_flow_id = str(hog_flow.id)
+        mock_reload.side_effect = RedisError("Redis is down")
+        callback_after_the_reload = MagicMock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if change == "save":
+                hog_flow.name = "Renamed"
+                hog_flow.save(update_fields=["name"])
+            else:
+                hog_flow.delete()
+            transaction.on_commit(callback_after_the_reload)
+
+        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[hog_flow_id])
+        callback_after_the_reload.assert_called_once()
+        assert list(HogFlow.objects.filter(team=self.team).values_list("name", flat=True)) == (
+            ["Renamed"] if change == "save" else []
+        )
 
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")
     def test_action_saved_receiver(self, mock_refresh):

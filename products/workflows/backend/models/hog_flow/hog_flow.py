@@ -307,8 +307,10 @@ def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwa
     team_id = instance.team_id
     hog_flow_id = str(instance.id)
     # Publish only after commit, as on delete: a worker reloading inside the transaction would cache
-    # the old row, so a pause would not stop sends until the cache refreshes.
-    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
+    # the old row, so a pause would not stop sends until the cache refreshes. Robust, because the save
+    # is already committed: a failed publish must not fail the request or drop the callbacks after it,
+    # and workers still catch up when their cache expires.
+    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]), robust=True)
 
 
 @receiver(post_delete, sender=HogFlow)
@@ -317,7 +319,7 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     hog_flow_id = str(instance.id)
     # post_delete fires inside the delete transaction, so publish only after commit; otherwise a
     # worker could re-read the still-live row and cache it as active for another TTL.
-    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
+    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]), robust=True)
 
 
 @receiver(post_save, sender=Action)
