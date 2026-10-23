@@ -176,6 +176,8 @@ async def _process_signal(
             queries=queries,
             query_results=augmented_results,
             report_contexts=report_contexts,
+            source_id=signal.source_id,
+            sync_with_source=signal.sync_with_source,
         ),
         start_to_close_timeout=timedelta(minutes=10),
         retry_policy=RetryPolicy(maximum_attempts=5),
@@ -184,7 +186,7 @@ async def _process_signal(
     # Step 5.5: PR-specificity verification for existing matches
     updated_title: Optional[str] = None
 
-    if isinstance(match_result, ExistingReportMatch):
+    if isinstance(match_result, ExistingReportMatch) and not match_result.source_synced:
         report_ctx = report_contexts.get(match_result.report_id)
         report_title = report_ctx.title if report_ctx else ""
 

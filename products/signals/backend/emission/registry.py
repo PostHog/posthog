@@ -26,6 +26,7 @@ class SignalEmitterOutput:
     weight: float
     extra: dict[str, Any]
     signal_id: str | None = None
+    idempotency_key: str | None = None
 
 
 # Type for signal emitter functions (None if the source has not enough meaningful data)
@@ -55,6 +56,12 @@ class SignalSourceTableConfig(BaseModel):
     record_fetcher: RecordFetcher
     # Snapshot sources deduplicate only after successful emission or an intentional filter.
     record_processed_outputs: bool = False
+    # Re-emissions from the same source record must return to its existing report instead of relying
+    # on semantic matching. Use with an emitter-provided, material-version idempotency key.
+    sync_with_source: bool = False
+    # Source states that should only emit when the source record already backs a report. This keeps
+    # terminal records out of first-sync ingestion while still letting them revalidate live reports.
+    existing_source_only_states: tuple[str, ...] = ()
     # Field used to filter records by time window (e.g. "created_at")
     partition_field: str
     # Columns to SELECT — only what the emitter and extra metadata need
@@ -102,6 +109,12 @@ class SignalSourceTableConfig(BaseModel):
     def _validate_scope_pair(self) -> SignalSourceTableConfig:
         if (self.scope_field is None) != (self.scope_config_key is None):
             raise ValueError("scope_field and scope_config_key must both be set or both be None")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_source_sync(self) -> SignalSourceTableConfig:
+        if self.existing_source_only_states and not self.sync_with_source:
+            raise ValueError("existing_source_only_states requires sync_with_source")
         return self
 
     @model_validator(mode="after")

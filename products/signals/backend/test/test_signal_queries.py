@@ -38,6 +38,8 @@ from products.signals.backend.signal_metadata import (
 from products.signals.backend.spend import SignalMetadataChange, SignalSpendUpdate, record_llm_spend
 from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.temporal.signal_queries import (
+    SourceSignalMatch,
+    fetch_live_source_signal_matches,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     retract_source_signals,
@@ -561,6 +563,43 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
                 assert set(payload["embedding"]) == ({0.0} if change.clear_content else {0.125})
                 deliver(payload, third.versions[payload["model_name"]])
             assert confirm_signal_spend_metadata(third)
+
+
+class TestFetchLiveSourceSignalMatches(_SignalEmbeddingsTestBase):
+    def test_returns_the_latest_live_signal_for_the_exact_source(self) -> None:
+        self._emit_version(
+            document_id="older",
+            report_id="old-report",
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            inserted_at=self.base,
+        )
+        self._emit_version(
+            document_id="newer",
+            report_id="new-report",
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            inserted_at=self.base + timedelta(hours=1),
+        )
+        self._emit_version(
+            document_id="other-type",
+            report_id="other-report",
+            source_product="github",
+            source_type="pull_request",
+            source_id="issue-1",
+            inserted_at=self.base + timedelta(hours=2),
+        )
+
+        result = fetch_live_source_signal_matches(self.team, ["issue-1"], "github", "issue")
+
+        assert result == {
+            "issue-1": [
+                SourceSignalMatch(signal_id="newer", report_id="new-report"),
+                SourceSignalMatch(signal_id="older", report_id="old-report"),
+            ]
+        }
 
 
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):

@@ -59,6 +59,7 @@ from products.signals.backend.temporal.signal_queries import (
     WaitForClickHouseInput,
     WaitForClickHouseMode,
     WaitForClickHouseSignal,
+    fetch_live_source_signal_matches,
     fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
     run_signal_semantic_search_activity,
@@ -462,6 +463,8 @@ class MatchSignalToReportInput:
     # Optional with a default for deploy-time backward compatibility (see GenerateSearchQueriesInput).
     team_id: int | None = None
     signal_id: str | None = None
+    source_id: str | None = None
+    sync_with_source: bool = False
 
 
 async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult:
@@ -532,7 +535,28 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
-        result = await match_signal_to_report(input)
+        result: MatchResult
+        if input.sync_with_source and input.team_id is not None and input.source_id:
+            team = await Team.objects.aget(pk=input.team_id)
+            source_matches = await database_sync_to_async(fetch_live_source_signal_matches, thread_sensitive=False)(
+                team, [input.source_id], input.source_product, input.source_type
+            )
+            matches = source_matches.get(input.source_id, [])
+            if matches:
+                source_match = matches[0]
+                result = ExistingReportMatch(
+                    report_id=source_match.report_id,
+                    match_metadata=MatchedMetadata(
+                        parent_signal_id=source_match.signal_id,
+                        match_query="source identity",
+                        reason="Material update to the same source record",
+                    ),
+                    source_synced=True,
+                )
+            else:
+                result = await match_signal_to_report(input)
+        else:
+            result = await match_signal_to_report(input)
         if isinstance(result, ExistingReportMatch) and input.team_id is not None:
             report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
             if report is not None and report.status != SignalReport.Status.DELETED:
@@ -555,6 +579,8 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
             f"Failed to match signal with LLM: {e}",
             source_product=input.source_product,
             source_type=input.source_type,
+            source_id=input.source_id,
+            sync_with_source=input.sync_with_source,
         )
         raise
 
@@ -934,8 +960,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
             # - READY: re-research once the report has reached its next bucket in
-            #   RESEARCH_SIGNAL_BUCKETS. Between buckets, and past the last one, signals are
-            #   collected, not researched.
+            #   RESEARCH_SIGNAL_BUCKETS. Material revisions from a report's source bypass the
+            #   buckets so the researched content stays current.
             # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
             #
             # The bucket is measured against what the last completed pass actually covered, so a
@@ -946,7 +972,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             signals_researched = report.researched_signal_count
             bucket = next_research_bucket(signals_researched)
             is_reresearch = report.status == SignalReport.Status.READY
-            reresearch_capped = is_reresearch and (bucket is None or report.signal_count < bucket)
+            source_refresh = isinstance(match_result, ExistingReportMatch) and match_result.source_synced
+            reresearch_capped = (
+                is_reresearch and not source_refresh and (bucket is None or report.signal_count < bucket)
+            )
             if (
                 (is_reresearch and not reresearch_capped)
                 or report.status == SignalReport.Status.CANDIDATE
@@ -977,8 +1006,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             if (
                 report.status == SignalReport.Status.IN_PROGRESS
                 and report.pending_triggering_signal_id is None
-                and pending_bucket is not None
-                and report.signal_count >= pending_bucket
+                and (source_refresh or (pending_bucket is not None and report.signal_count >= pending_bucket))
             ):
                 report.pending_triggering_signal_id = input.signal_id
                 report.save(update_fields=["pending_triggering_signal_id"])
@@ -1095,6 +1123,21 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     },
                     groups=groups(team.organization, team),
                 )
+                if isinstance(match_result, ExistingReportMatch) and match_result.source_synced:
+                    posthoganalytics.capture(
+                        event="signal_source_report_refresh_requested",
+                        distinct_id=str(team.uuid),
+                        properties={
+                            "source_product": input.source_product,
+                            "source_type": input.source_type,
+                            "source_id": input.source_id,
+                            "report_id": db_result.report_id,
+                            "previous_report_id": match_result.report_id,
+                            "created_recurrence": db_result.report_id != match_result.report_id,
+                            "promoted": db_result.promoted,
+                        },
+                        groups=groups(team.organization, team),
+                    )
             except Exception as e:
                 posthoganalytics.capture_exception(e)
                 # Swallow the exception, to avoid breaking the flow over failed analytics event
@@ -1460,6 +1503,8 @@ async def _process_signal_batch(
                     queries=per_signal_queries[i],
                     query_results=augmented_results,
                     report_contexts=report_contexts,
+                    source_id=signal.source_id,
+                    sync_with_source=signal.sync_with_source,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=5),
@@ -1468,7 +1513,7 @@ async def _process_signal_batch(
             # Step 5.5: PR-specificity verification for existing matches
             updated_title: Optional[str] = None
 
-            if isinstance(match_result, ExistingReportMatch):
+            if isinstance(match_result, ExistingReportMatch) and not match_result.source_synced:
                 report_ctx = report_contexts.get(match_result.report_id)
                 report_title = (
                     match_result.report_title

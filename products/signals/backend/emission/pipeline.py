@@ -38,6 +38,7 @@ from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
+from products.signals.backend.temporal.signal_queries import fetch_live_source_signal_matches
 
 logger = structlog.get_logger(__name__)
 
@@ -543,6 +544,7 @@ async def _emit_signals(
     outputs: list[SignalEmitterOutput],
     extra: dict[str, Any],
     record_processed_outputs: bool = False,
+    sync_with_source: bool = False,
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
     _safe_heartbeat()
@@ -580,7 +582,14 @@ async def _emit_signals(
                     description=output.description,
                     weight=output.weight,
                     extra=output.extra,
-                    idempotency_key=output.source_id if record_processed_outputs else None,
+                    idempotency_key=(
+                        output.idempotency_key
+                        if output.idempotency_key is not None
+                        else output.source_id
+                        if record_processed_outputs
+                        else None
+                    ),
+                    sync_with_source=sync_with_source,
                 )
                 if record_processed_outputs:
                     await _record_processed_outputs(team, [output])
@@ -642,7 +651,7 @@ async def run_signal_pipeline(
         unloggable_fields=config.unloggable_fields,
     )
     emission_run_id = activity.info().workflow_run_id if activity.in_activity() else None
-    if config.record_processed_outputs or emission_run_id is not None:
+    if config.record_processed_outputs or emission_run_id is not None or any(o.idempotency_key for o in outputs):
         outputs = [
             dataclasses.replace(
                 output,
@@ -650,9 +659,13 @@ async def run_signal_pipeline(
                     team_id=team.id,
                     source_product=output.source_product,
                     source_type=output.source_type,
-                    idempotency_key=output.source_id
-                    if config.record_processed_outputs
-                    else f"{emission_run_id}:{activity.info().activity_id}:{output.source_id}",
+                    idempotency_key=(
+                        output.idempotency_key
+                        if output.idempotency_key is not None
+                        else output.source_id
+                        if config.record_processed_outputs
+                        else f"{emission_run_id}:{activity.info().activity_id}:{output.source_id}"
+                    ),
                 ),
             )
             for output in outputs
@@ -669,6 +682,33 @@ async def run_signal_pipeline(
     organization = await database_sync_to_async(lambda: team.organization)()
     for output in outputs:
         capture_pipeline_stage("signal_data_source_entered", team, organization, output)
+
+    if config.existing_source_only_states:
+        state_limited = [
+            output for output in outputs if output.extra.get("state") in config.existing_source_only_states
+        ]
+        if state_limited:
+            source_matches = await database_sync_to_async(fetch_live_source_signal_matches, thread_sensitive=False)(
+                team,
+                [output.source_id for output in state_limited],
+                config.source_product,
+                config.source_type,
+            )
+            for output in state_limited:
+                if output.source_id not in source_matches:
+                    capture_pipeline_stage(
+                        "signal_data_source_filtered",
+                        team,
+                        organization,
+                        output,
+                        {"filter_reason": "source_state_without_report"},
+                    )
+            outputs = [
+                output
+                for output in outputs
+                if output.extra.get("state") not in config.existing_source_only_states
+                or output.source_id in source_matches
+            ]
 
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars
@@ -720,6 +760,7 @@ async def run_signal_pipeline(
         outputs=outputs,
         extra=extra,
         record_processed_outputs=config.record_processed_outputs,
+        sync_with_source=config.sync_with_source,
     )
     logger.info(f"Emitted {signals_emitted} signals for {source_label}", **extra)
     return {"status": "success", "signals_emitted": signals_emitted}

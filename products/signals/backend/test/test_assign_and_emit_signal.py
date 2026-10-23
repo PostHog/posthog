@@ -31,6 +31,7 @@ from products.signals.backend.temporal.grouping import (
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
+from products.signals.backend.temporal.signal_queries import SourceSignalMatch
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     MatchedMetadata,
@@ -79,7 +80,7 @@ def patch_side_effects():
         }
 
 
-def _existing_match(report_id: str) -> ExistingReportMatch:
+def _existing_match(report_id: str, *, source_synced: bool = False) -> ExistingReportMatch:
     return ExistingReportMatch(
         report_id=report_id,
         match_metadata=MatchedMetadata(
@@ -87,6 +88,7 @@ def _existing_match(report_id: str) -> ExistingReportMatch:
             match_query="test query",
             reason="similar content",
         ),
+        source_synced=source_synced,
     )
 
 
@@ -767,6 +769,67 @@ async def test_matching_uses_current_recurrence_before_specificity(ateam, delete
     assert assigned.report_id == str(successor.id)
     await database_sync_to_async(intermediate.refresh_from_db)()
     assert intermediate.signal_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_source_sync_matches_without_semantic_rejudgment(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.READY, title="Existing source report"
+    )
+    source_match = SourceSignalMatch(signal_id=str(uuid.uuid4()), report_id=str(report.id))
+    with (
+        patch(f"{GROUPING_MODULE_PATH}.fetch_live_source_signal_matches", return_value={"source-1": [source_match]}),
+        patch(f"{GROUPING_MODULE_PATH}.match_signal_to_report", new=AsyncMock()) as semantic_match,
+    ):
+        match = await match_signal_to_report_activity(
+            MatchSignalToReportInput(
+                team_id=ateam.id,
+                description="Updated source content",
+                source_product="github",
+                source_type="issue",
+                source_id="source-1",
+                sync_with_source=True,
+                queries=[],
+                query_results=[],
+                report_contexts={},
+            )
+        )
+
+    assert isinstance(match, ExistingReportMatch)
+    assert match.report_id == str(report.id)
+    assert match.match_metadata.parent_signal_id == source_match.signal_id
+    assert match.source_synced is True
+    semantic_match.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(ateam, patch_side_effects):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=2,
+        signal_count=2,
+        signals_researched=2,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id), source_synced=True), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.report_id == str(report.id)
+    assert result.promoted is True
+    await database_sync_to_async(report.refresh_from_db)()
+    assert report.status == SignalReport.Status.CANDIDATE
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert "signal_source_report_refresh_requested" in events
+    refresh = next(
+        call.kwargs["properties"]
+        for call in patch_side_effects["capture"].call_args_list
+        if call.kwargs["event"] == "signal_source_report_refresh_requested"
+    )
+    assert refresh["report_id"] == str(report.id)
+    assert refresh["created_recurrence"] is False
 
 
 @pytest.mark.parametrize(

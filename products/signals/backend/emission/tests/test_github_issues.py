@@ -21,6 +21,36 @@ class TestGithubIssueEmitter:
         assert result.weight == 1.0
         assert "Charts fail to render" in result.description
         assert "special characters" in result.description
+        assert "State: open" in result.description
+        assert "Labels: bug, frontend" in result.description
+
+    def test_material_version_ignores_non_material_updates(self, github_issue_record):
+        first = github_issue_emitter(team_id=1, record=github_issue_record)
+        github_issue_record["updated_at"] = "2026-10-19T12:00:00Z"
+        repeated = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert first is not None
+        assert repeated is not None
+        assert repeated.idempotency_key == first.idempotency_key
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("title", "Charts fail differently"),
+            ("body", "A new reproduction"),
+            ("labels", '[{"name": "regression"}]'),
+            ("state", "closed"),
+            ("locked", True),
+        ],
+    )
+    def test_material_version_changes_with_report_content(self, github_issue_record, field, value):
+        first = github_issue_emitter(team_id=1, record=github_issue_record)
+        github_issue_record[field] = value
+        changed = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert first is not None
+        assert changed is not None
+        assert changed.idempotency_key != first.idempotency_key
 
     def test_includes_body_in_description(self, github_issue_record):
         result = github_issue_emitter(team_id=1, record=github_issue_record)
@@ -165,12 +195,12 @@ class TestGithubIssueEmitter:
 
 class TestGithubIssuesConfig:
     def test_partition_field(self):
-        assert GITHUB_ISSUES_CONFIG.partition_field == "created_at"
+        assert GITHUB_ISSUES_CONFIG.partition_field == "updated_at"
 
-    def test_where_clause_excludes_closed(self):
-        assert GITHUB_ISSUES_CONFIG.where_clause is not None
-        assert "closed" in GITHUB_ISSUES_CONFIG.where_clause
-        assert "NOT IN" in GITHUB_ISSUES_CONFIG.where_clause
+    def test_closed_issues_only_refresh_existing_reports(self):
+        assert GITHUB_ISSUES_CONFIG.sync_with_source is True
+        assert GITHUB_ISSUES_CONFIG.existing_source_only_states == ("closed",)
+        assert GITHUB_ISSUES_CONFIG.where_clause is None
 
     def test_has_actionability_prompt(self):
         assert GITHUB_ISSUES_CONFIG.actionability_prompt is not None

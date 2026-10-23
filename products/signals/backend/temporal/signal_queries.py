@@ -16,6 +16,7 @@ from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_do
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
@@ -852,9 +853,18 @@ def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[s
     return {row[0]: row[1] for row in (result.results or []) if row[0] and row[1]}
 
 
-def fetch_live_report_ids_for_source_ids(
-    team: Team, source_ids: list[str], source_product: str | None = None
-) -> dict[str, list[str]]:
+@frozen
+class SourceSignalMatch:
+    signal_id: str
+    report_id: str
+
+
+def fetch_live_source_signal_matches(
+    team: Team,
+    source_ids: list[str],
+    source_product: str | None = None,
+    source_type: str | None = None,
+) -> dict[str, list[SourceSignalMatch]]:
     """Map each `source_id` to every live report its signals grouped into, newest report first.
 
     Sibling of `fetch_report_ids_for_source_ids`, which answers a different question: that one
@@ -872,23 +882,27 @@ def fetch_live_report_ids_for_source_ids(
 
     source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
     product_filter = "AND source_product = {source_product}" if source_product is not None else ""
+    type_filter = "AND source_type = {source_type}" if source_type is not None else ""
     ch_query = f"""
-        SELECT source_id, groupArray(report_id) as report_ids
+        SELECT source_id, groupArray((signal_id, report_id)) as signal_matches
         FROM (
             SELECT
+                document_id as signal_id,
                 JSONExtractString(metadata, 'source_id') as source_id,
                 JSONExtractString(metadata, 'report_id') as report_id,
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
                 JSONExtractString(metadata, 'source_product') as source_product,
+                JSONExtractString(metadata, 'source_type') as source_type,
                 max(timestamp) as latest_timestamp
             FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
-            GROUP BY source_id, report_id, is_deleted, source_product
+            GROUP BY signal_id, source_id, report_id, is_deleted, source_product, source_type
             ORDER BY latest_timestamp DESC
         )
         WHERE NOT is_deleted
           AND source_id != ''
           AND report_id != ''
           {product_filter}
+          {type_filter}
         GROUP BY source_id
     """
 
@@ -898,6 +912,8 @@ def fetch_live_report_ids_for_source_ids(
     }
     if source_product is not None:
         placeholders["source_product"] = ast.Constant(value=source_product)
+    if source_type is not None:
+        placeholders["source_type"] = ast.Constant(value=source_type)
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
@@ -907,4 +923,17 @@ def fetch_live_report_ids_for_source_ids(
         placeholders=placeholders,
     )
 
-    return {row[0]: list(row[1]) for row in (result.results or []) if row[0] and row[1]}
+    return {
+        row[0]: [SourceSignalMatch(signal_id=signal_id, report_id=report_id) for signal_id, report_id in row[1]]
+        for row in (result.results or [])
+        if row[0] and row[1]
+    }
+
+
+def fetch_live_report_ids_for_source_ids(
+    team: Team, source_ids: list[str], source_product: str | None = None
+) -> dict[str, list[str]]:
+    return {
+        source_id: [match.report_id for match in matches]
+        for source_id, matches in fetch_live_source_signal_matches(team, source_ids, source_product).items()
+    }

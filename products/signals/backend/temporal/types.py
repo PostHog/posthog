@@ -75,6 +75,7 @@ class EmitSignalInputs:
     # present; not required by any source.
     remediation: Optional[dict] = None
     signal_id: str | None = None
+    sync_with_source: bool = False
 
 
 @dataclass
@@ -132,6 +133,7 @@ class ExistingReportMatch:
     report_id: str
     match_metadata: MatchedMetadata
     report_title: str | None = None
+    source_synced: bool = False
 
 
 @dataclass
