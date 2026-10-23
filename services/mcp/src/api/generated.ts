@@ -40097,6 +40097,19 @@ export namespace Schemas {
       reason?: string;
     }
 
+    export interface EmailTag {
+      /**
+         * Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's.
+         * @maxLength 256
+         */
+      name: string;
+      /**
+         * Tag value: ASCII letters, numbers, `_` and `-`.
+         * @maxLength 256
+         */
+      value: string;
+    }
+
     /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
      */
