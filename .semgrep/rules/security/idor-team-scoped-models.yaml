@@ -462,6 +462,7 @@ rules:
                               |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
+                              |UptimeMonitor
                               |UserInterview
                               |UserActivitySummaryQueueState
                               |UserActivitySummaryVersion
@@ -932,6 +933,7 @@ rules:
                         |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
+                        |UptimeMonitor
                         |UserInterview
                         |UserActivitySummaryQueueState
                         |UserActivitySummaryVersion
