@@ -90,6 +90,13 @@ def _stored_vectors(
     return {str(document_id): normalize(np.asarray(embedding, dtype=np.float32)) for document_id, embedding in rows}
 
 
+@frozen
+class _Neighbour:
+    observation_id: str
+    rank: dict[str, Any] | None
+    distance: float
+
+
 class _RecentVectors:
     """A scanner's newest vectors and ranks, capped like the live duplicate lookup so memory and work stay bounded."""
 
@@ -100,12 +107,12 @@ class _RecentVectors:
         self._ranks: list[dict[str, Any] | None] = []
         self._next = 0
 
-    def nearest(self, vector: np.ndarray) -> tuple[str, dict[str, Any] | None, float] | None:
+    def nearest(self, vector: np.ndarray) -> _Neighbour | None:
         if self._matrix is None or not self._ids:
             return None
         distances = 1.0 - self._matrix[: len(self._ids)] @ vector
         index = int(np.argmin(distances))
-        return self._ids[index], self._ranks[index], float(distances[index])
+        return _Neighbour(observation_id=self._ids[index], rank=self._ranks[index], distance=float(distances[index]))
 
     def add(self, observation_id: str, vector: np.ndarray, rank: dict[str, Any] | None) -> None:
         if self._matrix is None:
@@ -142,8 +149,8 @@ def _rank_scanner(
             category, contrast = classify(vector, anchors)
             duplicate_of: str | None = None
             nearest = recent.nearest(vector)
-            if nearest is not None and nearest[2] <= DUPLICATE_MAX_DISTANCE:
-                duplicate_of = duplicate_root(observation_id, nearest[0], nearest[1])
+            if nearest is not None and nearest.distance <= DUPLICATE_MAX_DISTANCE:
+                duplicate_of = duplicate_root(observation_id, nearest.observation_id, nearest.rank)
             rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of).to_json()
             written[observation_id] = rank
         recent.add(observation_id, vector, rank)
