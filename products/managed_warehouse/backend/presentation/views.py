@@ -27,6 +27,11 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
+from products.managed_warehouse.backend.facade.access import (
+    background_loading_configured,
+    enable_customer_warehouse_access,
+    is_internal_warehouse,
+)
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.presentation import hogtower
 
@@ -150,11 +155,12 @@ def data_ops_variant(organization_id: UUID | str) -> DataOpsVariant | None:
     The Trino flag wins when both are on, so an organization never moves between variants
     because of Trino's state.
     """
+    variant: DataOpsVariant | None = None
     if _organization_flag_enabled(MANAGED_TRINO_QUERY_FLAG, organization_id):
-        return "trino"
-    if _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
-        return "duckdb"
-    return None
+        return "trino" if enable_customer_warehouse_access(organization_id, trino_enabled=True) else None
+    elif _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
+        variant = "duckdb"
+    return None if variant is not None and is_internal_warehouse(organization_id) else variant
 
 
 def is_enabled(organization_id: UUID | str) -> bool:
@@ -322,6 +328,7 @@ def provision(
     require_enabled: bool = True,
     *,
     triggered_by: str,
+    internal_only: bool = False,
 ) -> Response:
     pending_deletion = _block_if_pending_deletion(organization_id)
     if pending_deletion is not None:
@@ -334,6 +341,22 @@ def provision(
     schema_name_error = _validate_schema_name(schema_name)
     if schema_name_error or schema_name is None:
         return Response({"error": schema_name_error or "schema_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if internal_only and require_enabled:
+        return Response({"error": "Internal provisioning requires the staff admin."}, status=status.HTTP_403_FORBIDDEN)
+    if internal_only:
+        from products.managed_warehouse.backend.facade.connection import reserve_internal_warehouse  # noqa: PLC0415
+
+        if not reserve_internal_warehouse(organization_id=organization_id):
+            return Response(
+                {"error": "Deprovision the warehouse before enabling internal testing mode."},
+                status=status.HTTP_409_CONFLICT,
+            )
+    existing_internal = is_internal_warehouse(organization_id)
+    if _org_has_warehouse(organization_id) and existing_internal != internal_only:
+        return Response(
+            {"error": "Deprovision the warehouse before changing its internal testing mode."},
+            status=status.HTTP_409_CONFLICT,
+        )
     source_generation = _managed_source_generation(organization_id)
     resp = _request(
         "POST",
@@ -365,6 +388,7 @@ def provision(
         logger.info(
             "managed_warehouse_action",
             action="provision",
+            internal_only=internal_only,
             triggered_by=triggered_by,
             organization_id=str(organization_id),
             team_id=team_id,
@@ -375,6 +399,7 @@ def provision(
         activated_generation = _activate_managed_source_lifecycle(
             organization_id,
             expected_generation=source_generation,
+            internal_only=internal_only,
         )
         if activated_generation is None:
             logger.warning(
@@ -460,10 +485,21 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int, sourc
     the one-time provision password is never lost to it.
     """
     try:
-        _ensure_direct_source(team_id, organization_id, source_generation)
-        _schedule_earliest_event_date_sync(team_id)
+        _finish_team_loading_setup(organization_id, team_id, source_generation)
     except Exception:
         logger.exception("Failed to register provisioning team after provision", team_id=team_id)
+
+
+def _finish_team_loading_setup(organization_id: UUID | str, team_id: int, source_generation: int) -> None:
+    _schedule_earliest_event_date_sync(team_id)
+    if background_loading_configured(organization_id):
+        from django.db import transaction  # noqa: PLC0415
+
+        from products.managed_warehouse.backend.facade.tasks import load_internal_warehouse  # noqa: PLC0415
+
+        transaction.on_commit(lambda: load_internal_warehouse.delay(str(organization_id), team_id, source_generation))
+    if not is_internal_warehouse(organization_id):
+        _ensure_direct_source(team_id, organization_id, source_generation)
 
 
 def _active_managed_source_generation(organization_id: UUID | str) -> int | None:
@@ -486,6 +522,7 @@ def _activate_managed_source_lifecycle(
     organization_id: UUID | str,
     *,
     expected_generation: int,
+    internal_only: bool = False,
 ) -> int | None:
     from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
         activate_managed_warehouse_source_lifecycle,
@@ -494,6 +531,7 @@ def _activate_managed_source_lifecycle(
     return activate_managed_warehouse_source_lifecycle(
         organization_id=organization_id,
         expected_generation=expected_generation,
+        internal_only=internal_only,
     )
 
 
@@ -814,8 +852,7 @@ def onboard_team(
         schema_name=schema_name,
         created=existing is None,
     )
-    _ensure_direct_source(team_id, organization_id, source_generation)
-    _schedule_earliest_event_date_sync(team_id)
+    _finish_team_loading_setup(organization_id, team_id, source_generation)
     return Response({"onboarded": True, "schema_name": schema_name}, status=status.HTTP_200_OK)
 
 

@@ -196,7 +196,7 @@ Ranges ending at or before that boundary are rejected.
 Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
 
 Generation references get up to three lookup attempts.
-A final miss for a backfill reference fails the run without reporting an exception to error tracking.
+A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
 Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
