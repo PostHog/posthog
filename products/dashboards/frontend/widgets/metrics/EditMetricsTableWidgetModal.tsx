@@ -9,6 +9,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect, type LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
+import { MetricNameFilter } from 'products/metrics/frontend/components/MetricNameFilter'
+
 import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
@@ -81,9 +83,9 @@ function ColumnEditor({ column, index }: { column: MetricsTableColumn; index: nu
                     />
                 </LemonField.Pure>
                 <LemonField.Pure label="Metric" className="flex-1 min-w-0">
-                    <LemonInput
+                    <MetricNameFilter
                         value={column.metricName}
-                        placeholder="http_server_requests_total"
+                        allowCustomName
                         disabled={saving}
                         onChange={(metricName) => updateColumn(index, { metricName })}
                     />
