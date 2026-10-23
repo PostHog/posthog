@@ -87,35 +87,6 @@ tools:
             the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
             with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
             soon as setup consumes them — and expire after 24 hours if never used.
-    external-data-destinations-list:
-        operation: external_data_destinations_list
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List warehouse destinations
-        description: >
-            List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of
-            them, and it is where a source writes when nothing else is configured.
-        feature_flag: warehouse-multi-destination
-    external-data-destinations-retrieve:
-        operation: external_data_destinations_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Get a warehouse destination
-        description: >
-            Read one warehouse destination, including the target database or schema it writes to. Credentials live on
-            the linked integration and are never returned here.
-        feature_flag: warehouse-multi-destination
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
