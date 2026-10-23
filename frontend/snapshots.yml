@@ -16718,6 +16718,58 @@ snapshots:
         hash: v1.k794b7964.c17be7ebf593bcdc6ad760d1ae2035be3dadad1e049d39ef6c72b9e093a03067.KVwJMpXcfhchvEMKnnqsNnyBE6EI5d9YIUWIB-08xfY
     utils-autocapture-preview-image--tab-relative-image-with-current-url--light:
         hash: v1.k794b7964.3e7d7a6fa83916bae8280f36864538241c45bd4122e167b299a046939c802b03.oW1U5X9JYmxSLcn72S6kPmgj_jxgZTKyJa0uZ1kbRJs
+    warehouse-suggestions-suggested-certifications--banner--dark:
+        hash: v1.k794b7964.b3793a018b9fc7d1019402ec5216189d26ae85000cbb9d91ede5b7ac7f6528c3.V-ICrhJc-LkfYh8MsK8Q2AoJxCcRhqLIDNvGQ0uyFug
+    warehouse-suggestions-suggested-certifications--banner--light:
+        hash: v1.k794b7964.4398ae40c8e28494481e73b72c49315fd5294380aaa8f4f579c53b120e95d2f3.qj1-k55d9dyizhho1p59SKxeUPeAKHr6ZRnFAkcZgIA
+    warehouse-suggestions-suggested-certifications--review-dialog--dark:
+        hash: v1.k794b7964.89802b93fe9b475b2c41505c82c562a9c805a3022fa7b0f31d792ee4e26aa356.12Jokr27QXDdzls30bzHiJBVcmY-YW7jGvpMdjl5qvs
+    warehouse-suggestions-suggested-certifications--review-dialog--light:
+        hash: v1.k794b7964.0f6fb7eb4f579c64837df55cbd4f4df7ed124b75d5d394379c2ac621e65112b1.vEB6Jtzs9i2qSzZpJ1I-oMPSP2YZvLsNeFptGLvDnIw
+    warehouse-suggestions-suggested-certifications--review-dialog-narrow--dark:
+        hash: v1.k794b7964.5f9dc23fe422a76659ed69cdf41b77dfe2270f03d6e0fd86565ba931cb552d95.OJ6su46_HVfPGBbzt_9f_PN91F0Y-4UVu_yGV8xZrFE
+    warehouse-suggestions-suggested-certifications--review-dialog-narrow--light:
+        hash: v1.k794b7964.3b5047b043fe10ce37b2e876db33158911951f7f181f76826df4703d0cf4d9c0.ZMOGZUA32lzC4cpnm9eWc99cU9xXecUWujMH99JdztY
+    warehouse-suggestions-suggested-models-strip--banner--dark:
+        hash: v1.k794b7964.a1241d74aaae9aea0f5e45387011a7763162621513f9bb21099a245dbff7fd6d.sfD4ZgK0pNrfUJtdRCHzaUb5hsvXUT-M-vEEy0YchW8
+    warehouse-suggestions-suggested-models-strip--banner--light:
+        hash: v1.k794b7964.f901360c730423926c8f03c171ed72653a4ad9cca51a0c4b2c8d41879db12329.-zH-AESnALIR-goDxq8-fQm2GYyrYRuwi7mDhohukAY
+    warehouse-suggestions-suggested-models-strip--banner-narrow--dark:
+        hash: v1.k794b7964.30f4b7b184abe2dd858911b325a9bf503c214eaee21e31a3e665da4c32f335ea.8U8nkSRsOV3wHn3_T5sO200i_4xFJrFUgiREzayHMU8
+    warehouse-suggestions-suggested-models-strip--banner-narrow--light:
+        hash: v1.k794b7964.cd9aeea41058c88127dd494c830742a0c2da503688b53373c332b9914328e912.v7ISXW4wB9RYbvIE2psrf1_tvfzalskv_LpFF8UjQZ4
+    warehouse-suggestions-suggested-models-strip--load-failed--dark:
+        hash: v1.k794b7964.d93ab3575b7bebf7f869bc5b41c0a8e0581679f22bd0251c31f031b0f43ee7c0.iXXukenkQJA0ayAlRoqei_RQx1XW-b9MLaTjdhxfkoM
+    warehouse-suggestions-suggested-models-strip--load-failed--light:
+        hash: v1.k794b7964.a5b60b08e7b0a541c14bae9a0a40118fced381d13bfdd40b8e93342959f24f19.LwTgelFpFnRFgNgu3ueAFF9dCIqGgJGMgoyv53ZJe9g
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-incremental-proposal--dark:
+        hash: v1.k794b7964.74f9d19ad93bb618504d2d403e1725ce7fbe501bf78a121822d8f20ad690203e.bPzGeVdTDg_mPVKZsK_HJ0leK8dC-nlU2Ay61tXAbe4
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-incremental-proposal--light:
+        hash: v1.k794b7964.efe5a247e0cf30df05eb016b063f27bc0c6e7004a7c5346d37cd7001870e150a.n04UaOgI7AGNJC7wRti796r6i9Z4fZ488jp3EdumyaY
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-longer-schedule-unknown-sources--dark:
+        hash: v1.k794b7964.caeb876c239ab68a4910791a582803479d5c395fd32439a2bed416e1ecce46ad.W9QtU1TJIvsJukrw_k6_ZyQMeNxaGfuUYR6wuop5bOQ
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-longer-schedule-unknown-sources--light:
+        hash: v1.k794b7964.5872f82618605205a3fde796088db08326f237543eae5f33711f0a30baf2cb77.lcVZNPKUrhhwlcL8UX95J6FdDkhsNmg0aLPRdTrMXk4
+    warehouse-suggestions-suggested-models-strip--not-eligible--dark:
+        hash: v1.k794b7964.b646d37c91e92fd3d0053e1407559117a50c06c45f8ff7f4bcaaed18bab1cfef.1vguAxzgXrCyuyN1v2jRBSTSGDrmsu62f3nO60GFvGc
+    warehouse-suggestions-suggested-models-strip--not-eligible--light:
+        hash: v1.k794b7964.a66ac5be916b459b6f8b15621e3bdeb12226d34c1e24feb15900940652fc238b.gzxwnKSQkZQfg5wdIMriKJO-aaxIteiXVzfSx1R7w8c
+    warehouse-suggestions-suggested-models-strip--review-dialog--dark:
+        hash: v1.k794b7964.fac8a1182d36c5c9ef90d5a17d149bb3e218b046ffe7f917c369e3954c039fcc.pEMsRQk39ljc8qKDAgmUUQBro4CRoLU2VxwTMcmpeeE
+    warehouse-suggestions-suggested-models-strip--review-dialog--light:
+        hash: v1.k794b7964.f797a9daad6d21561b67394d20ab1c7da8a1e4ce651e021f1101514011ee5874.jEKDSp2q9QLcGC6thubqbgl1tK-Mw2kk7DIzHUUhKPg
+    warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--dark:
+        hash: v1.k794b7964.2e7da69169592526ce9378325d2dd3203b28a2d3e3bbeca7c6e3e177c6b9023c.HDKIkJaZhht3usAHUBxe2fAoOvsayuvquu0fHucw2d4
+    warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--light:
+        hash: v1.k794b7964.6f129a2ab4ddd288f150f992b3ce27c5529f2bf025195631c0defc0d4f82d2b0.ihDrvqWqeJZ9B1Jl8jToClzHvaxvhcvKBdsvEtlTQ_8
+    warehouse-suggestions-suggested-models-strip--review-dialog-viewer-without-edit-access--dark:
+        hash: v1.k794b7964.78818080e410c0639744c301e983042c6c5ce24e451eabe2c716df45d2988472.v_up3Pez-pWEw5UA_54ptbBwA470-3wcjOzaBOkOGk8
+    warehouse-suggestions-suggested-models-strip--review-dialog-viewer-without-edit-access--light:
+        hash: v1.k794b7964.62361ba9d4282173b78fc84a73210eb0b4df37902b6bd49ac341fdd520c3eaba.OPI08CUPtrsmvWyrvyjiojYy0k7xfjxGqLCkwbOP4_A
+    warehouse-suggestions-suggested-models-strip--warming-up--dark:
+        hash: v1.k794b7964.860407091149fedd6c4e056cda79d92213e59dd9e00886e0cedee320fc267c48.x5QcsRUSRT66uOc237oq_n4D-eQWpY2GzsTRTC-SL6w
+    warehouse-suggestions-suggested-models-strip--warming-up--light:
+        hash: v1.k794b7964.86db938002ea2e5c707b2a5732b996bc00a3b62fa007d18be17bd16436a529cd.bd4HNKnDSFxD74paJmB86KW6DhqVz9WPJpCzjbRMt7o
     web-analytics-heatmaps-pricing-notice--empty-capture-list--dark:
         hash: v1.k794b7964.9a5b4e65070403f615b0f04b60799af6cd4d0ae75810e18bea042c54e084d945.Rc8ysk1u96jJNkCfo1DX-y__WWcmxeHyn8q6l8j3P44
     web-analytics-heatmaps-pricing-notice--empty-capture-list--light:
