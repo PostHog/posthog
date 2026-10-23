@@ -23,6 +23,7 @@ from products.managed_migrations.backend.models.batch_imports import (
     DEFAULT_SEND_RATE,
     BatchImport,
     BatchImportConfigBuilder,
+    CommitInFlightError,
     ContentType,
     get_aws_external_id,
 )
@@ -57,7 +58,7 @@ class TestBatchImportModel(BaseTest):
             status_message="parse error",
             display_status_message="Invalid JSON syntax",
             lease_id="worker-lease",
-            leased_until=datetime.now(UTC) + timedelta(minutes=25),
+            leased_until=datetime.now(UTC) - timedelta(minutes=1),
             backoff_attempt=3,
             backoff_until=datetime.now(UTC) + timedelta(minutes=5),
             pending_commit={"key": "day-2", "from_offset": 8999000, "to_offset": 8999445},
@@ -195,6 +196,49 @@ class TestBatchImportModel(BaseTest):
         self.assertEqual(batch_import.status, status)
         self.assertEqual(batch_import.state["parts"][1]["current_offset"], 8999445)
         self.assertEqual(batch_import.lease_id, "worker-lease")
+
+    @parameterized.expand(
+        [
+            (f"{method}_{case}", method, row, refused)
+            for method in ("resume_after_pause", "resume_with_inflight_part_reset")
+            for case, row, refused in (
+                ("marker_and_live_lease", {"leased_until": timedelta(minutes=5)}, True),
+                (
+                    "legacy_commit_message_and_live_lease",
+                    {
+                        "leased_until": timedelta(minutes=5),
+                        "pending_commit": None,
+                        "status_message": "Starting commit of part day-2 to offset 9, consumed 9 additional bytes",
+                    },
+                    True,
+                ),
+                ("marker_and_expired_lease", {"leased_until": -timedelta(minutes=1)}, False),
+                ("marker_and_no_lease", {"lease_id": None, "leased_until": None}, False),
+            )
+        ]
+    )
+    def test_resume_refuses_while_a_worker_sends_a_chunk(self, _name, method, row, refused):
+        batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
+        if isinstance(row.get("leased_until"), timedelta):
+            row = {**row, "leased_until": datetime.now(UTC) + row["leased_until"]}
+        BatchImport.objects.filter(id=batch_import.id).update(**row)
+
+        if refused:
+            with self.assertRaises(CommitInFlightError):
+                getattr(BatchImport.objects.get(id=batch_import.id), method)()
+        else:
+            getattr(BatchImport.objects.get(id=batch_import.id), method)()
+
+        batch_import.refresh_from_db()
+        if refused:
+            assert batch_import.state is not None
+            self.assertEqual(batch_import.status, BatchImport.Status.PAUSED)
+            self.assertIsNotNone(batch_import.lease_id)
+            self.assertEqual(batch_import.state["parts"][1]["current_offset"], 8999445)
+        else:
+            self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+            self.assertIsNone(batch_import.lease_id)
+            self.assertIsNone(batch_import.pending_commit)
 
     @parameterized.expand(
         [
@@ -674,6 +718,44 @@ class TestBatchImportAdminChangeForm(BaseTest):
         self.assertEqual(batch_import.import_config["sink"], expected_sink)
         self.assertEqual(batch_import.status_message, "note")
 
+    def test_save_refuses_a_resume_while_a_worker_sends_a_chunk(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"sink": {"type": "capture", "send_rate": 5000}},
+            status=BatchImport.Status.PAUSED,
+            lease_id="live-worker-lease",
+            leased_until=datetime.now(UTC) + timedelta(minutes=5),
+            pending_commit={"key": "day-1", "from_offset": 0, "to_offset": 10},
+        )
+
+        form = self._post_admin_form(batch_import, self._form_values(batch_import), {"status": "running"})
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("A worker is sending a chunk", str(form.non_field_errors()))
+
+    def test_save_refuses_a_resume_when_a_send_starts_after_validation(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"sink": {"type": "capture", "send_rate": 5000}},
+            status=BatchImport.Status.PAUSED,
+        )
+        form = self._post_admin_form(batch_import, self._form_values(batch_import), {"status": "running"})
+        self.assertTrue(form.is_valid(), form.errors)
+        BatchImport.objects.filter(id=batch_import.id).update(
+            lease_id="live-worker-lease",
+            leased_until=datetime.now(UTC) + timedelta(minutes=5),
+            pending_commit={"key": "day-1", "from_offset": 0, "to_offset": 10},
+        )
+
+        with patch.object(self.model_admin, "message_user"):
+            self._save(form)
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.PAUSED)
+        self.assertEqual(batch_import.lease_id, "live-worker-lease")
+
     def test_save_rejects_a_page_without_initial_values(self):
         batch_import = BatchImport.objects.create(
             team=self.team,
@@ -707,7 +789,7 @@ class TestBatchImportAdminChangeForm(BaseTest):
             secrets={"secret": "value"},
             status=shown_status,
             lease_id="lease-at-page-load",
-            leased_until=datetime.now(UTC) + timedelta(minutes=5),
+            leased_until=datetime.now(UTC) - timedelta(minutes=1),
             backoff_attempt=2,
             pending_commit={"key": "day-1", "from_offset": 8000, "to_offset": 9000},
             state={"parts": [{"key": "day-1", "current_offset": 100, "total_size": None}]},
@@ -1194,6 +1276,25 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(results[0]["id"], str(batch_import.id))
         self.assertEqual(results[0]["display_status"], expected_display_status)
 
+    def test_resume_refuses_while_a_worker_sends_a_chunk(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            status=BatchImport.Status.PAUSED,
+            lease_id="live-worker-lease",
+            leased_until=datetime.now(tz=UTC) + timedelta(minutes=5),
+            pending_commit={"key": "part-1", "from_offset": 0, "to_offset": 100},
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/resume")
+
+        self.assertEqual(response.status_code, 409)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.PAUSED)
+        self.assertEqual(batch_import.lease_id, "live-worker-lease")
+        self.assertIsNotNone(batch_import.pending_commit)
+
     def test_resume_clears_lease_and_backoff(self):
         batch_import = BatchImport.objects.create(
             team=self.team,
@@ -1202,7 +1303,7 @@ class TestBatchImportAPI(APIBaseTest):
             secrets={"access_key": "test"},
             status=BatchImport.Status.PAUSED,
             lease_id="old-lease-uuid",
-            leased_until=datetime.now(tz=UTC) + timedelta(hours=1),
+            leased_until=datetime.now(tz=UTC) - timedelta(minutes=1),
             backoff_attempt=5,
             backoff_until=datetime.now(tz=UTC) + timedelta(hours=1),
             display_status_message="Job paused after a failed commit",

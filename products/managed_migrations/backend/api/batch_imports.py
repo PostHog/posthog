@@ -32,6 +32,7 @@ from products.managed_migrations.backend.models.batch_imports import (
     DEFAULT_SEND_RATE,
     BatchImport,
     BatchImportConfigBuilder,
+    CommitInFlightError,
     ContentType,
     DateRangeExportSource,
     get_aws_external_id,
@@ -892,10 +893,12 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Resume a paused batch import."""
         batch_import = self.get_object()
 
-        if batch_import.status != BatchImport.Status.PAUSED:
+        try:
+            batch_import.resume_from_pause("Resumed by user")
+        except CommitInFlightError as e:
+            return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
+        except ValueError:
             return Response({"error": "Only paused imports can be resumed"}, status=status.HTTP_400_BAD_REQUEST)
-
-        batch_import.save(update_fields=batch_import.reset_for_resume("Resumed by user"))
 
         return Response({"status": "resumed"})
 
