@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from io import StringIO
@@ -8246,21 +8246,46 @@ class TestRunScoutActionValidation(APIBaseTest):
         }
         return [trigger_action, action]
 
-    def _post_flow(self, team: Team, note: str | None = None):
+    def _post_flow(self, team: Team, note: str | None = None, scopes: list[str] | None = None):
         # Strict validation, same as any programmatic caller - the path a misconfigured
         # workflow is actually authored through.
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            return self.client.post(
+            return self._client(scopes).post(
                 f"/api/projects/{team.id}/hog_flows",
                 {"name": "Test Flow", "actions": self._actions(note), "edges": []},
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
 
-    def _patch_flow(self, flow_id: str, note: str | None):
+    def _patch_flow(self, flow_id: str, note: str | None, scopes: list[str] | None = None):
         # A web builder draft save: lenient validation, which must still gate a new note.
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            return self.client.patch(
+            return self._client(scopes).patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": self._actions(note)}
+            )
+
+    def _client(self, scopes: list[str] | None):
+        if scopes is None:
+            return self.client
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scout note", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        api_client = self.client_class()
+        api_client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+        return api_client
+
+    def _publish(self, flow_id: str):
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+                {"confirm": True, "confirm_token": token},
             )
 
     @contextmanager
@@ -8303,23 +8328,69 @@ class TestRunScoutActionValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("keeps_the_stored_note", "PR #{event.properties.pr_number}", status.HTTP_200_OK),
-            ("removes_the_note", None, status.HTTP_200_OK),
-            ("changes_the_note", "Issue #{event.properties.issue_number}", status.HTTP_400_BAD_REQUEST),
+            ("hog_flow_write_only", ["hog_flow:write"], status.HTTP_400_BAD_REQUEST),
+            ("with_llm_skill_write", ["hog_flow:write", "llm_skill:write"], status.HTTP_201_CREATED),
+            ("all_scopes", ["*"], status.HTTP_201_CREATED),
         ]
     )
-    def test_a_person_without_skill_editor_access_can_only_keep_or_remove_a_stored_note(
-        self, _name: str, note: str | None, expected: int
-    ):
-        created = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-
-        with self._without_skill_editor_access():
-            response = self._patch_flow(created.json()["id"], note)
+    def test_a_key_needs_the_llm_skill_write_scope_to_add_a_note(self, _name: str, scopes: list[str], expected: int):
+        response = self._post_flow(self.team, note="PR #{event.properties.pr_number}", scopes=scopes)
 
         assert response.status_code == expected, response.json()
         if expected == status.HTTP_400_BAD_REQUEST:
             assert response.json()["attr"] == "actions__1__inputs__note"
+
+    @parameterized.expand(
+        [
+            (f"{credential}_{name}", credential, note, expected)
+            for credential in ("session_without_skill_editor_access", "hog_flow_write_key")
+            for name, note, expected in (
+                ("keeps_the_stored_note", "PR #{event.properties.pr_number}", status.HTTP_200_OK),
+                ("removes_the_note", None, status.HTTP_200_OK),
+                ("changes_the_note", "Issue #{event.properties.issue_number}", status.HTTP_400_BAD_REQUEST),
+            )
+        ]
+    )
+    def test_an_editor_without_note_access_can_only_keep_or_remove_a_stored_note(
+        self, _name: str, credential: str, note: str | None, expected: int
+    ):
+        created = self._post_flow(self.team, note="PR #{event.properties.pr_number}")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        if credential == "hog_flow_write_key":
+            response = self._patch_flow(created.json()["id"], note, scopes=["hog_flow:write"])
+        else:
+            with self._without_skill_editor_access():
+                response = self._patch_flow(created.json()["id"], note)
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "actions__1__inputs__note"
+
+    @parameterized.expand([("with_skill_editor_access", True), ("without_skill_editor_access", False)])
+    def test_publishing_a_restored_revision_brings_back_a_removed_note_only_with_skill_editor_access(
+        self, _name: str, has_access: bool
+    ):
+        flow_id = self._post_flow(self.team, note="PR #{event.properties.pr_number}").json()["id"]
+        assert self._patch_flow(flow_id, None).status_code == status.HTTP_200_OK
+        revisions = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions").json()["results"]
+        noted_version = min(revision["version"] for revision in revisions)
+
+        with nullcontext() if has_access else self._without_skill_editor_access():
+            restore = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/{noted_version}/restore", {}
+            )
+            assert restore.status_code == status.HTTP_200_OK, restore.json()
+            publish = self._publish(flow_id)
+
+        live_inputs = HogFlow.objects.get(id=flow_id).actions[1]["config"]["inputs"]
+        if has_access:
+            assert publish.status_code == status.HTTP_200_OK, publish.json()
+            assert live_inputs["note"]["value"] == "PR #{event.properties.pr_number}"
+        else:
+            assert publish.status_code == status.HTTP_400_BAD_REQUEST, publish.json()
+            assert publish.json()["attr"] == "actions__1__inputs__note"
+            assert "note" not in live_inputs
 
 
 class TestClassifyActionValidation(APIBaseTest):
