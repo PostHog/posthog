@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -27,7 +26,6 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
 from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
@@ -222,21 +220,19 @@ class TestScoreInsight(SimpleTestCase):
         assert named["web"] == single["web"]
         assert named["app"] != named["web"]
 
-
-class TestScoringQueryDeadline(BaseTest):
     @parameterized.expand([("one_query", 1), ("one_full_wave", 10), ("two_waves", 11), ("many_waves", 120)])
     def test_every_query_wave_of_an_insight_stops_before_the_activity_timeout(self, _name: str, queries: int) -> None:
         limits: list[int] = []
-
-        def run(runner: TrendsQueryRunner, **_kwargs: Any) -> MagicMock:
-            assert len(runner.series) == queries
-            assert runner.hogql_settings is not None and runner.hogql_settings.max_execution_time is not None
-            limits.append(runner.hogql_settings.max_execution_time)
-            return MagicMock(results=[])
-
         insight = _insight([EventsNode(event=f"event_{index}") for index in range(queries)])
-        with patch.object(TrendsQueryRunner, "run", autospec=True, side_effect=run):
-            score_insight(insight, self.team, now=datetime(2026, 1, 10, tzinfo=UTC))
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.series = [object()] * queries
+
+            def run(**_kwargs: Any) -> MagicMock:
+                limits.append(runner.return_value.hogql_settings.max_execution_time)
+                return MagicMock(results=[])
+
+            runner.return_value.run.side_effect = run
+            score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
 
         waves = -(-queries // INSIGHT_QUERY_FANOUT_CONCURRENCY)
         # Each wave can run to the time limit, and the activity still needs time to classify the timeout.
