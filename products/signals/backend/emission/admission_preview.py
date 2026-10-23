@@ -94,10 +94,11 @@ def preview_admission(
     issues: list[AdmissionPreviewIssue] = []
     truncated = False
     for table_name, config in checked:
-        eligibility_parts, placeholders, _ = eligibility_conditions(config, draft_config)
+        eligibility = eligibility_conditions(config, draft_config)
+        placeholders = eligibility.placeholders
         partition_expr = partition_expression(config)
         where_sql = " AND ".join(
-            [f"{partition_expr} > now() - interval {ADMISSION_PREVIEW_LOOKBACK_DAYS} day", *eligibility_parts]
+            [f"{partition_expr} > now() - interval {ADMISSION_PREVIEW_LOOKBACK_DAYS} day", *eligibility.where_parts]
         )
         query = f"""
             SELECT {config.admission_preview_title_field} AS title,

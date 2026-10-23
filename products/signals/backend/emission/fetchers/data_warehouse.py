@@ -10,6 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.contracts import scope_ids_problem
@@ -61,12 +62,17 @@ def partition_expression(config: SignalSourceTableConfig) -> str:
     return config.partition_field
 
 
-def eligibility_conditions(
-    config: SignalSourceTableConfig, source_config: Any
-) -> tuple[list[str], dict[str, ast.Expr], int]:
+@frozen
+class EligibilityConditions:
+    where_parts: list[str]
+    placeholders: dict[str, ast.Expr]
+    scope_ids_count: int
+
+
+def eligibility_conditions(config: SignalSourceTableConfig, source_config: Any) -> EligibilityConditions:
     """The source's static `where_clause`, the team's scope allowlist and its admission rules, as
-    HogQL `WHERE` parts with their placeholders, plus the scope id count for logging. Emission and
-    the settings preview both read these, so a preview shows what the next sync admits."""
+    HogQL `WHERE` parts with their placeholders. Emission and the settings preview both read these,
+    so a preview shows what the next sync admits."""
     scope_ids = scope_ids_from_source_config(config, source_config)
     # Raises on invalid stored rules before any query runs: a broken filter must admit nothing.
     admission_filter = admission_filter_from_source_config(config, source_config)
@@ -81,7 +87,7 @@ def eligibility_conditions(
     if admission_filter is not None:
         where_parts.append("{admission_filter}")
         placeholders["admission_filter"] = admission_filter
-    return where_parts, placeholders, len(scope_ids)
+    return EligibilityConditions(where_parts=where_parts, placeholders=placeholders, scope_ids_count=len(scope_ids))
 
 
 def data_warehouse_record_fetcher(
@@ -93,9 +99,7 @@ def data_warehouse_record_fetcher(
     table_name: str = context["table_name"]
     last_synced_at: str | None = context.get("last_synced_at")
     extra: dict[str, Any] = context.get("extra", {})
-    eligibility_parts, eligibility_placeholders, scope_ids_count = eligibility_conditions(
-        config, context.get("source_config")
-    )
+    eligibility = eligibility_conditions(config, context.get("source_config"))
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     partition_expr = partition_expression(config)
@@ -106,8 +110,8 @@ def data_warehouse_record_fetcher(
     # First ever sync — look back a limited window
     else:
         where_parts.append(f"{partition_expr} > now() - interval {config.first_sync_lookback_days} day")
-    where_parts.extend(eligibility_parts)
-    placeholders.update(eligibility_placeholders)
+    where_parts.extend(eligibility.where_parts)
+    placeholders.update(eligibility.placeholders)
     where_sql = " AND ".join(where_parts)
     fields_sql = ", ".join(config.fields)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
@@ -126,7 +130,7 @@ def data_warehouse_record_fetcher(
         lookback_days=config.first_sync_lookback_days if last_synced_at is None else None,
         table_name=table_name,
         where_clause=where_sql,
-        scope_ids_count=scope_ids_count,
+        scope_ids_count=eligibility.scope_ids_count,
         admission_filter_applied="admission_filter" in placeholders,
         max_records=config.max_records,
         signals_type="data-import-signals",
