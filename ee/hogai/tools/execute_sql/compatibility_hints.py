@@ -54,7 +54,7 @@ _NESTED_AGGREGATE_RE = re.compile(r"Aggregate function (.{1,1000}?) is found ins
 _HOGQL_NESTED_AGGREGATE_RE = re.compile(r"Aggregation '(\w+)' cannot be nested inside another aggregation")
 _AGGREGATE_IN_FILTER_RE = re.compile(r"Aggregate function (.{1,1000}?) is found in (WHERE|PREWHERE)")
 _NOT_AN_AGGREGATE_RE = re.compile(r"Column (.{1,200}?) is not under aggregate function and not in GROUP BY")
-# ClickHouse prints the rejected types and the function in three shapes: `type of first argument of
+# ClickHouse prints the rejected types and the function in four shapes: `type of first argument of
 # function f`, `type of argument #1 'name' of function f`, `type of argument for aggregate function
 # f`, and `of arguments (type, type) of function f`.
 _ILLEGAL_ARGUMENT_TYPE_RES = (
