@@ -342,6 +342,7 @@ const POLICY_SKIP_PRESENTATION: Record<PolicyCode, PolicySkipPresentation | 'fai
     sending_suspended: { logLevel: 'warn', metricName: 'email_suspended', markSkipped: false },
     template_paused: { logLevel: 'error', metricName: 'email_paused', markSkipped: true },
     sender_not_verified: 'fail',
+    invalid_recipient: 'fail',
     recipient_suppressed: { logLevel: 'info', metricName: 'email_suppressed', markSkipped: false },
 }
 
