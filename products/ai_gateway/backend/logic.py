@@ -27,6 +27,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -331,7 +332,14 @@ def team_usage_refusal(user: User) -> DevTokenRefused | None:
     return None
 
 
-def _spend_by_distinct_id(team: Team) -> dict[str, tuple[Decimal, Decimal, Decimal]]:
+@frozen
+class _Spend:
+    day: Decimal = Decimal("0")
+    week: Decimal = Decimal("0")
+    month: Decimal = Decimal("0")
+
+
+def _spend_by_distinct_id(team: Team) -> dict[str, _Spend]:
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.AI_GATEWAY_DEV_USAGE):
         response = execute_hogql_query(
             _SPEND_QUERY,
@@ -340,7 +348,9 @@ def _spend_by_distinct_id(team: Team) -> dict[str, tuple[Decimal, Decimal, Decim
             query_type="ai_gateway_dev_team_spend",
         )
     return {
-        str(distinct_id): (Decimal(str(day or 0)), Decimal(str(week or 0)), Decimal(str(month or 0)))
+        str(distinct_id): _Spend(
+            day=Decimal(str(day or 0)), week=Decimal(str(week or 0)), month=Decimal(str(month or 0))
+        )
         for distinct_id, day, week, month in response.results or []
         if distinct_id
     }
@@ -387,11 +397,10 @@ def team_usage(viewer: User) -> DevTeamUsage:
     known_distinct_ids = {user.distinct_id for user in users.values() if user.distinct_id}
     for user in User.objects.filter(distinct_id__in=set(spend) - known_distinct_ids):
         users[user.pk] = user
-    zero = (Decimal("0"), Decimal("0"), Decimal("0"))
     result: list[DevUserUsage] = []
     for user in users.values():
         mine = [row for row in rows if row.user_id == user.pk]
-        day, week, month = spend.pop(user.distinct_id or "", zero)
+        spent = spend.pop(user.distinct_id or "", _Spend())
         result.append(
             DevUserUsage(
                 user_id=user.pk,
@@ -402,14 +411,14 @@ def team_usage(viewer: User) -> DevTeamUsage:
                 live_tokens=sum(1 for row in mine if not row.revoked_at and row.expires_at and row.expires_at > now),
                 revoked_30d=sum(1 for row in mine if row.revoked_at),
                 reserved_usd_24h=sum((row.cap_usd for row in mine if row.created_at >= day_ago), Decimal("0")),
-                spend_usd_24h=day,
-                spend_usd_7d=week,
-                spend_usd_30d=month,
+                spend_usd_24h=spent.day,
+                spend_usd_7d=spent.week,
+                spend_usd_30d=spent.month,
                 last_minted_at=max((row.created_at for row in mine), default=None),
             )
         )
     # Spend whose $ai_user matches no PostHog user still shows, so totals reconcile.
-    for distinct_id, (day, week, month) in spend.items():
+    for distinct_id, spent in spend.items():
         result.append(
             DevUserUsage(
                 user_id=None,
@@ -420,9 +429,9 @@ def team_usage(viewer: User) -> DevTeamUsage:
                 live_tokens=0,
                 revoked_30d=0,
                 reserved_usd_24h=Decimal("0"),
-                spend_usd_24h=day,
-                spend_usd_7d=week,
-                spend_usd_30d=month,
+                spend_usd_24h=spent.day,
+                spend_usd_7d=spent.week,
+                spend_usd_30d=spent.month,
                 last_minted_at=None,
             )
         )

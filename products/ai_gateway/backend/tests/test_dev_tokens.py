@@ -379,7 +379,8 @@ class TestDevTokens(_DevGatewaySettings):
 
 
 class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
-    def _generation(self, distinct_id: str, cost: str, days_ago: float, source: str = "pinned") -> None:
+    def _generation(self, distinct_id: str | None, cost: str, days_ago: float, source: str = "pinned") -> None:
+        assert distinct_id is not None
         _create_event(
             team=self.team,
             event="$ai_generation",
