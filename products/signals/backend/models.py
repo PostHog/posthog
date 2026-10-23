@@ -1334,6 +1334,8 @@ class SignalEmissionRecord(UUIDModel):
     source_type = models.CharField(max_length=100)
     source_id = models.CharField(max_length=200)
     emitted_at = models.DateTimeField()
+    signal_id = models.CharField(max_length=200, null=True, blank=True)
+    report_id = models.CharField(max_length=200, null=True, blank=True)
 
     class Meta:
         constraints = [
