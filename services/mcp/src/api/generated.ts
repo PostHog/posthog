@@ -36893,6 +36893,14 @@ export namespace Schemas {
       revoked_count: number;
     }
 
+    export interface DevTokenStatusRequest {
+      /**
+         * The phe_ bearer to look up. Only its sha256 is compared.
+         * @pattern ^phe_[A-Za-z0-9_-]{1,252}$
+         */
+      token: string;
+    }
+
     export interface DevTokenUsage {
       /**
          * Most token caps one user can mint in 24 hours, in USD.

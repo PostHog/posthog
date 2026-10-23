@@ -109,6 +109,12 @@ class CliExchangeSerializer(serializers.Serializer):
     )
 
 
+class DevTokenStatusRequestSerializer(serializers.Serializer):
+    token = serializers.RegexField(
+        r"^phe_[A-Za-z0-9_-]{1,252}$", help_text="The phe_ bearer to look up. Only its sha256 is compared."
+    )
+
+
 class DevTokenRefusalSerializer(serializers.Serializer):
     code = serializers.CharField(help_text="Stable refusal code, for example daily_limit or not_staff.")
     detail = serializers.CharField(help_text="Human-readable reason.")

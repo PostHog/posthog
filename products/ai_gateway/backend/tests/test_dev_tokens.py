@@ -266,6 +266,24 @@ class TestDevTokens(_DevGatewaySettings):
         assert response.status_code == 200
         assert response.json()["tokens"][0]["remaining_usd"] is None
 
+    def test_token_status_is_authenticated_by_the_bearer_alone(self):
+        with patch(_POST, return_value=_minted("phe_held")):
+            self.client.post(URL)
+        self.client.logout()
+
+        status = _response(
+            200, {"tokens": [{"token_hash": hashlib.sha256(b"phe_held").hexdigest(), "remaining_usd": "3"}]}
+        )
+        with patch(_POST, return_value=status):
+            held = self.client.post(f"{URL}token_status/", {"token": "phe_held"})
+        assert held.status_code == 200, held.json()
+        assert (held.json()["status"], held.json()["remaining_usd"]) == ("live", "3.000000")
+
+        with patch(_POST) as post:
+            unknown = self.client.post(f"{URL}token_status/", {"token": "phe_guessed"})
+        assert unknown.status_code == 404
+        post.assert_not_called()
+
     def test_team_usage_refuses_staff_outside_the_paying_organization(self):
         outsider = User.objects.create_and_join(
             Organization.objects.create(name="Elsewhere"), "outsider@posthog.com", None, is_staff=True

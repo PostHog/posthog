@@ -13,8 +13,10 @@ import type {
     CliAuthorizedApi,
     CliExchangeApi,
     DevTeamUsageApi,
+    DevTokenApi,
     DevTokenRevokeApi,
     DevTokenRevokedApi,
+    DevTokenStatusRequestApi,
     DevTokenUsageApi,
     MintedDevTokenApi,
 } from './api.schemas'
@@ -101,6 +103,25 @@ export const aiGatewayDevTokensTeamUsageRetrieve = async (options?: RequestInit)
     return apiMutator<DevTeamUsageApi>(getAiGatewayDevTokensTeamUsageRetrieveUrl(), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiGatewayDevTokensTokenStatusCreateUrl = () => {
+    return `/api/ai_gateway/dev_tokens/token_status/`
+}
+
+/**
+ * @summary Look up a developer mode token's status and budget left by its bearer
+ */
+export const aiGatewayDevTokensTokenStatusCreate = async (
+    devTokenStatusRequestApi: DevTokenStatusRequestApi,
+    options?: RequestInit
+): Promise<DevTokenApi> => {
+    return apiMutator<DevTokenApi>(getAiGatewayDevTokensTokenStatusCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(devTokenStatusRequestApi),
     })
 }
 

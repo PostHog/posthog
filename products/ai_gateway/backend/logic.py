@@ -280,6 +280,19 @@ def usage(user: User) -> DevTokenUsage:
     )
 
 
+def token_status(token: str) -> DevToken:
+    """Holding the bearer is the credential, so this reveals only what its holder can already spend."""
+    if not configured():
+        raise DevTokenRefused("unconfigured", "Developer mode is not configured on this instance.", 503)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    with team_scope(settings.DEV_GATEWAY_TEAM_ID):
+        row = DevGatewayToken.objects.filter(token_hash=token_hash).first()
+    if row is None:
+        raise DevTokenRefused("not_found", "token is not a developer mode token", 404)
+    live = not row.revoked_at and row.expires_at is not None and row.expires_at > timezone.now()
+    return _to_dto(row, _remaining_by_hash([token_hash]) if live else None)
+
+
 TEAM_USAGE_DAYS = 30
 
 # `$ai_product_source = 'pinned'` keeps out calls that only set an X-PostHog-Product header.

@@ -34,6 +34,8 @@ from .serializers import (
     DevTokenRefusalSerializer,
     DevTokenRevokedSerializer,
     DevTokenRevokeSerializer,
+    DevTokenSerializer,
+    DevTokenStatusRequestSerializer,
     DevTokenUsageSerializer,
     MintedDevTokenSerializer,
 )
@@ -71,19 +73,19 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("create", "authorize_cli"):
             return [DevTokenMintThrottle()]
-        if self.action == "exchange_cli":
+        if self.action in ("exchange_cli", "token_status"):
             return [DevTokenExchangeIPThrottle()]
         return super().get_throttles()
 
     def get_authenticators(self) -> list[BaseAuthentication]:
-        # The exchange is authenticated by the PKCE verifier, not a session; DRF resolves
-        # authenticators before `self.action` is set, so match on the path.
-        if self.request is not None and self.request.path.rstrip("/").endswith("/cli_exchange"):
+        # The exchange is authenticated by the PKCE verifier and token_status by the bearer, not a
+        # session; DRF resolves authenticators before `self.action` is set, so match on the path.
+        if self.request is not None and self.request.path.rstrip("/").endswith(("/cli_exchange", "/token_status")):
             return []
         return super().get_authenticators()
 
     def get_permissions(self) -> Sequence["_SupportsHasPermission"]:
-        if self.action == "exchange_cli":
+        if self.action in ("exchange_cli", "token_status"):
             return [permissions.AllowAny()]
         return super().get_permissions()
 
@@ -191,3 +193,16 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         except DevTokenRefused as e:
             return _refusal(e)
         return Response(MintedDevTokenSerializer(minted).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=DevTokenStatusRequestSerializer,
+        responses={200: OpenApiResponse(response=DevTokenSerializer), 404: _REFUSAL, 503: _REFUSAL},
+        summary="Look up a developer mode token's status and budget left by its bearer",
+    )
+    @action(detail=False, methods=["post"], url_path="token_status")
+    def token_status(self, request: Request) -> Response:
+        try:
+            token = api.dev_token_status(request.validated_data["token"])
+        except DevTokenRefused as e:
+            return _refusal(e)
+        return Response(DevTokenSerializer(token).data)
