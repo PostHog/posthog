@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
@@ -286,6 +287,22 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [handle for _, handle in first.sends] == [None]
         assert retry.sends == []
         assert [handle for _, handle in later.sends] == [None]
+
+    def test_a_send_outside_a_worker_is_counted_in_the_process_registry(self) -> None:
+        labels = {"source": "logs", "provider": "fake", "path": "native", "outcome": "sent"}
+        before = REGISTRY.get_sample_value("alerts_platform_deliveries_total", labels) or 0
+        lag_before = (
+            REGISTRY.get_sample_value("alerts_platform_delivery_lag_ms_count", {"source": "logs", "provider": "fake"})
+            or 0
+        )
+
+        self._deliver(FakeTransport(), RecordingThreadStore())
+
+        assert REGISTRY.get_sample_value("alerts_platform_deliveries_total", labels) == before + 1
+        assert (
+            REGISTRY.get_sample_value("alerts_platform_delivery_lag_ms_count", {"source": "logs", "provider": "fake"})
+            == lag_before + 1
+        )
 
     def test_a_provider_outage_is_counted_as_a_failed_delivery(self) -> None:
         transport = FakeTransport(error=ConnectionError("slack unreachable"))
