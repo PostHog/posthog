@@ -99,6 +99,24 @@ export function transactionalEmailRecipientHash(
     return run.recipientHash
 }
 
+export async function recordSkippedTransactionalEmail(
+    writer: EmailStatusWriter,
+    run: { id: string; teamId: number; state?: { event?: { event?: string }; emailRecipientHash?: string } | null },
+    reason: string
+): Promise<void> {
+    const recipientHash = transactionalEmailRecipientHash(
+        { triggerEvent: run.state?.event?.event, recipientHash: run.state?.emailRecipientHash },
+        'worker'
+    )
+    if (!recipientHash) {
+        return
+    }
+    // The run already ended, so a failed status write must not fail it and run it again. record() counts and logs it.
+    await writer
+        .record({ teamId: run.teamId, messageId: run.id, status: 'skipped', at: new Date(), recipientHash, reason })
+        .catch(() => undefined)
+}
+
 export class EmailStatusService implements EmailStatusWriter {
     constructor(private outputs: IngestionOutputs<EmailStatusOutput | CdpOutput>) {}
 

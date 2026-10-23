@@ -7,6 +7,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
@@ -551,6 +552,53 @@ describe('HogFunctionHandler', () => {
             ])
         }
     )
+
+    it.each([
+        ['on the suppression list', 'recipient_suppressed'],
+        ['opted out', 'recipient_opted_out'],
+        ['predicted to bounce', 'invalid_recipient'],
+        ['at the frequency cap', 'frequency_capped'],
+    ])('records a transactional email to a recipient %s as skipped', async (skip, reason) => {
+        if (reason === 'recipient_suppressed' || reason === 'recipient_opted_out') {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(
+                reason === 'recipient_suppressed' ? 'suppressed' : 'opted_out'
+            )
+        } else if (reason === 'invalid_recipient') {
+            ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(`Skipping send: ${skip}.`)
+        } else {
+            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+        }
+        const emailStatus = { record: jest.fn().mockResolvedValue(undefined), recordInBackground: jest.fn() }
+        const handler = new HogFunctionHandler(
+            mockHogFlowFunctionsService,
+            mockRecipientPreferencesService,
+            mockEmailValidationService,
+            'email',
+            undefined,
+            { emailStatus }
+        )
+        invocation.state.event = { ...invocation.state.event, event: TRANSACTIONAL_EMAIL_EVENT }
+        invocation.state.emailRecipientHash = 'a1b2'
+
+        await handler.execute({
+            invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(emailStatus.record).toHaveBeenCalledWith(
+            expect.objectContaining({
+                teamId: team.id,
+                messageId: invocation.id,
+                status: 'skipped',
+                recipientHash: 'a1b2',
+                reason,
+            })
+        )
+    })
 
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation

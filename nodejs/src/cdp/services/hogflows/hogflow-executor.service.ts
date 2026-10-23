@@ -30,6 +30,7 @@ import {
     StoredCohortMembership,
 } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
+import { EmailStatusWriter } from '../messaging/email-status.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
@@ -135,7 +136,7 @@ export class HogFlowExecutorService {
         integrationManager: SlackAppLookup,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
-        options: { awaitedStepsEnabled?: boolean } = {}
+        options: { awaitedStepsEnabled?: boolean; emailStatus?: EmailStatusWriter } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.cohortMembershipRepository = cohortMembershipRepository
@@ -153,7 +154,8 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'email',
-            usageReporter
+            usageReporter,
+            { emailStatus: options.emailStatus }
         )
         const hogFunctionSmsHandler = new HogFunctionHandler(
             hogFlowFunctionsService,

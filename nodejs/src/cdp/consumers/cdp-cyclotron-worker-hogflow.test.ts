@@ -3,6 +3,7 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -759,6 +760,33 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // terminal lifecycle row off its presence, so without it the row keys `hog_function`,
             // never collapses the `running` row, and the run stays stuck at `running` in the UI.
             expect((results2[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
+        })
+
+        it('records a transactional email whose workflow stopped before it ran as skipped', async () => {
+            const hogFlow = hogFlows[0]
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET status = 'archived' WHERE id = $1`,
+                [hogFlow.id],
+                'disableHogFlow'
+            )
+            ;(processor['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
+            const record = jest.spyOn(processor['emailStatus'], 'record').mockResolvedValue(undefined)
+            const invocation = createSerializedHogFlowInvocation(hogFlow, {
+                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_person_1', properties: {} } as any,
+                emailRecipientHash: 'a1b2',
+            })
+
+            await processor.processInvocations([invocation])
+
+            expect(record).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    messageId: invocation.id,
+                    status: 'skipped',
+                    recipientHash: 'a1b2',
+                    reason: 'workflow_inactive',
+                })
+            )
         })
 
         it('attaches the live flow to a cancel-requested run so the terminal row keys as hog_flow', async () => {
