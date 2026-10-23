@@ -259,6 +259,19 @@ def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:
     return percentiles
 
 
+def _group_root(observation_id: str, parents: dict[str, str]) -> str:
+    """Follow `duplicate_of` links to the group's first observation.
+
+    A root ranked after its copies can gain a root of its own, so a link can point at a member rather
+    than at the root. The walk stops at a repeat, so a cycle cannot loop.
+    """
+    seen = {observation_id}
+    while (parent := parents.get(observation_id)) is not None and parent not in seen:
+        seen.add(parent)
+        observation_id = parent
+    return observation_id
+
+
 def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `created_at`, `watch_rank`, `feed_viewed`) on the
     embedding rank the scan workflow wrote.
@@ -269,6 +282,11 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     filler, trimmed to the same floor as the other rankers.
     """
     percentiles = _scanner_percentiles(rows)
+    parents = {
+        str(row["id"]): str(rank["duplicate_of"])
+        for row in rows
+        if (rank := current_rank(row)) is not None and rank.get("duplicate_of")
+    }
     best_in_group: dict[str, tuple[float, dict[str, Any]]] = {}
     group_members: dict[str, list[str]] = {}
     for row in rows:
@@ -278,7 +296,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         if rank is None or percentile is None or rank.get("category") not in ISSUE_CATEGORIES:
             continue
         # Group before the cutoff, so duplicates below it still count toward the group and never return as filler.
-        group = rank.get("duplicate_of") or observation_id
+        group = _group_root(observation_id, parents)
         group_members.setdefault(group, []).append(observation_id)
         # Only a member above the cutoff can stand for the group, so the seen penalty never disqualifies it.
         if percentile < WATCH_PICK_MIN_PERCENTILE:

@@ -96,6 +96,8 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
             _row("dup-root", 0.30),
             _row("dup-copy", 0.32, duplicate_of="dup-root", minutes_ago=50),
             _row("dup-low", -0.01, duplicate_of="dup-root"),
+            # A copy that points at another copy, as when its root was ranked after it, still joins the group.
+            _row("dup-chain", 0.02, duplicate_of="dup-copy", minutes_ago=3),
             _row("routine-top", 0.40, category="routine", minutes_ago=50),
             *[_row(f"a-{index}", 0.01 * index, minutes_ago=index + 1) for index in range(10)],
             # A rank from older anchors does not compare with current scores.
@@ -107,11 +109,11 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
         ranked = rank_watch_feed_by_embedding(rows)
 
         assert ranked[0].observation_id == "dup-copy"
-        assert ranked[0].reason == {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 2}
+        assert ranked[0].reason == {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 3}
         picks = [entry.observation_id for entry in ranked if entry.reason["kind"] == "embedding_pick"]
         assert picks == ["dup-copy"]
         # Collapsed copies, even those below the cutoff, must not come back as filler.
-        assert {"dup-root", "dup-low"}.isdisjoint(entry.observation_id for entry in ranked)
+        assert {"dup-root", "dup-low", "dup-chain"}.isdisjoint(entry.observation_id for entry in ranked)
 
     def test_a_viewed_pick_still_stands_for_its_group_over_a_copy_below_the_cutoff(self) -> None:
         rows = [
