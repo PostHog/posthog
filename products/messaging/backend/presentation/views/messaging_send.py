@@ -22,6 +22,7 @@ from products.messaging.backend.facade.transactional_email import (
     AcceptedSend,
     EmailSendCommand,
     RenderedContent,
+    RenderedEmail,
     SenderNotVerified,
     code_send_from,
     rendered_content,
@@ -359,12 +360,9 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             return self._refuse(sender_not_verified(str(e)), usage=usage)
         command = EmailSendCommand(
             team_id=self.team_id,
-            template_id=None,
             to=data["to"],
             distinct_id=self._distinct_id(data),
-            message_data={},
-            template_key=key,
-            send=send,
+            source=RenderedEmail(key=key, send=send),
         )
         return self._queued(self._send(request, command, report=usage), [])
 

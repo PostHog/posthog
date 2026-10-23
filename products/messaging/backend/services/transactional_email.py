@@ -24,9 +24,11 @@ from products.messaging.backend.facade.contracts import (
     Queued,
     Rejected,
     RenderedContent,
+    RenderedEmail,
     SenderNotVerified,
     SenderUnavailable,
     SendFrom,
+    StoredTemplate,
     TemplateNotSendable,
     TemplateNotTransactional,
     TransactionalEmailError,
@@ -316,26 +318,24 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
     if "{" in command.to or "}" in command.to:
         return Rejected(code="invalid_recipient", detail="The recipient address can't contain { or }.")
     try:
-        hog_flow_id = _sendable_workflow_id(command)
+        hog_flow_id = _sendable_workflow_id(command.team_id, command.source)
     except TransactionalEmailError as e:
         return Rejected(code=e.code, detail=str(e))
     payload: dict[str, Any] = {
         "to": command.to,
         # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
         "distinct_id": command.distinct_id or command.to,
-        "variables": dict(command.message_data),
+        "variables": dict(command.source.message_data) if isinstance(command.source, StoredTemplate) else {},
     }
     if command.idempotency_key is not None:
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = command.idempotency_key
-    if command.send is not None:
-        payload["send"] = _send_payload(command.send)
+    if command.source.send is not None:
+        payload["send"] = _send_payload(command.source.send)
     try:
         response = run_transactional_workflow(command.team_id, str(hog_flow_id), payload)
     except Exception:
-        logger.exception(
-            "transactional_email_queue_failed", team_id=command.team_id, template_id=str(command.template_id)
-        )
+        logger.exception("transactional_email_queue_failed", team_id=command.team_id, hog_flow_id=str(hog_flow_id))
         return Unavailable()
 
     if response.status_code != 202:
@@ -354,7 +354,7 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
         logger.error(
             "transactional_email_queue_rejected",
             team_id=command.team_id,
-            template_id=str(command.template_id),
+            hog_flow_id=str(hog_flow_id),
             status_code=response.status_code,
         )
         return Unavailable()
@@ -363,12 +363,12 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
     return Queued(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
 
 
-def _sendable_workflow_id(command: EmailSendCommand) -> UUID:
-    if command.template_id is not None:
-        return _transactional_workflow_id(command.team_id, command.template_id)
-    if command.template_key is None:
-        raise ValueError("A send names a template_id or a template_key.")
-    return _code_email_workflow_id(command.team_id, command.template_key)
+def _sendable_workflow_id(team_id: int, source: StoredTemplate | RenderedEmail) -> UUID:
+    match source:
+        case StoredTemplate(template_id=template_id):
+            return _transactional_workflow_id(team_id, template_id)
+        case RenderedEmail(key=key):
+            return _code_email_workflow_id(team_id, key)
 
 
 def _send_payload(send: AcceptedSend) -> dict[str, Any]:
