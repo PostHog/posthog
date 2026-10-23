@@ -312,6 +312,21 @@ describe('evaluationsOverviewLogic', () => {
             expected: [`${PERIOD}&refresh=true`],
         },
         {
+            name: 'a change inside a directory skips the cache for all evaluations too',
+            act: async () => {
+                llmEvaluationsLogic.actions.selectDirectory('dir-1')
+                await expectLogic(logic).toFinishAllListeners()
+                llmEvaluationsLogic.actions.toggleEvaluationEnabledSuccess('eval-b')
+                await expectLogic(logic).toFinishAllListeners()
+                llmEvaluationsLogic.actions.selectDirectory(null)
+            },
+            expected: [
+                `${PERIOD}&evaluation_ids=eval-b,eval-c`,
+                `${PERIOD}&evaluation_ids=eval-b,eval-c&refresh=true`,
+                `${PERIOD}&refresh=true`,
+            ],
+        },
+        {
             name: 'undo reloads past the cache',
             act: () => llmEvaluationsLogic.actions.restoreEvaluationSuccess(evaluation('eval-d', null) as any),
             expected: [`${PERIOD}&refresh=true`],

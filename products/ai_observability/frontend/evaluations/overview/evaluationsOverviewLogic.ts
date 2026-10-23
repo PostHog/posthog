@@ -74,26 +74,30 @@ export const OVERVIEW_DATE_OPTIONS: DateMappingOption[] = dateMapping.filter((op
 const BACKEND_CACHE_MS = 5 * 60 * 1000
 
 /**
- * When an evaluation last changed outside the overview, such as a save in the editor. The backend caches each scope's
- * results and an edit does not change their cache keys, so every scope read within the cache lifetime skips that
- * cache once.
+ * When an evaluation last changed, on this page or elsewhere such as a save in the editor. The backend caches each
+ * scope's results and a change does not alter their cache keys, so every scope read within the cache lifetime skips
+ * that cache once, not only the scope on screen.
  */
-let changedElsewhereAt: number | null = null
+let lastChangeAt: number | null = null
 const refreshedSinceChange = new Set<string>()
 
-export function markEvaluationsOverviewStale(): void {
-    changedElsewhereAt = Date.now()
+function markEveryScopeStale(): void {
+    lastChangeAt = Date.now()
     refreshedSinceChange.clear()
+}
+
+export function markEvaluationsOverviewStale(): void {
+    markEveryScopeStale()
     evaluationsOverviewLogic.findMounted()?.actions.reloadOverview()
 }
 
 export function resetEvaluationsOverviewStale(): void {
-    changedElsewhereAt = null
+    lastChangeAt = null
     refreshedSinceChange.clear()
 }
 
 function needsRefreshAfterChange(requestKey: string): boolean {
-    if (changedElsewhereAt === null || Date.now() - changedElsewhereAt > BACKEND_CACHE_MS) {
+    if (lastChangeAt === null || Date.now() - lastChangeAt > BACKEND_CACHE_MS) {
         return false
     }
     return !refreshedSinceChange.has(requestKey)
@@ -1142,6 +1146,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             deleteDirectorySuccess: () => actions.refreshAfterChange(),
             restoreEvaluationSuccess: () => actions.refreshAfterChange(),
             refreshAfterChange: async (_, breakpoint) => {
+                markEveryScopeStale()
                 await breakpoint(REFRESH_AFTER_CHANGE_MS)
                 actions.reloadOverview()
             },
