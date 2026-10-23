@@ -20,6 +20,7 @@ from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm
 from products.experiments.backend.health.context import (
+    ExposureEvents,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
     HealthContext,
@@ -483,17 +484,21 @@ class TestSplitChangedMidRun(TestCase):
         )
 
 
-def _totals(after_change: dict[str, int], *, counts_groups: bool = False) -> ExposureTotals:
-    # 1,000 people exposed under the 50/50 split on the day of the change, then the given ones on the next day.
-    before_change = {"control": 500, "test": 500}
+def _totals(
+    after_change: dict[str, int], *, before_change: dict[str, int] | None = None, counts_groups: bool = False
+) -> ExposureTotals:
+    # Exposed under the 50/50 split on the day of the change, then the given ones on the next day under 80/20.
+    before = before_change or {"control": 500, "test": 500}
+    total_exposures = {variant: before[variant] + after_change[variant] for variant in before}
+    whole_run = sum(total_exposures.values())
     return ExposureTotals(
-        total_exposures={variant: before_change[variant] + after_change[variant] for variant in before_change},
+        total_exposures=total_exposures,
         multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
         sample_ratio_mismatch_p_value=0.00001,
-        sample_ratio_expected={"control": 80.0, "test": 20.0},
+        sample_ratio_expected={"control": 0.8 * whole_run, "test": 0.2 * whole_run},
         daily_exposures={
-            variant: {FIRST_CHANGE_AT.date(): before_change[variant], date(2026, 9, 13): after_change[variant]}
-            for variant in before_change
+            variant: {FIRST_CHANGE_AT.date(): before[variant], date(2026, 9, 13): after_change[variant]}
+            for variant in before
         },
         hours_since_launch=72,
         counts_groups=counts_groups,
@@ -530,6 +535,29 @@ class TestSrmAfterSplitChange(TestCase):
                 _context(EVEN, UNEVEN, exposed_units=5),
                 _totals({"control": 40, "test": 10}),
                 not_checked("Couldn't check because too few users were exposed after the split change"),
+            ),
+            (
+                "too_few_exposed_after_the_change_to_show_the_skew",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                _totals({"control": 80, "test": 20}, before_change={"control": 7740, "test": 2160}),
+                not_checked("Couldn't check because too few users were exposed after the split change"),
+            ),
+            (
+                "activation_dates_users_after_their_flag_call",
+                replace(
+                    _context(EVEN, UNEVEN, exposed_units=5),
+                    exposure_events=ExposureEvents(
+                        custom_event=None,
+                        required_flag_key="flag",
+                        variant_property="$feature_flag_response",
+                        flag_key_filters=(),
+                        activation="checkout",
+                    ),
+                ),
+                _totals(MATCHES_THE_NEW_SPLIT),
+                not_checked(
+                    "Couldn't check because the exposure criteria count users at an activation after the flag call"
+                ),
             ),
             (
                 "change_before_4_people",

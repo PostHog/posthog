@@ -27,7 +27,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -106,6 +106,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         super().__init__(*args, **kwargs)
         # Same contract as ExperimentQueryRunner.__init__: tags the terminal error event, and None keeps it silent.
         self.error_event_context = error_event_context
+        # The user id and whether that user may read the flag's history.
+        self._flag_history_access: tuple[int, bool] | None = None
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -284,19 +286,23 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _can_read_flag_history(self) -> bool:
-        # The flag's history stays behind the flag's own access controls, as on the health endpoint. A userless run
-        # and principals that are not users, such as service tokens, read none. A query runner can't see a token's
-        # scopes, so unlike the health endpoint this doesn't require `activity_log:read`.
-        if not isinstance(self.user, User):
+        # The flag's history stays behind the flag's own access controls and, for a token, the `activity_log:read`
+        # scope, as on the health endpoint. A query runner can't see a token's scopes, so a request with any token reads
+        # no history, and neither does a userless run or a principal that is not a user.
+        if not isinstance(self.user, User) or get_query_tags().access_method is not None:
             return False
-        try:
-            return UserAccessControl(user=self.user, team=self.team).check_access_level_for_object(
-                self.experiment.feature_flag, required_level="viewer"
-            )
-        except Exception as error:
-            # The answer feeds the cache key, so a failure here would fail the exposure query.
-            capture_exception(error)
-            return False
+        # The cache key asks on every run, and each check loads the project's access rules.
+        if self._flag_history_access is None or self._flag_history_access[0] != self.user.pk:
+            try:
+                readable = UserAccessControl(user=self.user, team=self.team).check_access_level_for_object(
+                    self.experiment.feature_flag, required_level="viewer"
+                )
+            except Exception as error:
+                # The answer feeds the cache key, so a failure here would fail the exposure query.
+                capture_exception(error)
+                readable = False
+            self._flag_history_access = (self.user.pk, readable)
+        return self._flag_history_access[1]
 
     def _flag_history(self, exposures: ExposureTotals) -> FlagHistory | FlagHistoryNotChecked | None:
         if not reads_flag_history(exposures):

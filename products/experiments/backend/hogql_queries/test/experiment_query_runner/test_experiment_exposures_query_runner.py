@@ -19,6 +19,7 @@ from posthog.schema import (
     MultipleVariantHandling,
 )
 
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
@@ -1574,6 +1575,8 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             return ExperimentExposuresQueryRunner(team=self.team, query=query, user=user).get_cache_key()
 
         visible_key = cache_key(reader)
+        with tags_context(access_method=AccessMethod.PERSONAL_API_KEY):
+            token_key = cache_key(reader)
         AccessControl.objects.create(
             team=self.team, resource="feature_flag", resource_id=str(self.feature_flag.id), access_level="none"
         )
@@ -1581,6 +1584,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertNotEqual(hidden_key, visible_key)
         self.assertEqual(cache_key(None), hidden_key)
+        self.assertEqual(token_key, hidden_key)
 
     @parameterized.expand(
         [

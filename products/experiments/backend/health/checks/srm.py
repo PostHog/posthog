@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
-from scipy.stats import chisquare
+from scipy.stats import chi2, chisquare
 
 from posthog.schema import SampleRatioMismatch
 
@@ -75,18 +75,25 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     # A reorder that keeps the share of every variant moves people, but the expected split stays the same.
     if all(_shares(change.before) == _shares(change.after) for change in changes):
         return _mismatch(exposures, p_value)
+    unit = "group" if exposures.counts_groups else "user"
+    events = ctx.exposure_events
+    if events is None:
+        return not_checked("Couldn't check because the exposure criteria can't be read")
+    # The exposure query dates a user by the activation, but the flag call before it assigned the variant, so users
+    # dated after the change can carry a variant from before it.
+    if events.activation is not None:
+        return not_checked(
+            f"Couldn't check because the exposure criteria count {unit}s at an activation after the flag call"
+        )
     # The test covers the whole run, so it mixes the people exposed under each split. The people first exposed after
     # the day of the last change got their variants from the current split alone.
     changed_on = changes[-1].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
-    after_change = sample_ratio_test(
-        {
-            variant: sum(count for day, count in daily.items() if day > changed_on)
-            for variant, daily in exposures.daily_exposures.items()
-        },
-        exposures.sample_ratio_expected,
-    )
-    unit = "group" if exposures.counts_groups else "user"
-    if after_change is None:
+    exposed_after = {
+        variant: sum(count for day, count in daily.items() if day > changed_on)
+        for variant, daily in exposures.daily_exposures.items()
+    }
+    after_change = sample_ratio_test(exposed_after, exposures.sample_ratio_expected)
+    if after_change is None or not _shows_the_whole_run_skew(exposures, exposed_after):
         return not_checked(f"Couldn't check because too few {unit}s were exposed after the split change")
     if after_change.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE:
         return _mismatch(exposures, p_value)
@@ -118,6 +125,21 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
     if isinstance(outcome, ExperimentHealthFinding) and outcome.severity == ExperimentHealthFindingSeverity.WARNING:
         return outcome
     return None
+
+
+def _shows_the_whole_run_skew(exposures: ExposureTotals, exposed_after: Mapping[str, int]) -> bool:
+    """Whether the users exposed after the change are enough to show the whole run's skew at the test's threshold. A
+    smaller sample passes the test for lack of data, which proves nothing."""
+    expected = exposures.sample_ratio_expected
+    whole_run = sum(expected.values())
+    after = sum(exposed_after.get(variant, 0) for variant in expected)
+    if whole_run <= 0:
+        return False
+    statistic = sum(
+        (exposures.total_exposures.get(variant, 0) - count) ** 2 / count for variant, count in expected.items()
+    )
+    # For fixed shares the chi-square statistic grows in proportion to the sample.
+    return float(chi2.sf(statistic * after / whole_run, df=len(expected) - 1)) < SAMPLE_RATIO_MISMATCH_P_VALUE
 
 
 def _shares(split: Split) -> dict[str, float]:
