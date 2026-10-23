@@ -1840,3 +1840,16 @@ expose = [
 from = [
     "products.uptime_monitoring",
 ]
+
+[[modules]]
+path = "products.authorization"
+depends_on = []
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.authorization",
+]

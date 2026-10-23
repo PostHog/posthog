@@ -4528,7 +4528,7 @@ export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2Rule
     rule_type: 'experiment'
     paused: boolean
     variants: { key: string; weight: number; value: JsonType }[]
-    holdout?: { id: number; seed: string; exclusion_percentage: number }
+    holdout?: { seed: string; exclusion_percentage: number }
 }
 
 export type FeatureFlagRulesV2Rule =
@@ -6175,6 +6175,9 @@ export enum ActivityScope {
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    DATA_WAREHOUSE_TABLE = 'DataWarehouseTable',
+    DATA_WAREHOUSE_JOIN = 'DataWarehouseJoin',
+    ACCESS_CONTROL = 'AccessControl',
     DATA_QUALITY_CHECK = 'DataQualityCheck',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',

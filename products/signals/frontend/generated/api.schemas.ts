@@ -3806,6 +3806,44 @@ export interface InstatusIncidentSignalExtraApi {
     components: string[]
 }
 
+export interface GooglePlayConsoleIssueSignalExtraApi {
+    issue_type: string | null
+    code_location: string | null
+    report_count: string | null
+    affected_users: string | null
+    first_version: string | null
+    last_version: string | null
+    last_report_time: string | null
+    issue_url: string | null
+}
+
+export interface AzureApplicationInsightsIssueSignalExtraApi {
+    problem_id: string | null
+    exception_type: string | null
+    role_name: string | null
+    occurrences: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface AppsignalIssueSignalExtraApi {
+    state: string | null
+    severity: string | null
+    namespace: string | null
+    occurrence_count: string | null
+    created_at: string | null
+    last_occurred_at: string | null
+}
+
+export interface CursorIssueSignalExtraApi {
+    repo: string | null
+    pr_number: string | null
+    commit_sha: string | null
+    bugs_found: string | null
+    publication_status: string | null
+    timestamp: string | null
+}
+
 export interface TriggerDevErrorSignalExtraApi {
     task_identifier: string | null
     status: string | null
@@ -3892,6 +3930,38 @@ export interface OkendoReviewSignalExtraApi {
     product_name: string | null
     is_recommended: string | null
     date_created: string | null
+}
+
+export interface AwsSecurityHubScannerFindingSignalExtraApi {
+    severity_label: string | null
+    compliance_status: string | null
+    workflow_status: string | null
+    record_state: string | null
+    region: string | null
+    created_at: string | null
+}
+
+export interface AwsGuarddutyScannerFindingSignalExtraApi {
+    type: string | null
+    severity: string | null
+    region: string | null
+    created_at: string | null
+}
+
+export interface AwsInspectorScannerFindingSignalExtraApi {
+    type: string | null
+    severity: string | null
+    status: string | null
+    fix_available: string | null
+    exploit_available: string | null
+    region: string | null
+    first_observed_at: string | null
+}
+
+export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi {
+    severity_value: string | null
+    resolution_status_value: string | null
+    timestamp: string | null
 }
 
 export type SignalExtraApi =
@@ -3985,6 +4055,10 @@ export type SignalExtraApi =
     | StatuspageIncidentSignalExtraApi
     | CronitorIncidentSignalExtraApi
     | InstatusIncidentSignalExtraApi
+    | GooglePlayConsoleIssueSignalExtraApi
+    | AzureApplicationInsightsIssueSignalExtraApi
+    | AppsignalIssueSignalExtraApi
+    | CursorIssueSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -3997,6 +4071,10 @@ export type SignalExtraApi =
     | GainsightPxFeedbackSignalExtraApi
     | TrustpilotReviewSignalExtraApi
     | OkendoReviewSignalExtraApi
+    | AwsSecurityHubScannerFindingSignalExtraApi
+    | AwsGuarddutyScannerFindingSignalExtraApi
+    | AwsInspectorScannerFindingSignalExtraApi
+    | MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */

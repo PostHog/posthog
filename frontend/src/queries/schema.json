@@ -18677,7 +18677,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
+                    "deprecated": "Ignored. Kept so that dashboards saved with label filters still load."
                 },
                 "metricVariables": {
                     "anyOf": [

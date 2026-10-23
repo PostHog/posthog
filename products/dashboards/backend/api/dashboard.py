@@ -54,7 +54,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
-from posthog.api.query_access_check import blocked_access_for_user
+from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
@@ -66,6 +66,7 @@ from posthog.api.sharing_publish_gate import (
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
@@ -2731,10 +2732,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             .values_list("query", flat=True)
             if isinstance(query, dict)
         ]
-        if blocked := blocked_access_for_user(user, instance.team, queries):
-            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+        if denied_resources := denied_query_resources(user, instance.team, queries):
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
             raise serializers.ValidationError(
-                f"Can't restore this dashboard: you don't have access to {blocked_list}, and this dashboard is {exposure}."
+                f"Can't restore this dashboard: you don't have access to {denied_names}, and this dashboard is {exposure}."
             )
 
     @staticmethod
@@ -3755,13 +3756,18 @@ class DashboardsViewSet(
                 break
 
             tile_context = {**context, "dashboard_tile": tile, "order": order}
-            tile_data = DashboardTileResultSerializer(tile, context=tile_context).data
+            tile_serializer = DashboardTileResultSerializer(tile, context=tile_context)
+            tile_data = tile_serializer.data
 
             if output_format == "optimized":
                 insight_data = tile_data.get("insight") or {}
                 raw_result = insight_data.get("result")
                 if insight_data and raw_result is not None:
-                    formatted = self._format_insight_for_llm(insight, insight_data)
+                    # The serializer memoizes the insight result, so this reads the response it just rendered.
+                    insight_result = cast(InsightResultSerializer, tile_serializer.fields["insight"]).insight_result(
+                        insight
+                    )
+                    formatted = self._format_insight_for_llm(insight, insight_data, insight_result)
                     if formatted is None:
                         # No formatter covers this query type, so the raw result still has to be bounded.
                         formatted = render_unsupported_result(raw_result)
@@ -4086,7 +4092,9 @@ class DashboardsViewSet(
 
         return tile
 
-    def _format_insight_for_llm(self, insight: Insight, insight_data: dict) -> str | None:
+    def _format_insight_for_llm(
+        self, insight: Insight, insight_data: dict, insight_result: InsightResult
+    ) -> str | None:
         if not settings.EE_AVAILABLE:
             return None
         try:
@@ -4098,7 +4106,13 @@ class DashboardsViewSet(
             query = InsightVizNode.model_validate(query_dict)
             if not query.source:
                 return None
-            result_dict = {"results": insight_data.get("result"), "columns": insight_data.get("columns")}
+            result_dict = {
+                "results": insight_data.get("result"),
+                "columns": insight_data.get("columns"),
+                # Total-value rows carry no dates, so the formatter labels them with the ranges the query ran over.
+                "resolved_date_range": insight_result.resolved_date_range,
+                "resolved_compare_date_range": insight_result.resolved_compare_date_range,
+            }
             return format_query_results_for_llm(query.source, result_dict, self.team)
         except Exception:
             logger.warning("dashboard_run_insights_format_failed", exc_info=True, insight_id=insight.id)
