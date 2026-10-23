@@ -756,12 +756,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 )}
                 <ReactGridLayout
                     {...gridProps}
-                    // A grid keeps its own layout state and gives a tile it has not seen a 1x1 default,
-                    // so a band remounts its grid when a tile moves in or out, but not when tiles reorder.
-                    key={section.tiles
-                        .map((tile) => tile.id)
-                        .sort((a, b) => a - b)
-                        .join('-')}
+                    // The grid takes a new tile's position from `layouts`, so a stable key lets tiles stream
+                    // into a band without a remount that resets every chart already in it.
+                    key={section.key}
                     width={gridWidth}
                     className={clsx(
                         layoutEditMode ? 'dashboard-edit-mode box-content' : 'dashboard-view-mode',

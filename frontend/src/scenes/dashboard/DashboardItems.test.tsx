@@ -168,19 +168,24 @@ jest.mock('react-grid-layout', () => {
             resizeConfig: { enabled: boolean }
             dragConfig: { enabled: boolean }
             children: any
-        }) => (
-            <div
-                data-attr="react-grid-layout"
-                data-style-width={style?.width}
-                data-class-name={className}
-                data-row-height={String(rowHeight)}
-                data-margin={margin.join(',')}
-                data-resize-enabled={String(resizeConfig.enabled)}
-                data-drag-enabled={String(dragConfig.enabled)}
-            >
-                {children}
-            </div>
-        ),
+        }) => {
+            jest.requireActual('react').useEffect(() => {
+                mockGridMounts++
+            }, [])
+            return (
+                <div
+                    data-attr="react-grid-layout"
+                    data-style-width={style?.width}
+                    data-class-name={className}
+                    data-row-height={String(rowHeight)}
+                    data-margin={margin.join(',')}
+                    data-resize-enabled={String(resizeConfig.enabled)}
+                    data-drag-enabled={String(dragConfig.enabled)}
+                >
+                    {children}
+                </div>
+            )
+        },
     }
 })
 
@@ -202,6 +207,7 @@ const mockTriggerDashboardRefresh = jest.fn()
 const mockInsightCard = jest.fn()
 const mockUpdateContainerWidth = jest.fn()
 let mockGridWidth = 1200
+let mockGridMounts = 0
 let canEditDashboard = true
 
 describe('DashboardItems', () => {
@@ -210,6 +216,7 @@ describe('DashboardItems', () => {
         jest.clearAllMocks()
         canEditDashboard = true
         mockGridWidth = 1200
+        mockGridMounts = 0
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -655,23 +662,35 @@ describe('DashboardItems', () => {
     })
 
     describe('tile group bands', () => {
-        const showBands = (): void => {
+        const showBands = (streamedTileIds: number[] = []): void => {
             const defaultValues = mockedUseValues.getMockImplementation()!
             mockedUseValues.mockImplementation((logic) => {
                 const values = defaultValues(logic)
+                const tiles = [
+                    ...values.tiles,
+                    ...streamedTileIds.map((id) => ({ id, insight: { id: 100 + id, short_id: `tile${id}` } })),
+                ]
+                const layouts = {
+                    sm: [
+                        ...values.layouts.sm,
+                        ...streamedTileIds.map((id) => ({ i: String(id), x: 6, y: 0, w: 6, h: 5 })),
+                    ],
+                }
                 return logic === dashboardLogic
                     ? {
                           ...values,
+                          tiles,
+                          layouts,
                           tileGroupSections: [
                               {
                                   kind: 'group',
                                   key: 'group-plans',
                                   groupKey: 'plans',
                                   group: { title: 'Plans' },
-                                  tiles: values.tiles,
+                                  tiles,
                               },
                           ],
-                          tileGroupSectionLayouts: [values.layouts],
+                          tileGroupSectionLayouts: [layouts],
                           collapsedTileGroupKeys: [],
                       }
                     : values
@@ -699,6 +718,18 @@ describe('DashboardItems', () => {
 
             expect(getByText('Plans')).toBeInTheDocument()
             expect(mockUpdateContainerWidth).toHaveBeenCalledWith(1200, 12)
+        })
+
+        it('keeps a band grid mounted when a tile streams into the band', () => {
+            const defaultValues = mockedUseValues.getMockImplementation()!
+            showBands()
+            const { rerender } = render(<DashboardItems />)
+
+            mockedUseValues.mockImplementation(defaultValues)
+            showBands([2])
+            rerender(<DashboardItems />)
+
+            expect(mockGridMounts).toBe(1)
         })
     })
 })
