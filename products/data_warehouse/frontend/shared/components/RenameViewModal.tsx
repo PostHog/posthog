@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -15,13 +13,16 @@ export interface RenameViewReference {
 
 export interface RenameViewModalProps {
     viewName: string
+    name: string
+    nameError?: string
+    submitError?: string
+    isSaving: boolean
     references: RenameViewReference[]
     referencesLoading: boolean
     referencesError: boolean
-    isNameTaken: (name: string) => boolean
-    validateName: (name: string) => string | undefined
+    onNameChange: (name: string) => void
     onClose: () => void
-    onSubmit: (name: string) => Promise<void>
+    onSubmit: () => void
 }
 
 function getReferenceTypeLabel(type?: string): string {
@@ -43,50 +44,22 @@ function getReferenceTypeLabel(type?: string): string {
 
 export function RenameViewModal({
     viewName,
+    name,
+    nameError,
+    submitError,
+    isSaving,
     references,
     referencesLoading,
     referencesError,
-    isNameTaken,
-    validateName,
+    onNameChange,
     onClose,
     onSubmit,
 }: RenameViewModalProps): JSX.Element {
-    const [name, setName] = useState(viewName)
-    const [nameError, setNameError] = useState<string>()
-    const [submitError, setSubmitError] = useState<string>()
-    const [isSaving, setIsSaving] = useState(false)
-
-    const submit = async (): Promise<void> => {
+    const submit = (): void => {
         if (isSaving || referencesLoading) {
             return
         }
-
-        const newName = name.trim()
-        const validationError = validateName(newName)
-        if (validationError) {
-            setNameError(validationError)
-            return
-        }
-        if (newName !== viewName && isNameTaken(newName)) {
-            setNameError('A view with this name already exists')
-            return
-        }
-        if (newName === viewName) {
-            onClose()
-            return
-        }
-
-        setNameError(undefined)
-        setSubmitError(undefined)
-        setIsSaving(true)
-        try {
-            await onSubmit(newName)
-            onClose()
-        } catch (error) {
-            setSubmitError(error instanceof Error ? error.message : 'Could not rename the view. Try again.')
-        } finally {
-            setIsSaving(false)
-        }
+        onSubmit()
     }
 
     return (
@@ -107,7 +80,7 @@ export function RenameViewModal({
                         type="primary"
                         loading={isSaving}
                         disabledReason={referencesLoading ? 'Loading known references' : undefined}
-                        onClick={() => void submit()}
+                        onClick={submit}
                         data-attr="data-warehouse-rename-view-submit"
                     >
                         Rename view
@@ -119,11 +92,8 @@ export function RenameViewModal({
                 <LemonField.Pure label="View name" error={nameError}>
                     <LemonInput
                         value={name}
-                        onChange={(value) => {
-                            setName(value)
-                            setNameError(undefined)
-                        }}
-                        onPressEnter={() => void submit()}
+                        onChange={onNameChange}
+                        onPressEnter={submit}
                         disabled={isSaving}
                         autoFocus
                     />

@@ -14,8 +14,7 @@ import {
     IconRefresh,
     IconWarning,
 } from '@posthog/icons'
-import { LemonMenuItem } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonMenuItem, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
@@ -79,10 +78,25 @@ import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_s
 
 import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
 import type { UserType } from '../../../../types'
-import { DataWarehouseSavedQuerySummary, dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import {
+    DataWarehouseSavedQueryDownstreamReferenceState,
+    DataWarehouseSavedQuerySummary,
+    dataWarehouseViewsLogic,
+    renameDataWarehouseSavedQuery,
+} from '../../saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
+
+export interface RenameViewState {
+    id: string
+    originalName: string
+    name: string
+    nameError?: string
+    submitError?: string
+    isSaving: boolean
+}
 
 export interface FuseSearchMatch {
     // kea-typegen has a problem importing Fuse itself, so we have to duplicate this type
@@ -1707,6 +1721,7 @@ export interface queryDatabaseLogicValues {
     connectionOptions: ExternalDataSourceConnectionOptionApi[] | null // connectionSelectorLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
+    dataWarehouseSavedQueryDownstreamReferences: Record<string, DataWarehouseSavedQueryDownstreamReferenceState> // dataWarehouseViewsLogic
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary> // dataWarehouseViewsLogic
     materializingViewIds: string[] // dataWarehouseViewsLogic
@@ -1765,6 +1780,7 @@ export interface queryDatabaseLogicValues {
     relevantSavedQueries: [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][]
     relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
     relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+    renameView: RenameViewState | null
     searchTerm: string
     searchTreeData: TreeDataItem[]
     searchTreeMatches: SearchTreeMatches
@@ -1798,6 +1814,10 @@ export interface queryDatabaseLogicActions {
             folder_id?: string | null
             types: string[][]
         }
+    } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => {
+        viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
         view: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
@@ -1877,6 +1897,9 @@ export interface queryDatabaseLogicActions {
         value: true
     }
     closePropertyDefinitionEditor: () => {
+        value: true
+    }
+    closeRenameView: () => {
         value: true
     }
     deleteUnsavedQuery: (record: Record<string, any>) => {
@@ -1982,6 +2005,12 @@ export interface queryDatabaseLogicActions {
     openPropertyDefinitionEditor: (propertyDefinition: EnterprisePropertyDefinitionApi) => {
         propertyDefinition: EnterprisePropertyDefinitionApi
     }
+    openRenameView: (view: { id: string; name: string }) => {
+        view: {
+            id: string
+            name: string
+        }
+    }
     openUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
     }
@@ -2027,6 +2056,18 @@ export interface queryDatabaseLogicActions {
         search: string
         target: SidebarPropertyDefinitionTarget
     }
+    setRenameViewName: (name: string) => {
+        name: string
+    }
+    setRenameViewNameError: (error: string | undefined) => {
+        error: string | undefined
+    }
+    setRenameViewSaving: (isSaving: boolean) => {
+        isSaving: boolean
+    }
+    setRenameViewSubmitError: (error: string | undefined) => {
+        error: string | undefined
+    }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -2038,6 +2079,9 @@ export interface queryDatabaseLogicActions {
     }
     startDraggingView: (viewId: string) => {
         viewId: string
+    }
+    submitRenameView: () => {
+        value: true
     }
     toggleFolderOpen: (
         folderId: string,
@@ -2274,6 +2318,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        openRenameView: (view: { id: string; name: string }) => ({ view }),
+        closeRenameView: true,
+        setRenameViewName: (name: string) => ({ name }),
+        setRenameViewNameError: (error: string | undefined) => ({ error }),
+        setRenameViewSubmitError: (error: string | undefined) => ({ error }),
+        setRenameViewSaving: (isSaving: boolean) => ({ isSaving }),
+        submitRenameView: true,
     }),
     connect(() => ({
         values: [
@@ -2304,6 +2355,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'dataWarehouseSavedQueries',
                 'dataWarehouseSavedQueryFolders',
                 'dataWarehouseSavedQueryMapById',
+                'dataWarehouseSavedQueryDownstreamReferences',
                 'dataWarehouseSavedQueriesLoading',
                 'materializingViewIds',
             ],
@@ -2329,6 +2381,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
                 'updateDataWarehouseSavedQuery',
+                'loadDataWarehouseSavedQueryDownstreamReferences',
+                'loadDataWarehouseSavedQueries',
             ],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
@@ -2359,6 +2413,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 openPropertyDefinitionEditor: (_, { propertyDefinition }) => propertyDefinition,
                 closePropertyDefinitionEditor: () => null,
                 updatePropertyDefinition: () => null,
+            },
+        ],
+        renameView: [
+            null as RenameViewState | null,
+            {
+                openRenameView: (_, { view }) => ({
+                    id: view.id,
+                    originalName: view.name,
+                    name: view.name,
+                    isSaving: false,
+                }),
+                closeRenameView: () => null,
+                setRenameViewName: (state, { name }) => (state ? { ...state, name, nameError: undefined } : state),
+                setRenameViewNameError: (state, { error }) => (state ? { ...state, nameError: error } : state),
+                setRenameViewSubmitError: (state, { error }) => (state ? { ...state, submitError: error } : state),
+                setRenameViewSaving: (state, { isSaving }) => (state ? { ...state, isSaving } : state),
             },
         ],
         selectedSchema: [
@@ -2566,6 +2636,54 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        openRenameView: ({ view }) => {
+            actions.loadDataWarehouseSavedQueryDownstreamReferences(view.id)
+        },
+        submitRenameView: async () => {
+            const view = values.renameView
+            if (
+                !view ||
+                view.isSaving ||
+                (values.dataWarehouseSavedQueryDownstreamReferences[view.id]?.loading ?? true)
+            ) {
+                return
+            }
+
+            const name = view.name.trim()
+            const validationError = validateSavedQueryName(name)
+            if (validationError) {
+                actions.setRenameViewNameError(validationError)
+                return
+            }
+            if (
+                name !== view.originalName &&
+                values.dataWarehouseSavedQueries.some((savedView) => savedView.name === name)
+            ) {
+                actions.setRenameViewNameError('A view with this name already exists')
+                return
+            }
+            if (name === view.originalName) {
+                actions.closeRenameView()
+                return
+            }
+
+            actions.setRenameViewNameError(undefined)
+            actions.setRenameViewSubmitError(undefined)
+            actions.setRenameViewSaving(true)
+            try {
+                await renameDataWarehouseSavedQuery(view.id, name)
+                actions.loadDataWarehouseSavedQueries()
+                actions.refreshDatabaseSchema()
+                lemonToast.success('View renamed')
+                actions.closeRenameView()
+            } catch (error) {
+                actions.setRenameViewSubmitError(
+                    error instanceof Error ? error.message : 'Could not rename the view. Try again.'
+                )
+            } finally {
+                actions.setRenameViewSaving(false)
+            }
+        },
         createDataWarehouseSavedQuerySuccess: ({ payload }) => {
             if (payload?.folder_id) {
                 const folderNodeId = `view-folder-${payload.folder_id}`

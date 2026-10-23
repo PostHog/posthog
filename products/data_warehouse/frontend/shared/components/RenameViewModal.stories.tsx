@@ -13,6 +13,10 @@ type Story = StoryObj<typeof RenameViewModal>
 export const WithKnownReferences: Story = {
     args: {
         viewName: 'orders_by_day',
+        name: 'orders_by_day',
+        nameError: undefined,
+        submitError: undefined,
+        isSaving: false,
         references: [
             { id: 'daily-revenue', name: 'daily_revenue', type: 'view' },
             { id: 'revenue-report', name: 'revenue_report', type: 'matview' },
@@ -20,9 +24,8 @@ export const WithKnownReferences: Story = {
         ],
         referencesLoading: false,
         referencesError: false,
-        isNameTaken: () => false,
-        validateName: () => undefined,
+        onNameChange: () => undefined,
         onClose: () => undefined,
-        onSubmit: async () => undefined,
+        onSubmit: () => undefined,
     },
 }

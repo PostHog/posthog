@@ -103,6 +103,36 @@ describe('queryDatabaseLogic', () => {
         })
     })
 
+    it('stores and resets rename view state in the logic', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+
+        logic.actions.openRenameView({ id: 'view-1', name: 'orders_by_day' })
+        expect(logic.values.renameView).toEqual({
+            id: 'view-1',
+            originalName: 'orders_by_day',
+            name: 'orders_by_day',
+            isSaving: false,
+        })
+
+        logic.actions.setRenameViewName('orders_by_week')
+        logic.actions.setRenameViewNameError('Invalid name')
+        logic.actions.setRenameViewSubmitError('Rename failed')
+        logic.actions.setRenameViewSaving(true)
+        expect(logic.values.renameView).toMatchObject({
+            name: 'orders_by_week',
+            nameError: 'Invalid name',
+            submitError: 'Rename failed',
+            isSaving: true,
+        })
+
+        logic.actions.closeRenameView()
+        expect(logic.values.renameView).toBeNull()
+
+        logic.unmount()
+    })
+
     it('loads pre-expanded properties, paginates, and filters them', async () => {
         initKeaTests()
         mockPropertyDefinitionsList

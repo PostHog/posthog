@@ -2,7 +2,7 @@ import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -17,7 +17,7 @@ import {
     IconExternal,
     IconPlusSmall,
 } from '@posthog/icons'
-import { LemonDialog, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTextSize } from 'lib/lemon-ui/icons'
@@ -62,8 +62,7 @@ import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/j
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { dataWarehouseViewsLogic, renameDataWarehouseSavedQuery } from '../../saved_queries/dataWarehouseViewsLogic'
-import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
+import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
@@ -147,6 +146,7 @@ export const QueryDatabase = ({
         editingPropertyDefinition,
         materializationStatusFilters,
         dataWarehouseSavedQueriesLoading,
+        renameView,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -167,18 +167,18 @@ export const QueryDatabase = ({
         openPropertyDefinitionEditor,
         closePropertyDefinitionEditor,
         updatePropertyDefinition,
+        openRenameView,
+        closeRenameView,
+        setRenameViewName,
+        submitRenameView,
     } = useActions(queryDatabaseLogic)
-    const { dataWarehouseSavedQueriesLoaded, dataWarehouseSavedQueries, dataWarehouseSavedQueryDownstreamReferences } =
+    const { dataWarehouseSavedQueriesLoaded, dataWarehouseSavedQueryDownstreamReferences } =
         useValues(dataWarehouseViewsLogic)
-    const [renamingView, setRenamingView] = useState<{ id: string; name: string } | null>(null)
     const {
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQuery,
-        loadDataWarehouseSavedQueryDownstreamReferences,
-        loadDataWarehouseSavedQueries,
-        refreshDatabaseSchema,
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(joinsDataLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
@@ -195,12 +195,6 @@ export const QueryDatabase = ({
     } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
-    const renamingViewId = renamingView?.id
-    useEffect(() => {
-        if (renamingViewId) {
-            loadDataWarehouseSavedQueryDownstreamReferences(renamingViewId)
-        }
-    }, [renamingViewId, loadDataWarehouseSavedQueryDownstreamReferences])
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
     // Edit view use the view's own user_access_level inline below.
@@ -1080,7 +1074,7 @@ export const QueryDatabase = ({
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         if (!editViewAccessDisabledReason && item.record?.view) {
-                                            setRenamingView({ id: item.record.view.id, name: item.record.view.name })
+                                            openRenameView({ id: item.record.view.id, name: item.record.view.name })
                                         }
                                     }}
                                 >
@@ -1474,24 +1468,20 @@ export const QueryDatabase = ({
                     onSave={updatePropertyDefinition}
                 />
             ) : null}
-            {renameSavedViewEnabled && renamingView ? (
+            {renameSavedViewEnabled && renameView ? (
                 <RenameViewModal
-                    key={renamingView.id}
-                    viewName={renamingView.name}
-                    references={dataWarehouseSavedQueryDownstreamReferences[renamingView.id]?.references ?? []}
-                    referencesLoading={dataWarehouseSavedQueryDownstreamReferences[renamingView.id]?.loading ?? true}
-                    referencesError={dataWarehouseSavedQueryDownstreamReferences[renamingView.id]?.error ?? false}
-                    isNameTaken={(name) =>
-                        dataWarehouseSavedQueries.some((view) => view.id !== renamingView.id && view.name === name)
-                    }
-                    validateName={validateSavedQueryName}
-                    onClose={() => setRenamingView(null)}
-                    onSubmit={async (name) => {
-                        await renameDataWarehouseSavedQuery(renamingView.id, name)
-                        loadDataWarehouseSavedQueries()
-                        refreshDatabaseSchema()
-                        lemonToast.success('View renamed')
-                    }}
+                    key={renameView.id}
+                    viewName={renameView.originalName}
+                    name={renameView.name}
+                    nameError={renameView.nameError}
+                    submitError={renameView.submitError}
+                    isSaving={renameView.isSaving}
+                    references={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.references ?? []}
+                    referencesLoading={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.loading ?? true}
+                    referencesError={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.error ?? false}
+                    onNameChange={setRenameViewName}
+                    onClose={closeRenameView}
+                    onSubmit={submitRenameView}
                 />
             ) : null}
         </>
