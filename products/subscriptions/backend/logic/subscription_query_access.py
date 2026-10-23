@@ -89,7 +89,7 @@ def delivered_queries(instance: Subscription | None, attrs: dict[str, Any]) -> l
     return []
 
 
-def blocked_access_for_subscription(
+def denied_resources_in_subscription(
     *,
     user: User,
     team: Team,
