@@ -1445,7 +1445,7 @@ async def maybe_autostart_implementation_task(
         or report.run_count != (report.implemented_at_run_count or 0)
         or (report.content_revision_count or 0) != (report.implemented_at_revision_count or 0)
         or not associated_runs
-        or any(str(run.task_id) != resume.task_id for run in associated_runs)
+        or associated_runs[-1].task_id != resume.task_id
     ):
         return AutostartOutcome(status="cancelled", reason="The report or its implementation has changed")
     assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
