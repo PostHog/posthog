@@ -7,6 +7,22 @@ import type {
 
 const OPPORTUNITIES_STALE_AFTER_MS = 60 * 60 * 1000
 
+const ENGINE_LABELS: Record<string, string> = {
+    'claude-web-search': 'Claude',
+    'openai-web-search': 'ChatGPT',
+    'exa-answer': 'Exa',
+    'gemini-google-search': 'Gemini',
+}
+
+export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
+
+/** Known engines first, in a fixed order, so table columns don't move between pages. */
+export const sortEngines = (engines: Iterable<string>): string[] => {
+    const known = Object.keys(ENGINE_LABELS)
+    const rank = (engine: string): number => (known.includes(engine) ? known.indexOf(engine) : known.length)
+    return [...new Set(engines)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+}
+
 export type ContentAutopilotPageTarget =
     | { isNewPage: true; path: string }
     | { isNewPage: false; path: string; url: string }

@@ -4,6 +4,7 @@ import {
     type SignalReportApi,
     type ReportChartApi,
     type ReportMetricApi,
+    type ReportPlanApi,
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
     type SignalReportPullRequestApi,
@@ -108,6 +109,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     suggested_prompts?: string[]
     /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
     source_suggestion?: ReportSourceSuggestionApi | null
+    /** The plan this report leads or is a step of, with every step in it. Detail responses only. */
+    plan?: ReportPlanApi | null
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */
@@ -161,6 +164,7 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    MONITORING = 'monitoring',
     RESOLVED = 'resolved',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
