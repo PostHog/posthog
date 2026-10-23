@@ -721,3 +721,15 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
 export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
+    api_key: zod.string().describe('Read-only API key for the vendor account.'),
+    api_secret: zod.string().describe('Secret that belongs to the API key.'),
+})
