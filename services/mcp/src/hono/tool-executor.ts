@@ -647,25 +647,7 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const innerToolName =
-            typeof toolArgs.command === 'string' ? parseExecCallInnerToolName(toolArgs.command) : undefined
-        const noDataNotice = innerToolName ? await this.noDataInstallNotice(innerToolName, state) : undefined
-        if (!innerToolName || !noDataNotice) {
-            return this.runExecTool(params, state, analyticsMeta)
-        }
-        if (noDataNotice.mode === 'block') {
-            const execShape = execCommandAnalyticsProperties(toolArgs, state)
-            return this.returnNoDataNotice(
-                innerToolName,
-                noDataNotice.text,
-                state,
-                { ...execShape, ...execInputShapeAnalyticsProperties(toolArgs, execShape, state) },
-                analyticsMeta
-            )
-        }
-        const result = await this.runExecTool(params, { ...state, noDataAction: 'warned' }, analyticsMeta)
-        return prependNoDataNotice(result, noDataNotice.text)
+        return this.runExecTool(params, state, analyticsMeta)
     }
 
     private async runExecTool(
