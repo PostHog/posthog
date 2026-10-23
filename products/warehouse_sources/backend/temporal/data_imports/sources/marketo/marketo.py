@@ -71,7 +71,7 @@ class MarketoAuthError(MarketoAPIError):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MarketoResumeConfig:
     """Cursor for whichever transport the endpoint uses.
 
