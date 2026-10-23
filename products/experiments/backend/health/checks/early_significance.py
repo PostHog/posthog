@@ -24,7 +24,7 @@ from products.experiments.backend.health.skips import (
     not_checked,
 )
 from products.experiments.backend.logic.result_stats import MetricResultStats, VariantStats
-from products.experiments.backend.running_time_calculator import calculate_detectable_effect, calculate_sample_size
+from products.experiments.backend.running_time_calculator import calculate_detectable_effect
 
 # pinned: sent as `finding_variant` on the health finding events.
 BELOW_DETECTABLE_EFFECT = "below_detectable_effect"
@@ -57,10 +57,6 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
         return not_checked("Couldn't read the results of the primary metric")
     if not metric.is_funnel:
         return not_applicable("Runs on funnel primary metrics only")
-    # The page's target in this mode comes from the user's guessed baseline, so a note about the target could say
-    # "wait" after the page says the target is reached.
-    if metric.manual_running_time:
-        return not_applicable("Runs with the automatic running time estimate")
     result = metric.result
     if result is None:
         return not_applicable("Runs once the primary metric has results")
@@ -70,11 +66,7 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
     control_rate = result.baseline.mean or 0
     if not 0 < control_rate < 1:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
-    # The running time estimate counts the variants of the flag.
-    number_of_variants = len(ctx.flag.variants) if ctx.flag and ctx.flag.variants else len(result.variants) + 1
-    planned_samples = calculate_sample_size(
-        "funnel", control_rate, metric.minimum_detectable_effect, number_of_variants
-    )
+    planned_samples = metric.target.recommended_sample_size
     # The running time estimate's "Target reached" compares the same total, so the note and the estimate agree.
     if planned_samples is None or samples >= planned_samples:
         return None
@@ -101,7 +93,7 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
                 f"With {samples:,} users so far, the experiment can reliably detect differences of about "
                 f"{comparison.detectable:.0f}% or more, so this difference may shrink or go away as more users arrive.",
                 f"The running time estimate needs about {planned_samples:,} users to detect a "
-                f"{metric.minimum_detectable_effect:g}% difference.",
+                f"{metric.target.minimum_detectable_effect:g}% difference.",
                 "Wait for that sample before you decide.",
             ]
         ),
@@ -109,7 +101,7 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
             "variant": comparison.variant.key,
             "observed_effect": round(comparison.observed, 1),
             "detectable_effect": round(comparison.detectable, 1),
-            "minimum_detectable_effect": metric.minimum_detectable_effect,
+            "minimum_detectable_effect": metric.target.minimum_detectable_effect,
             "samples": samples,
             "planned_samples": planned_samples,
         },

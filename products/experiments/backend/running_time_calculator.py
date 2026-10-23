@@ -1,17 +1,18 @@
 """Experiment running-time calculator.
 
 Pure statistical helpers that estimate the recommended sample size and running
-time for an experiment. This mirrors the frontend calculator at
-``frontend/src/scenes/experiments/RunningTimeCalculator/calculations.ts`` so the
-same math is available server-side (e.g. for MCP tools).
+time for an experiment.
 
 The sample-size formula uses the constant 16 ≈ 4 · 1.96², the multiplier for a
 two-tailed test at 95% confidence and 80% power comparing two variants.
 """
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal
+
+from products.experiments.stats.shared.statistics import SampleMeanStatistic, StatisticError
 
 VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
 VARIANCE_SCALING_FACTOR_SUM = 0.25
@@ -62,7 +63,8 @@ def calculate_variance_from_stats(
 ) -> float | None:
     """Variance from full baseline statistics.
 
-    - mean metrics (count/sum): scaling factor on the baseline value
+    - mean metrics: the sample variance of the stats, as the analysis computes it. Without usable stats, a scaling
+      factor on the baseline value
     - funnel: ``None`` (variance is implicit in p(1-p))
     - ratio and retention: delta method with covariance
 
@@ -71,7 +73,8 @@ def calculate_variance_from_stats(
         Var(R) ≈ Var(M)/D² + M²·Var(D)/D⁴ - 2·M·Cov(M,D)/D³
     """
     if metric_type in ("mean_count", "mean_sum_or_avg"):
-        return calculate_variance(metric_type, baseline_value)
+        observed = _sample_variance(baseline) if baseline is not None else None
+        return observed if observed is not None else calculate_variance(metric_type, baseline_value)
 
     if metric_type == "funnel":
         return None
@@ -106,13 +109,17 @@ def calculate_sample_size(
     mde: float,
     number_of_variants: int,
     variance: float | None = None,
+    split: Sequence[float] | None = None,
 ) -> int | None:
     """Total recommended sample size across all variants.
 
     ``mde`` is a percentage (e.g. ``5`` for a 5% minimum detectable effect). For
     ratio/retention metrics ``variance`` must be supplied (see
     :func:`calculate_variance_from_stats`); for mean metrics it is derived from
-    ``baseline_value`` when omitted.
+    ``baseline_value`` when omitted, and for funnels from p(1-p).
+
+    ``split`` holds the traffic shares of the analyzed variants with the control first, in any unit. Without it, the
+    ``number_of_variants`` variants get equal shares.
     """
     if mde == 0:
         return None
@@ -121,18 +128,20 @@ def calculate_sample_size(
     if d == 0:
         return None
 
-    if metric_type == "funnel":
-        # Binomial metric: N = (16 · p · (1 - p)) / d²
-        sample_size_formula = (SAMPLE_SIZE_Z_FACTOR * baseline_value * (1 - baseline_value)) / d**2
-    else:
-        if variance is None:
+    if variance is None:
+        if metric_type == "funnel":
+            variance = baseline_value * (1 - baseline_value)
+        else:
             variance = calculate_variance(metric_type, baseline_value)
-        if variance is None:
-            return None
-        # Count / Sum / Ratio / Retention: N = (16 · variance) / d²
-        sample_size_formula = (SAMPLE_SIZE_Z_FACTOR * variance) / d**2
+    if variance is None:
+        return None
+    # Samples per variant for two equal variants: N = (16 · variance) / d²
+    sample_size_formula = (SAMPLE_SIZE_Z_FACTOR * variance) / d**2
 
-    sample_size = math.ceil(sample_size_formula * number_of_variants)
+    multiplier = _split_multiplier(split if split is not None else [1.0] * number_of_variants)
+    if multiplier is None:
+        return None
+    sample_size = math.ceil(sample_size_formula * multiplier)
 
     # A funnel baseline above 1 flips the (1 - p) term negative, and the delta method can return a
     # negative variance for ratio/retention. Both make the sample size non-positive, which has no
@@ -201,6 +210,33 @@ def calculate_detectable_effect(
 
     d = math.sqrt(SAMPLE_SIZE_Z_FACTOR / 2 * variance * (1 / control_samples + 1 / variant_samples))
     return 100 * d / abs(baseline_value)
+
+
+def _split_multiplier(split: Sequence[float]) -> float | None:
+    """The total sample, in samples per variant of an even two-variant test, that gives every comparison with the
+    control the power of that test.
+
+    A comparison of a control and a variant with shares ``q_c`` and ``q_v`` of a total ``N`` has the variance of an
+    even comparison with ``2 / (1/q_c + 1/q_v)`` of ``N`` per variant. The comparison with the smallest variant needs
+    the largest total. For ``k`` equal shares the multiplier is ``k``.
+    """
+    total = sum(split)
+    if len(split) < 2 or total <= 0 or any(share <= 0 for share in split):
+        return None
+    control, *variants = (share / total for share in split)
+    return max((1 / control + 1 / variant) / 2 for variant in variants)
+
+
+def _sample_variance(baseline: BaselineStats) -> float | None:
+    # Stats that don't fit together, such as a sum_squares the caller left at its default of 0, carry no variance.
+    if baseline.number_of_samples < 2:
+        return None
+    try:
+        return SampleMeanStatistic(
+            n=baseline.number_of_samples, sum=baseline.sum, sum_squares=baseline.sum_squares
+        ).variance
+    except StatisticError:
+        return None
 
 
 def calculate_running_time_days(sample_size: int | None, exposure_rate_per_day: float | None) -> int | None:

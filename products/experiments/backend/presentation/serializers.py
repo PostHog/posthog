@@ -1733,7 +1733,12 @@ class RunningTimeBaselineStatsSerializer(serializers.Serializer):
         help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
     )
     sum_squares = serializers.FloatField(
-        required=False, default=0.0, help_text="Sum of squared metric values. Required for ratio/retention variance."
+        required=False,
+        default=0.0,
+        help_text=(
+            "Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need "
+            "it. Without it, a mean metric's variance is approximated from the baseline value."
+        ),
     )
     denominator_sum = serializers.FloatField(
         required=False,
@@ -1847,6 +1852,39 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     recommended_running_time_days = serializers.IntegerField(
         allow_null=True,
         help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
+    )
+
+
+class RunningTimeTargetQuerySerializer(serializers.Serializer):
+    minimum_detectable_effect = serializers.FloatField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0. Defaults to the "
+            "experiment's saved minimum detectable effect, else the project default."
+        ),
+    )
+
+    def validate_minimum_detectable_effect(self, value: float) -> float:
+        if value <= 0:
+            raise ValidationError("Must be greater than 0.")
+        return value
+
+
+class RunningTimeTargetSerializer(serializers.Serializer):
+    """The target sample of the experiment's running time estimate."""
+
+    minimum_detectable_effect = serializers.FloatField(
+        help_text="The relative change, as a percentage, that the target sample is sized to detect."
+    )
+    recommended_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures needed across the analyzed variants, so that the comparison of each variant with the control "
+            "can detect the minimum detectable effect at 95% confidence and 80% power. In manual running time mode, "
+            "the saved target. Otherwise sized from the first primary metric's current result, with the variance the "
+            "analysis uses and the flag's traffic split. Null when no result can size it yet."
+        ),
     )
 
 

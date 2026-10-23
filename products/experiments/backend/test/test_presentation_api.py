@@ -51,7 +51,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    build_primary_calculation_configs,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -8976,6 +8979,98 @@ class TestExperimentExcludedVariants(_HoistFlagConfigClientMixin, APILicensedTes
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TestRunningTimeTargetEndpoint(APILicensedTest):
+    def _experiment(self, running_time_calculation: dict[str, Any], *, with_result: bool = True) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="revenue-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 80},
+                        {"key": "test", "rollout_percentage": 20},
+                    ]
+                },
+            },
+        )
+        launched_at = timezone.now() - timedelta(days=3)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="revenue",
+            feature_flag=flag,
+            start_date=launched_at,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase", "math": "sum"},
+                    "uuid": "revenue",
+                }
+            ],
+            running_time_calculation=running_time_calculation,
+        )
+        if with_result:
+            spread = {"number_of_samples": 1000, "sum": 1000, "sum_squares": 26000}
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="revenue",
+                fingerprint=build_primary_calculation_configs(experiment)[0].calculation_key(),
+                query_from=launched_at,
+                query_to=timezone.now(),
+                completed_at=timezone.now(),
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result={
+                    "baseline": {"key": "control", **spread},
+                    "variant_results": [{"key": "test", "method": "bayesian", **spread}],
+                },
+            )
+        return experiment
+
+    @parameterized.expand(
+        [
+            ("sized_from_the_result_and_the_split", {}, True, "", 30, 13903),
+            ("for_an_effect_being_edited", {}, True, "?minimum_detectable_effect=60", 60, 3476),
+            ("no_result_yet", {}, False, "", 30, None),
+            (
+                "manual_mode_keeps_the_saved_target",
+                {"exposure_estimate_config": {"conversionRateInputType": "manual"}, "recommended_sample_size": 5000},
+                True,
+                "",
+                30,
+                5000,
+            ),
+        ]
+    )
+    def test_returns_the_target_the_header_compares(
+        self,
+        _name: str,
+        running_time_calculation: dict[str, Any],
+        with_result: bool,
+        query: str,
+        effect: int,
+        sample_size: int | None,
+    ) -> None:
+        experiment = self._experiment(running_time_calculation, with_result=with_result)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/{query}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), {"minimum_detectable_effect": effect, "recommended_sample_size": sample_size})
+
+    def test_rejects_an_effect_of_zero(self) -> None:
+        experiment = self._experiment({})
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/?minimum_detectable_effect=0"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def _calculate(self, payload: dict[str, Any]):
         return self.client.post(
@@ -9018,6 +9113,19 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         response = self._calculate({"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 50})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIsNone(response.json()["recommended_running_time_days"])
+
+    def test_mean_from_baseline_stats(self):
+        response = self._calculate(
+            {
+                "metric_type": "mean_sum_or_avg",
+                "minimum_detectable_effect": 30,
+                "baseline_stats": {"number_of_samples": 1000, "sum": 1000, "sum_squares": 26000},
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertAlmostEqual(body["variance"], 25000 / 999, places=4)
+        self.assertEqual(body["recommended_sample_size"], 8898)
 
     def test_ratio_from_baseline_stats(self):
         response = self._calculate(

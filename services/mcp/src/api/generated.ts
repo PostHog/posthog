@@ -102673,7 +102673,7 @@ export namespace Schemas {
       number_of_samples: number;
       /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
       sum: number;
-      /** Sum of squared metric values. Required for ratio/retention variance. */
+      /** Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value. */
       sum_squares?: number;
       /**
          * Sum of the denominator values. Required for ratio/retention metrics.
@@ -102760,6 +102760,19 @@ export namespace Schemas {
          * @nullable
          */
       recommended_running_time_days: number | null;
+    }
+
+    /**
+     * The target sample of the experiment's running time estimate.
+     */
+    export interface RunningTimeTarget {
+      /** The relative change, as a percentage, that the target sample is sized to detect. */
+      minimum_detectable_effect: number;
+      /**
+         * Exposures needed across the analyzed variants, so that the comparison of each variant with the control can detect the minimum detectable effect at 95% confidence and 80% power. In manual running time mode, the saved target. Otherwise sized from the first primary metric's current result, with the variance the analysis uses and the flag's traffic split. Null when no result can size it yet.
+         * @nullable
+         */
+      recommended_sample_size: number | null;
     }
 
     /**
@@ -130083,6 +130096,14 @@ export namespace Schemas {
      * @minimum 1
      */
     page?: number;
+    };
+
+    export type ExperimentsRunningTimeTargetRetrieveParams = {
+    /**
+     * Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0. Defaults to the experiment's saved minimum detectable effect, else the project default.
+     * @minimum 0
+     */
+    minimum_detectable_effect?: number;
     };
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
