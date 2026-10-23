@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -205,6 +206,8 @@ class FakeEvaluationSamplerWorkflow:
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
         if not workflow.unsafe.is_replaying():
             sampler_child_windows.append((inputs.window_start or "", inputs.window_end or ""))
+        # A later continue_as_new leg then starts minutes after the first, so it would derive a different window.
+        await workflow.sleep(timedelta(minutes=10))
         return SamplerWorkflowResult(
             team_id=inputs.team_id,
             job_id=inputs.job_id,
@@ -230,55 +233,36 @@ async def fake_fetch_eval_jobs(inputs: FetchAllClusteringJobsInput) -> dict[int,
 
 
 class TestSamplerCoordinatorWindow:
-    @pytest.mark.parametrize(
-        "inputs,discovers",
-        [
-            pytest.param(SamplerCoordinatorInputs(), True, id="first_leg"),
-            pytest.param(
-                SamplerCoordinatorInputs(
-                    remaining_team_ids=[3],
-                    per_team_jobs={
-                        "3": [{"job_id": "j3", "name": "evals", "analysis_level": "evaluation", "event_filters": []}]
-                    },
-                    window_start="2026-04-01T00:00:00Z",
-                    window_end="2026-04-01T01:00:00Z",
-                ),
-                False,
-                id="continue_as_new_leg",
-            ),
-        ],
-    )
+    @parameterized.expand([("single_leg", False), ("continue_as_new_each_batch", True)])
     @pytest.mark.asyncio
-    async def test_children_sample_the_window_discovery_checked(self, inputs, discovers):
+    async def test_children_sample_the_window_discovery_checked(self, _name, continue_as_new):
         sampler_child_windows.clear()
         sampler_discovery_inputs.clear()
         task_queue = str(uuid.uuid4())
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(
-                env.client,
-                task_queue=task_queue,
-                workflows=[AIObservabilityEvaluationSamplerCoordinatorWorkflow, FakeEvaluationSamplerWorkflow],
-                activities=[fake_eval_team_discovery, fake_fetch_eval_jobs],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await env.client.execute_workflow(
-                    AIObservabilityEvaluationSamplerCoordinatorWorkflow.run,
-                    inputs,
-                    id=str(uuid.uuid4()),
+        with patch.object(workflow.Info, "is_continue_as_new_suggested", return_value=continue_as_new):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
                     task_queue=task_queue,
-                )
+                    workflows=[AIObservabilityEvaluationSamplerCoordinatorWorkflow, FakeEvaluationSamplerWorkflow],
+                    activities=[fake_eval_team_discovery, fake_fetch_eval_jobs],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ):
+                    await env.client.execute_workflow(
+                        AIObservabilityEvaluationSamplerCoordinatorWorkflow.run,
+                        SamplerCoordinatorInputs(max_concurrent_teams=1),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                    )
 
+        assert len(sampler_child_windows) == 2
         windows = set(sampler_child_windows)
         assert len(windows) == 1
         window_start, window_end = next(iter(windows))
-        if discovers:
-            assert _parse_z(window_end) - _parse_z(window_start) == timedelta(minutes=SAMPLER_WINDOW_MINUTES)
-            assert sampler_discovery_inputs == [
-                TeamDiscoveryInput(window_start=window_start, window_end=window_end, trigger_events=["$ai_evaluation"])
-            ]
-        else:
-            assert (window_start, window_end) == (inputs.window_start, inputs.window_end)
-            assert sampler_discovery_inputs == []
+        assert _parse_z(window_end) - _parse_z(window_start) == timedelta(minutes=SAMPLER_WINDOW_MINUTES)
+        assert sampler_discovery_inputs == [
+            TeamDiscoveryInput(window_start=window_start, window_end=window_end, trigger_events=["$ai_evaluation"])
+        ]
 
 
 class TestClusteringWorkflowWiring:
