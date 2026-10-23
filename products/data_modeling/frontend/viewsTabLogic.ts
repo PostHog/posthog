@@ -374,6 +374,11 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             actions.loadDataWarehouseSavedQueries()
         },
         loadDataWarehouseSavedQueriesSuccess: () => {
+            const lastPage = Math.max(1, Math.ceil(values.filteredViews.length / PAGE_SIZE))
+            if (values.currentPage > lastPage) {
+                actions.setPage(lastPage)
+                return
+            }
             actions.loadVisibleData()
         },
         setPage: () => {

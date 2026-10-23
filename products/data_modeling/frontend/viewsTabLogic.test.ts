@@ -100,6 +100,35 @@ describe('viewsTabLogic', () => {
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual([viewId])
     })
 
+    it.each([
+        ['a materialize', 'view' as const, false],
+        ['an unmaterialize', 'materialized' as const, true],
+    ])(
+        'moves back to the last page when %s empties the filtered page',
+        async (_kind, typeFilter, startsMaterialized) => {
+            const views = Array.from({ length: PAGE_SIZE + 1 }, (_, i) => buildView(`v-${i}`, startsMaterialized))
+            useMocks({
+                get: { '/api/projects/:team_id/warehouse_saved_queries/': { count: views.length, results: views } },
+            })
+            dataWarehouseViewsLogic.actions.loadDataWarehouseSavedQueries()
+            await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+            logic.actions.setTypeFilter(typeFilter)
+            logic.actions.setPage(2)
+            const flipped = views.map((view, i) => (i === PAGE_SIZE ? buildView(`v-${i}`, !startsMaterialized) : view))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/warehouse_saved_queries/': { count: flipped.length, results: flipped },
+                },
+            })
+
+            logic.actions.suggestionAccepted(`v-${PAGE_SIZE}`, !startsMaterialized)
+            await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+
+            expect(logic.values.currentPage).toEqual(1)
+            expect(logic.values.visibleViews).toHaveLength(PAGE_SIZE)
+        }
+    )
+
     it('keeps polling an accepted materialize until the view reports it is materialized', async () => {
         logic.actions.suggestionAccepted('plain-a', true)
         await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
