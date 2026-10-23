@@ -137,6 +137,7 @@ describe('runningTimeLogic', () => {
 
             expect(runningTimeTargetMock).toHaveBeenCalledWith(expect.any(String), EXPERIMENT_ID, {
                 minimum_detectable_effect: 30,
+                mode: 'automatic',
             })
             // Without the version handshake this write bumps the server version invisibly,
             // making every later scalar save from any open tab a guaranteed 409.
@@ -196,6 +197,22 @@ describe('runningTimeLogic', () => {
     })
 
     describe('automatic target', () => {
+        it('counts the exposures the backend sizes the target over', async () => {
+            // The results hold 1,200 exposures. The backend counts 1,100, because one variant is at 0%.
+            runningTimeTargetMock.mockResolvedValue({
+                recommended_sample_size: 2000,
+                minimum_detectable_effect: 30,
+                current_sample_size: 1100,
+            })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+
+            expect(logic.values.currentExposures).toEqual(1100)
+        })
+
         it('asks again when the metric sums change without new exposures', async () => {
             runningTimeTargetMock.mockResolvedValue({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
             api.update.mockResolvedValue({ ...experiment, version: 4 })

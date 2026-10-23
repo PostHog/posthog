@@ -22,6 +22,7 @@ from posthog.schema import (
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.facade.contracts import RunningTimeMode
 from products.experiments.backend.hogql_queries.utils import (
     FrequentistSettings,
     metric_variant_to_cuped_data,
@@ -68,6 +69,9 @@ class RunningTimeTarget:
     # The exposures across the analyzed variants that the experiment needs. None when there is no stored result yet,
     # or the result can't size a target.
     recommended_sample_size: int | None
+    # The exposures so far that count toward the target: the control's and those of the variants that get traffic.
+    # None in manual mode, whose saved target counts every variant, and when no stored result can size the target.
+    current_sample_size: int | None = None
     # By variant key. Empty when no stored result was read, or it can't size a target.
     variances: Mapping[str, ComparisonVariance] = field(default_factory=dict)
     # The level the analysis tests at, which sizes the target.
@@ -79,14 +83,20 @@ class _Comparison:
     # The variant's share of the exposures across the analyzed variants.
     share: float
     variance: ComparisonVariance
+    samples: int
 
 
 @frozen
 class _Sizing:
     baseline_value: float
     control_share: float
+    control_samples: int
     comparisons: Mapping[str, _Comparison]
     confidence_level: float
+
+    @property
+    def samples(self) -> int:
+        return self.control_samples + sum(comparison.samples for comparison in self.comparisons.values())
 
     def sample_size(self, minimum_detectable_effect: float) -> int | None:
         difference = minimum_detectable_effect / 100 * self.baseline_value
@@ -110,15 +120,16 @@ class _Sizing:
 
 
 def load_running_time_target(
-    experiment: Experiment, *, minimum_detectable_effect: float | None = None
+    experiment: Experiment, *, minimum_detectable_effect: float | None = None, mode: RunningTimeMode | None = None
 ) -> RunningTimeTarget:
-    """The target of the experiment's running time estimate. `minimum_detectable_effect` replaces the saved one, so
-    that the page can show the target for an effect the user is still editing."""
+    """The target of the experiment's running time estimate. `minimum_detectable_effect` and `mode` replace the saved
+    ones, so that the page can show the target for settings the user is still editing."""
     team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
     calculation_config = next(iter(build_primary_calculation_configs(experiment, team_config=team_config)), None)
+    manual = _is_manual(experiment, mode)
     response = (
         MetricResultStore(experiment_id=experiment.id).current_response(calculation_config)
-        if calculation_config is not None and not is_manual_running_time(experiment)
+        if calculation_config is not None and not manual
         else None
     )
     return running_time_target(
@@ -127,6 +138,7 @@ def load_running_time_target(
         calculation_config=calculation_config,
         response=response,
         minimum_detectable_effect=minimum_detectable_effect,
+        mode=mode,
     )
 
 
@@ -137,6 +149,7 @@ def running_time_target(
     calculation_config: MetricCalculationConfig | None,
     response: ExperimentQueryResponse | None,
     minimum_detectable_effect: float | None = None,
+    mode: RunningTimeMode | None = None,
 ) -> RunningTimeTarget:
     """The target from the first primary metric's `calculation_config` and its current stored `response`, for a
     caller that has loaded them already."""
@@ -149,7 +162,7 @@ def running_time_target(
         else None
     )
     variances = {key: comparison.variance for key, comparison in sizing.comparisons.items()} if sizing else {}
-    if is_manual_running_time(experiment):
+    if _is_manual(experiment, mode):
         # The saved target was sized for the saved effect, so an effect the user is editing does not apply to it.
         return RunningTimeTarget(
             minimum_detectable_effect=planned,
@@ -161,6 +174,7 @@ def running_time_target(
     return RunningTimeTarget(
         minimum_detectable_effect=effect,
         recommended_sample_size=sizing.sample_size(effect) if sizing else None,
+        current_sample_size=sizing.samples if sizing else None,
         variances=variances,
         confidence_level=confidence_level,
     )
@@ -194,7 +208,9 @@ def _sizing(
         control = metric_variant_to_statistic(metric, baseline)
         comparisons = {
             variant.key: _Comparison(
-                share=shares[variant.key], variance=_comparison_variance(metric, control, baseline, variant)
+                share=shares[variant.key],
+                variance=_comparison_variance(metric, control, baseline, variant),
+                samples=variant.number_of_samples,
             )
             for variant in variant_results
             if variant.key in shares
@@ -204,6 +220,7 @@ def _sizing(
     return _Sizing(
         baseline_value=_value(control),
         control_share=shares[baseline.key],
+        control_samples=baseline.number_of_samples,
         comparisons=comparisons,
         confidence_level=confidence_level,
     )
@@ -222,9 +239,14 @@ def planned_minimum_detectable_effect(experiment: Experiment, team_config: TeamE
 
 
 def is_manual_running_time(experiment: Experiment) -> bool:
-    # pinned: the page's `ConversionRateInputType.MANUAL` in frontend/src/types.ts, read by `runningTimeLogic`.
     estimate_config = _running_time_calculation(experiment).get("exposure_estimate_config")
-    return isinstance(estimate_config, dict) and estimate_config.get("conversionRateInputType") == "manual"
+    return (
+        isinstance(estimate_config, dict) and estimate_config.get("conversionRateInputType") == RunningTimeMode.MANUAL
+    )
+
+
+def _is_manual(experiment: Experiment, mode: RunningTimeMode | None) -> bool:
+    return mode == RunningTimeMode.MANUAL if mode is not None else is_manual_running_time(experiment)
 
 
 def _saved_sample_size(experiment: Experiment) -> int | None:

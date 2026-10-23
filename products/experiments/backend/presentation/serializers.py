@@ -54,6 +54,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     HealthExposureInputsStatus,
+    RunningTimeMode,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
@@ -1869,6 +1870,15 @@ class RunningTimeTargetQuerySerializer(serializers.Serializer):
         ),
     )
 
+    mode = serializers.ChoiceField(
+        required=False,
+        choices=RunningTimeMode.choices,
+        help_text=(
+            "The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes "
+            "it from the results, also for an experiment saved in manual mode."
+        ),
+    )
+
     def validate_minimum_detectable_effect(self, value: float) -> float:
         # FloatField accepts "nan" and "inf", and neither sizes a sample.
         if not math.isfinite(value) or value <= 0:
@@ -1889,6 +1899,13 @@ class RunningTimeTargetSerializer(serializers.Serializer):
             "can detect the minimum detectable effect at 95% confidence and 80% power. In manual running time mode, "
             "the saved target. Otherwise sized from the first primary metric's current result, with the variance the "
             "analysis uses and the flag's traffic split. Null when no result can size it yet."
+        ),
+    )
+    current_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures so far that count toward the target: the control's and those of the variants that get "
+            "traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target."
         ),
     )
 

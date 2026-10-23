@@ -34,6 +34,7 @@ from .contracts import (
     ExperimentHealth,
     ExperimentHealthReaderAccess,
     ExperimentRunningTimeTarget,
+    RunningTimeMode,
 )
 
 
@@ -156,15 +157,20 @@ def get_experiment_health_inputs(
 
 
 def get_running_time_target(
-    *, team_id: int, experiment_id: int, minimum_detectable_effect: float | None = None
+    *,
+    team_id: int,
+    experiment_id: int,
+    minimum_detectable_effect: float | None = None,
+    mode: RunningTimeMode | None = None,
 ) -> ExperimentRunningTimeTarget:
-    """The target sample of the experiment's running time estimate. `minimum_detectable_effect` replaces the saved
-    one, so that the page can show the target for an effect the user is still editing."""
+    """The target sample of the experiment's running time estimate. `minimum_detectable_effect` and `mode` replace the
+    saved ones, so that the page can show the target for settings the user is still editing."""
     experiment = ExperimentModel.objects.select_related("feature_flag").get(team_id=team_id, id=experiment_id)
-    target = load_running_time_target(experiment, minimum_detectable_effect=minimum_detectable_effect)
+    target = load_running_time_target(experiment, minimum_detectable_effect=minimum_detectable_effect, mode=mode)
     return ExperimentRunningTimeTarget(
         minimum_detectable_effect=target.minimum_detectable_effect,
         recommended_sample_size=target.recommended_sample_size,
+        current_sample_size=target.current_sample_size,
     )
 
 

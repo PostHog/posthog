@@ -85,7 +85,7 @@ from products.experiments.backend.facade.api import (
     get_experiment_health_inputs,
     get_running_time_target,
 )
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess, RunningTimeMode
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -1700,6 +1700,7 @@ class EnterpriseExperimentsViewSet(
             team_id=self.team.id,
             experiment_id=experiment.id,
             minimum_detectable_effect=request.validated_query_data.get("minimum_detectable_effect"),
+            mode=RunningTimeMode(mode) if (mode := request.validated_query_data.get("mode")) else None,
         )
         return Response(RunningTimeTargetSerializer(target).data)
 

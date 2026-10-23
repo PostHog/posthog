@@ -8979,9 +8979,17 @@ class TestExperimentExcludedVariants(_HoistFlagConfigClientMixin, APILicensedTes
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+MANUAL = {"exposure_estimate_config": {"conversionRateInputType": "manual"}, "recommended_sample_size": 5000}
+
+
 class TestRunningTimeTargetEndpoint(APILicensedTest):
     def _experiment(
-        self, running_time_calculation: dict[str, Any], *, with_result: bool = True, stats_config: dict | None = None
+        self,
+        running_time_calculation: dict[str, Any],
+        *,
+        with_result: bool = True,
+        stats_config: dict | None = None,
+        paused_variant_samples: int | None = None,
     ) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -8993,6 +9001,7 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
                     "variants": [
                         {"key": "control", "rollout_percentage": 80},
                         {"key": "test", "rollout_percentage": 20},
+                        *([{"key": "paused", "rollout_percentage": 0}] if paused_variant_samples else []),
                     ]
                 },
             },
@@ -9026,51 +9035,61 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
                 status=ExperimentMetricResult.Status.COMPLETED,
                 result={
                     "baseline": {"key": "control", **spread},
-                    "variant_results": [{"key": "test", "method": "bayesian", **spread}],
+                    "variant_results": [
+                        {"key": "test", "method": "bayesian", **spread},
+                        *(
+                            [
+                                {
+                                    "key": "paused",
+                                    "method": "bayesian",
+                                    "number_of_samples": paused_variant_samples,
+                                    "sum": paused_variant_samples,
+                                    "sum_squares": 26 * paused_variant_samples,
+                                }
+                            ]
+                            if paused_variant_samples
+                            else []
+                        ),
+                    ],
                 },
             )
         return experiment
 
     @parameterized.expand(
         [
-            ("sized_from_the_result_and_the_split", {}, True, "", 30, 13903),
-            ("for_an_effect_being_edited", {}, True, "?minimum_detectable_effect=60", 60, 3476),
-            ("no_result_yet", {}, False, "", 30, None),
-            (
-                "manual_mode_keeps_the_saved_target",
-                {"exposure_estimate_config": {"conversionRateInputType": "manual"}, "recommended_sample_size": 5000},
-                True,
-                "",
-                30,
-                5000,
-            ),
-            (
-                "manual_mode_keeps_the_saved_effect",
-                {"exposure_estimate_config": {"conversionRateInputType": "manual"}, "recommended_sample_size": 5000},
-                True,
-                "?minimum_detectable_effect=60",
-                30,
-                5000,
-            ),
+            ("sized_from_the_result_and_the_split", {}, {}, "", (30, 13903, 2000)),
+            ("for_an_effect_being_edited", {}, {}, "?minimum_detectable_effect=60", (60, 3476, 2000)),
+            ("no_result_yet", {}, {"with_result": False}, "", (30, None, None)),
+            ("a_paused_variant_counts_toward_nothing", {}, {"paused_variant_samples": 300}, "", (30, 13903, 2000)),
+            ("manual_mode_keeps_the_saved_target", MANUAL, {}, "", (30, 5000, None)),
+            ("manual_mode_keeps_the_saved_effect", MANUAL, {}, "?minimum_detectable_effect=60", (30, 5000, None)),
+            ("manual_experiment_sized_from_the_results_on_request", MANUAL, {}, "?mode=automatic", (30, 13903, 2000)),
         ]
     )
     def test_returns_the_target_the_header_compares(
         self,
         _name: str,
         running_time_calculation: dict[str, Any],
-        with_result: bool,
+        setup: dict[str, Any],
         query: str,
-        effect: int,
-        sample_size: int | None,
+        expected: tuple[int, int | None, int | None],
     ) -> None:
-        experiment = self._experiment(running_time_calculation, with_result=with_result)
+        experiment = self._experiment(running_time_calculation, **setup)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/{query}"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json(), {"minimum_detectable_effect": effect, "recommended_sample_size": sample_size})
+        effect, sample_size, current = expected
+        self.assertEqual(
+            response.json(),
+            {
+                "minimum_detectable_effect": effect,
+                "recommended_sample_size": sample_size,
+                "current_sample_size": current,
+            },
+        )
 
     @parameterized.expand(
         [

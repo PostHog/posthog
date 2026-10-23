@@ -46,6 +46,7 @@ def _context(
     *,
     baseline: tuple[int, int] = (1000, 100),
     planned_samples: int | None = 3201,
+    current_samples: int | None = None,
     variances: dict[str, ComparisonVariance] | None = None,
     **changes: Any,
 ) -> HealthContext:
@@ -72,7 +73,10 @@ def _context(
         name="Checkout",
         is_funnel=True,
         target=RunningTimeTarget(
-            minimum_detectable_effect=30, recommended_sample_size=planned_samples, variances=variances or {}
+            minimum_detectable_effect=30,
+            recommended_sample_size=planned_samples,
+            current_sample_size=current_samples,
+            variances=variances or {},
         ),
         result=result,
     )
@@ -92,6 +96,13 @@ class TestEarlySignificance(TestCase):
             ("analysis_stopped", _context([("test", 1000, 0.2, None)]), None),
             ("sample_reached_the_plan", _context([("test", 1000, 0.2, True)], planned_samples=2000), None),
             ("no_planned_sample", _context([("test", 1000, 0.2, True)], planned_samples=None), None),
+            (
+                "a_paused_variant_counts_toward_nothing",
+                _context(
+                    [("test", 1000, 0.2, True), ("paused", 500, 0.0, None)], planned_samples=2400, current_samples=2000
+                ),
+                "test",
+            ),
             (
                 "detectable_with_the_targets_variances",
                 _context(

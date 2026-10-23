@@ -102774,6 +102774,11 @@ export namespace Schemas {
          * @nullable
          */
       recommended_sample_size: number | null;
+      /**
+         * Exposures so far that count toward the target: the control's and those of the variants that get traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target.
+         * @nullable
+         */
+      current_sample_size: number | null;
     }
 
     /**
@@ -130105,7 +130110,23 @@ export namespace Schemas {
      * @minimum 0
      */
     minimum_detectable_effect?: number;
+    /**
+     * The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes it from the results, also for an experiment saved in manual mode.
+     *
+     * * `automatic` - Sized from the results
+     * * `manual` - Saved from a baseline the user entered
+     * @minLength 1
+     */
+    mode?: ExperimentsRunningTimeTargetRetrieveMode;
     };
+
+    export type ExperimentsRunningTimeTargetRetrieveMode = typeof ExperimentsRunningTimeTargetRetrieveMode[keyof typeof ExperimentsRunningTimeTargetRetrieveMode];
+
+
+    export const ExperimentsRunningTimeTargetRetrieveMode = {
+      Automatic: 'automatic',
+      Manual: 'manual',
+    } as const;
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**

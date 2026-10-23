@@ -69,6 +69,8 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
     planned_samples = metric.target.recommended_sample_size
     # The running time estimate's "Target reached" compares the same total, so the note and the estimate agree.
+    if metric.target.current_sample_size is not None:
+        samples = metric.target.current_sample_size
     if planned_samples is None or samples >= planned_samples:
         return None
     below_detectable = [

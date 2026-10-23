@@ -179,7 +179,11 @@ export interface runningTimeLogicMeta {
             primaryMetricsResults: CachedNewExperimentQueryResponse[],
             primaryMetricsResultsErrors: unknown[]
         ) => MetricWithResult[]
-        currentExposures: (metricsWithResults: MetricWithResult[]) => number | null
+        currentExposures: (
+            isManualMode: boolean,
+            metricsWithResults: MetricWithResult[],
+            automaticCalculation: RunningTimeTargetApi | null
+        ) => number | null
         automaticCalculationInput: (
             mode: 'automatic' | 'manual',
             metricsWithResults: MetricWithResult[],
@@ -295,7 +299,8 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     const result = await experimentsRunningTimeTargetRetrieve(
                         String(values.currentProjectId),
                         experimentId,
-                        { minimum_detectable_effect: request.minimumDetectableEffect }
+                        // Sized from the results also while a manual experiment is being switched to automatic.
+                        { minimum_detectable_effect: request.minimumDetectableEffect, mode: 'automatic' }
                     )
                     breakpoint()
                     return result
@@ -377,16 +382,24 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         ],
 
         currentExposures: [
-            (s) => [s.metricsWithResults],
+            (s) => [s.isManualMode, s.metricsWithResults, s.automaticCalculation],
             (
+                isManualMode: boolean,
                 results: {
                     displayIndex: number
                     error: any
                     metric: import('../../../queries/schema').ExperimentMetricUnion
                     metricIndex: number
                     result: any
-                }[]
-            ): number | null => calculateCurrentExposures(results?.[0]?.result ?? null),
+                }[],
+                automaticCalculation: RunningTimeTargetApi | null
+            ): number | null => {
+                // The backend counts the exposures the automatic target sizes, so a variant at 0% does not count.
+                if (!isManualMode && automaticCalculation?.current_sample_size != null) {
+                    return automaticCalculation.current_sample_size
+                }
+                return calculateCurrentExposures(results?.[0]?.result ?? null)
+            },
         ],
 
         // Request for the automatic-mode target, or null when not applicable (manual mode / no results yet).
