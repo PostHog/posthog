@@ -11,7 +11,7 @@ import numpy as np
 
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, IntervalType, TrendsQuery
 
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import INSIGHT_QUERY_FANOUT_CONCURRENCY, HogQLGlobalSettings, LimitContext
 
 from posthog.api.services.query import ExecutionMode
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -45,8 +45,10 @@ _MAX_SMOOTHING_BUCKETS = 90
 _DATE_UNITS = {IntervalType.HOUR: "h", IntervalType.DAY: "d", IntervalType.WEEK: "w", IntervalType.MONTH: "m"}
 
 # The scoring query runs as background work, so it gets more time than a chart query and fewer threads.
-# A timeout must throw: a partial result cuts off the end of the series, and that end scores as a drop.
-SCORING_QUERY_SETTINGS = HogQLGlobalSettings(max_execution_time=150, max_threads=8, timeout_overflow_mode="throw")
+_MAX_QUERY_SECONDS = 150
+# Trends runs one query per series in a pool of INSIGHT_QUERY_FANOUT_CONCURRENCY threads, so more series run in waves.
+# All the waves of one insight share this budget. The insight activity then has time to classify a timeout.
+SCORING_QUERY_BUDGET_SECONDS = 210
 
 
 class UnsupportedInsightError(Exception):
@@ -202,6 +204,17 @@ def build_scoring_query(query: TrendsQuery, buckets: int, limits: ScoringLimits 
     return query.model_copy(update=update)
 
 
+def scoring_query_settings(queries: int) -> HogQLGlobalSettings:
+    """Settings for each of the ``queries`` queries of one insight, so that all of them stop within the shared budget."""
+    waves = max(1, math.ceil(queries / INSIGHT_QUERY_FANOUT_CONCURRENCY))
+    return HogQLGlobalSettings(
+        max_execution_time=min(_MAX_QUERY_SECONDS, SCORING_QUERY_BUDGET_SECONDS // waves),
+        max_threads=8,
+        # A timeout must throw: a partial result cuts off the end of the series, and that end scores as a drop.
+        timeout_overflow_mode="throw",
+    )
+
+
 def score_series(
     values: Sequence[float],
     buckets: Sequence[datetime],
@@ -264,12 +277,13 @@ def score_insight(
         team=team,
         # No request user. Run as the insight's creator so warehouse access control resolves for them.
         user=insight.created_by,
-        # The async context raises the timeout above SCORING_QUERY_SETTINGS. One slow insight must not hold a tick.
+        # The async context raises the timeout above scoring_query_settings. One slow insight must not hold a tick.
         limit_context=LimitContext.QUERY,
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.DEFAULT,
-        hogql_settings=SCORING_QUERY_SETTINGS,
     )
+    # The runner expands breakdown cohorts and compare periods into the series, so its count is the query count.
+    runner.hogql_settings = scoring_query_settings(len(runner.series))
     response = runner.run(
         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         insight_id=insight.pk,

@@ -49,7 +49,11 @@ from products.signals.backend.anomaly_scores.queue import (
     mark_attempted,
     select_insights,
 )
-from products.signals.backend.anomaly_scores.scoring import UnsupportedInsightError, score_insight
+from products.signals.backend.anomaly_scores.scoring import (
+    SCORING_QUERY_BUDGET_SECONDS,
+    UnsupportedInsightError,
+    score_insight,
+)
 from products.signals.backend.anomaly_scores.selection import parse_selection_config
 
 logger = structlog.get_logger(__name__)
@@ -69,8 +73,9 @@ STATUS_ACCESS_DENIED = "access_denied"
 STATUS_ERRORED = "errored"
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=2)
-# The scoring query times out at 150 seconds. The rest is detection and the capture request.
-_INSIGHT_TIMEOUT = datetime.timedelta(minutes=5)
+# All the scoring queries of one insight stop within their budget. The rest is detection, the capture request,
+# and the failure classification. A query timeout must reach the classification, so that it gets the 1 day cooldown.
+_INSIGHT_TIMEOUT = datetime.timedelta(seconds=SCORING_QUERY_BUDGET_SECONDS) + datetime.timedelta(seconds=90)
 _INSIGHT_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 _CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
 # No batch of insights starts after this time. The picks that are left wait for a later tick.
