@@ -184,6 +184,16 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
     )
 
 
+def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
+    """Whether the tick scores this team's insights. The event quota check of `queue.eligible_teams` is left out."""
+    return (
+        config.enabled
+        and str(team.organization_id) in config.organization_ids
+        and team.id not in config.skip_team_ids
+        and (not config.allow_team_ids or team.id in config.allow_team_ids)
+    )
+
+
 def read_payload() -> dict | None:
     return read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID)
 
