@@ -13,7 +13,7 @@ import { OVERVIEW_DATE_OPTIONS, evaluationsOverviewLogic } from './evaluationsOv
 
 export function EvaluationsOverview(): JSX.Element {
     const { dateFilter, request, overviewFailure, selectedDirectory } = useValues(evaluationsOverviewLogic)
-    const { setDates, selectDirectory, loadOverview } = useActions(evaluationsOverviewLogic)
+    const { setDates, selectDirectory, retryOverview } = useActions(evaluationsOverviewLogic)
 
     return (
         <div className="@container flex flex-col gap-4">
@@ -47,7 +47,7 @@ export function EvaluationsOverview(): JSX.Element {
                     type={overviewFailure === 'rate_limited' ? 'warning' : 'error'}
                     action={{
                         children: 'Try again',
-                        onClick: () => loadOverview(),
+                        onClick: () => retryOverview(),
                         'data-attr': 'evaluation-overview-retry',
                     }}
                 >

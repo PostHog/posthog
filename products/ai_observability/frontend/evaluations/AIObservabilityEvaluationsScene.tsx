@@ -170,6 +170,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         evaluations,
         displayedEvaluations,
         evaluationsLoading,
+        evaluationsLoadFailed,
         evaluationsFilter,
         showDisabledEvaluations,
         dateFilter,
@@ -580,7 +581,9 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         },
     ]
 
+    // A failed list is not an empty project. The overview still loads, and in a directory it shows a retry.
     const showEmptyState =
+        !(overviewEnabled && evaluationsLoadFailed) &&
         !evaluationsLoading &&
         !evaluationDirectoriesLoading &&
         evaluations.length === 0 &&

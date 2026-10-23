@@ -1,12 +1,13 @@
+import { useValues } from 'kea'
+
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
 import type { ResultChangeApi } from '../../generated/api.schemas'
 import { compactHeadline, formatPercent, formatPoints, resultHeadline } from './evaluationOverviewDisplay'
-import type { RankedRow } from './evaluationsOverviewLogic'
+import { type RankedRow, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 function formatChange(change: ResultChangeApi): string {
     return change.unit === 'pp'
@@ -26,6 +27,7 @@ export function EvaluationRankedBars({
     /** Draw on 0-100% instead of zooming in, for results with no shared meaning to compare closely. */
     fullScale?: boolean
 }): JSX.Element {
+    const { evaluationUrl } = useValues(evaluationsOverviewLogic)
     // Worst first, with results too sparse to rely on kept at the bottom and out of the scale.
     const sorted = [...items].sort((a, b) => Number(a.row.lowEvidence) - Number(b.row.lowEvidence) || a.rate - b.rate)
     const lowest = Math.min(100, ...sorted.filter((item) => !item.row.lowEvidence).map((item) => item.rate))
@@ -65,7 +67,7 @@ export function EvaluationRankedBars({
                         }
                     >
                         <Link
-                            to={urls.aiObservabilityEvaluation(row.id)}
+                            to={evaluationUrl(row.id)}
                             subtle
                             className="flex items-center gap-3 py-1 rounded text-primary hover:bg-surface-secondary"
                             data-attr="evaluation-overview-ranked-bar"

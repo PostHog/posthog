@@ -4,7 +4,6 @@ import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { compactHeadline, describeAttention, isChartable, lastResultDay } from './evaluationOverviewDisplay'
@@ -40,11 +39,11 @@ export function EvaluationCompareItem({
     color: string | undefined
     onToggle: () => void
 }): JSX.Element {
-    const { timezone } = useValues(evaluationsOverviewLogic)
+    const { timezone, evaluationUrl: urlOf } = useValues(evaluationsOverviewLogic)
     // Without a line to draw, the row opens the evaluation instead.
     const chartable = isChartable(row)
     const [reason] = row.attentionReasons
-    const evaluationUrl = urls.aiObservabilityEvaluation(row.id)
+    const evaluationUrl = urlOf(row.id)
     return (
         <li className="flex items-center gap-1">
             <LemonButton

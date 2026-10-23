@@ -3,15 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonDrawer } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import { EvaluationResultExpanded } from './EvaluationResultExpanded'
+import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 /** One evaluation's results in a drawer, so the table keeps its place. */
 export function EvaluationResultDrawer(): JSX.Element {
     const { openRow } = useValues(evaluationResultDrawerLogic)
     const { closeDrawer } = useActions(evaluationResultDrawerLogic)
+    const { evaluationUrl } = useValues(evaluationsOverviewLogic)
 
     return (
         <LemonDrawer
@@ -29,7 +29,7 @@ export function EvaluationResultDrawer(): JSX.Element {
                             type="secondary"
                             size="small"
                             sideIcon={<IconArrowRight />}
-                            to={urls.aiObservabilityEvaluation(openRow.id)}
+                            to={evaluationUrl(openRow.id)}
                             data-attr="evaluation-overview-drawer-open"
                         >
                             Open evaluation

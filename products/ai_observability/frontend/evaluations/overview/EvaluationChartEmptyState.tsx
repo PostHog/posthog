@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { IconPlay, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -7,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
+import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 // Placeholder lines in chart coordinates. They hint at what the chart will show, without real data.
 const GHOST_LINES = [
@@ -16,6 +19,7 @@ const GHOST_LINES = [
 ]
 
 export function EvaluationChartEmptyState({ pausedRows }: { pausedRows: EvaluationResultApi[] }): JSX.Element {
+    const { evaluationUrl } = useValues(evaluationsOverviewLogic)
     // A single paused evaluation is the obvious one to resume. With several, the list below lets people choose.
     const onlyPaused = pausedRows.length === 1 ? pausedRows[0] : null
     return (
@@ -53,7 +57,7 @@ export function EvaluationChartEmptyState({ pausedRows }: { pausedRows: Evaluati
                             <LemonButton
                                 type="primary"
                                 icon={<IconPlay />}
-                                to={urls.aiObservabilityEvaluation(onlyPaused.id)}
+                                to={evaluationUrl(onlyPaused.id)}
                                 data-attr="evaluation-overview-empty-resume"
                             >
                                 Turn it back on

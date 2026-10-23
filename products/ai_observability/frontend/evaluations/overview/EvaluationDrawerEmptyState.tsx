@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconCalendar, IconGear, IconClockRewind, IconPlay } from '@posthog/icons'
@@ -24,13 +23,9 @@ const HedgehogSearching = pngHoggie(magnifyingGlassPng)
 const WIDER_RANGE = '-30d'
 const WIDER_RANGE_DAYS = 30
 
-function evaluationTabUrl(id: string, tab: 'configuration' | 'backfills'): string {
-    return combineUrl(urls.aiObservabilityEvaluation(id), { evaluation_tab: tab }).url
-}
-
 /** What the drawer shows when an evaluation graded nothing in the range, with the next steps for its state. */
 export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }): JSX.Element {
-    const { configById, togglingIds, interval, periodLength } = useValues(evaluationsOverviewLogic)
+    const { configById, togglingIds, interval, periodLength, evaluationUrl } = useValues(evaluationsOverviewLogic)
     const { canEnableEvaluation } = useValues(llmEvaluationsLogic)
     const { toggleEvaluationEnabled, setDates } = useActions(llmEvaluationsLogic)
     const { trackEmptyStateAction } = useActions(evaluationResultDrawerLogic)
@@ -56,7 +51,7 @@ export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }
         <LemonButton
             type="secondary"
             icon={<IconClockRewind />}
-            to={evaluationTabUrl(row.id, 'backfills')}
+            to={evaluationUrl(row.id, { evaluation_tab: 'backfills' })}
             onClick={() => trackEmptyStateAction('run_on_past_data', state)}
             disabledReason={editorReason}
             data-attr="evaluation-overview-drawer-empty-backfill"
@@ -86,7 +81,7 @@ export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }
                         ) : (
                             <LemonButton
                                 type="primary"
-                                to={evaluationTabUrl(row.id, 'configuration')}
+                                to={evaluationUrl(row.id, { evaluation_tab: 'configuration' })}
                                 onClick={() => trackEmptyStateAction('fix_evaluation', state)}
                                 disabledReason={editorReason}
                                 data-attr="evaluation-overview-drawer-empty-fix"
@@ -96,7 +91,7 @@ export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }
                         )}
                         <LemonButton
                             type="secondary"
-                            to={urls.aiObservabilityEvaluation(row.id)}
+                            to={evaluationUrl(row.id)}
                             onClick={() => trackEmptyStateAction('open_evaluation', state)}
                             data-attr="evaluation-overview-drawer-empty-open"
                         >
@@ -131,7 +126,7 @@ export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }
                     <>
                         <LemonButton
                             type="primary"
-                            to={evaluationTabUrl(row.id, 'configuration')}
+                            to={evaluationUrl(row.id, { evaluation_tab: 'configuration' })}
                             onClick={() => trackEmptyStateAction('check_triggers', state)}
                             data-attr="evaluation-overview-drawer-empty-triggers"
                         >

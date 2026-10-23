@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { EvaluationCategoryShares } from './EvaluationCategoryShares'
@@ -36,7 +35,7 @@ function Card({
 }
 
 export function EvaluationResultExpanded({ row }: { row: EvaluationResultApi }): JSX.Element {
-    const { configById, timezone } = useValues(evaluationsOverviewLogic)
+    const { configById, timezone, evaluationUrl } = useValues(evaluationsOverviewLogic)
     const { openDetails } = useValues(evaluationResultDrawerLogic)
     const { summary } = row
     const errored = row.attentionReasons.includes('errored')
@@ -46,7 +45,7 @@ export function EvaluationResultExpanded({ row }: { row: EvaluationResultApi }):
     const notice = errored ? (
         <LemonBanner type="error">
             <span>{`${describeAttention(row, timezone)}. `}</span>
-            <Link to={urls.aiObservabilityEvaluation(row.id)}>Open the evaluation to fix it.</Link>
+            <Link to={evaluationUrl(row.id)}>Open the evaluation to fix it.</Link>
         </LemonBanner>
     ) : !enabled ? (
         <EvaluationPausedNotice row={row} />

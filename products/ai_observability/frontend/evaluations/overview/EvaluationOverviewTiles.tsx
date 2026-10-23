@@ -116,7 +116,12 @@ export function EvaluationOverviewTiles(): JSX.Element {
                 goodDirection="up"
                 changeTooltip="Change in the median against the previous period, for evaluations with results in both"
                 restingSubtitle={counted.length === 1 ? counted[0].name : `Median of ${counted.length} evaluations`}
-                emptyMessage="No evaluation with a pass rate has results yet"
+                // Entries without a median all have too few graded results to count.
+                emptyMessage={
+                    passRates?.entries.length
+                        ? 'Too few graded results yet'
+                        : 'No evaluation with a pass rate has results yet'
+                }
                 selected={metric === 'pass_rate'}
                 onClick={() => selectCard('pass_rate')}
                 ariaLabel="Show pass rate over time"

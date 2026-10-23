@@ -4,7 +4,6 @@ import { IconEllipsis, IconFolder, IconPause, IconPencil, IconPlay, IconTrash, I
 import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -15,7 +14,7 @@ import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 export function EvaluationResultActions({ config }: { config: EvaluationConfig }): JSX.Element {
     const { evaluationDirectories, movingEvaluationId, canEnableEvaluation } = useValues(llmEvaluationsLogic)
     const { toggleEvaluationEnabled, moveEvaluation, deleteEvaluation } = useActions(llmEvaluationsLogic)
-    const { togglingIds } = useValues(evaluationsOverviewLogic)
+    const { togglingIds, evaluationUrl } = useValues(evaluationsOverviewLogic)
     const { trackTableAction } = useActions(evaluationsOverviewLogic)
     const editorReason = getAccessControlDisabledReason(
         AccessControlResourceType.Evaluation,
@@ -33,7 +32,7 @@ export function EvaluationResultActions({ config }: { config: EvaluationConfig }
                 size="small"
                 icon={<IconPencil />}
                 tooltip="Edit"
-                to={urls.aiObservabilityEvaluation(config.id)}
+                to={evaluationUrl(config.id)}
                 onClick={() => trackTableAction('edit')}
                 disabledReason={editorReason}
                 data-attr="evaluation-overview-table-edit"
@@ -46,7 +45,7 @@ export function EvaluationResultActions({ config }: { config: EvaluationConfig }
                                 ? {
                                       label: 'Open to fix',
                                       icon: <IconWarning />,
-                                      to: urls.aiObservabilityEvaluation(config.id),
+                                      to: evaluationUrl(config.id),
                                       'data-attr': 'evaluation-overview-table-fix',
                                   }
                                 : {

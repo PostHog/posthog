@@ -1,4 +1,6 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,7 +11,7 @@ import { initKeaTests } from '~/test/init'
 import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
-import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
+import { evaluationsOverviewLogic, markEvaluationsOverviewStale } from './evaluationsOverviewLogic'
 
 const EMPTY_OVERVIEW = {
     start: '2026-10-01T00:00:00+00:00',
@@ -81,6 +83,31 @@ const ROWS = [
     row('eval-d', 'numeric', { kind: 'score', score: { mean: 7, scale: null }, previousMean: null }),
     row('eval-e', 'categorical', { kind: 'categories', multiple: false, categories: [], noCategoriesCount: 0 }),
 ]
+const PASS_RATE = { kind: 'pass_rate', passed: 40, failed: 10, previous: null, score: null } as const
+const SENTIMENT = { kind: 'sentiment', positive: 10, neutral: 10, negative: 30, previousNegativeShare: 40 } as const
+const attentionRow = (
+    id: string,
+    reason: EvaluationResultApi['attentionReasons'][number] | null,
+    summary: EvaluationResultApi['summary'],
+    change: number | null
+): EvaluationResultApi => ({
+    ...row(id, 'boolean', summary),
+    gradedCount: reason === 'errored' || reason === 'silent' ? 0 : 50,
+    trend: { values: [50], volume: [50] },
+    change: change === null ? null : { value: change, unit: 'pp', subject: null },
+    attentionReasons: reason ? [reason] : [],
+})
+// A falling pass rate and a rising negative share are both worse, so the sentiment row is the worst regression.
+const ATTENTION_ROWS = [
+    attentionRow('healthy', null, PASS_RATE, 1),
+    attentionRow('silent', 'silent', PASS_RATE, null),
+    attentionRow('worse-5', 'worse', PASS_RATE, -5),
+    attentionRow('worse-sentiment', 'worse', SENTIMENT, 20),
+    attentionRow('worse-12', 'worse', PASS_RATE, -12),
+    attentionRow('worse-8', 'worse', PASS_RATE, -8),
+    attentionRow('errored', 'errored', PASS_RATE, null),
+]
+
 const HISTOGRAM = { scale: SCALE, buckets: [{ label: '7', count: 10 }] }
 
 const PERIOD = 'date_from=2026-10-01&date_to=2026-10-14'
@@ -277,6 +304,27 @@ describe('evaluationsOverviewLogic', () => {
             act: () => logic.actions.reloadOverview(),
             expected: [`${PERIOD}&refresh=true`],
         },
+        {
+            name: 'returning after a save in the editor skips the cache',
+            act: () => {
+                logic.unmount()
+                markEvaluationsOverviewStale()
+                logic.mount()
+            },
+            expected: [`${PERIOD}&refresh=true`],
+        },
+        {
+            name: 'browser back from a directory drops the picks made in it',
+            act: () => {
+                llmEvaluationsLogic.actions.selectDirectory('dir-1')
+                logic.actions.setPickedIds(['eval-c'])
+                router.actions.push(router.values.location.pathname, {
+                    ...router.values.searchParams,
+                    directory: undefined,
+                })
+            },
+            expected: [`${PERIOD}&evaluation_ids=eval-b,eval-c`, PERIOD],
+        },
     ])('$name', async ({ act, expected }) => {
         act()
         await expectLogic(logic).toFinishAllListeners()
@@ -340,6 +388,8 @@ describe('evaluationsOverviewLogic', () => {
         llmEvaluationsLogic.actions.selectDirectory('dir-1')
         await expectLogic(logic).toFinishAllListeners()
         requests = []
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        capture.mockClear()
 
         // The header Refresh reloads the list first, so the directory's evaluations are briefly unknown.
         llmEvaluationsLogic.actions.loadEvaluations()
@@ -351,11 +401,18 @@ describe('evaluationsOverviewLogic', () => {
             `${PERIOD}&evaluation_ids=eval-b,eval-c&refresh=true`,
         ])
         expect(logic.values.overview).not.toBeNull()
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation overview loaded')).toHaveLength(1)
     })
 
-    it('offers a retry when the list an open directory waits for fails to reload', async () => {
+    test.each([
+        { name: 'fails to reload', listFirst: true },
+        { name: 'fails on the first load', listFirst: false },
+    ])('offers a retry when the list an open directory waits for $name', async ({ listFirst }) => {
         llmEvaluationsLogic.actions.selectDirectory('dir-1')
         await expectLogic(logic).toFinishAllListeners()
+        if (!listFirst) {
+            llmEvaluationsLogic.actions.loadEvaluationsSuccess([])
+        }
         useMocks({ get: { '/api/projects/:teamId/evaluations/': () => [500, {}] } })
         requests = []
 
@@ -365,14 +422,56 @@ describe('evaluationsOverviewLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requests).toEqual([])
+        expect(logic.values.request.notice).toBeNull()
         expect(logic.values.overviewFailure).toEqual('failed')
 
-        logic.actions.loadOverview()
+        useMocks({
+            get: {
+                '/api/projects/:teamId/evaluations/': {
+                    count: 2,
+                    next: null,
+                    results: [evaluation('eval-b', 'dir-1'), evaluation('eval-c', 'dir-1')],
+                },
+            },
+        })
+        logic.actions.retryOverview()
+        await expectLogic(llmEvaluationsLogic).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requests.map((params) => decodeURIComponent(params.toString()))).toEqual([
             `${PERIOD}&evaluation_ids=eval-b,eval-c&refresh=true`,
         ])
+    })
+
+    test.each([
+        {
+            selector: 'tableRows' as const,
+            expected: ['errored', 'worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'silent', 'healthy'],
+        },
+        { selector: 'chartedIds' as const, expected: ['worse-sentiment', 'worse-12', 'worse-8'] },
+    ])('puts the worst regression first in $selector', async ({ selector, expected }) => {
+        useMocks({
+            get: {
+                '/api/projects/:teamId/evaluations/overview/': () => [
+                    200,
+                    { ...EMPTY_OVERVIEW, buckets: ['2026-10-01'], evaluations: ATTENTION_ROWS },
+                ],
+            },
+        })
+        logic.actions.reloadOverview()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const ids = logic.values[selector].map((item) => (typeof item === 'string' ? item : item.id))
+        expect(ids).toEqual(expected)
+    })
+
+    it('keeps the selected dates on links to an evaluation', async () => {
+        llmEvaluationsLogic.actions.setDates('-30d', null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.evaluationUrl('eval-a', { evaluation_tab: 'backfills' })).toContain(
+            'date_from=-30d&evaluation_tab=backfills'
+        )
     })
 
     it('moves a rolling period up to the present on reload', async () => {

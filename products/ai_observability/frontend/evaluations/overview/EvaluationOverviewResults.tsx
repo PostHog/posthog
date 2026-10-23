@@ -65,7 +65,7 @@ function ResultsBody(): JSX.Element {
                 {ranked.labels.length > 0 && (
                     <EvaluationRankedBars
                         labelHeader="Labels"
-                        valueHeader="Top label"
+                        valueHeader="Tracked label"
                         fullScale
                         items={ranked.labels}
                     />

@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
@@ -67,6 +67,17 @@ export const OVERVIEW_DATE_OPTIONS: DateMappingOption[] = dateMapping.filter((op
     const days = /^-(\d+)d$/.exec(value)?.[1]
     return value !== 'all' && !(days && Number(days) > OVERVIEW_MAX_DAYS)
 })
+
+/**
+ * Set when an evaluation changes outside the overview, such as a save in the editor. The backend caches overview
+ * results for a few minutes and its cache key does not change with an edit, so the next read skips that cache.
+ */
+let changedElsewhere = false
+
+export function markEvaluationsOverviewStale(): void {
+    changedElsewhere = true
+    evaluationsOverviewLogic.findMounted()?.actions.reloadOverview()
+}
 
 export interface OverviewPeriod {
     dateFrom: string
@@ -149,9 +160,18 @@ function attentionRank(row: EvaluationResultApi): number {
     return Math.min(Number.POSITIVE_INFINITY, ...row.attentionReasons.map((reason) => ATTENTION_ORDER[reason]))
 }
 
-/** Most urgent first: by reason, then the biggest drop within a reason. */
+/**
+ * How much worse a row got, larger is worse. A pass rate gets worse as it falls, and sentiment gets worse as its
+ * negative share rises.
+ */
+function worsening(row: EvaluationResultApi): number {
+    const change = row.change?.value ?? 0
+    return row.summary.kind === 'sentiment' ? change : -change
+}
+
+/** Most urgent first: by reason, then the biggest worsening within a reason. */
 function compareUrgency(a: EvaluationResultApi, b: EvaluationResultApi): number {
-    return attentionRank(a) - attentionRank(b) || (a.change?.value ?? 0) - (b.change?.value ?? 0)
+    return attentionRank(a) - attentionRank(b) || worsening(b) - worsening(a)
 }
 
 /** Rows that ask for attention first, most urgent first, then the rest as the backend sent them. */
@@ -172,7 +192,7 @@ function tableOrder(rows: EvaluationResultApi[]): EvaluationResultApi[] {
     return [...rows].sort(
         (a, b) =>
             group(a) - group(b) ||
-            (group(a) === ATTENTION_ORDER.worse ? (a.change?.value ?? 0) - (b.change?.value ?? 0) : 0) ||
+            (group(a) === ATTENTION_ORDER.worse ? worsening(b) - worsening(a) : 0) ||
             b.gradedCount - a.gradedCount
     )
 }
@@ -214,9 +234,11 @@ export interface evaluationsOverviewLogicValues {
     directoryEditor: EvaluationDirectoryEditor | null // llmEvaluationsLogic
     evaluationDirectories: EvaluationDirectoryApi[] // llmEvaluationsLogic
     evaluations: EvaluationConfig[] // llmEvaluationsLogic
+    evaluationsLoadFailed: boolean // llmEvaluationsLogic
     evaluationsSettled: boolean // llmEvaluationsLogic
     selectedDirectory: EvaluationDirectoryApi | null // llmEvaluationsLogic
     selectedDirectoryId: string | null // llmEvaluationsLogic
+    searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
     timezone: string // teamLogic
     weekStartDay: number // teamLogic
@@ -230,6 +252,7 @@ export interface evaluationsOverviewLogicValues {
     comparedIds: string[] | null
     configById: Map<string, EvaluationConfig>
     directoryTiles: DirectoryTile[]
+    evaluationUrl: (id: string, params?: Record<string, string>) => string
     exploreUrl: string | null
     few: boolean
     interval: BucketInterval
@@ -272,6 +295,9 @@ export interface evaluationsOverviewLogicActions {
     } // llmEvaluationsLogic
     deleteEvaluationSuccess: (id: string) => {
         id: string
+    } // llmEvaluationsLogic
+    loadEvaluations: () => {
+        value: true
     } // llmEvaluationsLogic
     loadEvaluationsFailure: () => {
         value: true
@@ -373,6 +399,12 @@ export interface evaluationsOverviewLogicActions {
     reloadOverview: () => {
         value: true
     }
+    resetPicks: () => {
+        value: true
+    }
+    retryOverview: () => {
+        value: true
+    }
     selectCard: (card: OverviewCard) => {
         card: OverviewCard
     }
@@ -424,6 +456,7 @@ export interface evaluationsOverviewLogicMeta {
             scopedIds: string[] | null,
             selectedDirectoryId: string | null,
             evaluationsSettled: boolean,
+            evaluationsLoadFailed: boolean,
             periodNow: number
         ) => OverviewRequest
         rows: (overview: EvaluationsOverviewApi | null) => EvaluationResultApi[]
@@ -465,6 +498,7 @@ export interface evaluationsOverviewLogicMeta {
             search: string,
             attentionFilter: AttentionFilter
         ) => EvaluationResultApi[]
+        evaluationUrl: (searchParams: Record<string, any>) => (id: string, params?: Record<string, string>) => string
         exploreUrl: (
             evaluations: EvaluationConfig[],
             scopedIds: string[] | null,
@@ -487,11 +521,14 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
         values: [
             teamLogic,
             ['currentTeamId', 'timezone', 'weekStartDay'],
+            router,
+            ['searchParams'],
             llmEvaluationsLogic,
             [
                 'dateFilter',
                 'evaluations',
                 'evaluationsSettled',
+                'evaluationsLoadFailed',
                 'selectedDirectoryId',
                 'selectedDirectory',
                 'evaluationDirectories',
@@ -503,6 +540,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             [
                 'setDates',
                 'selectDirectory',
+                'loadEvaluations',
                 'loadEvaluationsSuccess',
                 'loadEvaluationsFailure',
                 'toggleEvaluationEnabled',
@@ -535,6 +573,8 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
         setOverviewFailure: (failure: OverviewFailure) => ({ failure }),
         refreshAfterChange: true,
         reloadOverview: true,
+        retryOverview: true,
+        resetPicks: true,
         openDirectory: (directoryId: string) => ({ directoryId }),
         trackDirectoryAction: (action: DirectoryAction) => ({ action }),
     }),
@@ -547,13 +587,18 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                         // A refresh can land while the list reloads. The results stay on screen, and a cleared key lets
                         // the load after the list arrives run, with the refresh still pending.
                         cache.requestKey = null
+                        // A directory waits for its list. A failed list never arrives, so the page shows its retry instead.
+                        if (values.evaluationsLoadFailed) {
+                            actions.setOverviewFailure('failed')
+                        }
                         return values.request.notice ? null : values.overview
                     }
                     cache.requestKey = JSON.stringify(values.request)
                     // An edit changes results the backend has cached for a few minutes, so the read after it skips that cache.
-                    const refresh = cache.forceRefresh === true
+                    const refresh = cache.forceRefresh === true || changedElsewhere
                     cache.forceRefresh = false
-                    cache.overviewRequestedAt = performance.now()
+                    changedElsewhere = false
+                    const requestedAt = performance.now()
                     let overview: EvaluationsOverviewApi
                     try {
                         overview = await evaluationsOverviewRetrieve(String(values.currentTeamId), {
@@ -568,6 +613,13 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                     }
                     // Drops a response that a newer scope or date change has superseded.
                     breakpoint()
+                    // pinned: the event name and its properties, because renaming one breaks dashboards.
+                    posthog.capture('llma evaluation overview loaded', {
+                        load_ms: Math.round(performance.now() - requestedAt),
+                        evaluation_count: overview.evaluations.length,
+                        buckets: overview.buckets.length,
+                        interval: overview.interval,
+                    })
                     return overview
                 },
             },
@@ -583,6 +635,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 setDates: () => Date.now(),
                 selectDirectory: () => Date.now(),
                 setPickedIds: () => Date.now(),
+                resetPicks: () => Date.now(),
             },
         ],
         // Picks belong to the directory they were made in, so opening another one starts from all of its evaluations.
@@ -591,6 +644,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             {
                 setPickedIds: (_, { ids }) => ids,
                 selectDirectory: () => [],
+                resetPicks: () => [],
                 deleteEvaluationSuccess: (state, { id }) => state.filter((picked) => picked !== id),
             },
         ],
@@ -612,6 +666,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             {
                 setPickedIds: () => null,
                 selectDirectory: () => null,
+                resetPicks: () => null,
                 setComparedIds: (_, { ids }) => ids,
             },
         ],
@@ -689,6 +744,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 s.scopedIds,
                 s.selectedDirectoryId,
                 s.evaluationsSettled,
+                s.evaluationsLoadFailed,
                 s.periodNow,
             ],
             (
@@ -701,6 +757,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 scopedIds: string[] | null,
                 selectedDirectoryId: string | null,
                 evaluationsSettled: boolean,
+                evaluationsLoadFailed: boolean,
                 periodNow: number
             ): OverviewRequest => {
                 const period = overviewPeriod(
@@ -722,8 +779,8 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                         notice: `Pick a range of ${OVERVIEW_MAX_DAYS} days or less to see results here.`,
                     }
                 }
-                // A directory's evaluations are only known once the list has loaded.
-                if (selectedDirectoryId && !evaluationsSettled) {
+                // A directory's evaluations are only known once the list has loaded. A failed list is not an empty one.
+                if (selectedDirectoryId && (!evaluationsSettled || evaluationsLoadFailed)) {
                     return { params, ready: false, notice: null }
                 }
                 // An empty id list would mean every evaluation, not none.
@@ -910,6 +967,13 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 return tableOrder(matching)
             },
         ],
+        // Links keep the page's search params, so an evaluation opens on the same dates and returns to this directory.
+        evaluationUrl: [
+            (s) => [s.searchParams],
+            (searchParams: Record<string, any>): ((id: string, params?: Record<string, string>) => string) =>
+                (id, params = {}) =>
+                    combineUrl(urls.aiObservabilityEvaluation(id), { ...searchParams, ...params }).url,
+        ],
         exploreUrl: [
             (s) => [s.evaluations, s.scopedIds, s.request, s.interval],
             (
@@ -969,7 +1033,14 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 refresh()
             },
             setDates: refresh,
-            locationChanged: refresh,
+            locationChanged: () => {
+                // Browser back and forward change the directory without `selectDirectory`, so picks reset here too.
+                if (values.selectedDirectoryId !== cache.directoryId) {
+                    cache.directoryId = values.selectedDirectoryId
+                    actions.resetPicks()
+                }
+                refresh()
+            },
             loadEvaluationsSuccess: refresh,
             loadEvaluationsFailure: () => {
                 // A load that waited for the list has no list to resume with, so the page shows its retry.
@@ -998,17 +1069,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                     current.includes(id) ? current.filter((other) => other !== id) : [...current, id]
                 )
             },
-            loadOverviewSuccess: ({ overview }) => {
-                if (!overview) {
-                    return
-                }
-                posthog.capture('llma evaluation overview loaded', {
-                    load_ms: Math.round(performance.now() - cache.overviewRequestedAt),
-                    evaluation_count: overview.evaluations.length,
-                    buckets: overview.buckets.length,
-                    interval: overview.interval,
-                })
-            },
             setAttentionFilter: ({ filter }) => {
                 posthog.capture('llma evaluation overview attention filter changed', {
                     filter: filter ?? 'all',
@@ -1033,6 +1093,13 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             },
             reloadOverview: () => {
                 cache.forceRefresh = true
+                actions.loadOverview()
+            },
+            retryOverview: () => {
+                // A directory's overview waits for its list, so a failed list reloads too. Its success resumes the load.
+                if (values.evaluationsLoadFailed) {
+                    actions.loadEvaluations()
+                }
                 actions.loadOverview()
             },
             openDirectory: ({ directoryId }) => {
@@ -1067,6 +1134,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
         }
     }),
     afterMount(({ actions, values, cache }) => {
+        cache.directoryId = values.selectedDirectoryId
         cache.requestKey = JSON.stringify(values.request)
         actions.loadOverview()
     }),
