@@ -1,15 +1,6 @@
-from enum import StrEnum
-
 from posthog.dataclasses import frozen
 
-
-class NoteLevel(StrEnum):
-    # The step behaves differently in PostHog, and the note says how.
-    APPROXIMATED = "approximated"
-    # The setting has no PostHog equivalent and was left out.
-    UNSUPPORTED = "unsupported"
-    # The step is imported but needs a setting only the team can give, like an email sender.
-    NEEDS_INPUT = "needs_input"
+from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 
 
 @frozen

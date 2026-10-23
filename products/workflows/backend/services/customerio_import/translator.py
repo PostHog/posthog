@@ -109,7 +109,8 @@ class _Builder:
         posthog_actions.extend(self.actions.values())
         if any(edge["to"] == _EXIT_ID for edge in edges) and _EXIT_ID not in {a["id"] for a in posthog_actions}:
             posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
-        posthog_actions, edges = _prune_unreachable(posthog_actions, edges)
+        pruned = _prune_unreachable(posthog_actions, edges)
+        posthog_actions, edges = pruned.actions, pruned.edges
         kept_ids = {action["id"] for action in posthog_actions}
 
         workflow: dict[str, Any] = {
@@ -816,9 +817,13 @@ def _exit_event_names(tree: Any) -> list[str]:
     return names
 
 
-def _prune_unreachable(
-    actions: list[dict[str, Any]], edges: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+@frozen
+class _Graph:
+    actions: list[dict[str, Any]]
+    edges: list[dict[str, Any]]
+
+
+def _prune_unreachable(actions: list[dict[str, Any]], edges: list[dict[str, Any]]) -> _Graph:
     adjacency: dict[str, list[str]] = {}
     for edge in edges:
         adjacency.setdefault(edge["from"], []).append(edge["to"])
@@ -830,5 +835,7 @@ def _prune_unreachable(
             continue
         reachable.add(node)
         queue.extend(adjacency.get(node, []))
-    kept = [action for action in actions if action["id"] in reachable]
-    return kept, [edge for edge in edges if edge["from"] in reachable and edge["to"] in reachable]
+    return _Graph(
+        actions=[action for action in actions if action["id"] in reachable],
+        edges=[edge for edge in edges if edge["from"] in reachable and edge["to"] in reachable],
+    )

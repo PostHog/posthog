@@ -2597,9 +2597,9 @@ export interface EmailDraftApi {
 }
 
 /**
- * * `approximated` - approximated
- * * `unsupported` - unsupported
- * * `needs_input` - needs_input
+ * * `approximated` - Approximated
+ * * `unsupported` - Unsupported
+ * * `needs_input` - Needs input
  */
 export type WorkflowImportNoteLevelEnumApi =
     (typeof WorkflowImportNoteLevelEnumApi)[keyof typeof WorkflowImportNoteLevelEnumApi]
@@ -2613,9 +2613,9 @@ export const WorkflowImportNoteLevelEnumApi = {
 export interface WorkflowImportNoteApi {
     /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
      *
-     * * `approximated` - approximated
-     * * `unsupported` - unsupported
-     * * `needs_input` - needs_input */
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input */
     level: WorkflowImportNoteLevelEnumApi
     /** What changed or was left out, and what to do about it. */
     message: string
@@ -2702,16 +2702,15 @@ export interface WorkflowImportRequestApi {
 }
 
 /**
- * * `preview` - preview
- * * `created` - created
- * * `updated` - updated
- * * `skipped` - skipped
- * * `failed` - failed
+ * * `preview` - Preview
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `skipped` - Skipped
+ * * `failed` - Failed
  */
-export type WorkflowImportResultStatusEnumApi =
-    (typeof WorkflowImportResultStatusEnumApi)[keyof typeof WorkflowImportResultStatusEnumApi]
+export type WorkflowImportStatusEnumApi = (typeof WorkflowImportStatusEnumApi)[keyof typeof WorkflowImportStatusEnumApi]
 
-export const WorkflowImportResultStatusEnumApi = {
+export const WorkflowImportStatusEnumApi = {
     Preview: 'preview',
     Created: 'created',
     Updated: 'updated',
@@ -2726,12 +2725,12 @@ export interface WorkflowImportResultApi {
     name: string
     /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
      *
-     * * `preview` - preview
-     * * `created` - created
-     * * `updated` - updated
-     * * `skipped` - skipped
-     * * `failed` - failed */
-    status: WorkflowImportResultStatusEnumApi
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: WorkflowImportStatusEnumApi
     /**
      * The draft workflow's id, when one was saved.
      * @nullable

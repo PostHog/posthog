@@ -14,8 +14,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
-from products.workflows.backend.facade.enums import WorkflowImportSource
-from products.workflows.backend.facade.workflow_imports import ImportOptions, NoteLevel, import_for_workflow
+from products.workflows.backend.facade.enums import WorkflowImportNoteLevel, WorkflowImportSource, WorkflowImportStatus
+from products.workflows.backend.facade.workflow_imports import ImportOptions, import_for_workflow
 from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaign
 
 MAX_CAMPAIGNS_PER_IMPORT = 50
@@ -88,7 +88,7 @@ class WorkflowImportRequestSerializer(serializers.Serializer):
 
 class WorkflowImportNoteSerializer(serializers.Serializer):
     level = serializers.ChoiceField(
-        choices=[(level.value, level.value) for level in NoteLevel],
+        choices=WorkflowImportNoteLevel.choices,
         help_text=(
             "`approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. "
             "`needs_input`: the team must set something before enabling."
@@ -103,7 +103,7 @@ class WorkflowImportResultSerializer(serializers.Serializer):
     source_id = serializers.CharField(help_text="The automation's id in Customer.io.")
     name = serializers.CharField(help_text="The automation's name.")
     status = serializers.ChoiceField(
-        choices=["preview", "created", "updated", "skipped", "failed"],
+        choices=WorkflowImportStatus.choices,
         help_text=(
             "`preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier "
             "import of it is no longer a draft, `failed` when the draft does not pass the workflow checks."

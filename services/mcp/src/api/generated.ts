@@ -119403,9 +119403,9 @@ export namespace Schemas {
     }
 
     /**
-     * * `approximated` - approximated
-     * * `unsupported` - unsupported
-     * * `needs_input` - needs_input
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input
      */
     export type WorkflowImportNoteLevelEnum = typeof WorkflowImportNoteLevelEnum[keyof typeof WorkflowImportNoteLevelEnum];
 
@@ -119419,9 +119419,9 @@ export namespace Schemas {
     export interface WorkflowImportNote {
       /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
        *
-       * * `approximated` - approximated
-       * * `unsupported` - unsupported
-       * * `needs_input` - needs_input */
+       * * `approximated` - Approximated
+       * * `unsupported` - Unsupported
+       * * `needs_input` - Needs input */
       level: WorkflowImportNoteLevelEnum;
       /** What changed or was left out, and what to do about it. */
       message: string;
@@ -119493,16 +119493,16 @@ export namespace Schemas {
     }
 
     /**
-     * * `preview` - preview
-     * * `created` - created
-     * * `updated` - updated
-     * * `skipped` - skipped
-     * * `failed` - failed
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed
      */
-    export type WorkflowImportResultStatusEnum = typeof WorkflowImportResultStatusEnum[keyof typeof WorkflowImportResultStatusEnum];
+    export type WorkflowImportStatusEnum = typeof WorkflowImportStatusEnum[keyof typeof WorkflowImportStatusEnum];
 
 
-    export const WorkflowImportResultStatusEnum = {
+    export const WorkflowImportStatusEnum = {
       Preview: 'preview',
       Created: 'created',
       Updated: 'updated',
@@ -119517,12 +119517,12 @@ export namespace Schemas {
       name: string;
       /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
        *
-       * * `preview` - preview
-       * * `created` - created
-       * * `updated` - updated
-       * * `skipped` - skipped
-       * * `failed` - failed */
-      status: WorkflowImportResultStatusEnum;
+       * * `preview` - Preview
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WorkflowImportStatusEnum;
       /**
          * The draft workflow's id, when one was saved.
          * @nullable
