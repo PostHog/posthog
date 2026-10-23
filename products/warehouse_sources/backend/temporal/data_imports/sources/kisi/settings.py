@@ -39,6 +39,7 @@ EVENTS_POLL_INTERVAL_SECONDS = 2.0
 EVENTS_POLL_MAX_ATTEMPTS = 150
 # Kisi allows one event set creation per second.
 EVENTS_CREATE_INTERVAL_SECONDS = 1.0
+EVENTS_MAX_PAGES_PER_WINDOW = 100_000
 
 AUTH_ERROR = "Kisi rejected the API key. Create a new key in My Account > API and reconnect."
 PERMISSION_ERROR = "The Kisi API key cannot read this resource. Check the account permissions in Kisi."
@@ -46,3 +47,4 @@ OFFSET_ERROR = "Kisi's pagination limit prevents a complete import. Contact Kisi
 EVENT_SET_FAILED_ERROR = "Kisi could not prepare the events for export. Try the sync again later."
 EVENT_SET_TIMEOUT_ERROR = "Kisi did not finish preparing the events for export in time."
 EVENT_SET_EXPIRED_ERROR = "Kisi expired the event export before the sync read it."
+EVENT_SET_CURSOR_ERROR = "Kisi repeated an event page cursor, so the events sync stopped to avoid a loop."

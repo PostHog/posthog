@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.kisi 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.settings import (
     AUTH_ERROR,
+    EVENT_SET_CURSOR_ERROR,
     EVENT_SET_FAILED_ERROR,
     EVENTS_WINDOW,
     OFFSET_ERROR,
@@ -193,6 +194,7 @@ def test_events_walk_windows_from_the_watermark(driver: SourceDriver) -> None:
             events_window_end=_timestamp(watermark + EVENTS_WINDOW),
             event_set_id=1,
             events_cursor="page-2",
+            events_written=2,
         )
         in result.committed_states
     )
@@ -202,10 +204,12 @@ def test_events_walk_windows_from_the_watermark(driver: SourceDriver) -> None:
 def test_events_resume_from_saved_event_set(expired: bool, driver: SourceDriver) -> None:
     window_start = (datetime.now(UTC) - timedelta(days=10)).replace(microsecond=0)
     window_end = window_start + timedelta(days=5)
-    rows: list[dict[str, object]] = [{"uuid": "a"}]
-    pages = [_event_set(7, "finished", rows, None)]
+    pages = [_event_set(7, "finished", [{"uuid": "b"}], None)]
     if expired:
-        pages = [ScriptedResponse(status=404, json={"error": "Not found"}), _event_set(8, "finished", rows, None)]
+        pages = [
+            ScriptedResponse(status=404, json={"error": "Not found"}),
+            _event_set(8, "finished", [{"uuid": "a"}, {"uuid": "b"}], None),
+        ]
     result = driver.run(
         "events",
         [*pages, _event_set(9, "finished", [], None)],
@@ -214,11 +218,12 @@ def test_events_resume_from_saved_event_set(expired: bool, driver: SourceDriver)
             events_window_end=_timestamp(window_end),
             event_set_id=7,
             events_cursor="page-3",
+            events_written=1,
         ),
     )
 
     assert result.raised is None
-    assert result.rows == rows
+    assert result.rows == [{"uuid": "b"}]
     assert result.requests[0].path == "/event_sets/7"
     assert result.requests[0].param("cursor") == "page-3"
     posts = [request.json()["event_set"]["interval"] for request in result.requests if request.method == "POST"]
@@ -227,9 +232,20 @@ def test_events_resume_from_saved_event_set(expired: bool, driver: SourceDriver)
     assert posts[len(expected_posts)].startswith(f"{_timestamp(window_end)}/")
 
 
-def test_events_failed_event_set_raises(driver: SourceDriver) -> None:
-    result = driver.run("events", [_event_set(1, "in_progress", [], None), _event_set(1, "failed", [], None)])
+@pytest.mark.parametrize(
+    "pages,message",
+    [
+        ([_event_set(1, "in_progress", [], None), _event_set(1, "failed", [], None)], EVENT_SET_FAILED_ERROR),
+        (
+            [_event_set(1, "finished", [{"uuid": "a"}], "same"), _event_set(1, "finished", [], "same")],
+            EVENT_SET_CURSOR_ERROR,
+        ),
+    ],
+)
+def test_events_errors_stop_the_window(pages: list[ScriptedResponse], message: str, driver: SourceDriver) -> None:
+    result = driver.run("events", pages)
 
     assert isinstance(result.raised, KisiEventSetError)
-    assert str(result.raised) == EVENT_SET_FAILED_ERROR
-    assert result.rows == []
+    assert str(result.raised) == message
+    if message == EVENT_SET_FAILED_ERROR:
+        assert result.final_state.event_set_id is None

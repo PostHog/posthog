@@ -28,12 +28,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.setti
     DEFAULT_PARTITION_KEYS,
     DEFAULT_PRIMARY_KEYS,
     ENDPOINTS,
+    EVENT_SET_CURSOR_ERROR,
     EVENT_SET_EXPIRED_ERROR,
     EVENT_SET_FAILED_ERROR,
     EVENT_SET_TIMEOUT_ERROR,
     EVENTS,
     EVENTS_CREATE_INTERVAL_SECONDS,
     EVENTS_INITIAL_LOOKBACK,
+    EVENTS_MAX_PAGES_PER_WINDOW,
     EVENTS_POLL_INTERVAL_SECONDS,
     EVENTS_POLL_MAX_ATTEMPTS,
     EVENTS_WINDOW,
@@ -56,6 +58,7 @@ class KisiResumeConfig:
     events_window_end: str | None = None
     event_set_id: int | None = None
     events_cursor: str | None = None
+    events_written: int = 0
 
 
 class KisiEventSetError(Exception):
@@ -211,11 +214,14 @@ def get_events(
     resumed_end = parse_datetime_value(resume.events_window_end) if resume else None
     event_set_id: int | None = None
     cursor: str | None = None
+    # Events of the current window that earlier attempts already handed to the pipeline.
+    written = 0
     if resume is not None and resumed_start is not None:
         window_start = resumed_start
-        event_set_id, cursor = resume.event_set_id, resume.events_cursor
-        # A set Kisi already built keeps its interval. A window with no set yet runs up to now.
-        window_end = resumed_end if event_set_id is not None and resumed_end is not None else now
+        event_set_id, cursor, written = resume.event_set_id, resume.events_cursor, resume.events_written
+        # A window that has a set or written rows keeps its interval. A window with neither runs up to now.
+        keeps_interval = event_set_id is not None or written > 0
+        window_end = resumed_end if keeps_interval and resumed_end is not None else now
     else:
         watermark = (
             parse_datetime_value(inputs.db_incremental_field_last_value)
@@ -226,13 +232,14 @@ def get_events(
         window_end = now
     window_end = min(window_end, window_start + EVENTS_WINDOW)
 
-    def stage(start: datetime, end: datetime, set_id: int | None, next_cursor: str | None) -> None:
+    def stage(start: datetime, end: datetime, set_id: int | None, next_cursor: str | None, rows: int) -> None:
         manager.save_state(
             KisiResumeConfig(
                 events_window_start=_format_timestamp(start),
                 events_window_end=_format_timestamp(end),
                 event_set_id=set_id,
                 events_cursor=next_cursor,
+                events_written=rows,
             )
         )
 
@@ -245,7 +252,8 @@ def get_events(
                     interruptible_wait(EVENTS_CREATE_INTERVAL_SECONDS, safe_point=manager.safe_point)
                 event_set = _create_event_set(session, auth, window_start, window_end)
                 created_any = True
-                stage(window_start, window_end, int(event_set["id"]), None)
+                cursor = None
+                stage(window_start, window_end, int(event_set["id"]), None, written)
                 manager.safe_point()
             set_id = int(event_set["id"])
 
@@ -258,26 +266,39 @@ def get_events(
                     raise KisiEventSetError(EVENT_SET_EXPIRED_ERROR)
                 event_set = polled
                 manager.safe_point()
-            if event_set.get("status") == "failed":
-                raise KisiEventSetError(EVENT_SET_FAILED_ERROR)
             if event_set.get("status") != "finished":
-                raise KisiEventSetError(EVENT_SET_TIMEOUT_ERROR)
+                # A failed set fails on every fetch, so the next attempt builds the window again.
+                stage(window_start, window_end, None, None, written)
+                manager.safe_point()
+                raise KisiEventSetError(
+                    EVENT_SET_FAILED_ERROR if event_set.get("status") == "failed" else EVENT_SET_TIMEOUT_ERROR
+                )
 
+            # A set read from its start replays rows an earlier set of this window already wrote. Kisi builds
+            # a set for a past interval from the same stored events, so the first `written` rows are skipped.
+            position = written if cursor else 0
             next_window_start = window_end
             next_window_end = min(next_window_start + EVENTS_WINDOW, now)
+            seen_cursors: set[str] = set()
             while True:
-                events = event_set.get("events") or []
+                page = event_set.get("events") or []
+                fresh = page[max(0, written - position) :]
+                position += len(page)
+                written += len(fresh)
                 next_cursor = event_set.get("cursor")
-                if next_cursor:
-                    stage(window_start, window_end, set_id, next_cursor)
-                else:
-                    stage(next_window_start, next_window_end, None, None)
-                if events:
-                    yield events
+                if not next_cursor:
+                    stage(next_window_start, next_window_end, None, None, 0)
+                elif position >= written:
+                    stage(window_start, window_end, set_id, next_cursor, written)
+                if fresh:
+                    yield fresh
                 else:
                     manager.safe_point()
                 if not next_cursor:
                     break
+                if next_cursor in seen_cursors or len(seen_cursors) >= EVENTS_MAX_PAGES_PER_WINDOW:
+                    raise KisiEventSetError(EVENT_SET_CURSOR_ERROR)
+                seen_cursors.add(next_cursor)
                 next_page = _fetch_event_set(session, auth, set_id, next_cursor)
                 if next_page is None:
                     # The staged cursor still names this set, so the next attempt builds the window again.
@@ -286,4 +307,4 @@ def get_events(
                 event_set = next_page
 
             window_start, window_end = next_window_start, next_window_end
-            event_set_id, cursor = None, None
+            event_set_id, cursor, written = None, None, 0
