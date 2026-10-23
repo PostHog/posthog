@@ -1,3 +1,5 @@
+from typing import cast
+
 from django import forms
 from django.contrib import admin, messages
 from django.db import transaction
@@ -6,11 +8,12 @@ from django.utils.html import format_html
 from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport, CommitInFlightError
 
 STATUS_CHANGED_MESSAGE = "This import changed since the page loaded. Reload it and try again."
+SINK_TYPE_CHOICES: list[tuple[str, str]] = [("capture", "Capture"), ("kafka", "Kafka")]
 
 
 class BatchImportAdminForm(forms.ModelForm):
     sink_type = forms.ChoiceField(
-        choices=[("capture", "Capture"), ("kafka", "Kafka")],
+        choices=SINK_TYPE_CHOICES,
         required=False,
         help_text="Capture sends events via HTTP; Kafka writes directly to Kafka.",
     )
@@ -38,9 +41,9 @@ class BatchImportAdminForm(forms.ModelForm):
                 self.fields["sink_type"].initial = sink_type
                 # Without its own choice, a trial or noop sink would submit "capture" and be
                 # rewritten on every save.
-                if sink_type not in dict(self.fields["sink_type"].choices):
-                    self.fields["sink_type"].choices = [
-                        *self.fields["sink_type"].choices,
+                if sink_type not in dict(SINK_TYPE_CHOICES):
+                    cast(forms.ChoiceField, self.fields["sink_type"]).choices = [
+                        *SINK_TYPE_CHOICES,
                         (sink_type, f"{sink_type} (current)"),
                     ]
             if sink.get("send_rate"):
