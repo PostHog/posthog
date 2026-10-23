@@ -55,7 +55,7 @@ class ModelUsageQuerySerializer(serializers.Serializer):
             return attrs
 
         today = datetime.now(UTC).date()
-        exclusive_date_to = min(date_to + timedelta(days=1) if date_to else today, today)
+        exclusive_date_to = min(date_to, today - timedelta(days=1)) + timedelta(days=1) if date_to else today
         if date_from >= exclusive_date_to:
             raise serializers.ValidationError({"date_from": "The range must include at least one complete UTC day."})
         if (exclusive_date_to - date_from).days > 366:

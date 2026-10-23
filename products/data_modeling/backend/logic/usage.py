@@ -77,7 +77,7 @@ class ModelUsage:
         date_to: date | None = None,
     ) -> dict[str, object]:
         today = datetime.now(UTC).date()
-        end_date = min(date_to + timedelta(days=1) if date_to else today, today)
+        end_date = min(date_to, today - timedelta(days=1)) + timedelta(days=1) if date_to else today
         start_date = date_from or end_date - timedelta(days=days or 30)
         start = datetime.combine(start_date, time.min, tzinfo=UTC)
         end = datetime.combine(end_date, time.min, tzinfo=UTC)

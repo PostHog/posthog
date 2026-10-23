@@ -45,6 +45,11 @@ class TestModelUsageValidation(SimpleTestCase):
         serializer = ModelUsageQuerySerializer(data={"date_from": "2026-10-01", "date_to": "2026-10-15"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
+    @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
+    def test_accepts_maximum_end_date_without_overflow(self) -> None:
+        serializer = ModelUsageQuerySerializer(data={"date_from": "2026-10-01", "date_to": "9999-12-31"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
 
 @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
 class TestModelUsage(WarehouseAccessControlTestMixin):

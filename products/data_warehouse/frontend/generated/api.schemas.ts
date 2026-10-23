@@ -5606,7 +5606,7 @@ export interface ViewLinkValidationErrorApi {
 
 export type DataModelingJobsListParams = {
     /**
-     * Include jobs started at or after this time.
+     * Include jobs finished at or after this time.
      */
     after?: string
     /**
@@ -5614,7 +5614,7 @@ export type DataModelingJobsListParams = {
      */
     all_engines?: boolean
     /**
-     * Include jobs started before this time.
+     * Include jobs finished before this time.
      */
     before?: string
     /**

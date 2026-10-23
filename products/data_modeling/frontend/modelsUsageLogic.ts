@@ -26,6 +26,35 @@ import { DataModelingUsageListEngine, type ModelUsageApi } from './generated/api
 export const MATERIALIZATION_JOBS_PAGE_SIZE = 20
 export const DEFAULT_MODELS_USAGE_DATE_FROM = '-30d'
 
+function normalizeModelsUsageDateRange(
+    dateFrom: string | null,
+    dateTo: string | null
+): { dateFrom: string; dateTo: string | null } {
+    const normalizedDateFrom = dateFrom ?? DEFAULT_MODELS_USAGE_DATE_FROM
+    if (dateTo === null && /^-(\d+)d$/.test(normalizedDateFrom)) {
+        return { dateFrom: normalizedDateFrom, dateTo }
+    }
+
+    const today = dayjs.utc().startOf('day')
+    const lastCompleteDay = today.subtract(1, 'day')
+    const parsedDateFrom = dayjs.utc(normalizedDateFrom).startOf('day')
+    const parsedDateTo = dateTo ? dayjs.utc(dateTo).startOf('day') : null
+    const effectiveDateTo = parsedDateTo?.isBefore(today) ? parsedDateTo : lastCompleteDay
+    const exclusiveDateTo = effectiveDateTo.add(1, 'day')
+    const earliestDateFrom = exclusiveDateTo.subtract(366, 'day')
+    const latestDateFrom = exclusiveDateTo.subtract(1, 'day')
+    const effectiveDateFrom = parsedDateFrom.isBefore(earliestDateFrom)
+        ? earliestDateFrom
+        : parsedDateFrom.isAfter(latestDateFrom)
+          ? latestDateFrom
+          : parsedDateFrom
+
+    return {
+        dateFrom: effectiveDateFrom.format('YYYY-MM-DD'),
+        dateTo: dateTo === null ? null : effectiveDateTo.format('YYYY-MM-DD'),
+    }
+}
+
 function completeUtcDateRange(
     dateFrom: string,
     dateTo: string | null
@@ -36,6 +65,9 @@ function completeUtcDateRange(
     date_from?: string
     date_to?: string
 } {
+    const normalizedRange = normalizeModelsUsageDateRange(dateFrom, dateTo)
+    dateFrom = normalizedRange.dateFrom
+    dateTo = normalizedRange.dateTo
     const today = dayjs.utc().startOf('day')
     const relativeDays = dateTo === null ? /^-(\d+)d$/.exec(dateFrom) : null
     if (relativeDays) {
@@ -53,7 +85,7 @@ function completeUtcDateRange(
         after: start.toISOString(),
         before: (selectedEnd.isAfter(today) ? today : selectedEnd).toISOString(),
         date_from: start.format('YYYY-MM-DD'),
-        date_to: dateTo ?? undefined,
+        date_to: dateTo ? dayjs.utc(dateTo).format('YYYY-MM-DD') : undefined,
     }
 }
 
@@ -188,7 +220,8 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
     })),
     actions({
-        setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDateRange: (dateFrom: string | null, dateTo: string | null) =>
+            normalizeModelsUsageDateRange(dateFrom, dateTo),
         setPage: (page: number) => ({ page }),
         setJobsPage: (page: number) => ({ page }),
         setSelectedEngine: (engine: DataModelingUsageListEngine) => ({ engine }),

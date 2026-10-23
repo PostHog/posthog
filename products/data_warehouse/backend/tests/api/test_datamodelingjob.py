@@ -122,10 +122,10 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job3.id)])
 
-    def test_filters_by_started_date_range(self):
-        DataModelingJob.objects.filter(id=self.job1.id).update(created_at=datetime(2026, 10, 10, tzinfo=UTC))
-        DataModelingJob.objects.filter(id=self.job2.id).update(created_at=datetime(2026, 10, 11, tzinfo=UTC))
-        DataModelingJob.objects.filter(id=self.job3.id).update(created_at=datetime(2026, 10, 12, tzinfo=UTC))
+    def test_filters_by_finished_date_range(self):
+        DataModelingJob.objects.filter(id=self.job1.id).update(last_run_at=datetime(2026, 10, 10, tzinfo=UTC))
+        DataModelingJob.objects.filter(id=self.job2.id).update(last_run_at=datetime(2026, 10, 11, tzinfo=UTC))
+        DataModelingJob.objects.filter(id=self.job3.id).update(last_run_at=datetime(2026, 10, 12, tzinfo=UTC))
 
         response = self.client.get(
             f"/api/environments/{self.team.pk}/data_modeling_jobs/",

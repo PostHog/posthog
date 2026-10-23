@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
@@ -110,10 +111,9 @@ describe('modelsUsageLogic', () => {
     it('filters usage and jobs by a custom date range', async () => {
         await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
 
-        await expectLogic(logic, () => logic.actions.setDateRange('2026-10-01', '2026-10-07')).toDispatchActions([
-            'loadUsageSuccess',
-            'loadMaterializationJobsSuccess',
-        ])
+        await expectLogic(logic, () =>
+            logic.actions.setDateRange('2026-10-01T00:00:00', '2026-10-07T23:59:59')
+        ).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
 
         expect(usageRequests.at(-1)?.get('days')).toBeNull()
         expect(usageRequests.at(-1)?.get('date_from')).toBe('2026-10-01')
@@ -122,6 +122,21 @@ describe('modelsUsageLogic', () => {
         expect(jobRequests.at(-1)?.get('before')).toBe('2026-10-08T00:00:00.000Z')
         expect(logic.values.page).toBe(1)
         expect(logic.values.jobsPage).toBe(1)
+    })
+
+    it('normalizes picker timestamps and limits custom ranges to complete days', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+
+        await expectLogic(logic, () =>
+            logic.actions.setDateRange('2024-01-01T00:00:00.000Z', '9999-12-31T23:59:59.999Z')
+        ).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+
+        const yesterday = dayjs.utc().subtract(1, 'day').format('YYYY-MM-DD')
+        const earliestDate = dayjs.utc().startOf('day').subtract(366, 'day').format('YYYY-MM-DD')
+        expect(logic.values.dateFrom).toBe(earliestDate)
+        expect(logic.values.dateTo).toBe(yesterday)
+        expect(usageRequests.at(-1)?.get('date_from')).toBe(earliestDate)
+        expect(usageRequests.at(-1)?.get('date_to')).toBe(yesterday)
     })
 
     it('filters materialization jobs by status', async () => {

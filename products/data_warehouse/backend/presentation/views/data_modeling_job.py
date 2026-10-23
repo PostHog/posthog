@@ -96,10 +96,10 @@ DATA_MODELING_JOB_LIST_FIELDS = [
 
 class DataModelingJobFilterSet(django_filters.FilterSet):
     after = django_filters.IsoDateTimeFilter(
-        field_name="created_at", lookup_expr="gte", help_text="Include jobs started at or after this time."
+        field_name="last_run_at", lookup_expr="gte", help_text="Include jobs finished at or after this time."
     )
     before = django_filters.IsoDateTimeFilter(
-        field_name="created_at", lookup_expr="lt", help_text="Include jobs started before this time."
+        field_name="last_run_at", lookup_expr="lt", help_text="Include jobs finished before this time."
     )
 
     class Meta:
