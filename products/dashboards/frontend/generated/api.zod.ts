@@ -222,7 +222,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -355,7 +355,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -588,7 +588,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -1959,7 +1959,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
@@ -2099,7 +2099,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
                         .boolean()
                         .optional()
                         .describe(
-                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                            'Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.'
                         ),
                     color: zod
                         .union([
