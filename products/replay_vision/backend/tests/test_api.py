@@ -5190,6 +5190,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         top_id = first["results"][0]["observation"]["id"]
         assert self.client.post(f"{self.observations_url(str(scanner.id))}{top_id}/viewed/").status_code == 204
         self._succeeded_observation(scanner, "late-hit", 0, self._friction_result())
+        # A scan already running at page one, which completes before page two, would also shift it.
+        self._succeeded_observation(scanner, "finished-late", 12, self._friction_result())
         second = self.client.get(self.feed_url, {"limit": 3, "offset": 3, "as_of": first["as_of"]}).json()
 
         sessions = [item["observation"]["session_id"] for item in first["results"] + second["results"]]

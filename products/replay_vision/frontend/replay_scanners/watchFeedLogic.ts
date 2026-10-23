@@ -51,6 +51,7 @@ export interface watchFeedLogicValues {
     feedItemsLoading: boolean
     feedLoad: WatchFeedLoad | null
     feedMoreFailed: boolean
+    feedServed: number
     feedRanker: WatchFeedRanker
     feedRankerVariant: string | null
     hasFeedFilters: boolean
@@ -166,10 +167,12 @@ export interface watchFeedLogicActions {
     }
     setFeedPaging: (
         hasMore: boolean,
-        asOf: string | null
+        asOf: string | null,
+        served: number
     ) => {
         asOf: string | null
         hasMore: boolean
+        served: number
     }
     setFeedRanker: (
         ranker: WatchFeedRanker,
@@ -311,7 +314,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         setFeedRanker: (ranker: WatchFeedRanker, variant: string | null) => ({ ranker, variant }),
         setFeedLoad: (load: WatchFeedLoad) => ({ load }),
         extendFeedLoad: (load: WatchFeedLoad) => ({ load }),
-        setFeedPaging: (hasMore: boolean, asOf: string | null) => ({ hasMore, asOf }),
+        setFeedPaging: (hasMore: boolean, asOf: string | null, served: number) => ({ hasMore, asOf, served }),
         cardSeen: (item: WatchFeedItemApi, position: number) => ({ item, position }),
         dismissItem: (item: WatchFeedItemApi, position: number, reason: FeedDismissalReasonEnumApi | null) => ({
             item,
@@ -337,7 +340,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     breakpoint()
                     actions.setFeedRanker(response.ranker ?? 'weighted-score', response.ranker_variant ?? null)
                     actions.setFeedLoad(newWatchFeedLoad(response.ranker, response.results))
-                    actions.setFeedPaging(response.has_more ?? false, response.as_of ?? null)
+                    actions.setFeedPaging(response.has_more ?? false, response.as_of ?? null, response.results.length)
                     return response.results
                 },
                 loadMoreFeed: async () => {
@@ -346,8 +349,8 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     if (!teamId || !load || !values.feedHasMore || !values.feedAsOf) {
                         return values.feedItems
                     }
-                    // Counted against what was served, so a card hidden since then does not shift the next page.
-                    const offset = Object.keys(load.positions).length
+                    // Counted against what the server returned, so neither a hidden card nor a deduplicated one shifts the next page.
+                    const offset = values.feedServed
                     const response = await visionScannersWatchFeedRetrieve(String(teamId), {
                         ...feedParams(values),
                         offset,
@@ -359,7 +362,12 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     }
                     const page = response.results.filter((item) => !(item.observation.id in load.positions))
                     actions.extendFeedLoad(withNextPage(load, page))
-                    actions.setFeedPaging(response.has_more ?? false, response.as_of ?? null)
+                    // An empty page cannot advance the offset, so it ends paging rather than repeating the request.
+                    actions.setFeedPaging(
+                        (response.has_more ?? false) && response.results.length > 0,
+                        response.as_of ?? null,
+                        offset + response.results.length
+                    )
                     posthog.capture('replay_vision_watch_feed_page_loaded', {
                         ...servedListProperties(values.feedLoad, page),
                         offset,
@@ -396,6 +404,13 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             {
                 loadFeed: () => null,
                 setFeedPaging: (_, { asOf }) => asOf,
+            },
+        ],
+        feedServed: [
+            0,
+            {
+                loadFeed: () => 0,
+                setFeedPaging: (_, { served }) => served,
             },
         ],
         feedMoreFailed: [

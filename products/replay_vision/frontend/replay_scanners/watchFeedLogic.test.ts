@@ -224,7 +224,7 @@ describe('watchFeedLogic', () => {
 
         feedSpy.mockImplementation(() => [
             200,
-            { results: [item('o2', 'embedding_pick'), item('o3', 'recent')], has_more: false, as_of: 'T0' },
+            { results: [item('o2', 'embedding_pick'), item('o3', 'recent')], has_more: true, as_of: 'T0' },
         ])
         await expectLogic(logic, () => logic.actions.loadMoreFeed())
             .toDispatchActions(['loadMoreFeedSuccess'])
@@ -235,6 +235,14 @@ describe('watchFeedLogic', () => {
         expect(pageUrl.searchParams.get('as_of')).toBe('T0')
         expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o2', 'o3'])
         expect(logic.values.feedLoad?.positions).toEqual({ o1: 0, o2: 1, o3: 2 })
+
+        // The deduplicated o2 still counts toward the offset, and an empty page ends paging instead of repeating.
+        feedSpy.mockImplementation(() => [200, { results: [], has_more: true, as_of: 'T0' }])
+        await expectLogic(logic, () => logic.actions.loadMoreFeed())
+            .toDispatchActions(['loadMoreFeedSuccess'])
+            .toFinishAllListeners()
+
+        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('offset')).toBe('4')
         expect(logic.values.feedHasMore).toBe(false)
     })
 

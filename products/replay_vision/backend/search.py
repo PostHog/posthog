@@ -324,15 +324,17 @@ def fetch_ranked_observations(
     return [obs for observation_id in ordered_ids if (obs := observations.get(observation_id)) is not None]
 
 
-def parse_date_bound(value: str, timezone_info: ZoneInfo | None, *, end_of_range: bool) -> datetime:
+def parse_date_bound(
+    value: str, timezone_info: ZoneInfo | None, *, end_of_range: bool, now: datetime | None = None
+) -> datetime:
     """Parse a caller-supplied date bound: ISO 8601, `now`, or relative (`-7d`), naive values in the
     project's timezone. A date-only upper bound covers its whole day. Shared by the observation list and
     search. Raises `ValueError` on text that is none of those, rather than treating it as now."""
     timezone_info = timezone_info or ZoneInfo("UTC")
     if value.strip().lower() == "now":
         # `now` already carries a time of day, so it skips the end-of-range widening below.
-        return datetime.now(timezone_info)
-    parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(value, timezone_info)
+        return now.astimezone(timezone_info) if now else datetime.now(timezone_info)
+    parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(value, timezone_info, now=now)
     # The relative branch hands back an empty mapping when nothing in the text matched a period.
     if delta_mapping == {}:
         raise ValueError(f"Unrecognized date: {value!r}. Use ISO 8601, a relative date like -7d, or 'now'.")
