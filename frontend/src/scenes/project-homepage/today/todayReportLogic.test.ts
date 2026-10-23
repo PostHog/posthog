@@ -40,6 +40,7 @@ describe('todayReportLogic', () => {
             false,
             false,
             'b',
+            1,
             [
                 expect.objectContaining({
                     report_id: 'b',
@@ -58,6 +59,7 @@ describe('todayReportLogic', () => {
             true,
             true,
             'b',
+            1,
             [
                 expect.objectContaining({
                     report_id: 'b',
@@ -69,8 +71,28 @@ describe('todayReportLogic', () => {
                 }),
             ],
         ],
-        ['no open for a sample report', '/project/997/home/reports/sample-pr', false, false, 'sample-pr', []],
-    ])('sends %s', async (_, path, step, prefetched, reportId, opens) => {
+        [
+            'one open for each visit before the report loads',
+            '/project/997/home/reports/b?link_source=today',
+            false,
+            false,
+            'b',
+            2,
+            [
+                expect.objectContaining({
+                    report_id: 'b',
+                    open_method: 'deeplink',
+                    link_source: 'today',
+                }),
+                expect.objectContaining({
+                    report_id: 'b',
+                    open_method: 'deeplink',
+                    link_source: null,
+                }),
+            ],
+        ],
+        ['no open for a sample report', '/project/997/home/reports/sample-pr', false, false, 'sample-pr', 1, []],
+    ])('sends %s', async (_, path, step, prefetched, reportId, visits, opens) => {
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/for_you/': {
@@ -104,7 +126,9 @@ describe('todayReportLogic', () => {
         if (step) {
             queueLogic.actions.openAdjacentReport(1)
         }
-        logic.actions.reportVisited()
+        for (let visit = 0; visit < visits; visit++) {
+            logic.actions.reportVisited()
+        }
         await expectLogic(logic)
             .toDispatchActions(prefetched ? [] : ['loadFullReportSuccess'])
             .toFinishAllListeners()
