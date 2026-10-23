@@ -17,6 +17,7 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_fr
 
 pytestmark = [
     pytest.mark.requires_vendor_credentials("GCS_TEST_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
+    pytest.mark.usefixtures("gcs_checksum_compatibility"),
     pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
