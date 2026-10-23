@@ -4528,7 +4528,7 @@ export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2Rule
     rule_type: 'experiment'
     paused: boolean
     variants: { key: string; weight: number; value: JsonType }[]
-    holdout?: { id: number; seed: string; exclusion_percentage: number }
+    holdout?: { seed: string; exclusion_percentage: number }
 }
 
 export type FeatureFlagRulesV2Rule =
@@ -6187,6 +6187,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_PROMPT = 'LLMPrompt',
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
+    LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',

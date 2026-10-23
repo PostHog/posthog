@@ -243,13 +243,11 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
+                                // The container rounds the corners. In Chrome, a rounded scroller that holds many canvases stops painting.
                                 '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 focus-visible:outline-none flex flex-col',
                                 {
-                                    // The Today layout's content meets the chrome on straight seams.
-                                    'rounded-t': !todayRail,
                                     'p-0': noPaddingScene,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
-                                        sidePanelOverlapsMain,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
                                 }
                             )}
                         >

@@ -41,7 +41,12 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
-from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
+from products.mcp_store.backend.policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_read_only_connector_tool,
+    legacy_state_for_caller,
+)
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from products.mcp_store.backend.tools import (
     ToolCallError,
@@ -79,19 +84,30 @@ def resolve_member_tool_states(
     With `block_locked_approvals`, a `needs_approval` state that an org rule
     locks surfaces as `"do_not_use"`. Use it for callers that approve calls
     on the member's behalf, because the member cannot approve a locked state."""
-    rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
-        "tool_name", "annotations", "approval_state", "removed_at"
+    rows = list(
+        MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
+            "tool_name", "annotations", "approval_state", "removed_at", "installation__user_id"
+        )
     )
-    legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
+    owner_id = rows[0]["installation__user_id"] if rows else None
 
     if gateway_server_id is None or user_id is None:
-        return legacy
+        caller_owns_installation = user_id is not None and owner_id == user_id
+        return {
+            row["tool_name"]: (
+                "do_not_use"
+                if row["removed_at"]
+                else legacy_state_for_caller(row["approval_state"], caller_owns_installation=caller_owns_installation)
+            )
+            for row in rows
+        }
 
     context = PolicyContext(
         team_id=team_id,
         caller=GatewayCaller(kind="member", user_id=user_id),
         gateway_server_id=gateway_server_id,
         legacy_rows={row["tool_name"]: row["approval_state"] for row in rows if row["removed_at"] is None},
+        installation_owner_id=owner_id,
     )
     resolved: dict[str, str] = {}
     for row in rows:
@@ -698,7 +714,9 @@ def call_member_server_tool(
         if gateway_server is not None
         else None
     )
-    decision, block_reason = resolve_call_decision(tool, policy_context)
+    decision, block_reason = resolve_call_decision(
+        tool, policy_context, caller_owns_installation=installation.user_id == user_id
+    )
     pending_approval_token = None
     if block_reason == "needs_approval":
         if policy_context is not None and policy_context.resolve(tool.tool_name, tool.annotations).locked:

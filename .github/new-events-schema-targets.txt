@@ -75,6 +75,7 @@ posthog/api/test/test_query.py
 posthog/models/test/test_async_deletion_model.py
 posthog/models/web_preaggregated/test_web_pre_aggregated_timezones.py
 posthog/tasks/test/test_stop_surveys_reached_target.py
+products/ai_observability/backend/api/test/test_evaluations.py
 products/ai_observability/backend/api/test/test_personal_spend.py
 products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py

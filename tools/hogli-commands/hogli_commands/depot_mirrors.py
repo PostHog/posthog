@@ -1,6 +1,6 @@
-"""Keeps the Depot shadow of backend CI in sync with its canonical workflow and local actions.
+"""Keeps the Depot CI mirrors of the local actions in sync with their canonical copies.
 
-`.github/workflows/ci-backend-shadow-drift.yml` runs this file with the runner's python3 before any
+`.github/workflows/ci-depot-action-mirrors.yml` runs this file with the runner's python3 before any
 dependency install, and `hogli ci:preflight` imports it, so it must stay standard library only.
 """
 
@@ -11,8 +11,6 @@ import sys
 import subprocess
 from pathlib import Path
 
-CANONICAL_WORKFLOW = ".github/workflows/ci-backend.yml"
-SHADOW_WORKFLOW = ".depot/workflows/ci-backend.yml"
 # These mirrors carry intentional deltas that each mirror's header documents.
 # Every other mirror stays byte-identical to its canonical action.
 DELTA_MIRRORS = frozenset({"commit-snapshots", "pnpm-install", "setup-pnpm"})
@@ -30,11 +28,6 @@ def _file_bytes(directory: Path) -> dict[Path, bytes]:
 
 def mirror_violations(root: Path, changed: set[str]) -> list[str]:
     violations: list[str] = []
-    if CANONICAL_WORKFLOW in changed and SHADOW_WORKFLOW not in changed:
-        violations.append(
-            f"{CANONICAL_WORKFLOW} changed without a matching update to {SHADOW_WORKFLOW}. "
-            "Mirror the change, or document it as an intentional delta in the shadow's header."
-        )
     for name in sorted(used_mirrors(root)):
         canonical = f".github/actions/{name}/"
         mirror = f".depot/actions/{name}/"
@@ -54,14 +47,10 @@ def mirror_violations(root: Path, changed: set[str]) -> list[str]:
 def main(base_sha: str) -> int:
     diff = subprocess.run(["git", "diff", "--name-only", base_sha, "HEAD"], check=True, capture_output=True, text=True)
     changed = set(diff.stdout.splitlines())
-    if SHADOW_WORKFLOW in changed and CANONICAL_WORKFLOW not in changed:
-        sys.stdout.write(
-            f"::notice::Only {SHADOW_WORKFLOW} changed. That is allowed, for example to tune a Depot-only knob.\n"
-        )
     violations = mirror_violations(Path.cwd(), changed)
     sys.stdout.writelines(f"::error::{violation}\n" for violation in violations)
     if not violations:
-        sys.stdout.write("The Depot shadow is in sync.\n")
+        sys.stdout.write("The Depot action mirrors are in sync.\n")
     return 1 if violations else 0
 
 
