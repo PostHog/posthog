@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "instruction": {
+            "description": "Why you stay off this area, for the people who read it later.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "path_prefix": {
+            "description": "Path inside the repository, such as `src/billing`. Needs a repository.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "report_id": {
+            "description": "Optional report to take you off first. The report removal and the instruction save are separate steps.",
+            "type": "string"
+        },
+        "repository": {
+            "description": "Repository in `owner/name` form. Leave empty to cover every repository.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["instruction"],
+    "type": "object"
+}
