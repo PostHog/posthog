@@ -86,8 +86,8 @@ export const messagingEmailsList = async (
     projectId: string,
     params: MessagingEmailsListParams,
     options?: RequestInit
-): Promise<EmailStatusPageApi[]> => {
-    return apiMutator<EmailStatusPageApi[]>(getMessagingEmailsListUrl(projectId, params), {
+): Promise<EmailStatusPageApi> => {
+    return apiMutator<EmailStatusPageApi>(getMessagingEmailsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
