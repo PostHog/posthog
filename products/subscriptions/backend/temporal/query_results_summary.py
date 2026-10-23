@@ -18,9 +18,13 @@ if TYPE_CHECKING:
 MAX_CONDENSATION_INPUT_LENGTH = 250_000
 
 CONDENSATION_SYSTEM_PROMPT = """Condense query results for a later analytics summary.
-Return plain text with no more than 2,000 characters, including spaces and line breaks.
+Return plain text. Aim for 1,500 characters and never exceed 2,000, including spaces and line breaks.
+Prioritize exact counts, query coverage, and per-event time ranges over optional property details.
+Use factual notes. Omit introductions, conclusions, and repeated descriptions of the same pattern.
 Read every supplied row. Preserve the main patterns, important exceptions, and relevant numeric values.
 Use event_statistics for exact event counts and the returned time span. Do not recount the rows or round these values.
+Preserve the separate first and last timestamps for each event type from time_ranges_by_event.
+Never apply the overall returned time span to every event type.
 State the query date range and the time span of the returned rows when available.
 If resolved_date_range is absent, use query_date_range relative to captured_at. A date_from of -24h means the last 24 hours.
 Distinguish the query date range from the time span of the returned rows.
@@ -52,6 +56,17 @@ def _event_statistics(query_kind: str, query_results: dict[str, Any]) -> dict[st
             timestamps = [datetime.fromisoformat(str(row[timestamp_index])) for row in rows]
             first = min(timestamps)
             last = max(timestamps)
+            timestamps_by_event: dict[str, list[datetime]] = {}
+            for row, timestamp in zip(rows, timestamps):
+                timestamps_by_event.setdefault(str(row[event_index]), []).append(timestamp)
+            statistics["time_ranges_by_event"] = {
+                event: {
+                    "first_timestamp": min(event_timestamps).isoformat(),
+                    "last_timestamp": max(event_timestamps).isoformat(),
+                    "span_seconds": (max(event_timestamps) - min(event_timestamps)).total_seconds(),
+                }
+                for event, event_timestamps in timestamps_by_event.items()
+            }
             statistics.update(
                 {
                     "first_timestamp": first.isoformat(),
@@ -130,7 +145,10 @@ def condense_query_results(
                 if content:
                     return content
         messages.append(
-            {"role": "user", "content": "Return a complete summary within 2,000 characters. Use fewer details."}
+            {
+                "role": "user",
+                "content": "Return a complete summary within 1,000 characters. Keep counts, time ranges, and coverage; remove optional detail.",
+            }
         )
 
     raise ValueError("The condensed summary is empty, incomplete, or exceeds 2,000 characters")

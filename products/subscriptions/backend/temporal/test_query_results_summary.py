@@ -61,6 +61,18 @@ class TestCondenseQueryResults:
         assert payload["event_statistics"]["first_timestamp"] == "2026-01-01T00:00:00+00:00"
         assert payload["event_statistics"]["last_timestamp"] == "2026-01-01T00:24:00+00:00"
         assert payload["event_statistics"]["span_seconds"] == 1_440
+        assert payload["event_statistics"]["time_ranges_by_event"] == {
+            "example_action": {
+                "first_timestamp": "2026-01-01T00:00:00+00:00",
+                "last_timestamp": "2026-01-01T00:23:00+00:00",
+                "span_seconds": 1_380,
+            },
+            "example_failure": {
+                "first_timestamp": "2026-01-01T00:24:00+00:00",
+                "last_timestamp": "2026-01-01T00:24:00+00:00",
+                "span_seconds": 0,
+            },
+        }
         assert payload["has_more"] is True
         assert payload["resolved_date_range"] == query_results["resolved_date_range"]
         assert client.chat.completions.create.call_args.kwargs["posthog_privacy_mode"] is True

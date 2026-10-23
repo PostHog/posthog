@@ -123,6 +123,10 @@ Keep it brief and actionable."""
 
 SUMMARY_CONTENT_INSTRUCTIONS = """Write up to four concise findings. Each finding must be one complete sentence.
 Put the main result first, with its key evidence and any necessary caveat.
+For event lists, the first finding must state the query window and any limits on coverage.
+Do not use the subscription schedule or title as the data window.
+Keep each event type's time range separate. Never apply the overall returned time span to every event type.
+An event-table image can show only the newest rows. Its missing older rows do not contradict full-result event counts or time ranges.
 Use structured items to identify event and metric names, measured values, time windows, links, and connecting text.
 Each destination applies its own visual styles. Do not put formatting markers or bullet characters inside the items.
 Use sentence case and direct language. Remove repetition, generic introductions, sign-offs, and concluding recaps.
