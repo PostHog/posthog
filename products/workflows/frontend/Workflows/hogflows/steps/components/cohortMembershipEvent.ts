@@ -33,18 +33,28 @@ export function cohortMembershipEventEntry({ cohortId, transition }: CohortMembe
     }
 }
 
+/**
+ * Reads an entry only when it has exactly the shape the picker writes. Any other entry, for example one
+ * written through the API with a second event or an extra filter, stays with the event filters, so that
+ * saving from the picker cannot drop what it does not show.
+ */
 export function readCohortMembershipEventEntry(entry: EventEntry | undefined): CohortMembershipEventValue | null {
-    const event = entry?.filters?.events?.[0]
-    if (event?.id !== COHORT_MEMBERSHIP_CHANGED_EVENT) {
+    const filters = entry?.filters
+    const events = filters?.events ?? []
+    if (events.length !== 1 || filters?.actions?.length || filters?.properties?.length) {
         return null
     }
-    const properties: { key?: string; value?: unknown }[] = event.properties ?? []
+    const [event] = events
+    const properties: { key?: string; value?: unknown }[] = event?.properties ?? []
+    if (event?.id !== COHORT_MEMBERSHIP_CHANGED_EVENT || properties.length !== 2) {
+        return null
+    }
     const cohortId = Number(properties.find((property) => property.key === 'cohort_id')?.value)
-    if (!Number.isInteger(cohortId)) {
+    const status = properties.find((property) => property.key === 'status')?.value
+    if (!Number.isInteger(cohortId) || (status !== 'entered' && status !== 'left')) {
         return null
     }
-    const status = properties.find((property) => property.key === 'status')?.value
-    return { cohortId, transition: status === 'left' ? 'left' : 'entered' }
+    return { cohortId, transition: status }
 }
 
 /** Separates the cohort entry from the ordinary event entries, so each editor section changes only its own. */
