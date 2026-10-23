@@ -22,7 +22,7 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
         sqlPreviewStale,
         sqlEditorError,
     } = useValues(dataCatalogNewMetricSceneLogic)
-    const { runSqlPreview, setSqlEditorError, openInSqlEditor } = useActions(dataCatalogNewMetricSceneLogic)
+    const { testSqlQuery, setSqlEditorError, openInSqlEditor } = useActions(dataCatalogNewMetricSceneLogic)
 
     const testDisabledReason = !metricForm.sql.trim()
         ? 'Write a query before testing it'
@@ -39,7 +39,7 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
                         queryKey={NEW_METRIC_SQL_QUERY_KEY}
                         sourceQuery={sqlSourceQuery}
                         onError={setSqlEditorError}
-                        onPressCmdEnter={() => runSqlPreview(undefined)}
+                        onPressCmdEnter={testSqlQuery}
                         options={{ placeholder: SQL_PLACEHOLDER }}
                         minHeight="10rem"
                         maxHeight="40vh"
@@ -52,7 +52,7 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
                     size="small"
                     loading={sqlPreviewLoading}
                     disabledReason={testDisabledReason}
-                    onClick={() => runSqlPreview(undefined)}
+                    onClick={testSqlQuery}
                     sideIcon={<span className="text-xs text-secondary">⌘↵</span>}
                     data-attr="data-catalog-new-metric-test-query"
                 >

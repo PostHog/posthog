@@ -4,6 +4,7 @@ import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
@@ -42,6 +43,8 @@ jest.mock('lib/api', () => {
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
 }))
+
+jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
 
 jest.mock('./openOverwriteMetricDialog', () => ({ openOverwriteMetricDialog: jest.fn() }))
 
@@ -155,5 +158,15 @@ describe('dataCatalogNewMetricSceneLogic', () => {
             'Metric created, but approving it failed. Approve it from the banner.'
         )
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('monthly_active_users'))
+    })
+
+    it('runs one test query at a time', () => {
+        ;(performQuery as jest.Mock).mockReturnValue(new Promise(() => {}))
+        logic.actions.setMetricFormValues(SQL_FORM)
+
+        logic.actions.testSqlQuery()
+        logic.actions.testSqlQuery()
+
+        expect(performQuery).toHaveBeenCalledTimes(1)
     })
 })

@@ -268,6 +268,9 @@ export interface dataCatalogNewMetricSceneLogicActions {
     submitMetricFormSuccess: (metricForm: NewMetricFormValues) => {
         metricForm: NewMetricFormValues
     }
+    testSqlQuery: () => {
+        value: true
+    }
     touchMetricFormField: (key: string) => {
         key: string
     }
@@ -310,6 +313,7 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
         setSaving: (saving: MetricSaveAction | null) => ({ saving }),
         setInsightSearch: (search: string) => ({ search }),
         setSqlEditorError: (error: string | null) => ({ error }),
+        testSqlQuery: true,
         openInSqlEditor: true,
         setLeaving: true,
     }),
@@ -484,6 +488,11 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
                     display_name: insight.label,
                     name: sqlNameFromDisplayName(insight.label),
                 })
+            }
+        },
+        testSqlQuery: () => {
+            if (!values.sqlPreviewLoading) {
+                actions.runSqlPreview(undefined)
             }
         },
         openInSqlEditor: () => {
