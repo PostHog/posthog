@@ -367,6 +367,23 @@ class TestTransactionalEmail(APIBaseTest):
         # Clients retry `throttled`, and never `quota_limited`.
         assert by_key.json()["code"] == "throttled"
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_reading_email_statuses_leaves_the_send_rate_limit_alone(self, _rate_limit, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:read", "hog_flow:write"])
+        status_url = f"/api/projects/{self.team.id}/messaging/emails/not-a-message-id/"
+
+        with patch.object(TransactionalEmailBurstThrottle, "rate", "1/minute"):
+            read = psak.get(status_url)
+            read_again = psak.get(status_url)
+            sent = psak.post(self.url, self.body, format="json")
+
+        assert (read.status_code, read_again.status_code) == (
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+        assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
+
     @parameterized.expand(
         [
             (f"{name}_{addressed_by}", addressed_by, outcome)

@@ -21,12 +21,33 @@ from products.messaging.backend.facade.email_status import (
     message_created_at,
 )
 from products.messaging.backend.presentation.views.transactional_email_api import (
-    TRANSACTIONAL_EMAIL_THROTTLES,
     TemplateErrorSerializer,
     TemplateRefusal,
+    TransactionalEmailBurstThrottle,
+    TransactionalEmailSustainedThrottle,
+    TransactionalEmailTeamBurstThrottle,
+    TransactionalEmailTeamSustainedThrottle,
     TransactionalEmailViewSetMixin,
     invalid_request,
 )
+
+
+# The send's rates under their own scopes, so polling a status never uses up the budget for sending.
+class EmailStatusBurstThrottle(TransactionalEmailBurstThrottle):
+    scope = "transactional_email_read_burst"
+
+
+class EmailStatusSustainedThrottle(TransactionalEmailSustainedThrottle):
+    scope = "transactional_email_read_sustained"
+
+
+class EmailStatusTeamBurstThrottle(TransactionalEmailTeamBurstThrottle):
+    scope = "transactional_email_read_psak_team_burst"
+
+
+class EmailStatusTeamSustainedThrottle(TransactionalEmailTeamSustainedThrottle):
+    scope = "transactional_email_read_psak_team_sustained"
+
 
 LOOKUP_PAGE_SIZE = 50
 LOOKUP_MAX_PAGE_SIZE = 100
@@ -132,7 +153,12 @@ class MessagingEmailsViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["list", "retrieve"]
-    throttle_classes = TRANSACTIONAL_EMAIL_THROTTLES
+    throttle_classes = [
+        EmailStatusBurstThrottle,
+        EmailStatusSustainedThrottle,
+        EmailStatusTeamBurstThrottle,
+        EmailStatusTeamSustainedThrottle,
+    ]
 
     def _require_project_secret_api_key(self) -> None:
         # The routing mixin adds user credentials to every route. A status row names no workflow, so a user's
