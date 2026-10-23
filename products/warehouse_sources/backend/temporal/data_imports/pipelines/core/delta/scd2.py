@@ -144,7 +144,9 @@ class Scd2DeltaWriter:
         1. Find the existing row in the target with matching PK and valid_to IS NULL
            (the current row) and update its valid_to to the earliest valid_from of the
            new events for that PK.
-        2. Append all rows from `data` as new history entries.
+        2. Append all rows from `data` as new history entries. With `row_hash_column` set, the
+           leading rows of a key that equal its current row are dropped first, and a batch left
+           with no rows writes nothing.
 
         `data` is expected to already carry the valid_from / valid_to columns.
         """
@@ -162,7 +164,8 @@ class Scd2DeltaWriter:
             for name in (self._row_hash_column, self._row_hash_version_column):
                 if name in data.column_names:
                     raise ValueError(f"Source column {name!r} collides with the history table's row hash columns")
-            hashes = compute_row_hashes(data, self._unhashed_columns)
+            # Decimal and nested values normalize in Python, so keep that work off the event loop.
+            hashes = await asyncio.to_thread(compute_row_hashes, data, self._unhashed_columns)
             data = data.append_column(self._row_hash_column, hashes).append_column(
                 self._row_hash_version_column, pa.array([ROW_HASH_VERSION] * data.num_rows, type=pa.int16())
             )
