@@ -162,6 +162,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.aws_guardduty_findings import AWS_GUARDDUTY_CONFIG
+    from products.signals.backend.emission.aws_inspector_findings import AWS_INSPECTOR_CONFIG
+    from products.signals.backend.emission.aws_security_hub_findings import AWS_SECURITY_HUB_CONFIG
     from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
@@ -207,6 +210,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.microsoft_defender_cloud_apps_alerts import (
+        MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG,
+    )
     from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
     from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
@@ -368,6 +374,13 @@ def _register_all_emitters() -> None:
     # Business and product reviews (record kind: review)
     register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
     register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)
+    # Cloud security (record kind: scanner_finding)
+    register_signal_source(ExternalDataSourceType.AWSSECURITYHUB, "findings", AWS_SECURITY_HUB_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSGUARDDUTY, "findings", AWS_GUARDDUTY_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSINSPECTOR, "findings", AWS_INSPECTOR_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.MICROSOFTDEFENDERCLOUDAPPS, "alerts", MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG
+    )
 
 
 _register_all_emitters()

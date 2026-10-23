@@ -1,21 +1,12 @@
-name: Backend CI shadow drift check
+name: Depot action mirrors
 
-# Fails when the canonical backend workflow or a mirrored local action changes
-# without a matching update to the Depot shadow. The workflow is hand-maintained
-# (see its header comment for intentional deltas), while the actions are vendored;
-# without this check, canonical drifts silently and the Depot timing trial stops
-# measuring the same work. The check lives in depot_mirrors.py, which
-# `hogli ci:preflight` also runs before a push.
-#
-# Cheap to run: it triggers only on changes to the backend workflow, local actions, Depot files, or the check itself.
-# Always enforced: every pull request's backend tests run on Depot, so the mirror and
-# canonical have to agree on every commit.
-
+# Depot CI resolves `./.github/actions/<name>` from .depot/actions/<name>, so every local action a
+# Depot workflow uses has a mirror there. This check fails when a canonical action changes without
+# its mirror, or when an exact mirror drifts. `hogli ci:preflight` runs the same check before a push.
 on:
     pull_request:
         paths:
-            - .github/workflows/ci-backend-shadow-drift.yml
-            - .github/workflows/ci-backend.yml
+            - .github/workflows/ci-depot-action-mirrors.yml
             - .github/actions/**
             - .depot/**
             - tools/hogli-commands/hogli_commands/depot_mirrors.py
@@ -29,7 +20,7 @@ concurrency:
 
 jobs:
     check:
-        name: Backend CI shadows remain synchronized
+        name: Depot action mirrors remain synchronized
         runs-on: ubuntu-24.04
         # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
