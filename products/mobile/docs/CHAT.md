@@ -376,6 +376,12 @@ The empty state with suggested prompts shows while there is no task and no messa
 
 ## Sheet lifecycle
 
+The navigator keeps one chat screen. Opening another chat reuses that screen and loads fresh
+conversation state. A notification for the chat already on screen leaves its session, draft and
+scroll position intact, including a chat started from the composer. A notification for a different
+chat replaces the open chat, so one Close returns to the screen underneath. Starting New chat
+does not prevent a later notification from reopening the previous conversation.
+
 Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
 A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.
 

@@ -95,6 +95,7 @@ export default function RootLayout(): ReactElement {
                             >
                                 <Stack.Screen
                                     name="chat"
+                                    dangerouslySingular={(): string => 'chat'}
                                     options={{
                                         presentation: 'transparentModal',
                                         animation: 'none',

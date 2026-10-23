@@ -25,6 +25,14 @@ let viewedTask: { accountKey: string; projectId: number; taskId: string } | null
 export function setViewedNotificationTask(task: typeof viewedTask): void {
     viewedTask = task
 }
+
+export function isViewedNotificationTask(task: NonNullable<typeof viewedTask>): boolean {
+    return (
+        viewedTask?.accountKey === task.accountKey &&
+        viewedTask.projectId === task.projectId &&
+        viewedTask.taskId === task.taskId
+    )
+}
 const presentation = new NotificationPresentation()
 
 export function setViewedNotificationReport(report: ViewedReport | null): void {
@@ -43,9 +51,7 @@ function shouldShowWhileActive(data: unknown, host: string, accountKey: string):
     }
     if (
         target.type === 'task' &&
-        viewedTask?.accountKey === accountKey &&
-        viewedTask.projectId === target.projectId &&
-        viewedTask.taskId === target.id
+        isViewedNotificationTask({ accountKey, projectId: target.projectId, taskId: target.id })
     ) {
         return false
     }

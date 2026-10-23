@@ -1,12 +1,14 @@
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { type ReactElement, useCallback } from 'react'
 
+import { useDataMode } from '@/demo/demoMode'
 import { ChatSheet } from '@/features/chat/ChatSheet'
 import { chatSheetSource } from '@/features/chat/chatSheetEvents'
 import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
 
 export default function ChatRoute(): ReactElement {
     const router = useRouter()
+    const dataMode = useDataMode()
     const { reportId, taskId, runId, entry, origin } = useLocalSearchParams<{
         reportId?: string
         taskId?: string
@@ -23,6 +25,7 @@ export default function ChatRoute(): ReactElement {
     }, [router])
     return (
         <ChatSheet
+            key={JSON.stringify([dataMode, taskId, runId, reportId])}
             initialReportId={reportId}
             initialTaskId={taskId}
             initialRunId={runId}
