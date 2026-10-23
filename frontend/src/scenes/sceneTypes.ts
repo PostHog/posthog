@@ -487,7 +487,10 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
     [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityScorer]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineExperiments]: [
+        AccessControlResourceType.Evaluation,
+        AccessControlResourceType.LlmAnalytics,
+    ],
     [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,

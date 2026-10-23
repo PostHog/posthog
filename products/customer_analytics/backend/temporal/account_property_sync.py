@@ -51,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
         AccountPropertySourceRejectedError,
         AccountPropertySourceValueError,
         AccountPropertySyncSegment,
+        SourceSyncCheckpoint,
         complete_account_property_sync_segment,
         get_account_property_sync_source_ids,
         run_account_property_segment_sync,
@@ -458,7 +459,14 @@ async def sync_warehouse_account_property_source_activity(input: AccountProperty
             segment=segment,
             source_id=source_uuid,
         )
-        async with Heartbeater():
+        resume_from = SourceSyncCheckpoint.from_heartbeat_details(activity_info.heartbeat_details)
+        async with Heartbeater() as heartbeater:
+
+            def save_checkpoint(checkpoint: SourceSyncCheckpoint) -> None:
+                heartbeater.details = (checkpoint.to_heartbeat_details(),)
+
+            if resume_from is not None:
+                save_checkpoint(resume_from)
             result = await run_account_property_source_sync(
                 team_id=input.team_id,
                 binding=saved_query_binding(input.saved_query_id),
@@ -466,6 +474,8 @@ async def sync_warehouse_account_property_source_activity(input: AccountProperty
                 segment=segment,
                 source_id=input.source_id,
                 final_attempt=activity_info.attempt >= ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS,
+                resume_from=resume_from,
+                save_checkpoint=save_checkpoint,
             )
     except (AccountPropertySourceValueError, AccountPropertySourceRejectedError) as error:
         # A retry reads the same staged rows and source config, so it can't fix these errors.

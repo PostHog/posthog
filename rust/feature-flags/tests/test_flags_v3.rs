@@ -455,67 +455,103 @@ async fn v3_and_above_serve_the_v2_record_while_the_setting_is_off() -> Result<(
     Ok(())
 }
 
-#[tokio::test]
-async fn v3_carries_every_typed_corpus_value_through_the_request_path() -> Result<()> {
-    let cases: Vec<_> = corpus::value_cases()
+/// Serves the success cases and checks their v3 and v2 records. Each identifier gets its own
+/// server, because the experiment corpus picks identifiers per outcome. Returns the cases checked.
+async fn check_on_the_wire(cases: Vec<Value>) -> Result<usize> {
+    let cases: Vec<_> = cases
         .into_iter()
         .filter(|case| case["expected"]["status"] == "success")
         .collect();
-    assert_eq!(cases.len(), 38);
-    let context = &cases[0]["context"];
-    assert!(cases.iter().all(|case| &case["context"] == context));
-    let distinct_id = context["identifier"].as_str().unwrap();
-    let flags = cases
+    let mut identifiers: Vec<&str> = cases
         .iter()
-        .zip(100..)
-        .map(|(case, id)| corpus_flag(case, id));
-    let (server, token) = serve(
-        true,
-        distinct_id,
-        context["properties"].clone(),
-        flags.collect(),
-    )
-    .await?;
-    let body = json!({"token": token, "distinct_id": distinct_id});
-    let v3 = post(&server, "v=3&config=false", &[], body.clone()).await?;
-    wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{error:?}"));
-    let v2 = post(&server, "v=2&config=false", &[], body).await?;
+        .map(|case| case["context"]["identifier"].as_str().unwrap())
+        .collect();
+    identifiers.sort_unstable();
+    identifiers.dedup();
     let decoded = |payload: &Value| {
         payload
             .as_str()
             .map_or(Value::Null, |p| serde_json::from_str(p).unwrap())
     };
-
-    for case in &cases {
-        let key = case["id"].as_str().unwrap();
-        let (expected, legacy) = (&case["expected"], &case["legacy"]);
-        let record = &v3["flags"][key];
-        assert_eq!(record["value"], expected["value"], "{key}");
-        assert_eq!(record["reason"]["code"], expected["reason"], "{key}");
-        assert_eq!(
-            record["reason"]["condition_index"], expected["rule"]["index"],
-            "{key}"
-        );
-        assert_eq!(
-            record["metadata"].get("rule_id"),
-            expected["rule"].get("id"),
-            "{key}"
-        );
-        assert_eq!(
-            record["metadata"].get("rule_type"),
-            expected["rule"].get("rule_type"),
-            "{key}"
-        );
-        assert_eq!(record["metadata"]["payload"], Value::Null, "{key}");
-
-        let v2_record = &v2["flags"][key];
-        assert_eq!(v2_record["enabled"], legacy["enabled"], "{key}");
-        assert_eq!(v2_record["variant"], legacy["variant"], "{key}");
-        assert_eq!(
-            decoded(&v2_record["metadata"]["payload"]),
-            legacy["payload"],
-            "{key}"
-        );
+    let mut checked = 0;
+    // Requests require a distinct ID; the empty-identifier rows run below the request path.
+    for distinct_id in identifiers.into_iter().filter(|id| !id.is_empty()) {
+        let group: Vec<_> = cases
+            .iter()
+            .filter(|case| case["context"]["identifier"] == distinct_id)
+            .collect();
+        let flags = group
+            .iter()
+            .zip(100..)
+            .map(|(case, id)| corpus_flag(case, id));
+        let (server, token) = serve(
+            true,
+            distinct_id,
+            group[0]["context"]["properties"].clone(),
+            flags.collect(),
+        )
+        .await?;
+        let body = json!({"token": token, "distinct_id": distinct_id});
+        let v3 = post(&server, "v=3&config=false", &[], body.clone()).await?;
+        wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{error:?}"));
+        let v2 = post(&server, "v=2&config=false", &[], body).await?;
+        for case in group {
+            let key = case["id"].as_str().unwrap();
+            let (expected, legacy) = (&case["expected"], &case["legacy"]);
+            let record = &v3["flags"][key];
+            assert_eq!(record["value"], expected["value"], "{key}");
+            assert_eq!(record["reason"]["code"], expected["reason"], "{key}");
+            assert_eq!(
+                record["reason"]["condition_index"], expected["rule"]["index"],
+                "{key}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_type"),
+                expected["rule"].get("rule_type"),
+                "{key}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_id"),
+                expected["rule"].get("id"),
+                "{key}"
+            );
+            assert_eq!(
+                record["metadata"].get("variant_key"),
+                expected.get("variant"),
+                "{key}"
+            );
+            assert_eq!(record["metadata"]["payload"], Value::Null, "{key}");
+            assert_eq!(record["metadata"]["has_experiment"], false, "{key}");
+            for field in ["experiment_id", "holdout_id"] {
+                assert_eq!(record["metadata"].get(field), None, "{key}");
+            }
+            let v2_record = &v2["flags"][key];
+            assert_eq!(v2_record["enabled"], legacy["enabled"], "{key}");
+            assert_eq!(v2_record["variant"], legacy["variant"], "{key}");
+            assert_eq!(
+                decoded(&v2_record["metadata"]["payload"]),
+                legacy["payload"],
+                "{key}"
+            );
+            checked += 1;
+        }
     }
+    Ok(checked)
+}
+
+#[tokio::test]
+async fn v3_carries_every_typed_corpus_value_through_the_request_path() -> Result<()> {
+    assert_eq!(check_on_the_wire(corpus::value_cases()).await?, 38);
+    Ok(())
+}
+
+#[tokio::test]
+async fn experiment_rules_carry_the_assigned_variant_and_no_experiment_identity_on_the_wire(
+) -> Result<()> {
+    let cases = corpus::experiment_cases()
+        .into_iter()
+        .filter(|case| case["family"] != "white_box")
+        .collect();
+    assert_eq!(check_on_the_wire(cases).await?, 48);
     Ok(())
 }

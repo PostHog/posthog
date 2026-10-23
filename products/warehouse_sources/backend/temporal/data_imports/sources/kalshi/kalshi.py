@@ -1,6 +1,14 @@
+import time
+import base64
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
+
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
+from requests import PreparedRequest
 
 from posthog.dataclasses import frozen
 
@@ -9,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     SinglePagePaginator,
@@ -39,10 +48,69 @@ _WEATHER_INDEX_EARLIEST_MS = 1
 _WEATHER_INDEX_OVERLAP_MS = 60 * 60 * 1000
 
 
+class KalshiCredentialsError(Exception):
+    pass
+
+
+MISSING_CREDENTIALS_MESSAGE = "Portfolio tables need a Kalshi API key ID and private key"
+INVALID_PRIVATE_KEY_MESSAGE = "The Kalshi private key is not a valid unencrypted RSA or Ed25519 PEM key"
+
+
+class KalshiSignedAuth(AuthConfigBase):
+    """Signs `{timestamp}{METHOD}{path}` with the account's API key, as Kalshi's portfolio endpoints require."""
+
+    def __init__(self, api_key_id: str, private_key: str) -> None:
+        self.api_key_id = api_key_id
+        self.private_key_pem = private_key
+        try:
+            key = serialization.load_pem_private_key(private_key.strip().encode(), password=None)
+        except (ValueError, TypeError, UnsupportedAlgorithm) as e:
+            raise KalshiCredentialsError(INVALID_PRIVATE_KEY_MESSAGE) from e
+        if not isinstance(key, rsa.RSAPrivateKey | ed25519.Ed25519PrivateKey):
+            raise KalshiCredentialsError(INVALID_PRIVATE_KEY_MESSAGE)
+        self._key = key
+
+    def _sign(self, message: bytes) -> bytes:
+        if isinstance(self._key, ed25519.Ed25519PrivateKey):
+            return self._key.sign(message)
+        return self._key.sign(
+            message,
+            padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+            hashes.SHA256(),
+        )
+
+    def __call__(self, request: PreparedRequest) -> PreparedRequest:
+        timestamp = str(int(time.time() * 1000))
+        # The signed path keeps the `/trade-api/v2` prefix and drops the query string.
+        path = urlsplit(request.url or "").path
+        signature = self._sign(f"{timestamp}{request.method}{path}".encode())
+        request.headers["KALSHI-ACCESS-KEY"] = self.api_key_id
+        request.headers["KALSHI-ACCESS-TIMESTAMP"] = timestamp
+        request.headers["KALSHI-ACCESS-SIGNATURE"] = base64.b64encode(signature).decode()
+        return request
+
+    def secret_values(self) -> tuple[str, ...]:
+        return (self.private_key_pem,)
+
+
+def build_auth(api_key_id: Optional[str], private_key: Optional[str]) -> Optional[KalshiSignedAuth]:
+    """Return the signer, or `None` when neither field is set. Raises when only one is set or the key is bad."""
+    api_key_id = (api_key_id or "").strip()
+    private_key = (private_key or "").strip()
+    if not api_key_id and not private_key:
+        return None
+    if not api_key_id or not private_key:
+        raise KalshiCredentialsError(MISSING_CREDENTIALS_MESSAGE)
+    return KalshiSignedAuth(api_key_id, private_key)
+
+
 @frozen
 class KalshiResumeConfig:
     # Opaque pagination cursor from the previous response's `cursor` field.
     cursor: str
+    # The subaccount the cursor belongs to, for endpoints read once per subaccount. An empty
+    # cursor starts that subaccount at its first page.
+    subaccount: Optional[int] = None
 
 
 def _to_epoch_seconds(value: Any) -> Optional[int]:
@@ -250,6 +318,91 @@ def _weather_index_source(
     )
 
 
+def _subaccounts(client: RESTClient) -> list[int]:
+    numbers: set[int] = set()
+    for page in client.paginate(
+        path="/portfolio/subaccounts/balances",
+        paginator=SinglePagePaginator(),
+        data_selector="subaccount_balances",
+        data_selector_required=True,
+    ):
+        numbers.update(int(balance["subaccount_number"]) for balance in page if "subaccount_number" in balance)
+    return sorted(numbers) or [0]
+
+
+def _subaccount_rows(
+    client: RESTClient,
+    config: KalshiEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+    min_ts: Optional[int],
+) -> Iterator[list[dict[str, Any]]]:
+    subaccounts = _subaccounts(client)
+    page_cursor: Optional[str] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.subaccount in subaccounts:
+            subaccounts = subaccounts[subaccounts.index(resume.subaccount) :]
+            page_cursor = resume.cursor or None
+
+    for position, subaccount in enumerate(subaccounts):
+        following = subaccounts[position + 1] if position + 1 < len(subaccounts) else None
+        params: dict[str, Any] = {"limit": config.page_size, "subaccount": subaccount, **config.extra_params}
+        if min_ts is not None:
+            params["min_ts"] = min_ts
+
+        def stage_next(
+            state: Optional[dict[str, Any]],
+            has_next_page: bool,
+            subaccount: int = subaccount,
+            following: Optional[int] = following,
+        ) -> None:
+            if has_next_page and state and state.get("cursor"):
+                resumable_source_manager.save_state(
+                    KalshiResumeConfig(cursor=str(state["cursor"]), subaccount=subaccount)
+                )
+            elif following is not None:
+                resumable_source_manager.save_state(KalshiResumeConfig(cursor="", subaccount=following))
+
+        for page in client.paginate(
+            path=config.path,
+            params=params,
+            paginator=JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor"),
+            data_selector=config.data_key,
+            data_selector_required=True,
+            initial_paginator_state={"cursor": page_cursor} if page_cursor else None,
+            page_state_hook=stage_next,
+        ):
+            if page:
+                yield [{**row, "subaccount_number": subaccount} for row in page]
+            else:
+                resumable_source_manager.safe_point()
+        page_cursor = None
+
+
+def _subaccount_source(
+    config: KalshiEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+    auth: KalshiSignedAuth,
+    last_value: Optional[Any],
+) -> SourceResponse:
+    client = RESTClient(base_url=KALSHI_BASE_URL, headers={"Accept": "application/json"}, auth=auth)
+    min_ts = _to_epoch_seconds(last_value) if config.supports_incremental else None
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: _subaccount_rows(client, config, resumable_source_manager, min_ts),
+        primary_keys=config.primary_keys,
+        # Rows arrive grouped by subaccount, not by time, so the watermark can only advance once
+        # the walk completes.
+        sort_mode="desc",
+        partition_count=1 if config.partition_key else None,
+        partition_size=1 if config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="day" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
 def _build_endpoint(config: KalshiEndpointConfig, should_use_incremental_field: bool) -> Endpoint:
     endpoint: Endpoint = {
         "path": config.path,
@@ -259,7 +412,7 @@ def _build_endpoint(config: KalshiEndpointConfig, should_use_incremental_field: 
     }
 
     if config.paginated:
-        endpoint["params"] = {"limit": config.page_size}
+        endpoint["params"] = {"limit": config.page_size, **config.extra_params}
         # Kalshi pages with an opaque `cursor` echoed at the response root, and omits it on the
         # last page. The paginator implements resume state, so a heartbeat timeout picks up mid-walk.
         endpoint["paginator"] = JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor")
@@ -269,7 +422,7 @@ def _build_endpoint(config: KalshiEndpointConfig, should_use_incremental_field: 
     if config.supports_incremental and should_use_incremental_field:
         endpoint["incremental"] = {
             "start_param": "min_ts",
-            "cursor_path": "created_time",
+            "cursor_path": config.incremental_fields[0]["field"],
             "convert": _to_epoch_seconds,
         }
 
@@ -283,8 +436,11 @@ def kalshi_source(
     resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    auth: Optional[KalshiSignedAuth] = None,
 ) -> SourceResponse:
     config = KALSHI_ENDPOINTS[endpoint]
+    if config.requires_auth and auth is None:
+        raise KalshiCredentialsError(MISSING_CREDENTIALS_MESSAGE)
     last_value = db_incremental_field_last_value if should_use_incremental_field else None
 
     if config.market_fan_out:
@@ -293,11 +449,15 @@ def kalshi_source(
     if config.city_fan_out:
         return _weather_index_source(config, resumable_source_manager, last_value)
 
-    # Kalshi's market-data endpoints are public and take no credential, so no `auth` is configured.
+    if config.subaccount_fan_out and auth is not None:
+        return _subaccount_source(config, resumable_source_manager, auth, last_value)
+
+    # Market-data endpoints are public, so only portfolio endpoints send the signature.
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": KALSHI_BASE_URL,
             "headers": {"Accept": "application/json"},
+            "auth": auth if config.requires_auth else None,
         },
         "resource_defaults": {},
         "resources": [
@@ -333,7 +493,7 @@ def kalshi_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        # Trades arrive strictly newest-first and the API offers no ascending option, so the
+        # Trades, fills, and settlements arrive strictly newest-first and the API offers no ascending option, so the
         # watermark can only advance once the walk completes.
         sort_mode="desc" if config.newest_first else "asc",
         partition_count=1,
@@ -345,12 +505,22 @@ def kalshi_source(
     )
 
 
-def validate_credentials() -> bool:
-    # Nothing to authenticate; confirm the public API is reachable and answering so a source is
-    # never created against an endpoint that has moved.
+def validate_credentials(auth: Optional[KalshiSignedAuth] = None) -> bool:
+    if auth is None:
+        # Nothing to authenticate; confirm the public API is reachable and answering so a source is
+        # never created against an endpoint that has moved.
+        ok, _status = validate_via_probe(
+            make_tracked_session,
+            f"{KALSHI_BASE_URL}/exchange/status",
+            headers={"Accept": "application/json"},
+        )
+        return ok
+
     ok, _status = validate_via_probe(
         make_tracked_session,
-        f"{KALSHI_BASE_URL}/exchange/status",
+        f"{KALSHI_BASE_URL}/portfolio/balance",
         headers={"Accept": "application/json"},
+        auth=auth,
+        allow_redirects=False,
     )
     return ok

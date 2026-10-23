@@ -66,6 +66,8 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalReportPullRequest,
     SignalReportTask,
+    SignalScoutConfig,
+    SignalScoutRun,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -84,6 +86,7 @@ from products.signals.backend.test.report_metric_test_fixtures import trends_met
 from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
+    SignalReportStateRequestSerializer,
     SignalReportViewSet,
     classify_report_list_client,
     parse_pr_ci_status_report_ids,
@@ -135,6 +138,15 @@ def _seen_event(team: Team, name: str, *, days_ago: int) -> None:
     EventDefinition.objects.create(
         team=team, project_id=team.project_id, name=name, last_seen_at=timezone.now() - timedelta(days=days_ago)
     )
+
+
+class TestSignalReportStateRequest(SimpleTestCase):
+    @parameterized.expand([("resolved", True), ("suppressed", False), ("potential", False)])
+    def test_no_action_needed_requires_resolution(self, target: str, valid: bool) -> None:
+        serializer = SignalReportStateRequestSerializer(data={"state": target, "dismissal_reason": "no_action_needed"})
+        assert serializer.is_valid() == valid
+        if not valid:
+            assert "dismissal_reason" in serializer.errors
 
 
 class TestReportListClientClassification(SimpleTestCase):
@@ -388,6 +400,32 @@ class TestSignalReportListAPI(APIBaseTest):
         assert retrieve_response.status_code == status.HTTP_200_OK
         assert retrieve_response.json()["metrics"][0]["metric_id"] == "affected-users"
         assert retrieve_response.json()["metrics"][0]["query"] == metric["query"]
+
+    def test_list_hides_reports_an_opted_out_scout_authored_unless_asked(self) -> None:
+        listed = self._create_report()
+        edited_only = self._create_report()
+        authored = self._create_report()
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+        )
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="scout", description="d")
+        SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task),
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=[str(authored.id)],
+            edited_report_ids=[str(edited_only.id)],
+        )
+
+        default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        opt_in_ids = {row["id"] for row in self.client.get(self._list_url(include_unlisted="true")).json()["results"]}
+        retrieve_response = self.client.get(f"{self._list_url()}{authored.id}/")
+
+        assert default_ids == {str(listed.id), str(edited_only.id)}
+        assert opt_in_ids == {str(listed.id), str(edited_only.id), str(authored.id)}
+        assert retrieve_response.status_code == status.HTTP_200_OK
 
     def test_property_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
         self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
@@ -753,6 +791,35 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch("posthog.data_freshness._probe_app_metrics", side_effect=RuntimeError("store unavailable")):
             assert self.client.get(url).json()["source_suggestion"] is None
+
+    def test_plan_shows_on_the_detail_of_a_step_and_not_in_the_list(self):
+        plan = self._create_report(title="feat(x): the plan")
+        step = self._create_report(title="feat(x): a step")
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(step.id),
+            content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{step.id}/").json()
+        assert detail["plan"] == {
+            "id": str(plan.id),
+            "title": "feat(x): the plan",
+            "status": "ready",
+            "steps": [
+                {
+                    "id": str(step.id),
+                    "title": "feat(x): a step",
+                    "status": "ready",
+                    "depends_on": [],
+                    "implementation_pr_url": None,
+                    "implementation_pr_state": None,
+                }
+            ],
+        }
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(step.id))
+        assert row["plan"] is None
 
     @parameterized.expand([("unassigned", False), ("assigned", True)])
     def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
@@ -2087,7 +2154,10 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
+            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
+            response = self.client.get(
+                self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
+            )
 
         assert response.status_code == status.HTTP_200_OK
         # All association subqueries must stay team-scoped. Without the scope the planner can
@@ -3005,6 +3075,13 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "already_fixed",
                 "shipped a fix by hand",
             ),
+            (
+                "resolve_no_action_needed",
+                {"state": "resolved", "dismissal_reason": "no_action_needed", "dismissal_note": "Reviewed the finding"},
+                SignalReport.Status.RESOLVED,
+                "no_action_needed",
+                "Reviewed the finding",
+            ),
         ]
     )
     def test_state_transition_with_dismissal(self, _name, body, expected_final_status, expected_reason, expected_note):
@@ -3026,6 +3103,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert len(artefacts) == 1
         content = json.loads(artefacts[0].content)
+        assert content["state"] == body["state"]
         assert content["reason"] == expected_reason
         assert content["note"] == expected_note
         assert content["user_id"] == self.user.id
@@ -3040,6 +3118,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "fixed_outside_posthog",
             ),
             ("resolve_pr_merged", {"state": "resolved", "dismissal_reason": "pr_merged"}, "pr_merged"),
+            (
+                "resolve_no_action_needed",
+                {"state": "resolved", "dismissal_reason": "no_action_needed"},
+                "no_action_needed",
+            ),
             # A resolve carrying no feedback must not pick a reason up from anywhere.
             ("resolve_without_reason", {"state": "resolved"}, None),
         ]
@@ -3648,8 +3731,10 @@ class TestSignalReportMergeAPI(APIBaseTest):
             )
 
     def test_merge_moves_the_work_log_and_archives_the_source(self):
-        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1)
-        source = self._report(signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4)
+        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1, tags=["billing"])
+        source = self._report(
+            signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4, tags=["api", "billing"]
+        )
         SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(source.id),
@@ -3672,6 +3757,7 @@ class TestSignalReportMergeAPI(APIBaseTest):
         ]
         # The response renders the survivor as it stands after the merge, counters included.
         assert (payload["report"]["id"], payload["report"]["signal_count"]) == (str(survivor.id), 5)
+        assert payload["report"]["tags"] == ["billing", "api"]
 
         survivor.refresh_from_db()
         source.refresh_from_db()
@@ -3698,7 +3784,9 @@ class TestSignalReportMergeAPI(APIBaseTest):
             "same support ticket",
         )
         dismissal = SignalReportArtefact.objects.get(report_id=source.id, type="dismissal")
-        assert Dismissal.model_validate_json(dismissal.content).reason == MERGE_DISMISSAL_REASON
+        feedback = Dismissal.model_validate_json(dismissal.content)
+        assert feedback.reason == MERGE_DISMISSAL_REASON
+        assert feedback.state == "suppressed"
 
     def test_merge_moves_the_pull_request_so_the_dismissal_leaves_it_open(self):
         survivor = self._report()
@@ -3846,6 +3934,49 @@ class TestSignalReportMergeAPI(APIBaseTest):
             assert response.json()["skipped_count"] == 1
         source.refresh_from_db()
         assert source.status == SignalReport.Status.SUPPRESSED
+
+    @parameterized.expand(
+        [
+            ("person", None, None),
+            ("scout_task", "signals-scout-error-tracking", "signals-scout-error-tracking"),
+            ("non_scout_task", "", None),
+        ]
+    )
+    def test_merge_attributes_a_scout_merge_to_its_skill(self, _name, scout_skill, expected_author):
+        survivor = self._report()
+        source = self._report()
+        headers: dict[str, str] = {}
+        task_id: str | None = None
+        if scout_skill is not None:
+            Task = apps.get_model("tasks", "Task")
+            TaskRun = apps.get_model("tasks", "TaskRun")
+            task = Task.objects.create(team=self.team, title="task", description="desc")
+            task_id = str(task.id)
+            headers["X-PostHog-Task-Id"] = task_id
+            if scout_skill:
+                SignalScoutRun.objects.create(
+                    team=self.team,
+                    task_run=TaskRun.objects.create(task=task, team=self.team),
+                    skill_name=scout_skill,
+                    skill_version=1,
+                )
+
+        with (
+            patch("products.signals.backend.views.report_user_action") as report_action,
+            self.captureOnCommitCallbacks(execute=False),
+        ):
+            response = self.client.post(
+                self._merge_url(str(survivor.id)),
+                data=json.dumps({"source_report_ids": [str(source.id)]}),
+                content_type="application/json",
+                headers=headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        note = SignalReportArtefact.objects.get(report_id=survivor.id, type="note")
+        assert NoteArtefact.model_validate_json(note.content).author == expected_author
+        properties = report_action.call_args.kwargs["properties"]
+        assert (properties["task_id"], properties["scout_skill_name"]) == (task_id, expected_author)
 
     def test_merge_schedules_the_signal_move_once_committed(self):
         survivor = self._report()

@@ -66,7 +66,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "403 Client Error: Forbidden for url": (
+            "Similarweb API returned status 403": (
                 "Similarweb rejected the API key, or the account is out of data credits. "
                 "Check both on the API management page in your Similarweb account."
             ),

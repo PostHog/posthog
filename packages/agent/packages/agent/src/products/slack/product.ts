@@ -12,6 +12,7 @@ import { buildPullRequestFooter, defineProduct } from "../../sdk/product";
 import {
   buildSlackDeliveryInstructions,
   buildSlackIdentityInstructions,
+  type SlackPromptOptions,
 } from "./prompt";
 
 const SLACK_ORIGIN = "slack";
@@ -32,6 +33,7 @@ const slackLaunchOptionsSchema = z.object({
   // Charts need only the rollout flag, while canvas and file delivery also need Slack
   // scopes, so a workspace can have charts and nothing else.
   slack_chart_delivery: z.boolean().catch(false),
+  slack_chart_links: z.boolean().catch(false),
   slack_app_agent_design_enabled: z.boolean().catch(false),
   slack_thread_url: z.string().nullable().catch(null),
   slack_notified_pr_url: z.string().nullable().catch(null),
@@ -71,9 +73,15 @@ export function slackProduct(): AgentProduct {
       const { launchOptions } = launch;
       const slackOrigin = launch.originProduct === SLACK_ORIGIN;
       const slackReply = slackOrigin || launchOptions.slack_reply_context;
-      const promptOptions = {
+      const promptOptions: SlackPromptOptions = {
         slackArtifactDelivery: launchOptions.slack_artifact_delivery,
-        slackChartDelivery: launchOptions.slack_chart_delivery,
+        // The backend keeps chart delivery on next to the links key, so an older agent image
+        // still posts images while this one prefers the link.
+        slackCharts: launchOptions.slack_chart_links
+          ? "link"
+          : launchOptions.slack_chart_delivery
+            ? "image"
+            : null,
         slackProgressChecklist: launchOptions.slack_app_agent_design_enabled,
       };
       const threadUrl = launchOptions.slack_thread_url;

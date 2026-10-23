@@ -90,6 +90,7 @@ pub async fn run(args: StackArgs) -> Result<()> {
         pg_target_table: args.pg_target_table.clone(),
         cache_memory_capacity: 16_777_216,
         extra_leader_env: Vec::new(),
+        extra_router_env: Vec::new(),
         recovery_pool_size: 16,
         leader_lease_ttl: 30,
         spawn_identity: true,

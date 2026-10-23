@@ -1,1 +1,1 @@
-0007_messagetemplate_draft_content
+0008_messagetemplate_sensitive

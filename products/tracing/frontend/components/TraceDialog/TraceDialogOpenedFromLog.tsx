@@ -5,12 +5,16 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { traceDialogLogic } from './traceDialogLogic'
+import { traceViewLogic } from '../TraceView/traceViewLogic'
+import { TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
 import { TraceDialogLogMark } from './TraceDialogLogMark'
 
 export function TraceDialogOpenedFromLog(): JSX.Element | null {
-    const { openedFrom, openedSpan, openedAtUs, timeline } = useValues(traceDialogLogic)
-    const { selectSpan, closeTraceDialog } = useActions(traceDialogLogic)
+    const { openedFrom, openedAtUs } = useValues(traceDialogLogic)
+    const { closeTraceDialog } = useActions(traceDialogLogic)
+    const view = traceViewLogic({ id: TRACE_DIALOG_VIEW_ID })
+    const { pinnedSpan: openedSpan, timeline } = useValues(view)
+    const { selectSpan } = useActions(view)
 
     if (!openedFrom) {
         return null

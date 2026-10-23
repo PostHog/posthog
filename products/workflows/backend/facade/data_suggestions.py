@@ -7,7 +7,6 @@ from products.workflows.backend.facade.contracts import BuiltSuggestion, DataSug
 from products.workflows.backend.services.data_suggestions import service
 from products.workflows.backend.services.data_suggestions.premade import waiting_premade_count
 from products.workflows.backend.services.data_suggestions.service import (
-    FEATURE_FLAG_KEY,
     build_caller,
     count_waiting_data_suggestions,
     data_suggestions_acting_user,
@@ -22,7 +21,6 @@ from products.workflows.backend.services.data_suggestions.service import (
 from products.workflows.backend.tasks.data_suggestions import build_data_suggestion, generate_data_suggestions
 
 __all__ = [
-    "FEATURE_FLAG_KEY",
     "build_caller",
     "count_waiting_data_suggestions",
     "data_suggestions_acting_user",

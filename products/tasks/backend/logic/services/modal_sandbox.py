@@ -11,7 +11,8 @@ import asyncio
 import logging
 import tempfile
 import threading
-from collections.abc import Iterable
+import dataclasses
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from http import HTTPStatus
@@ -24,6 +25,7 @@ from django.conf import settings
 import modal
 import requests
 from cachetools import TTLCache, cached
+from modal._utils.async_utils import synchronizer as modal_synchronizer
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
@@ -31,6 +33,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
 from semantic_version import NpmSpec
 
@@ -60,12 +63,6 @@ from products.tasks.backend.exceptions import (
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
-from products.tasks.backend.logic.services.agentsh import (
-    BASH_ENV_SCRIPT,
-    GH_GUARD_INSTALL_PATH,
-    generate_bash_env_script,
-    read_gh_guard_script,
-)
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
     CPU_BILLING_STATE_PATH,
@@ -84,13 +81,16 @@ from products.tasks.backend.logic.services.local_skills import (
     LocalSkillsCache,
     populate_skills_directory,
 )
-from products.tasks.backend.logic.services.modal_launch_preparation import build_modal_launch_preparation_script
+from products.tasks.backend.logic.services.modal_launch_preparation import (
+    build_modal_agent_server_launch_script,
+    build_modal_launch_preparation_script,
+)
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -101,8 +101,13 @@ from products.tasks.backend.models import DevStackImageTarget, SandboxSnapshot
 
 from .agent_server_launcher import (
     AGENT_SERVER_PORT as AGENT_SERVER_PORT,
+    AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+    AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
+    AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
     AgentServerLaunchMixin,
+    AgentServerPreflight,
     _session_init_probe_hosts as _session_init_probe_hosts,
+    build_agent_server_preflight_lines,
 )
 from .sandbox import (
     AgentServerResult,
@@ -142,7 +147,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
-SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
 SANDBOX_STAMPHOG_UV_CACHE_DIR = "/opt/uv-cache"
@@ -185,6 +190,17 @@ _EMBEDDED_PROXY_STATUS = re.compile(r"\b([45]\d{2})\b")
 ControlPlaneFailure = Literal["rate_limited", "unavailable"]
 
 RUNNING_STATUS_CACHE_SECONDS = 10.0
+MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS = 120
+MODAL_INLINE_COMMAND_MAX_BYTES = 60_000
+
+
+def _launch_preparation_failed_stage(stderr: str) -> str:
+    stage = re.search(
+        r"^__posthog_launch_preparation_failed=(install|bundled_skills|preflight|daemon_session)$",
+        stderr,
+        re.MULTILINE,
+    )
+    return stage.group(1) if stage else "unknown"
 
 
 def _classify_control_plane_failure(error: BaseException) -> ControlPlaneFailure | None:
@@ -829,8 +845,9 @@ class ModalSandbox(AgentServerLaunchMixin):
         self.provision_diagnostics = None
         self._destroyed = False
 
-    def _install_agent_server_launch_files(self) -> tuple[str, ...]:
-        return ()
+    def _validate_agent_server_launch(self) -> None:
+        if not self._is_running_cached():
+            raise RuntimeError("Sandbox not in running state.")
 
     def _wrap_agent_server_command(self, command: str) -> str:
         return f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} enter -- {command}"
@@ -865,28 +882,72 @@ class ModalSandbox(AgentServerLaunchMixin):
     def _sandbox_runtime(self) -> str | None:
         return "vm" if self.config.is_vm else "gvisor"
 
-    def _on_agent_server_reused(self) -> None:
-        # A restored snapshot can carry a healthy agent-server with a stale bash-env
-        # or gh shim from the snapshot's epoch. Refresh both before accepting reuse;
-        # agentsh setup and session replacement stay on the fresh-launch path so
-        # reuse doesn't disrupt the running server or its agentsh session.
-        self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
-        self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
-        self._chmod_required(GH_GUARD_INSTALL_PATH, "+x")
+    def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
+        script = build_modal_agent_server_launch_script(
+            allowed_domains,
+            bundled_skills_clear_command=build_bundled_skills_clear_command(),
+            preflight_lines=build_agent_server_preflight_lines(
+                probe_health=self._agent_server_reuse_enabled(),
+                executable_paths=(),
+                probe_memory_watchdog=settings.TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED,
+            ),
+        )
+        timeout_seconds = MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS + AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS
+        encoded_script = base64.b64encode(script.encode()).decode()
+        command = (
+            "script_path=$(mktemp /tmp/posthog-launch-preparation-XXXXXXXX) && "
+            f'printf %s {encoded_script} | base64 -d > "$script_path" && bash "$script_path"'
+        )
+
+        def run() -> ExecutionResult:
+            if len(command.encode()) <= MODAL_INLINE_COMMAND_MAX_BYTES:
+                return self.execute(command, timeout_seconds=timeout_seconds)
+            script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"
+            self._write_required_file(script_path, script.encode())
+            return self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=timeout_seconds)
+
+        result, total_ms = self._run_launch_preparation(
+            run, completed_exit_codes=(0, AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE)
+        )
+        if _launch_preparation_failed_stage(result.stderr) == "bundled_skills":
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
+        if result.exit_code != AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
+            self._finish_launch_preparation(result, upload_ms=0, total_ms=total_ms)
+        preflight = self._read_agent_server_preflight(result, (), allowed_domains)
+        if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in result.stdout.splitlines():
+            return preflight
+        return dataclasses.replace(preflight, launch_prepared=True)
 
     def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
         script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"
+        upload_ms = 0
+
+        def upload_and_run() -> ExecutionResult:
+            nonlocal upload_ms
+            started_at = time.monotonic()
+            self._write_required_file(script_path, build_modal_launch_preparation_script(allowed_domains).encode())
+            upload_ms = round((time.monotonic() - started_at) * 1000)
+            return self.execute(
+                f"bash {shlex.quote(script_path)}", timeout_seconds=MODAL_LAUNCH_PREPARATION_TIMEOUT_SECONDS
+            )
+
+        result, total_ms = self._run_launch_preparation(upload_and_run, completed_exit_codes=(0,))
+        self._finish_launch_preparation(result, upload_ms=upload_ms, total_ms=total_ms)
+
+    def _run_launch_preparation(
+        self, run: Callable[[], ExecutionResult], *, completed_exit_codes: tuple[int, ...]
+    ) -> tuple[ExecutionResult, int]:
         started_at = time.monotonic()
         result: ExecutionResult | None = None
         try:
-            self._write_required_file(script_path, build_modal_launch_preparation_script(allowed_domains).encode())
-            uploaded_at = time.monotonic()
-            result = self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=120)
+            result = run()
         finally:
             total_ms = round((time.monotonic() - started_at) * 1000)
-            record_launch_preparation_ms(
-                total_ms, "COMPLETED" if result is not None and result.exit_code == 0 else "FAILED"
-            )
+            completed = result is not None and result.exit_code in completed_exit_codes
+            record_launch_preparation_ms(total_ms, "COMPLETED" if completed else "FAILED")
+        return result, total_ms
+
+    def _finish_launch_preparation(self, result: ExecutionResult, *, upload_ms: int, total_ms: int) -> None:
         timings = {
             stage: int(duration)
             for stage, duration in re.findall(
@@ -897,17 +958,14 @@ class ModalSandbox(AgentServerLaunchMixin):
             "Modal launch preparation finished in sandbox %s: upload_ms=%d install_ms=%s "
             "daemon_session_ms=%s total_ms=%d exit_code=%d",
             self.id,
-            round((uploaded_at - started_at) * 1000),
+            upload_ms,
             timings.get("install_ms"),
             timings.get("daemon_session_ms"),
             total_ms,
             result.exit_code,
         )
         if result.exit_code != 0:
-            stage = re.search(
-                r"^__posthog_launch_preparation_failed=(install|daemon_session)$", result.stderr, re.MULTILINE
-            )
-            preparation_stage = stage.group(1) if stage else "unknown"
+            preparation_stage = _launch_preparation_failed_stage(result.stderr)
             agentsh_log = ""
             if preparation_stage == "daemon_session":
                 try:
@@ -1941,6 +1999,26 @@ class ModalSandbox(AgentServerLaunchMixin):
         if returncode == 124:
             return "timed out"
         return f"exited with code {returncode}"
+
+    def exit_status(self) -> str | None:
+        try:
+            returncode = self._sandbox.poll()
+        except Exception as e:
+            logger.warning(f"Failed to poll sandbox {self.id} for its exit status: {e}")
+            return "unknown"
+        if returncode is None:
+            return "running"
+        try:
+            result = getattr(modal_synchronizer._translate_in(self._sandbox), "_result", None)
+            if result is not None:
+                return api_pb2.GenericResult.GenericStatus.Name(result.status).lower().removeprefix("generic_status_")
+        except Exception as e:
+            logger.warning(f"Failed to read exit status for sandbox {self.id}: {e}")
+        if returncode == 124:
+            return "timeout"
+        if returncode == 137:
+            return "terminated"
+        return "success" if returncode == 0 else "failure"
 
     @property
     def name(self) -> str:

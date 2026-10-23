@@ -116,10 +116,11 @@ impl RestorePlan {
         Ok(Self(slices))
     }
 
-    pub fn resumes_any(&self) -> bool {
-        self.0
-            .values()
-            .any(|slice| matches!(slice, SliceRestore::Resume(_)))
+    /// True when a slice `ownership` owns resumes. Boot deletes the slices of the other partitions.
+    pub fn resumes_any(&self, ownership: &PartitionOwnership) -> bool {
+        self.0.iter().any(|(&partition, slice)| {
+            ownership.owns(partition) && matches!(slice, SliceRestore::Resume(_))
+        })
     }
 
     pub fn resets(&self) -> impl Iterator<Item = (u16, &ResetReason)> {
@@ -165,7 +166,7 @@ mod tests {
     use super::*;
     use std::num::NonZeroU16;
 
-    use crate::partitions::InputPositions;
+    use crate::partitions::{InputPositions, OwnedPositions};
     use crate::store::durability::lineage::PodOrdinal;
 
     const EVENTS: &str = "cohort_stream_events";
@@ -227,7 +228,11 @@ mod tests {
                 )
             })
             .collect();
-        OffsetManifest::capture(PodOrdinal::STANDALONE, &owned, positions).unwrap()
+        OffsetManifest::capture(
+            &owned,
+            OwnedPositions::for_test(PartitionOwnership::single(8), positions),
+        )
+        .unwrap()
     }
 
     type Bounds = ((&'static str, u16), (i64, i64));
@@ -298,7 +303,7 @@ mod tests {
                 ),
             ]),
         );
-        assert!(plan.resumes_any());
+        assert!(plan.resumes_any(&PartitionOwnership::single(5)));
         assert_eq!(
             plan.positions(&InputTopic::new(EVENTS), &PartitionOwnership::single(5)),
             BTreeMap::from([(0, offset(10)), (4, offset(10))]),
@@ -314,6 +319,10 @@ mod tests {
                 "pod {ordinal} positions only its own kept slice",
             );
         }
+        assert!(
+            !plan.resumes_any(&pod_of_eight(1)),
+            "pod 1's only slice resets, so other pods' kept slices do not make it resume",
+        );
     }
 
     #[test]
@@ -343,7 +352,7 @@ mod tests {
 
         let plan = RestorePlan::check(&recorded, &window, 2).unwrap();
 
-        assert!(!plan.resumes_any());
+        assert!(!plan.resumes_any(&PartitionOwnership::single(2)));
         assert_eq!(
             plan.resets()
                 .map(|(partition, _)| partition)

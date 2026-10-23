@@ -82,9 +82,8 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Wufoo's account-level list endpoints expose no
-        # server-side timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS
-        # is empty, so build_endpoint_schemas marks every endpoint non-incremental / non-append).
+        # Every endpoint is full refresh only (see INCREMENTAL_FIELDS in settings.py), so
+        # build_endpoint_schemas marks every endpoint non-incremental / non-append.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

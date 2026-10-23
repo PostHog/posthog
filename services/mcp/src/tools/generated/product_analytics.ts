@@ -270,9 +270,11 @@ const InsightNodeKind = z.enum([
     'WebOverviewQuery',
 ])
 
+const AssistantMetricsNodeKind = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
+
 const AssistantBareInsightQuery = z
     .object({
-        kind: InsightNodeKind,
+        kind: z.union([InsightNodeKind, AssistantMetricsNodeKind]),
     })
     .catchall(z.unknown())
 
@@ -627,6 +629,7 @@ const insightsList = (): ToolBase<
                 dashboards: params.dashboards,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                display: params.display,
                 exclude_bi: params.exclude_bi,
                 favorited: params.favorited,
                 include_dashboards: params.include_dashboards,

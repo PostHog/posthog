@@ -37,7 +37,6 @@ import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
-import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
@@ -53,6 +52,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -82,6 +82,7 @@ import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
+import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -94,7 +95,6 @@ import { AgentUsageSettings } from './environment/AgentUsageSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CloudEnvironmentsSettings } from './environment/CloudEnvironmentsSettings'
 import { CloudImagesSettings } from './environment/CloudImagesSettings'
-import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
@@ -725,7 +725,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-data-quality',
         title: 'Data quality',
-        flag: 'DATA_QUALITY_CHECKS',
         group: 'Products',
         settings: [
             {
@@ -1334,15 +1333,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['person', 'properties', 'join', 'query', 'performance'],
             },
             {
-                id: 'correlation-analysis',
-                title: 'Correlation analysis exclusions',
-                description:
-                    'Correlation analysis automatically surfaces relevant signals for conversion. Exclude events or properties that do not provide useful signals.',
-                docsUrl: 'https://posthog.com/docs/product-analytics/funnels#correlation-analysis',
-                component: <CorrelationConfig />,
-                keywords: ['funnel', 'conversion', 'exclude', 'property'],
-            },
-            {
                 id: 'person-display-name',
                 title: 'Person display name',
                 description:
@@ -1794,15 +1784,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
             },
             {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
-            },
-            {
                 id: 'web-analytics-pre-aggregated-tables',
                 title: 'Pre-aggregated tables',
                 description: 'Configure pre-aggregated tables to speed up web analytics queries.',
@@ -1857,6 +1838,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'blocked',
                     'failed',
                 ],
+            },
+            {
+                id: 'workflows-utm-defaults',
+                title: 'UTM tags on email links',
+                description:
+                    'Default UTM tags for new broadcasts and workflow emails, so visits from your emails show up as their own campaigns in web analytics. Each email can still change them.',
+                component: <WorkflowsUtmDefaultsSettings />,
+                keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
             },
             {
                 id: 'workflows-email-tracking-consent',
@@ -2636,6 +2625,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Applications that have been granted access to your PostHog account via OAuth. You can revoke access at any time.',
                 component: <ConnectedApps />,
                 keywords: ['oauth', 'app', 'connected', 'authorized', 'revoke', 'access', 'token'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode',
+                title: 'Developer mode tokens',
+                description: 'AI gateway tokens for PostHog staff.',
+                component: <DevModeSetting />,
+                staffOnly: true,
+                keywords: ['ai gateway', 'llm gateway', 'token', 'developer mode', 'phe_'],
             },
         ],
     },

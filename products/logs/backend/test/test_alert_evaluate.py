@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -21,7 +22,13 @@ from posthog.models.team import Team
 from posthog.temporal.alerts.admission import admit_evaluation_slots
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import due_checks, list_configurations, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import (
+    due_checks,
+    list_configurations,
+    record_outcomes,
+    slot_of,
+    snooze_group,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -409,7 +416,12 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("api", AlertEventKind.FIRING),
             ("worker", AlertEventKind.FIRING),
         ]
-        assert delivery.overflowed == 1
+        # The query cut `web` and anything after it, so more breaching groups may have been turned away.
+        assert (outcome.overflow_is_lower_bound, delivery.overflowed, delivery.overflow_is_lower_bound) == (
+            True,
+            1,
+            True,
+        )
 
         with team_scope(self.team.id):
             platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
@@ -422,22 +434,28 @@ class TestLogsAlertEvaluation(APIBaseTest):
         }
         self._record(second)
 
-        def run_after(counts: dict[str, int]) -> tuple[dict[str, AlertEventKind], int]:
+        def run_after(counts: dict[str, int]) -> tuple[dict[str, AlertEventKind], int, bool]:
             with team_scope(self.team.id):
                 platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
             evaluation = self._run_grouped(configuration, counts)
             self._record(evaluation)
             (outcome,) = evaluation.outcomes
-            return {group.labels["service_name"]: group.kind for group in outcome.groups}, outcome.overflowed
+            return (
+                {group.labels["service_name"]: group.kind for group in outcome.groups},
+                outcome.overflowed,
+                outcome.overflow_is_lower_bound,
+            )
 
         # The resolved group is in this check's results, so it keeps its slot and the new breach overflows.
         assert run_after({"api": 500, "worker": 3, "cron": 300}) == (
             {"api": AlertEventKind.CHECK, "worker": AlertEventKind.CHECK},
             1,
+            False,
         )
         assert run_after({"api": 500, "cron": 300}) == (
             {"api": AlertEventKind.CHECK, "cron": AlertEventKind.FIRING},
             0,
+            False,
         )
         with team_scope(self.team.id):
             evicted = platform_testing.alert_for(
@@ -468,6 +486,33 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert (outcome.groups, outcome.disable, copy.enabled) == ((), True, False)
         assert open_group is not None and open_group.state == "firing"
         assert ungrouped is None
+
+    def test_a_snoozed_group_holds_its_resolve_while_the_other_group_announces(self) -> None:
+        configuration = self._configuration(owner="platform", grouping=_BY_SERVICE.to_stored())
+        self._add_incident_destination(configuration)
+        self._record(self._run_grouped(configuration, {"checkout": 500, "api": 500}))
+        checkout, api = (grouping_key_of({"service_name": service}) for service in ("checkout", "api"))
+        with time_machine.travel(self.cutoff, tick=False):
+            snooze_group(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                configuration_id=configuration.id,
+                grouping_key=checkout,
+                snooze_until=self.cutoff + timedelta(hours=2),
+            )
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+
+        cleared = self._run_grouped(configuration, {})
+
+        (outcome,) = cleared.outcomes
+        assert {g.grouping_key: (g.kind, g.muted_notification) for g in outcome.groups} == {
+            checkout: (AlertEventKind.CHECK, "resolve"),
+            api: (AlertEventKind.RESOLVED, ""),
+        }
+        # The snooze left the firing open, so the clear check closes the incident it opened.
+        (delivery,) = cleared.deliveries
+        assert delivery.incident_actions == {checkout: IncidentAction.RESOLVE, api: IncidentAction.RESOLVE}
 
     @parameterized.expand(
         [

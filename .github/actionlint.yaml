@@ -24,3 +24,8 @@ paths:
     '.github/workflows/**/*.yaml':
         ignore:
             - 'property ".+" is not defined in object type \{changes: string\}'
+    # GitHub's stacked PRs added the `stacked` activity type after actionlint's event list.
+    # The broad glob also matches the copies hogli lint:workflows checks outside .github.
+    '**/*.yml':
+        ignore:
+            - 'invalid activity type "stacked" for "pull_request" Webhook event'

@@ -8,12 +8,14 @@ use std::num::NonZeroU16;
 
 use rdkafka::error::KafkaResult;
 use rdkafka::{Offset, TopicPartitionList};
+use serde::{Deserialize, Serialize};
 
 use crate::store::durability::PodOrdinal;
 
 /// The partitions one pod owns. Only [`Self::new`] splits the partitions between more than one
 /// pod, so `pods` divides the partition count and the ordinal is below `pods`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SplitWire", into = "SplitWire")]
 pub struct PartitionOwnership {
     pods: NonZeroU16,
     ordinal: PodOrdinal,
@@ -35,6 +37,33 @@ pub enum OwnershipError {
 }
 
 const ENCODED_LEN: usize = 6;
+
+/// The JSON shape, decoded through [`PartitionOwnership::new`].
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SplitWire {
+    pods: NonZeroU16,
+    ordinal: PodOrdinal,
+    partitions: u16,
+}
+
+impl TryFrom<SplitWire> for PartitionOwnership {
+    type Error = OwnershipError;
+
+    fn try_from(wire: SplitWire) -> Result<Self, Self::Error> {
+        Self::new(wire.pods, wire.ordinal, wire.partitions)
+    }
+}
+
+impl From<PartitionOwnership> for SplitWire {
+    fn from(ownership: PartitionOwnership) -> Self {
+        Self {
+            pods: ownership.pods,
+            ordinal: ownership.ordinal,
+            partitions: ownership.partition_count,
+        }
+    }
+}
 
 impl PartitionOwnership {
     /// One pod owns every partition.
@@ -82,6 +111,15 @@ impl PartitionOwnership {
 
     pub fn owns(&self, partition: u16) -> bool {
         partition < self.partition_count && partition % self.pods.get() == self.ordinal.get()
+    }
+
+    /// True when every partition `other` owns is one this split owns. That holds when `self.pods`
+    /// divides `other.pods` and `other.ordinal % self.pods == self.ordinal`: every `p` with
+    /// `p % other.pods == other.ordinal` then has `p % self.pods == self.ordinal`.
+    pub fn covers(&self, other: &Self) -> bool {
+        self.partition_count == other.partition_count
+            && other.pods.get().is_multiple_of(self.pods.get())
+            && other.ordinal.get() % self.pods.get() == self.ordinal.get()
     }
 
     /// The owned partitions in ascending order.
@@ -192,6 +230,33 @@ mod tests {
         ] {
             assert_eq!(PartitionOwnership::decode(bytes), None, "{bytes:?}");
         }
+    }
+
+    #[test]
+    fn a_split_covers_another_exactly_when_it_owns_every_partition_the_other_owns() {
+        // Over 64 partitions every pod count is a power of two, so one count of a pair always
+        // divides the other. 12 has counts that do not, such as 2 and 3.
+        for partitions in [64u16, 12] {
+            let splits: Vec<PartitionOwnership> = (1..=partitions)
+                .filter(|pods| partitions.is_multiple_of(*pods))
+                .flat_map(|pods| {
+                    let pods = NonZeroU16::new(pods).unwrap();
+                    (0..pods.get()).map(move |ordinal| {
+                        PartitionOwnership::new(pods, PodOrdinal::from(ordinal), partitions)
+                            .unwrap()
+                    })
+                })
+                .collect();
+            for a in &splits {
+                for b in &splits {
+                    let inclusion = b.partitions().all(|partition| a.owns(partition));
+                    assert_eq!(a.covers(b), inclusion, "{a} covers {b}");
+                }
+            }
+        }
+
+        let over_32 = PartitionOwnership::single(32);
+        assert!(!PartitionOwnership::single(64).covers(&over_32));
     }
 
     #[test]

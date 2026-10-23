@@ -110,19 +110,22 @@ Use a mock destination or test transport for external delivery checks.
 
 ## 6. Code map
 
-| Concern                                             | Start here                                                  |
-| --------------------------------------------------- | ----------------------------------------------------------- |
-| API, serializers, validation, delivery history      | `products/subscriptions/backend/presentation/views.py`      |
-| Subscription and delivery models                    | `products/subscriptions/backend/models/`                    |
-| Delivery workflows and activities                   | `products/subscriptions/backend/temporal/`                  |
-| Destination delivery and automatic disable behavior | `products/subscriptions/backend/logic/`                     |
-| What core and other products may import             | `products/subscriptions/backend/facade/`                    |
-| Management UI and frontend logic                    | `products/subscriptions/frontend/`                          |
-| MCP tool definitions                                | `products/subscriptions/mcp/tools.yaml`                     |
-| API behavior tests                                  | `products/subscriptions/backend/tests/test_subscription.py` |
-| Destination delivery tests                          | `products/subscriptions/backend/tests/logic/`               |
-| Workflow tests                                      | `products/subscriptions/backend/tests/temporal/`            |
-| Published operational guidance                      | `products/subscriptions/skills/managing-subscriptions/`     |
+| Concern                                             | Start here                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| API serializers, request parsing, HTTP responses    | `products/subscriptions/backend/presentation/views.py`        |
+| API reads, delivery history, and AI summaries       | `products/subscriptions/backend/logic/subscription_reads.py`  |
+| API write validation, writes, and test deliveries   | `products/subscriptions/backend/logic/subscription_writes.py` |
+| Which subscriptions a user may see                  | `products/subscriptions/backend/logic/visibility.py`          |
+| Subscription and delivery models                    | `products/subscriptions/backend/models/`                      |
+| Delivery workflows and activities                   | `products/subscriptions/backend/temporal/`                    |
+| Destination delivery and automatic disable behavior | `products/subscriptions/backend/logic/`                       |
+| What core, other products and the views may import  | `products/subscriptions/backend/facade/`                      |
+| Management UI and frontend logic                    | `products/subscriptions/frontend/`                            |
+| MCP tool definitions                                | `products/subscriptions/mcp/tools.yaml`                       |
+| API behavior tests                                  | `products/subscriptions/backend/tests/test_subscription.py`   |
+| Destination delivery tests                          | `products/subscriptions/backend/tests/logic/`                 |
+| Workflow tests                                      | `products/subscriptions/backend/tests/temporal/`              |
+| Published operational guidance                      | `products/subscriptions/skills/managing-subscriptions/`       |
 
 ## Companion skills
 

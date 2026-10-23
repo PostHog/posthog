@@ -115,8 +115,8 @@ pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
 /// `full_upload_at` of the newest upload: when its chain of incrementals began (gauge, seconds).
 pub const CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_full_upload_timestamp_seconds";
-/// Checkpoint ticks skipped before the checkpoint, labelled by `reason` (`positions`|`incomplete`)
-/// (counter).
+/// Checkpoint ticks skipped before the checkpoint, labelled by `reason`
+/// (`positions`|`foreign`|`incomplete`) (counter). `foreign` is a position another split stamped.
 pub const CHECKPOINT_CAPTURE_FAILURES_TOTAL: &str = "checkpoint_capture_failures_total";
 /// Wall-clock duration of one checkpoint S3 upload, labelled by `result` (histogram, seconds).
 pub const CHECKPOINT_UPLOAD_DURATION_SECONDS: &str = "checkpoint_upload_duration_seconds";
@@ -139,7 +139,8 @@ pub const CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS: &str =
     "checkpoint_file_fetch_store_duration_seconds";
 /// Latency of listing a checkpoint's recent attempt folders from S3 (histogram, seconds).
 pub const CHECKPOINT_LIST_DURATION_SECONDS: &str = "checkpoint_list_duration_seconds";
-/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`cold`) (counter).
+/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`parent_s3`|`cold`)
+/// (counter). `parent_s3` is a reshard child restoring its parent's lineage.
 pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
 /// Checkpoint candidates a boot restore tried, labelled by `verdict`
 /// (`published`|`unusable`|`failed`) (counter).
@@ -221,6 +222,10 @@ pub const STORE_SST_BYTES: &str = "store_sst_bytes";
 pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
 /// Estimated key count, labelled by `cf` (gauge).
 pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+/// Bytes in the store directory and the local checkpoints, labelled by file `kind`
+/// (`sst`|`wal`|`info_log`|`manifest`|`other`|`checkpoint`) (gauge). `checkpoint` counts only the
+/// local checkpoint files that the live store does not share.
+pub const STORE_FILE_BYTES: &str = "store_file_bytes";
 
 /// Size of the filesystem holding the store (gauge, bytes).
 pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
@@ -307,8 +312,9 @@ pub const PARTITIONS_ASSIGNED_TOTAL: &str = "partitions_assigned_total";
 pub const OWNED_PARTITIONS: &str = "owned_partitions";
 /// This pod's place in the partition split, labelled by `pods` and `ordinal`. Always 1 (gauge).
 pub const PARTITION_OWNERSHIP_INFO: &str = "partition_ownership_info";
-/// 1 while the ownership fence holds the boot, labelled by `reason` (`foreign_split`|`unrecognized`),
-/// else 0 (gauge). **Alert on it**: the pod reads not ready until the logged cause clears.
+/// 1 while the ownership fence holds the boot, labelled by `reason`
+/// (`foreign_split`|`unrecognized`|`parent_running`), else 0 (gauge). **Alert on it**: the pod reads
+/// not ready until the logged cause clears.
 pub const OWNERSHIP_FENCE_BLOCKED: &str = "ownership_fence_blocked";
 /// Commits by another split, or with unreadable metadata, that the run-time audit found on an owned
 /// partition, labelled by `topic` (counter). Each one stops the pod.
@@ -620,6 +626,12 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// edited cohort whose leaf key moved, a transferred fallback row — so read it against the seed
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
+
+/// Composed-cohort membership changes a person seed apply emitted for a cohort it recomposed only
+/// because the cohort had no row for the person, labelled by `kind` (`entered`|`left`) (counter).
+/// Counted when the writes commit, like [`SEED_REGISTER_REPAIRS_TOTAL`]. Expect these in bulk on the
+/// first run of a composed cohort whose leaves earlier runs already seeded, and rarely after.
+pub const SEED_COMPOSED_ROW_REPAIRS_TOTAL: &str = "cohort_seed_composed_row_repairs_total";
 
 /// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
 /// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
@@ -937,6 +949,7 @@ mod tests {
         assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
         assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
         assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(STORE_FILE_BYTES, "store_file_bytes");
         assert_eq!(STORE_DISK_TOTAL_BYTES, "store_disk_total_bytes");
         assert_eq!(STORE_DISK_AVAILABLE_BYTES, "store_disk_available_bytes");
         assert_eq!(STORE_DISK_UTILIZATION_PCT, "store_disk_utilization_pct");
@@ -1092,6 +1105,10 @@ mod tests {
         assert_eq!(
             SEED_REGISTER_REPAIRS_TOTAL,
             "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(
+            SEED_COMPOSED_ROW_REPAIRS_TOTAL,
+            "cohort_seed_composed_row_repairs_total"
         );
         assert_eq!(
             SEED_RECOMPUTE_PERSONS_TOTAL,

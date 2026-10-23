@@ -42,7 +42,13 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
+from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    UNREADABLE_SOURCE_CONFIG_ERROR,
+    schema_display_status,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
+    INVALID_CREDENTIALS_FALLBACK_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
@@ -166,6 +172,28 @@ class TestExternalDataSchema(APIBaseTest):
             "primary_key_detection_supported": False,
         }
 
+    def test_incremental_fields_handles_a_probe_that_raises(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        with mock.patch.object(StripeSource, "validate_credentials", side_effect=RuntimeError("probe exploded")):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == INVALID_CREDENTIALS_FALLBACK_MESSAGE
+
     @parameterized.expand(
         [
             ("non_retryable_source_error", Exception("Invalid API Key provided"), False),
@@ -283,6 +311,28 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         assert response.status_code == 400
+
+    def test_incremental_fields_returns_400_when_stored_config_is_still_encrypted(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "gAAAAAfake-undecrypted-token"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"message": UNREADABLE_SOURCE_CONFIG_ERROR}
 
     def test_incremental_fields_missing_table_name(self):
         source = ExternalDataSource.objects.create(
@@ -3344,6 +3394,47 @@ class TestUpdateExternalDataSchema:
         assert schema.table_id == table.id
         assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
+    def test_delete_data_turns_off_sync_and_pauses_schedule(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            external_data_source=source,
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="Customer",
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            table=table,
+        )
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            mock.patch(f"{views}.external_data_workflow_exists", return_value=True),
+            mock.patch(f"{views}.pause_external_data_schedule") as mock_pause,
+            mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"),
+        ):
+            response = client.delete(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/delete_data")
+
+        assert response.status_code == 200
+        mock_pause.assert_called_once_with(str(schema.id))
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert schema.table_id is None
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
     def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source_id = create_external_data_source_ok(client, team.pk)
@@ -4752,6 +4843,27 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         assert response.status_code == 200, response.json()
         schema.refresh_from_db()
         assert schema.row_filters == filters
+
+    @parameterized.expand(
+        [
+            ("enabled_columns", ["id", "name"]),
+            ("row_filters", [{"column": "id", "operator": ">", "value": 10}]),
+        ]
+    )
+    def test_selection_change_is_written_to_the_activity_log(self, field: str, value: Any):
+        schema = self._create()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={field: value}
+        )
+        assert response.status_code == 200, response.json()
+
+        log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert [c for c in log.detail["changes"] if c["field"] == field] == [
+            {"type": "ExternalDataSchema", "field": field, "action": "created", "before": None, "after": value}
+        ]
 
     def test_null_clears_row_filters(self):
         schema = self._create()

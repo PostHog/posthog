@@ -37,6 +37,9 @@ from products.feature_flags.backend.models import FeatureFlag
 RULE_A = "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90"
 RULE_B = "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e"
 SEED_B = "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
+RULE_C = "d3e4f5a6-b7c8-4d9e-a0f1-2b3c4d5e6f70"
+SEED_C = "c0ffee00-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
+HOLDOUT_SEED_C = "f00dcafe-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
 UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
@@ -73,6 +76,34 @@ def rollout(rule_id: str | None = RULE_B, seed: str | None = SEED_B, **extra: An
     if seed is not None:
         rule["seed"] = seed
     return rule
+
+
+def experiment(rule_id: str | None = RULE_C, seed: str | None = SEED_C, **extra: Any) -> dict:
+    rule: dict[str, Any] = {
+        "rule_type": "experiment",
+        "targeting": {"properties": []},
+        "paused": False,
+        "rollout_percentage": 100,
+        "on_rollout_miss": "continue",
+        "assignment_algorithm": "sha1_60_v1",
+        "variants": [
+            {"key": "control", "weight": 50, "value": False},
+            {"key": "test", "weight": 50, "value": True},
+        ],
+        **extra,
+    }
+    if rule_id is not None:
+        rule = {"id": rule_id, **rule}
+    if seed is not None:
+        rule["seed"] = seed
+    return rule
+
+
+def local_holdout(seed: str | None = HOLDOUT_SEED_C, exclusion_percentage: float = 10) -> dict:
+    holdout: dict[str, Any] = {"exclusion_percentage": exclusion_percentage}
+    if seed is not None:
+        holdout["seed"] = seed
+    return holdout
 
 
 def config(*rules: dict, **extra: Any) -> dict:
@@ -591,7 +622,7 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
     @parameterized.expand(
         [
             ("malformed", {"version": 2, "rules": "broken"}),
-            ("deferred_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
+            ("malformed_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
             ("string_with_boolean_default", config(return_type="string")),
         ]
     )
@@ -601,16 +632,6 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         flag.refresh_from_db()
         assert flag.filters == stored
-        assert flag.version == 3
-
-    def test_an_experiment_rule_cannot_be_written(self) -> None:
-        flag = self.flag()
-        response = self.patch_flag(
-            flag,
-            {"version": 3, "filters": config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})},
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        flag.refresh_from_db()
         assert flag.version == 3
 
     @parameterized.expand(

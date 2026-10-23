@@ -523,16 +523,24 @@ export interface Size {
     height: number
 }
 
+export const FIT_MARGIN = { side: 24, top: 32, bottom: 96 }
 const VIEWPORT_MARGIN = 24
 
-function shiftIntoView(offset: number, start: number, length: number, zoom: number, extent: number): number {
+function shiftIntoView(
+    offset: number,
+    start: number,
+    length: number,
+    zoom: number,
+    extent: number,
+    farMargin = VIEWPORT_MARGIN
+): number {
     const near = start * zoom + offset
     const far = (start + length) * zoom + offset
     if (near < VIEWPORT_MARGIN) {
         return offset + VIEWPORT_MARGIN - near
     }
-    if (far > extent - VIEWPORT_MARGIN) {
-        return offset - Math.min(far - (extent - VIEWPORT_MARGIN), near - VIEWPORT_MARGIN)
+    if (far > extent - farMargin) {
+        return offset - Math.min(far - (extent - farMargin), near - VIEWPORT_MARGIN)
     }
     return offset
 }
@@ -545,13 +553,16 @@ export function viewportAfterResize(viewport: Viewport, previous: Size, next: Si
     }
     return {
         x: shiftIntoView(x, focus.x, focus.width, viewport.zoom, next.width),
-        y: shiftIntoView(y, focus.y, focus.height, viewport.zoom, next.height),
+        y: shiftIntoView(y, focus.y, focus.height, viewport.zoom, next.height, FIT_MARGIN.bottom),
         zoom: viewport.zoom,
     }
 }
 
+export function viewportShowing(viewport: Viewport, canvas: Size, focus: Point & Size): Viewport {
+    return viewportAfterResize(viewport, canvas, canvas, focus)
+}
+
 export const CANVAS_MIN_ZOOM = 0.15
-export const FIT_MARGIN = { side: 24, top: 32, bottom: 96 }
 
 /** The command bar floats over the bottom of the canvas, so the room to show things in ends above it. */
 function roomInView(canvas: Size): Size {

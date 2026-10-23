@@ -2197,10 +2197,9 @@ class TestWriteScopesValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "not both" in str(serializer.errors)
 
-    def test_support_notes_preset_is_rejected_until_its_write_scope_is_grantable(self) -> None:
+    def test_support_notes_preset_is_accepted_once_its_write_scope_is_grantable(self) -> None:
         serializer = SignalScoutConfigUpdateSerializer(data={"tool_preset": "support_notes"}, partial=True)
-        assert not serializer.is_valid()
-        assert "conversations-tickets-notes-create" in str(serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
@@ -3907,6 +3906,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3927,6 +3927,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3954,6 +3955,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.output_destinations["slack"]["thread_reports"] is False
+
+    def test_partial_update_inbox_opt_out_survives_a_write_that_omits_it(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": False}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"]["inbox"] is False
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"webhook": None}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": False}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": True}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": True}
 
     @parameterized.expand(
         [
@@ -4902,6 +4926,17 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
         assert superseded, "expected the catalogue to hold at least one superseded tool"
 
         assert not superseded & set(self._tools())
+
+    def test_catalogue_context_tools_can_be_removed_from_a_saved_selection_before_editing(self) -> None:
+        body = self.client.get(self._url()).json()
+        selected = ["skill-get", "skill-file-get", "dashboard-update"]
+        serializer = SignalScoutConfigUpdateSerializer(
+            data={"allowed_mcp_tools": [name for name in selected if name not in body["run_context_tools"]]},
+            partial=True,
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_mcp_tools"] == ["dashboard-update"]
 
     def test_reports_what_a_scout_would_have_to_be_granted(self) -> None:
         # `holdable` has to be measured against the scout postures, not against the full MCP scope

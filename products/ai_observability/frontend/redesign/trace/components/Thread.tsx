@@ -2,6 +2,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ConversationState } from '../types'
 import { conversationalMessages } from './conversationalMessages'
+import { ErrorCallout } from './ErrorCallout'
 import { ThreadTurn } from './ThreadTurn'
 
 export interface ThreadProps {
@@ -18,6 +19,9 @@ export function Thread({ conversation, onSelectMessage }: ThreadProps): JSX.Elem
                 <LemonSkeleton className="h-10 w-1/2 self-end" />
             </div>
         )
+    }
+    if (conversation.status === 'error') {
+        return <ErrorCallout message={conversation.message} />
     }
     const { turns, activeTurnId } = conversation
     if (turns.every((turn) => conversationalMessages(turn.messages).length === 0 && !turn.error)) {

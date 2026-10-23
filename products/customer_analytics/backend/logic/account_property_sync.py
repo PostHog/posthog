@@ -2,8 +2,8 @@ import io
 import json
 import asyncio
 import hashlib
-from collections.abc import AsyncIterator, Iterator
-from dataclasses import field
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from dataclasses import asdict, field, fields
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
@@ -53,6 +53,7 @@ logger = structlog.get_logger(__name__)
 
 _ACCOUNT_LOOKUP_CHUNK_SIZE = 1_000
 _PARQUET_BATCH_SIZE = 50_000
+_CHECKPOINT_INTERVAL_SECONDS = 60.0
 _SEGMENTS_REQUIRED_FOR_CLEANUP = frozenset({"tracked", "ignored"})
 _COUNT_KEYS = ("rows_read", "changed", "matched", "written", "source_errors", "source_count")
 _RUN_FAILED_ERROR = "Couldn't update accounts. Run the source view again. If it keeps failing, contact support."
@@ -117,6 +118,64 @@ class SourceSyncState:
     matched: int = 0
     written: int = 0
     error: str | None = None
+
+
+@frozen
+class SourceSyncCheckpoint:
+    next_batch: int
+    rows_read: int
+    changed: int
+    matched: int
+    written: int
+    failed: bool
+    key_column: str
+    source_column: str
+
+    def __post_init__(self) -> None:
+        for name in ("next_batch", "rows_read", "changed", "matched", "written"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if not isinstance(self.failed, bool):
+            raise ValueError("failed must be a boolean")
+        if not isinstance(self.key_column, str) or not isinstance(self.source_column, str):
+            raise ValueError("key_column and source_column must be strings")
+
+    @classmethod
+    def from_state(cls, state: SourceSyncState, next_batch: int) -> "SourceSyncCheckpoint":
+        return cls(
+            next_batch=next_batch,
+            rows_read=state.rows_read,
+            changed=state.changed,
+            matched=state.matched,
+            written=state.written,
+            failed=state.error is not None,
+            key_column=state.source.key_column,
+            source_column=state.source.source_column or "",
+        )
+
+    def matches_mapping(self, source: CustomPropertySource) -> bool:
+        return (self.key_column, self.source_column) == (source.key_column, source.source_column)
+
+    @classmethod
+    def from_heartbeat_details(cls, details: Sequence[object]) -> "SourceSyncCheckpoint | None":
+        if not details or not isinstance(details[0], dict):
+            return None
+        stored = details[0]
+        try:
+            return cls(**{checkpoint_field.name: stored[checkpoint_field.name] for checkpoint_field in fields(cls)})
+        except (KeyError, ValueError):
+            return None
+
+    def to_heartbeat_details(self) -> dict[str, int | bool | str]:
+        return asdict(self)
+
+    def restore(self, state: SourceSyncState, counts: dict[str, int]) -> None:
+        for key in ("rows_read", "changed", "matched", "written"):
+            setattr(state, key, getattr(self, key))
+            counts[key] = getattr(self, key)
+        if self.failed:
+            state.error = _INVALID_VALUE_ERROR
 
 
 def _record_phase_duration(
@@ -188,8 +247,14 @@ def _projected_parquet_batches(s3_client: "S3FileSystem", path: str, columns: li
 
 
 async def _iter_parquet_row_batches(
-    team_id: int, binding: WarehouseBinding, job_id: str, *, columns: list[str] | None = None
+    team_id: int,
+    binding: WarehouseBinding,
+    job_id: str,
+    *,
+    columns: list[str] | None = None,
+    skip_batches: int = 0,
 ) -> AsyncIterator[list[dict[str, Any]]]:
+    skipped = 0
     prefix = account_property_job_staged_prefix(team_id, binding, job_id)
     async with aget_s3_client() as s3_client:
         try:
@@ -205,6 +270,9 @@ async def _iter_parquet_row_batches(
             else:
                 batches = _projected_parquet_batches(get_s3_client(), _s3_uri(file_path), columns)
             while (batch := await asyncio.to_thread(next, batches, None)) is not None:
+                if skipped < skip_batches:
+                    skipped += 1
+                    continue
                 yield await asyncio.to_thread(batch.to_pylist)
 
 
@@ -256,6 +324,22 @@ async def _read_snapshot_hashes(
         return merge.hashes if merge.complete else {}
 
 
+async def _write_snapshot_delta(
+    team_id: int,
+    binding: WarehouseBinding,
+    source_id: str,
+    segment: AccountPropertySyncSegment,
+    name: str,
+    hashes: dict[str, str],
+) -> None:
+    if not hashes:
+        return
+    prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
+    snapshot = await asyncio.to_thread(_encode_snapshot, hashes)
+    async with aget_s3_client() as s3_client:
+        await s3_client._pipe_file(_s3_uri(f"{prefix}/{name}.parquet"), snapshot)
+
+
 async def _write_snapshot_hashes(
     team_id: int,
     binding: WarehouseBinding,
@@ -264,14 +348,15 @@ async def _write_snapshot_hashes(
     job_id: str,
     hashes: dict[str, str],
 ) -> None:
-    if not hashes:
-        return
-
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     path = f"{prefix}/{job_id}.parquet"
     async with aget_s3_client() as s3_client:
         existing_files = await _list_snapshot_files(s3_client, prefix)
+        if not hashes and len(existing_files) <= 1:
+            return
         merge = await _merge_snapshot_files(s3_client, existing_files)
+        if not hashes and not merge.complete:
+            return
         merged = {**merge.hashes, **hashes} if merge.complete else hashes
         snapshot = await asyncio.to_thread(_encode_snapshot, merged)
         await s3_client._pipe_file(_s3_uri(path), snapshot)
@@ -489,9 +574,11 @@ async def _apply_staged_rows(
     counts: dict[str, int],
     log: FilteringBoundLogger,
     columns: list[str] | None = None,
+    start_batch: int = 0,
+    on_batch_applied: Callable[[int], Awaitable[None]] | None = None,
 ) -> None:
-    batch_index = 0
-    batches = aiter(_iter_parquet_row_batches(team_id, binding, job_id, columns=columns))
+    batch_index = start_batch
+    batches = aiter(_iter_parquet_row_batches(team_id, binding, job_id, columns=columns, skip_batches=start_batch))
     while True:
         phase_started_at = asyncio.get_running_loop().time()
         try:
@@ -575,6 +662,8 @@ async def _apply_staged_rows(
                 },
             )
         batch_index += 1
+        if on_batch_applied is not None:
+            await on_batch_applied(batch_index)
 
 
 async def _persist_states(
@@ -706,6 +795,8 @@ async def run_account_property_source_sync(
     segment: AccountPropertySyncSegment,
     source_id: str,
     final_attempt: bool = False,
+    resume_from: SourceSyncCheckpoint | None = None,
+    save_checkpoint: Callable[[SourceSyncCheckpoint], None] | None = None,
 ) -> dict[str, int]:
     source_uuid = _parse_source_id(source_id)
     log = logger.bind(
@@ -739,7 +830,34 @@ async def run_account_property_source_sync(
         if _is_source_applicable(source):
             counts["source_count"] = 1
             states = [state]
+            start_batch = 0
+            if resume_from is not None and not resume_from.matches_mapping(source):
+                log.info("Account-property source mapping changed since the checkpoint, restarting the sync")
+            elif resume_from is not None:
+                resume_from.restore(state, counts)
+                start_batch = resume_from.next_batch
+                log.info("Resuming account-property source sync from a checkpoint", next_batch=start_batch)
             await _load_prior_hashes(team_id=team_id, binding=binding, segment=segment, states=states, log=log)
+            loop = asyncio.get_running_loop()
+            last_checkpoint_at = loop.time()
+            checkpointed_hashes: dict[str, str] = {}
+
+            async def checkpoint(next_batch: int) -> None:
+                nonlocal last_checkpoint_at
+                if save_checkpoint is None or loop.time() - last_checkpoint_at < _CHECKPOINT_INTERVAL_SECONDS:
+                    return
+                new_hashes = {
+                    external_id: value_hash
+                    for external_id, value_hash in state.applied_hashes.items()
+                    if checkpointed_hashes.get(external_id) != value_hash
+                }
+                await _write_snapshot_delta(
+                    team_id, binding, str(source.id), segment, f"{job_id}-checkpoint-{next_batch}", new_hashes
+                )
+                checkpointed_hashes.update(new_hashes)
+                save_checkpoint(SourceSyncCheckpoint.from_state(state, next_batch))
+                last_checkpoint_at = loop.time()
+
             await _apply_staged_rows(
                 team_id=team_id,
                 binding=binding,
@@ -751,6 +869,8 @@ async def run_account_property_source_sync(
                 columns=list(
                     dict.fromkeys(column for column in (source.key_column, source.source_column) if column is not None)
                 ),
+                start_batch=start_batch,
+                on_batch_applied=checkpoint,
             )
             await _persist_states(
                 team_id=team_id, binding=binding, job_id=job_id, segment=segment, states=states, counts=counts, log=log

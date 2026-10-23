@@ -10,7 +10,9 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,
+    BatchExportOnDemand,
     BatchExportRun,
+    BatchExportSource,
 )
 from products.batch_exports.backend.service import (
     AnyBatchExportModel,
@@ -33,12 +35,85 @@ from products.batch_exports.backend.service import (
     S3CompatibleBatchExportInputs,
     aget_or_create_batch_export_backfill,
     align_timestamp_to_interval,
+    get_batch_export_model,
     migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import BatchExportInsertIntoInternalStageInputs
 
 
 class TestBatchExportModelMigration:
+    @pytest.mark.parametrize(
+        "input_type", [FileDownloadBatchExportInputs, BatchExportInsertInputs, BatchExportInsertIntoInternalStageInputs]
+    )
+    @pytest.mark.parametrize(
+        "batch_export,expected",
+        [
+            (BatchExport(model=None), BatchExportEventsModel()),
+            (BatchExport(model=""), BatchExportEventsModel()),
+            (BatchExport(model="events", filters=None), BatchExportEventsModel()),
+            (
+                BatchExport(model="events", filters=[{"key": "amount", "value": [1.5, True]}]),
+                BatchExportEventsModel(filters=[{"key": "amount", "value": [1.5, True]}]),
+            ),
+            (
+                BatchExport(model="events", schema={"fields": [], "values": {"value": 1.5}}),
+                BatchExportEventsCustomModel(schema={"fields": [], "values": {"value": 1.5}}),
+            ),
+            (BatchExport(model="persons"), BatchExportPersonsModel()),
+            (BatchExport(model="sessions"), BatchExportSessionsModel()),
+            (
+                BatchExport(
+                    model="hogql",
+                    last_modified_by_id=42,
+                    incremental_mode="MERGE",
+                    source=BatchExportSource(
+                        hogql_query="SELECT id, updated_at FROM events",
+                        hogql_modifiers={"convertToProjectTimezone": False},
+                        primary_key=["id"],
+                        version_key=["updated_at"],
+                    ),
+                ),
+                BatchExportHogQLModel(
+                    query="SELECT id, updated_at FROM events",
+                    user_id=42,
+                    modifiers={"convertToProjectTimezone": False},
+                    incremental_mode=IncrementalMode.MERGE,
+                    primary_key=("id",),
+                    version_key=("updated_at",),
+                ),
+            ),
+            (
+                BatchExportOnDemand(
+                    model="hogql",
+                    last_modified_by_id=42,
+                    source=BatchExportSource(hogql_query="SELECT event FROM events"),
+                ),
+                BatchExportHogQLModel(query="SELECT event FROM events", user_id=42, modifiers={}),
+            ),
+        ],
+    )
+    def test_model_from_saved_export(
+        self,
+        batch_export: BatchExport | BatchExportOnDemand,
+        expected: AnyBatchExportModel,
+        input_type: type[
+            FileDownloadBatchExportInputs | BatchExportInsertInputs | BatchExportInsertIntoInternalStageInputs
+        ],
+    ) -> None:
+        model = get_batch_export_model(batch_export)
+        assert model == expected
+        inputs = input_type(
+            team_id=1,
+            batch_export_id="test",
+            data_interval_start=None,
+            data_interval_end=None,
+            batch_export_model=model,
+        )
+        converter = JSONPlainPayloadConverter()
+        payload = converter.to_payload(inputs)
+        assert payload is not None
+        assert converter.from_payload(payload, input_type).batch_export_model == expected
+
     @pytest.mark.parametrize("model_specific", [False, True])
     @pytest.mark.parametrize(
         "input_type", [FileDownloadBatchExportInputs, BatchExportInsertInputs, BatchExportInsertIntoInternalStageInputs]
@@ -244,9 +319,7 @@ class TestTypeCoercionInBatchExportInputs:
             table_name="events",
             use_variant_type=True,
             use_automatic_schema_evolution=False,
-            batch_export_model=BatchExportModel(
-                name="events",
-                schema=None,
+            batch_export_model=BatchExportEventsModel(
                 filters=[{"type": "hogql", "key": "event = 'example_event'", "value": filter_value}],
             ),
         )
@@ -257,8 +330,7 @@ class TestTypeCoercionInBatchExportInputs:
 
         assert inputs.use_variant_type is True
         assert inputs.use_automatic_schema_evolution is False
-        assert inputs.batch_export_model is not None
-        assert inputs.batch_export_model.filters is not None
+        assert isinstance(inputs.batch_export_model, BatchExportEventsModel)
         assert inputs.batch_export_model.filters[0]["value"] is filter_value
 
     def test_optional_int_none_is_preserved(self):

@@ -2751,14 +2751,6 @@
     "chromium": 27.061,
     "webkit": 6.377
   },
-  "products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelationTable.stories.tsx": {
-    "chromium": 6.059,
-    "webkit": 4.473
-  },
-  "products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelPropertyCorrelationTable.stories.tsx": {
-    "chromium": 8.23,
-    "webkit": 3.174
-  },
   "products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/BuilderPathFlowNode.stories.tsx": {
     "chromium": 15.124,
     "webkit": 4.272

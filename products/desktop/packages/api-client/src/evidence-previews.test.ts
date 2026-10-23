@@ -85,7 +85,6 @@ describe("evidence preview shaping", () => {
         significant: true,
       },
     ],
-    significance_code: "significant",
     is_cached: true,
     last_refresh: new Date().toISOString(),
   } as unknown as Schemas.ExperimentQueryResponse;
@@ -254,29 +253,84 @@ describe("evidence preview shaping", () => {
     expect(results.secondaryMetrics[0].state).toBe("ready");
   });
 
-  it("shows outcomes while marking low-exposure results as insufficient", () => {
-    const insufficientResponse = {
+  it.each([
+    {
+      method: "frequentist",
+      statistics: { confidence_interval: null, p_value: null },
+    },
+    {
+      method: "bayesian",
+      statistics: { credible_interval: null, chance_to_win: null },
+    },
+  ])(
+    "shows outcomes while marking low-exposure $method results as insufficient",
+    ({ method, statistics }) => {
+      const insufficientResponse = {
+        ...readyMetricResponse,
+        variant_results: [
+          {
+            key: "test",
+            method,
+            number_of_samples: 40,
+            sum: 6,
+            sum_squares: 6,
+            significant: null,
+            validation_failures: ["not-enough-exposures"],
+            ...statistics,
+          },
+        ],
+      } as unknown as Schemas.ExperimentQueryResponse;
+      const results = shapeExperimentResults(
+        experimentWithMetrics(),
+        exposureResponse,
+        [{ response: insufficientResponse }],
+        [{ response: insufficientResponse }],
+      );
+
+      expect(results.state).toBe("insufficient_data");
+      expect(results.primaryMetrics[0]).toMatchObject({
+        state: "insufficient_data",
+        variants: [
+          expect.any(Object),
+          expect.objectContaining({
+            outcome: "6 · 15.0%",
+            pValue: null,
+            chanceToWin: null,
+            significance: "insufficient_data",
+          }),
+        ],
+      });
+    },
+  );
+
+  it("shows a Bayesian result's chance to win instead of a p-value", () => {
+    const bayesianResponse = {
       ...readyMetricResponse,
-      significance_code: "not_enough_exposure",
-      significant: false,
+      variant_results: [
+        {
+          key: "test",
+          method: "bayesian",
+          number_of_samples: 1000,
+          sum: 125,
+          sum_squares: 125,
+          credible_interval: [0.05, 0.45],
+          chance_to_win: 0.97,
+          significant: true,
+        },
+      ],
     } as unknown as Schemas.ExperimentQueryResponse;
     const results = shapeExperimentResults(
       experimentWithMetrics(),
       exposureResponse,
-      [{ response: insufficientResponse }],
-      [{ response: insufficientResponse }],
+      [{ response: bayesianResponse }],
+      [],
     );
 
-    expect(results.state).toBe("insufficient_data");
-    expect(results.primaryMetrics[0]).toMatchObject({
-      state: "insufficient_data",
-      variants: [
-        expect.any(Object),
-        expect.objectContaining({
-          outcome: "125 · 12.5%",
-          significance: "insufficient_data",
-        }),
-      ],
+    expect(results.primaryMetrics[0].variants[1]).toMatchObject({
+      interval: "+5.00% to +45.0%",
+      pValue: null,
+      chanceToWin: "97.0%",
+      significance: "significant",
     });
   });
 

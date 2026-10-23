@@ -98,7 +98,6 @@ export enum NodeKind {
     ActorsQuery = 'ActorsQuery',
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
-    FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     PathsV2ActorsQuery = 'PathsV2ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
@@ -139,7 +138,6 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
-    FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
     // Web analytics + Web Vitals queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -194,6 +192,7 @@ export enum NodeKind {
     UsageMetricsQuery = 'UsageMetricsQuery',
     AccountsQuery = 'AccountsQuery',
     AccountsTableQuery = 'AccountsTableQuery',
+    AccountUsersQuery = 'AccountUsersQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -380,7 +379,6 @@ export type QuerySchema =
     | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
-    | FunnelCorrelationQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -1745,6 +1743,7 @@ interface InsightVizNodeViewProps {
     full?: boolean
     showHeader?: boolean
     showTable?: boolean
+    /** @deprecated Funnel correlation was removed. The value is ignored. */
     showCorrelationTable?: boolean
     showLastComputation?: boolean
     showLastComputationRefresh?: boolean
@@ -2126,8 +2125,6 @@ export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
     | keyof FilterType
     | 'funnel_step_breakdown'
-    | 'funnel_correlation_person_entity'
-    | 'funnel_correlation_person_converted'
     | 'entrance_period_start'
     | 'drop_off'
     | 'funnel_step'
@@ -2953,7 +2950,8 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     /**
-     * Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.
+     * Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name,
+     * the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified.
      * @default null
      */
     error_code: string | null
@@ -3033,10 +3031,10 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?:
         | InsightActorsQuery
         | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | AccountUsersQuery
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
@@ -3406,6 +3404,13 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     sort?: AccountsTableSort
     limit?: positive_integer
     offset?: integer
+}
+
+/** The persons who use an account. Only valid as an `ActorsQuery` source. */
+export interface AccountUsersQuery extends DataNode<ActorsQueryResponse> {
+    kind: NodeKind.AccountUsersQuery
+    /** ID of the account whose users to list. */
+    accountId: string
 }
 
 export interface TimelineEntry {
@@ -5005,11 +5010,13 @@ export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryRes
     filters?: MetricsQueryFilter[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size; auto-picked from the range when omitted */
+    /** Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window`
+     * pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w).
+     * Variable intervals that exceed 500 buckets require a larger value or shorter date range. */
     interval?: string
     /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
     unit?: string
-    /** Values of the dashboard variables that the filters refer to as `$name`. */
+    /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -5106,13 +5113,17 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     sql?: string
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week;
+     * auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets.
+     * A dashboard variable reference such as `$window` pins the interval to its single duration value
+     * (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require
+     * a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
     interval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
     display?: MetricsDisplaySettings
-    /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+    /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -5553,6 +5564,7 @@ export type FileSystemIconType =
     | 'logs'
     | 'tracing'
     | 'metrics'
+    | 'uptime_monitoring'
     | 'workflows'
     | 'broadcasts'
     | 'notebook'
@@ -5689,20 +5701,6 @@ export interface ExperimentVariantFunnelsBaseStats {
     key: string
     success_count: number
     failure_count: number
-}
-
-export interface ExperimentMaxBayesianContext {
-    key: string
-    chance_to_win: number
-    credible_interval: [number, number]
-    significant: boolean
-}
-
-export interface ExperimentMaxFrequentistContext {
-    key: string
-    p_value: number
-    confidence_interval: [number, number]
-    significant: boolean
 }
 
 export interface MaxExperimentVariantResultBayesian {
@@ -6339,6 +6337,7 @@ export type ExperimentExposureHealthFindingCode =
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
 export type ExperimentExposureHealthFindingActionKind =
+    | 'open_feature_flag'
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'
@@ -6363,6 +6362,26 @@ export interface ExperimentExposureHealthFinding {
     diagnostic_ref: string | null
 }
 
+export type ExperimentExposureHealthCheckKey =
+    | 'zero_exposures'
+    | 'srm'
+    | 'bias_risk_multiple_excluded'
+    | 'multiple_variants_share'
+
+export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
+
+/** What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`. */
+export interface ExperimentExposureHealthCheck {
+    /** Stable identifier of the check. */
+    key: ExperimentExposureHealthCheckKey
+    /** What the check looks at, as the health panel lists it. */
+    name: string
+    /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
+    status: ExperimentExposureHealthCheckStatus
+    /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
+    reason: string | null
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -6372,6 +6391,8 @@ export interface ExperimentExposureQueryResponse {
     bias_risk?: BiasRisk
     /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
     health_findings?: ExperimentExposureHealthFinding[]
+    /** The result of each check behind `health_findings`, so that a check that did not run is not read as passed. */
+    health_checks?: ExperimentExposureHealthCheck[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }
@@ -6469,14 +6490,6 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     compare?: 'current' | 'previous'
 }
 
-export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
-    kind: NodeKind.FunnelCorrelationActorsQuery
-    source: FunnelCorrelationQuery
-    funnelCorrelationPersonConverted?: boolean
-    funnelCorrelationPersonEntity?: AnyEntityNode
-    funnelCorrelationPropertyValues?: AnyPropertyFilter[]
-}
-
 /** The kind of journey grid element a PathsV2ActorsQuery drills into. */
 export enum PathsV2ElementType {
     Node = 'node',
@@ -6524,58 +6537,6 @@ export interface PathsV2ActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.PathsV2ActorsQuery
     source: PathsV2Query
     element: PathsV2ElementSelector
-}
-
-export interface EventDefinition {
-    event: string
-    properties: Record<string, any>
-    elements: any[]
-}
-
-export interface EventOddsRatioSerialized {
-    event: EventDefinition
-    success_count: integer
-    failure_count: integer
-    odds_ratio: number
-    correlation_type: 'success' | 'failure'
-}
-
-export interface FunnelCorrelationResult {
-    events: EventOddsRatioSerialized[]
-    skewed: boolean
-}
-
-export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase {
-    results: FunnelCorrelationResult
-    columns?: any[]
-    types?: any[]
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-}
-export type CachedFunnelCorrelationResponse = FunnelCorrelationResponse & CachedRetentionQueryResponse
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
-}
-
-export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> {
-    kind: NodeKind.FunnelCorrelationQuery
-    source: FunnelsActorsQuery
-    funnelCorrelationType: FunnelCorrelationResultsType
-
-    /* Events */
-    funnelCorrelationExcludeEventNames?: string[]
-
-    /* Events with properties */
-    funnelCorrelationEventNames?: string[]
-    funnelCorrelationEventExcludePropertyNames?: string[]
-
-    /* Properties */
-    funnelCorrelationNames?: string[]
-    funnelCorrelationExcludeNames?: string[]
 }
 
 /**  @format date-time */
@@ -6628,13 +6589,7 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source:
-        | InsightActorsQuery
-        | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
-        | StickinessActorsQuery
-        | ExperimentActorsQuery
-        | PathsV2ActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery | ExperimentActorsQuery | PathsV2ActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -6777,6 +6732,8 @@ export interface DatabaseSchemaQueryResponse {
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
+    /** Select the native managed Trino catalog instead of the default PostHog catalog. */
+    executionTarget?: 'default' | 'managed_trino'
     /** Optional direct external data source id for schema introspection */
     connectionId?: string
     /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
@@ -6899,7 +6856,7 @@ export interface DashboardFilter {
     filterTestAccounts?: boolean | null
     /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
     compareFilter?: CompareFilter | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    /** @deprecated Ignored. Kept so that dashboards saved with label filters still load. */
     metricFilters?: MetricsQueryFilter[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariable[] | null
@@ -7198,19 +7155,6 @@ export interface LLMDetectorConfig {
      * @maxLength 2000
      */
     instructions?: string
-    /**
-     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
-     * @minimum 0
-     * @maximum 1
-     */
-    threshold?: number
-    /**
-     * How many recent points the model is shown (default: 90)
-     * @asType integer
-     * @minimum 5
-     * @maximum 400
-     */
-    window?: number
 }
 
 export enum EnsembleOperator {
@@ -9152,7 +9096,7 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
 }
 
 export interface CustomerAnalyticsPinnedProperty {
-    kind: 'custom_property' | 'relationship'
+    kind: 'custom_property' | 'relationship' | 'account_field'
     id: string
 }
 
@@ -9294,6 +9238,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
+    UPTIME_MONITORING = 'uptime_monitoring',
     METRICS = 'metrics',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',

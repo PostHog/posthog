@@ -15,6 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -77,6 +80,7 @@ class SigmaComputingSource(ResumableSource[SigmaComputingSourceConfig, SigmaComp
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            OAUTH2_PERMANENT_ERROR_MARKER: "Sigma rejected your API client credentials. Check the client ID and secret, then reconnect.",
             "Sigma rejected the API client credentials": "Sigma rejected your API client credentials. Please check the client ID and secret and reconnect.",
             "401 Client Error": "Sigma rejected the access token. Please check the client ID and secret, then reconnect.",
             "403 Client Error": "Your Sigma API client does not have permission for this resource.",

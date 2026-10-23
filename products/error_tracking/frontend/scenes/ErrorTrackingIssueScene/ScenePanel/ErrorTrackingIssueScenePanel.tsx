@@ -25,8 +25,6 @@ import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { manageFingerprintsLogic } from '../../../components/FingerprintPreview/manageFingerprintsLogic'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { IssueAffectedBroadcastButton } from './IssueAffectedBroadcastButton'
-import { IssueWorkflowButton } from './IssueWorkflowButton'
 
 export const ErrorTrackingIssueScenePanel = ({
     issue,
@@ -44,8 +42,6 @@ export const ErrorTrackingIssueScenePanel = ({
             <ScenePanelDivider />
             <ScenePanelActionsSection>
                 <CreateSurveyButton />
-                <IssueAffectedBroadcastButton issueId={issue.id} issueName={issue.name} />
-                <IssueWorkflowButton issueId={issue.id} />
                 <SceneComment dataAttrKey="issue" />
                 <SceneShareButton
                     dataAttrKey="issue"

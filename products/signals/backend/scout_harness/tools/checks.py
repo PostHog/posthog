@@ -36,11 +36,14 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW, resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
-from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
+from products.signals.backend.report_check_evaluation import CheckVerdict
+from products.signals.backend.report_check_execution import record_check_verdict
 from products.signals.backend.report_checks import (
+    MAX_CHECK_HORIZON,
     AgentCheckConfig,
     CheckInconclusiveReason,
     CheckOutcome,
+    monitoring_window_end,
     parse_check_config,
 )
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
@@ -77,7 +80,13 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
     These are the filters `collect_due_checks` applies besides the clock, so an undispatched check
     is `due` to a run only when the coordinator would dispatch it too.
     """
-    if report_status != SignalReport.Status.RESOLVED:
+    if report_status == SignalReport.Status.MONITORING:
+        start = check.report.monitoring_started_at
+        if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD or not check.config.get("monitoring") or start is None:
+            return "its report is `monitoring`"
+        if now >= min(monitoring_window_end(start, check.soak_minutes), start + MAX_CHECK_HORIZON):
+            return "its Monitoring window ended"
+    elif report_status != SignalReport.Status.RESOLVED:
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
         return "its horizon passed"
@@ -371,6 +380,8 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
         .filter(report_id=report.id)
         .order_by("-created_at")[:MAX_CHECKS_LISTED]
     )
+    for check in checks:
+        check.report = report
     run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)
     now = timezone.now()
     report_status = report.effective_status

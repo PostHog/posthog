@@ -17,6 +17,7 @@ pub mod positions;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
+pub mod split;
 pub mod stamp;
 pub mod watermarks;
 
@@ -25,7 +26,7 @@ pub use cohort_core::partitioner;
 pub use backpressure::{Backpressure, PartitionHoldover};
 pub use fence::{
     AdmittedSplit, ClaimedSplit, CommitLedger, Committed, FenceBlock, FenceError, InputCommits,
-    OwnershipAudit, AUDIT_INTERVAL,
+    OwnershipAudit, StoreSource, AUDIT_INTERVAL,
 };
 pub use follower::{Follower, FollowerSet};
 pub use intake::{Admission, MeteredReceiver, PartitionIntake};
@@ -39,7 +40,8 @@ pub use partitioner::{
 };
 pub use pause::{ConsumerPauser, PartitionPauser};
 pub use positions::{
-    list_offsets, FollowerGroup, InputGroups, InputPositions, InputTopic, ResumeOffset,
+    list_offsets, FollowerGroup, InputGroups, InputPositions, InputTopic, OwnedPositions,
+    PositionsError, ResumeOffset,
 };
 pub use rebalance::CohortConsumerContext;
 pub use router::{
@@ -47,5 +49,6 @@ pub use router::{
     WorkerInbox,
 };
 pub use shuffle_message::ShuffleMessage;
+pub use split::{Role, SplitClaim, SplitError};
 pub use stamp::{CommitStamp, Stamp, StampedList};
 pub use watermarks::{LiveWatermarks, WatermarkMs};

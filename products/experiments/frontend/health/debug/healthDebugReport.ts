@@ -151,13 +151,14 @@ function share(value: unknown): string | null {
 function serverOnlyCheck(
     input: HealthDebugInput,
     check: ExperimentHealthFindingApi['code'],
-    note: ((finding: ExperimentHealthFindingApi) => string) | null
+    note: ((finding: ExperimentHealthFindingApi) => string) | null,
+    reads: HealthDebugDomain[] = ['experiment', 'flag']
 ): HealthDebugCheck {
     const finding = findingOf(input, check)
     return {
         check,
         source: 'health endpoint',
-        reads: ['experiment', 'flag'],
+        reads,
         ...serverResult(check, input.health, (code) => code === check),
         browser: null,
         browserLabel: BROWSER_RULES,
@@ -223,6 +224,19 @@ function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
         parts.push(`Share unknown: ${evidence.reason}.`)
     }
     return parts.join(' ')
+}
+
+function metricEventNote({ evidence }: ExperimentHealthFindingApi): string {
+    const events = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_events$/.test(key))
+        .map(([, value]) => value)
+    return `Not received: ${events.join(', ')}.`
+}
+
+function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
+    return subcode === 'filter_on_another_flag'
+        ? `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
+        : `Not received: ${evidence.event}.`
 }
 
 function noMetricCheck(input: HealthDebugInput): HealthDebugCheck {
@@ -295,7 +309,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     }
 
     return [
-        exposureCheck('zero_exposures', ['experiment', 'exposures'], null),
+        exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
         exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
         exposureCheck(
@@ -315,7 +329,11 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
         serverOnlyCheck(input, 'flag_variants_mismatch', null),
         serverOnlyCheck(input, 'forced_variant_release_condition', forcedVariantNote),
+        serverOnlyCheck(input, 'new_flag_no_traffic', null),
         noMetricCheck(input),
+        serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
+        serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
+        serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

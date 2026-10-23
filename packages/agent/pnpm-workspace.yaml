@@ -3,8 +3,15 @@
 packages:
     - packages/*
 
+# A flat node_modules, which Electron and the native rebuilds require.
+nodeLinker: hoisted
+shamefullyHoist: true
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+# Maintenance releases published without the provenance of an earlier release.
+trustPolicyExclude:
+    - chokidar@4.0.3
+    - undici-types@6.21.0
 
 catalog:
     '@hono/node-server': ^1.13.7
@@ -138,13 +145,23 @@ overrides:
     qs: 6.15.3
     smol-toml: 1.6.1
 
-onlyBuiltDependencies:
-    - '@parcel/watcher'
-    - '@posthog/cli'
-    - better-sqlite3
-    - core-js
-    - electron
-    - electron-winstaller
-    - esbuild
-    - node-pty
-    - tree-sitter-cli
+allowBuilds:
+    '@parcel/watcher': true
+    '@posthog/cli': true
+    better-sqlite3: true
+    core-js: true
+    electron: true
+    electron-winstaller: true
+    esbuild: true
+    node-pty: true
+    tree-sitter-cli: true
+    '@google/genai': false
+    '@swc/core': false
+    msw: false
+    protobufjs: false
+
+# Keep `pnpm run` from starting an install, as the root workspace does.
+verifyDepsBeforeRun: false
+# Installs without a terminal (flox activation, agent hooks, CI) abort when pnpm asks before
+# it rebuilds node_modules after a store or layout change, so rebuild without asking.
+confirmModulesPurge: false

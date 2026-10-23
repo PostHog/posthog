@@ -263,7 +263,6 @@ class DockerSandbox(AgentServerLaunchMixin):
 
         monorepo_root = os.path.abspath(monorepo_root)
         required_paths = [
-            os.path.join(monorepo_root, ".npmrc"),
             os.path.join(monorepo_root, "package.json"),
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
@@ -348,7 +347,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             os.makedirs(packages_path)
             os.makedirs(scripts_path)
 
-            for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
+            for file_name in ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
