@@ -316,6 +316,14 @@ class TestMaxToolErrorHierarchy(SimpleTestCase):
         self.assertTrue(summary.endswith("…"))
         self.assertEqual(len(summary), 44)  # "MaxToolTransientError: " (23) + 20 + "…" (1) = 44
 
+    def test_to_summary_keeps_the_hint_after_truncating_the_message(self):
+        error = MaxToolRetryableError("a" * 600, hint="<hint>rewrite it</hint>")
+
+        self.assertEqual(
+            error.to_summary(max_length=500), "MaxToolRetryableError: " + "a" * 500 + "…\n\n<hint>rewrite it</hint>"
+        )
+        self.assertEqual(str(error), "a" * 600 + "\n\n<hint>rewrite it</hint>")
+
     def test_to_summary_strips_whitespace(self):
         """to_summary() should strip leading/trailing whitespace from messages."""
         error = MaxToolFatalError("  \n  Error with whitespace  \n  ")
