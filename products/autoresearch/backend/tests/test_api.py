@@ -875,6 +875,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 resp = getattr(self.client, method)(url, body, format="json")
                 assert (resp.status_code == status.HTTP_403_FORBIDDEN) == refused, (scopes, resp.content)
 
+    @parameterized.expand([("create", "post", False), ("update", "put", True), ("partial_update", "patch", True)])
+    def test_non_object_body_is_a_validation_error(self, _name: str, method: str, existing: bool):
+        url = f"{self.base_url}/{self._make_pipeline().id}/" if existing else f"{self.base_url}/"
+        for body in ("null", "[]"):
+            resp = getattr(self.client, method)(url, body, content_type="application/json")
+            assert resp.status_code == status.HTTP_400_BAD_REQUEST, (body, resp.content)
+
     @parameterized.expand(
         [
             ("while_writing", True, {}, status.HTTP_400_BAD_REQUEST),
