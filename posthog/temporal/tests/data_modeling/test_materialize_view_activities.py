@@ -236,7 +236,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
-        assert ajob.bytes_read == 345
+        assert ajob.read_bytes == 345
         assert ajob.read_bytes == 345
         assert ajob.usage_updated_at is not None
         assert capture.called is error_tracked

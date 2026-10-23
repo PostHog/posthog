@@ -106,7 +106,7 @@ class ManagedWarehouseShadowResult:
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
     run_mode: str = UNKNOWN_RUN_MODE
-    bytes_read: int | None = None
+    read_bytes: int | None = None
 
 
 def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
@@ -245,9 +245,8 @@ def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowR
         job.rows_materialized = 0
         job.error = result.error
     completed_at = dt.datetime.now(dt.UTC)
-    job.bytes_read = result.bytes_read
-    job.read_bytes = result.bytes_read
-    job.usage_updated_at = completed_at if result.bytes_read is not None else None
+    job.read_bytes = result.read_bytes
+    job.usage_updated_at = completed_at if result.read_bytes is not None else None
     job.last_run_at = completed_at
     job.save()
     return job.engine
@@ -354,7 +353,7 @@ async def _materialize_view_managed_warehouse(
             file_size_bytes=result.file_size_bytes,
             file_size_delta_bytes=result.file_size_delta_bytes,
             run_mode=INCREMENTAL_RUN_MODE if inputs.use_trino and result.merged else FULL_REFRESH_RUN_MODE,
-            bytes_read=_total_bytes_read(processed_bytes),
+            read_bytes=_total_read_bytes(processed_bytes),
         )
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
@@ -403,7 +402,7 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
             error=str(e),
             run_mode=_failed_run_mode(plan, inputs.use_trino),
-            bytes_read=_total_bytes_read(processed_bytes),
+            read_bytes=_total_read_bytes(processed_bytes),
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
@@ -430,7 +429,7 @@ async def _materialize_view_managed_warehouse(
         return shadow_result
 
 
-def _total_bytes_read(processed_bytes: list[int]) -> int | None:
+def _total_read_bytes(processed_bytes: list[int]) -> int | None:
     # No statement reported its bytes, so the run was not measured. That is not the same as reading zero bytes.
     return sum(processed_bytes) if processed_bytes else None
 

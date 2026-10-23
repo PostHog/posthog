@@ -156,7 +156,7 @@ class TestDataModelingJob(APIBaseTest):
             status=DataModelingJob.Status.COMPLETED,
             engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
             last_run_at=timezone.now(),
-            bytes_read=1024,
+            read_bytes=1024,
             read_rows=20,
             cpu_microseconds=300,
             query_count=4,
