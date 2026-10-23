@@ -204,7 +204,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import slack_reply_target, turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import (
+        is_explicit_slack_reply,
+        slack_reply_target,
+        turn_person_message,
+    )
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -260,8 +264,13 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         turn_person_message=person_message,
     )
 
+    if handler.proactive_notifications_muted() and not is_explicit_slack_reply(task_run, input.message_id):
+        handler.delete_progress()
+        return
+    text = handler.notification_text(text, target)
+
     # The mention opens the answer, in the same line, so the reply reads as one message.
-    mention_prefix = leading_mention_prefix(text, target)
+    mention_prefix = leading_mention_prefix(text, handler.notification_target(target))
 
     compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
 
