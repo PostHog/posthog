@@ -110,7 +110,7 @@ export interface emailDomainAutoConfigureLogicMeta {
         dnsHost: (detection: EmailDomainConnectCheckApi | null) => EmailDomainDnsHostApi | null
         supportsDomainConnect: (detection: EmailDomainConnectCheckApi | null) => boolean
         hostName: (detection: EmailDomainConnectCheckApi | null, dnsHost: EmailDomainDnsHostApi | null) => string | null
-        pageUrl: (currentTeamId: number | null, integrationId: any) => string | null
+        pageUrl: (currentTeamId: number | null, integrationId: number | null) => string | null
     }
 }
 

@@ -162,7 +162,7 @@ export interface emailDomainLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         phase: (
-            integrationId: any,
+            integrationId: number | null,
             sender: IntegrationConfigApi | null,
             senderFailed: boolean,
             status: EmailDomainStatusApi | null,
@@ -180,7 +180,7 @@ export interface emailDomainLogicMeta {
             allRecordsFound: boolean,
             pollingStopped: boolean
         ) => VerificationStep[]
-        breadcrumbs: (domain: string | null, integrationId: any) => Breadcrumb[]
+        breadcrumbs: (domain: string | null, integrationId: number | null) => Breadcrumb[]
     }
 }
 
