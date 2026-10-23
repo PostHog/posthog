@@ -524,6 +524,33 @@ class TestTransactionalEmail(APIBaseTest):
         reported = capture.call_args.kwargs["properties"]
         assert (reported["outcome"], reported["error_code"]) == ("rejected", code)
 
+    @parameterized.expand(
+        [
+            ("copy_the_pipeline_names", ["copy@example.com"], {"attr": "cc"}, "cc"),
+            ("addresses_in_two_fields", ["copy@example.com"], {"attr": None}, None),
+            ("copy_and_a_pipeline_that_names_none", ["copy@example.com"], {}, None),
+            ("no_copies", [], {}, "to"),
+        ]
+    )
+    def test_a_refused_recipient_names_the_field_that_holds_it(
+        self, mock_post, _flag, _capture, _name, cc, cdp_attr, expected_attr
+    ):
+        cdp_body = {
+            "error": "recipient_suppressed",
+            "code": "recipient_suppressed",
+            "detail": "Refused by a send check.",
+            "why": "Why.",
+            "fix": "Fix it.",
+            **cdp_attr,
+        }
+        mock_post.return_value = MagicMock(status_code=400, json=lambda: cdp_body)
+        body = self._send_body("key", **({"cc": cc} if cc else {}))
+
+        response = self.client.post(self.send_email_url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("recipient_suppressed", expected_attr)
+
     def _send_body(self, addressed_by: str, **fields: Any) -> dict[str, Any]:
         if addressed_by == "template_key":
             return self._rendered(**fields)

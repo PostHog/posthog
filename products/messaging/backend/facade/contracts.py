@@ -169,6 +169,8 @@ class Rejected:
     # Set for the send checks, which say why PostHog refused the send and what to change.
     why: str | None = None
     fix: str | None = None
+    # The request field that holds a refused recipient, or None when that is not known.
+    recipient_field: str | None = None
 
 
 @frozen

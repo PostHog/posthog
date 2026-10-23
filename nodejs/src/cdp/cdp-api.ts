@@ -57,6 +57,7 @@ import {
     NOT_SENDABLE,
     TransactionalEmailOutcome,
     TransactionalEmailRequestSchema,
+    refusedRecipientField,
     transactionalEmailRequestsTotal,
     transactionalSendCandidate,
     transactionalSendFingerprint,
@@ -1251,7 +1252,11 @@ export class CdpApi {
                         await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                     }
                     const { code, detail, why, fix } = decision
-                    return reply(code, 400, { error: code, code, detail, why, fix })
+                    const attr =
+                        'refusedAddresses' in decision
+                            ? { attr: refusedRecipientField(decision.refusedAddresses, to, send) }
+                            : {}
+                    return reply(code, 400, { error: code, code, detail, why, fix, ...attr })
                 }
                 const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
                 if (isLimited) {

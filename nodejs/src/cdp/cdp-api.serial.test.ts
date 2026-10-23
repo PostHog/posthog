@@ -2493,17 +2493,23 @@ describe('CDP API', () => {
                 return { teamId, flowId, to: body.to, send: { ...codeSend, cc: ['bounced@example.com'] } }
             }
 
+            const suppressedRecipientAndCopy = async (): Promise<Target> => {
+                const target = await suppressedRecipient()
+                return { ...target, send: { ...codeSend, cc: ['bounced@example.com'] } }
+            }
+
             const domainWithoutMailServers = (): Promise<Target> =>
                 Promise.resolve({ teamId: team.id, flowId: hogFlow.id, to: 'someone@no-mail.invalid' })
 
             it.each([
-                ['invalid_recipient', domainWithoutMailServers, 'has no mail servers'],
-                ['recipient_suppressed', suppressedRecipient, 'bounced or was marked as spam'],
-                ['recipient_suppressed', suppressedCopy, 'bounced or was marked as spam'],
-                ['template_paused', pausedWorkflow, 'Email sending is paused for this email'],
-                ['sending_suspended', suspendedProject, 'Email sending is suspended for this project'],
-                ['sender_not_verified', unverifiedSender, "The sender's domain is not verified"],
-            ])('refuses a send that fails %s before it queues, set up by %p', async (code, setUp, why) => {
+                ['invalid_recipient', domainWithoutMailServers, 'has no mail servers', 'to'],
+                ['recipient_suppressed', suppressedRecipient, 'bounced or was marked as spam', 'to'],
+                ['recipient_suppressed', suppressedCopy, 'bounced or was marked as spam', 'cc'],
+                ['recipient_suppressed', suppressedRecipientAndCopy, 'bounced or was marked as spam', null],
+                ['template_paused', pausedWorkflow, 'Email sending is paused for this email', undefined],
+                ['sending_suspended', suspendedProject, 'Email sending is suspended for this project', undefined],
+                ['sender_not_verified', unverifiedSender, "The sender's domain is not verified", undefined],
+            ])('refuses a send that fails %s before it queues, set up by %p', async (code, setUp, why, attr) => {
                 const { teamId, flowId, to, send } = await setUp()
                 const rejectedBefore = await outcomeCount(code)
 
@@ -2519,6 +2525,7 @@ describe('CDP API', () => {
                     detail: expect.not.stringMatching(/^Skipping send/),
                     why: expect.stringContaining(why),
                     fix: expect.any(String),
+                    attr,
                 })
                 expect(await outcomeCount(code)).toEqual(rejectedBefore + 1)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()

@@ -20,7 +20,8 @@ type Rejection = {
 }
 
 export type PolicyRejection =
-    | (Rejection & { code: Exclude<PolicyCode, 'sending_suspended'> })
+    | (Rejection & { code: 'template_paused' | 'sender_not_verified' })
+    | (Rejection & { code: 'invalid_recipient' | 'recipient_suppressed'; refusedAddresses: string[] })
     | (Rejection & { code: 'sending_suspended'; cause: EmailSendingSuspensionCause })
 
 export type PolicyDecision = { ok: true; sender: IntegrationType } | PolicyRejection
@@ -93,6 +94,7 @@ export class EmailSendPolicy {
         return {
             ok: false,
             code: 'recipient_suppressed',
+            refusedAddresses: suppressed,
             detail: `Recipient(s) on the suppression list: ${suppressed.join(', ')}`,
             why: `An earlier email to ${suppressed.join(', ')} bounced or was marked as spam, so PostHog no longer sends to it.`,
             fix: 'Send to another address, or remove the address from the suppression list once it can receive email again.',
@@ -207,6 +209,7 @@ function invalidRecipient(undeliverable: Undeliverable): PolicyRejection {
     return {
         ok: false,
         code: 'invalid_recipient',
+        refusedAddresses: [undeliverable.address],
         detail: undeliverable.message,
         why,
         fix: 'Check the address for a typo. If it is right, the recipient cannot receive email, so skip them.',

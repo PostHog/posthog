@@ -133,6 +133,21 @@ export async function transactionalSendCandidate(
     }
 }
 
+type RecipientField = 'to' | 'cc' | 'bcc'
+
+/** The request field that holds every refused address, or null when they sit in more than one field. */
+export function refusedRecipientField(
+    refusedAddresses: string[],
+    to: string,
+    send: AcceptedSend | undefined
+): RecipientField | null {
+    const held: Record<RecipientField, readonly string[]> = { to: [to], cc: send?.cc ?? [], bcc: send?.bcc ?? [] }
+    const holding = (Object.keys(held) as RecipientField[]).filter((field) =>
+        refusedAddresses.some((address) => held[field].includes(address))
+    )
+    return holding.length === 1 ? holding[0] : null
+}
+
 function emailStepSender(hogFlow: HogFlow): EmailSenderConfiguration | null {
     const step = hogFlow.actions.find((action) => action.type === 'function_email')
     const from = step?.type === 'function_email' ? step.config.inputs?.email?.value?.from : undefined

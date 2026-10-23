@@ -167,11 +167,7 @@ def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> FieldError:
 
 class TransactionalEmailRejected(exceptions.APIException):
     STATUS_BY_CODE = {"quota_limited": 429, "idempotency_key_in_flight": 409, "idempotency_key_reused": 422}
-    ATTR_BY_CODE = {
-        "invalid_recipient": "to",
-        "recipient_suppressed": "to",
-        "sender_not_verified": "from",
-    }
+    ATTR_BY_CODE = {"sender_not_verified": "from"}
     # The caller has to change the request. Without this the error handler reports a server error.
     default_type = "invalid_request"
 
@@ -186,7 +182,7 @@ class TransactionalEmailRejected(exceptions.APIException):
             "type": self.default_type,
             "code": rejected.code,
             "detail": rejected.detail,
-            "attr": self.ATTR_BY_CODE.get(rejected.code),
+            "attr": rejected.recipient_field or self.ATTR_BY_CODE.get(rejected.code),
             "docs_url": f"{TRANSACTIONAL_EMAIL_DOCS_URL}#{rejected.code}",
         }
         if rejected.why is not None and rejected.fix is not None:

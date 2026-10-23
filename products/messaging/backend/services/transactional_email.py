@@ -326,7 +326,9 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
         )
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in command.to or "}" in command.to:
-        return Rejected(code="invalid_recipient", detail="The recipient address can't contain { or }.")
+        return Rejected(
+            code="invalid_recipient", detail="The recipient address can't contain { or }.", recipient_field="to"
+        )
     try:
         hog_flow_id = _sendable_workflow_id(command.team_id, command.source)
     except TransactionalEmailError as e:
@@ -352,7 +354,7 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
         return Unavailable()
 
     if response.status_code != 202:
-        if response.status_code == 400 and (refused := _failed_send_check(response)):
+        if response.status_code == 400 and (refused := _failed_send_check(response, command.source.send)):
             return refused
         if response.status_code == 429:
             return Rejected(code="quota_limited", detail="The project is over its email quota.")
@@ -391,14 +393,31 @@ SEND_CHECK_CODES = frozenset(
 )
 
 
-def _failed_send_check(response: Any) -> Rejected | None:
+RECIPIENT_CHECK_CODES = frozenset({"invalid_recipient", "recipient_suppressed"})
+RECIPIENT_FIELDS = frozenset({"to", "cc", "bcc"})
+
+
+def _failed_send_check(response: Any, send: AcceptedSend | None) -> Rejected | None:
     try:
         body = response.json()
     except ValueError:
         return None
     if not isinstance(body, dict) or body.get("code") not in SEND_CHECK_CODES:
         return None
-    return Rejected(code=body["code"], detail=str(body["detail"]), why=str(body["why"]), fix=str(body["fix"]))
+    return Rejected(
+        code=body["code"],
+        detail=str(body["detail"]),
+        why=str(body["why"]),
+        fix=str(body["fix"]),
+        recipient_field=_refused_recipient_field(body, send) if body["code"] in RECIPIENT_CHECK_CODES else None,
+    )
+
+
+def _refused_recipient_field(body: dict[str, Any], send: AcceptedSend | None) -> str | None:
+    if send is None or not (send.cc or send.bcc):
+        return "to"
+    attr = body.get("attr")
+    return attr if attr in RECIPIENT_FIELDS else None
 
 
 def _sendable_workflow_id(team_id: int, source: StoredTemplate | RenderedEmail) -> UUID:
