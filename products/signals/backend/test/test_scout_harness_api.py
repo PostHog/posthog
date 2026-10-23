@@ -2197,10 +2197,9 @@ class TestWriteScopesValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "not both" in str(serializer.errors)
 
-    def test_support_notes_preset_is_rejected_until_its_write_scope_is_grantable(self) -> None:
+    def test_support_notes_preset_is_accepted_once_its_write_scope_is_grantable(self) -> None:
         serializer = SignalScoutConfigUpdateSerializer(data={"tool_preset": "support_notes"}, partial=True)
-        assert not serializer.is_valid()
-        assert "conversations-tickets-notes-create" in str(serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):

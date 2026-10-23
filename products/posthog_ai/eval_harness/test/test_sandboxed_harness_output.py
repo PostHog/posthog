@@ -413,7 +413,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     http_status: int,
     delivery_state: Literal["ready", "unavailable", "closed"],
 ) -> None:
-    for key in ("API_KEY", "HOST"):
+    for key in ("API_KEY", "HOST", "LOCAL_CONFIG"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
     monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
     monkeypatch.chdir(tmp_path)
@@ -570,10 +570,9 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
         else:
             monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
     run = AsyncMock()
-    runner = "SandboxedPrivateEval" if domain == "experiments" else "SandboxedPublicEval"
-    if suite_kind == SuiteKind.ONE_SHOT:
-        runner = "OneShotPublicEval"
-    monkeypatch.setattr(module, runner, run)
+    runner_kind = "OneShot" if suite_kind == SuiteKind.ONE_SHOT else "Sandboxed"
+    runner_visibility = "Private" if discovered.no_send_logs else "Public"
+    monkeypatch.setattr(module, f"{runner_kind}{runner_visibility}Eval", run)
 
     await discovered.fn(MagicMock(skill_delivery="bundled"))
 
@@ -658,6 +657,9 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
 
     launched_context = launch.call_args.args[1]
     assert launched_context.interaction_origin == expected_origin
+    assert launched_context.system_prompt == (
+        dict(base.PromptService.build()) if expected_origin == "posthog_ai" else None
+    )
     assert ctx.demo_data.make_context.call_args.kwargs["disable_bundled_skills"] == (delivery == "exec")
     if has_original:
         assert setup.call_args.args[0].interaction_origin == expected_origin

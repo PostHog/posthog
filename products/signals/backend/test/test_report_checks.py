@@ -840,10 +840,16 @@ class TestReportCheckExecution(APIBaseTest):
             assert listed.run_state == expected
             assert {row.id for row in collect_due_checks(now)} == ({check.id} if expected == "due" else set())
 
-    def test_flag_off_restores_the_legacy_soak_and_whole_window(self) -> None:
+    @parameterized.expand(
+        [("disabled", False, 14, 14 * 24), ("unavailable", None, 14, 14 * 24), ("query_window", False, 2, 7 * 24 + 12)]
+    )
+    def test_flag_off_restores_the_legacy_soak_and_whole_window(
+        self, _name: str, flag: bool | None, soak_days: int, ready_hours: int
+    ) -> None:
         start = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        ready_at = start + timedelta(hours=ready_hours)
         with time_machine.travel(start, tick=False):
-            check = self._monitoring_check(start=start)
+            check = self._monitoring_check(start=start, soak_minutes=soak_days * 1440)
             with (
                 patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
                 patch(
@@ -853,18 +859,197 @@ class TestReportCheckExecution(APIBaseTest):
             ):
                 run_due_report_checks(now=start + timedelta(days=1))
             with (
-                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False),
+                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag),
                 patch(_MEASURE, return_value=MetricMeasurement(value=2, measured_at=start, series=None)) as measure,
             ):
                 run_due_report_checks(now=start + timedelta(days=2))
                 measure.assert_not_called()
                 check.refresh_from_db()
-                assert check.next_run_at == start + timedelta(days=14)
-                with time_machine.travel(start + timedelta(days=14), tick=False):
+                assert check.next_run_at == ready_at
+                assert check.expires_at == ready_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN
+                with time_machine.travel(ready_at, tick=False):
                     run_due_report_checks()
             check.refresh_from_db()
             assert check.status == SignalReportCheck.Status.PASSED
             assert check.runs_remaining == 0
+
+    @parameterized.expand([("repaired", 500, 45), ("overdue_backlog", 0, 45), ("future_backlog", 0, 20)])
+    @time_machine.travel("2026-10-01T12:00:00Z", tick=False)
+    def test_flag_off_defers_unrepaired_checks_and_expires_overdue_checks(
+        self, _name: str, repair_limit: int, age_days: int
+    ) -> None:
+        start = timezone.now() - timedelta(days=age_days)
+        check = self._monitoring_check(start=start)
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False),
+            patch("products.signals.backend.report_check_execution.MAX_CHECK_PARKS_PER_TICK", repair_limit),
+            patch(_MEASURE) as measure,
+        ):
+            assert collect_due_checks(timezone.now()) == ([] if age_days > 44 else [check])
+            summary = run_due_report_checks()
+        measure.assert_not_called()
+        assert summary.deferred == (1 if age_days < 44 else 0)
+        check.refresh_from_db()
+        assert check.status == (SignalReportCheck.Status.EXPIRED if repair_limit else SignalReportCheck.Status.ACTIVE)
+        assert self._results() == []
+        if repair_limit:
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+                run_due_report_checks(limit=0)
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.EXPIRED
+
+    def test_expiry_restoration_only_changes_disabled_monitoring_checks(self) -> None:
+        now = timezone.now()
+        check = self._monitoring_check(start=now)
+        resolved = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED)
+        legacy = self._check(report=resolved)
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Another organization"))
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.MONITORING, monitoring_started_at=now
+        )
+        enabled = self._check(
+            team=other_team,
+            report=other_report,
+            config=check.config,
+            measurement_start_at=now,
+            expires_at=now + MAX_CHECK_HORIZON,
+        )
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            side_effect=lambda _flag, organization_id, **kwargs: organization_id == str(other_team.organization_id),
+        ):
+            run_due_report_checks(now=now, limit=0)
+        for row, expected_expiry in (
+            (check, now + timedelta(days=44)),
+            (legacy, legacy.expires_at),
+            (enabled, enabled.expires_at),
+        ):
+            row.refresh_from_db()
+            assert row.expires_at == expected_expiry
+
+    @parameterized.expand([("passed", False), ("errored", True)])
+    def test_flag_cycles_preserve_the_fallback_expiry_after_a_verdict(self, _name: str, query_error: bool) -> None:
+        start = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        expected_expiry = start + timedelta(days=65)
+        with time_machine.travel(start + timedelta(days=13), tick=False):
+            check = self._monitoring_check(start=start, run_interval_minutes=7 * 1440, runs_remaining=4)
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+                run_due_report_checks(limit=0)
+                with (
+                    time_machine.travel(start + timedelta(days=14), tick=False),
+                    patch(
+                        _MEASURE,
+                        side_effect=RuntimeError("Query unavailable") if query_error else None,
+                        return_value=MetricMeasurement(value=2, measured_at=timezone.now(), series=None),
+                    ),
+                ):
+                    run_due_report_checks()
+            check.refresh_from_db()
+            assert check.runs_remaining == (4 if query_error else 3)
+            assert check.expires_at == expected_expiry
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+                run_due_report_checks(now=start + timedelta(days=15), limit=0)
+            check.refresh_from_db()
+            assert check.expires_at == start + MAX_CHECK_HORIZON
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+                run_due_report_checks(now=start + timedelta(days=16), limit=0)
+            check.refresh_from_db()
+            assert check.expires_at == expected_expiry
+
+            with (
+                time_machine.travel(start + timedelta(days=16), tick=False),
+                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            ):
+                self.report.refresh_from_db()
+                with self.captureOnCommitCallbacks(execute=True):
+                    self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
+                    self.report.save(update_fields=self.report.transition_to(self.report.restore_target_status()))
+                check.refresh_from_db()
+                assert check.monitoring_fallback_expires_at == expected_expiry
+                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.READY))
+            check.refresh_from_db()
+            self.assertIsNone(check.monitoring_fallback_expires_at)
+
+    def test_expiry_repair_advances_past_checks_whose_legacy_horizon_is_also_ninety_days(self) -> None:
+        now = timezone.now()
+        start = now - timedelta(days=2)
+        long_check = self._monitoring_check(start=start, run_interval_minutes=8 * 1440, runs_remaining=7)
+        later_start = now - timedelta(days=1)
+        later_report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.MONITORING, monitoring_started_at=later_start
+        )
+        later_check = self._check(
+            report=later_report,
+            config=long_check.config,
+            measurement_start_at=later_start,
+            soak_minutes=14 * 1440,
+            next_run_at=later_start + timedelta(days=14),
+            expires_at=later_start + MAX_CHECK_HORIZON,
+        )
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False),
+            patch("products.signals.backend.report_check_execution.MAX_CHECK_PARKS_PER_TICK", 1),
+        ):
+            run_due_report_checks(now=now, limit=0)
+            run_due_report_checks(now=now, limit=0)
+        long_check.refresh_from_db()
+        later_check.refresh_from_db()
+        assert long_check.expires_at == start + MAX_CHECK_HORIZON
+        assert later_check.expires_at == later_start + timedelta(days=44)
+
+    @parameterized.expand([("capped", 13, 5, 90), ("uncapped", 7, 3, 58)])
+    def test_legacy_flag_recovery_preserves_elapsed_recurring_runs(
+        self, _name: str, interval_days: int, runs: int, expiry_days: int
+    ) -> None:
+        start = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        with time_machine.travel(start, tick=False):
+            check = self._monitoring_check(start=start, run_interval_minutes=interval_days * 1440, runs_remaining=runs)
+            for check_id, result_at in (
+                ("00000000-0000-0000-0000-000000000001", start),
+                (str(check.id), start - timedelta(days=1)),
+            ):
+                result = SignalReportArtefact.add_log(
+                    team_id=self.team.id,
+                    report_id=str(self.report.id),
+                    content=CheckResult(
+                        check_id=check_id,
+                        kind=check.kind,
+                        title="Earlier result",
+                        outcome="passed",
+                        explanation="The goal held.",
+                    ),
+                    attribution=ArtefactAttribution.system(),
+                )
+                SignalReportArtefact.objects.filter(id=result.id, team_id=self.team.id).update(created_at=result_at)
+        for run in range(runs - 1):
+            run_at = start + timedelta(days=14 + interval_days * run)
+            with (
+                time_machine.travel(run_at, tick=False),
+                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False),
+                patch(_MEASURE, return_value=MetricMeasurement(value=2, measured_at=run_at, series=None)),
+            ):
+                run_due_report_checks()
+        with time_machine.travel(run_at + timedelta(days=1), tick=False):
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+                run_due_report_checks(limit=0)
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                monitoring_fallback_expires_at=None
+            )
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+                run_due_report_checks(limit=0)
+            check.refresh_from_db()
+            assert check.runs_remaining == 1
+            assert check.expires_at == start + timedelta(days=expiry_days)
+        final_run_at = start + timedelta(days=14 + interval_days * (runs - 1))
+        with (
+            time_machine.travel(final_run_at, tick=False),
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False),
+            patch(_MEASURE, return_value=MetricMeasurement(value=2, measured_at=final_run_at, series=None)),
+        ):
+            run_due_report_checks()
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PASSED
+        assert check.runs_remaining == 0
 
     @parameterized.expand([("success", False), ("query_error", True)])
     def test_flag_recovery_restores_the_latest_monitoring_attempt_schedule(self, _name: str, query_error: bool) -> None:
@@ -886,6 +1071,7 @@ class TestReportCheckExecution(APIBaseTest):
                 run_due_report_checks(now=sample_at + interval)
             check.refresh_from_db()
             assert check.next_run_at == start + timedelta(days=14)
+            assert check.expires_at == start + timedelta(days=44)
             with (
                 patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
                 patch(
@@ -897,6 +1083,7 @@ class TestReportCheckExecution(APIBaseTest):
                 measure.assert_not_called()
                 check.refresh_from_db()
                 assert check.next_run_at == sample_at + interval
+                assert check.expires_at == start + MAX_CHECK_HORIZON
                 run_due_report_checks(now=sample_at + interval)
                 measure.assert_called_once()
             assert self.report.artefacts.filter(type="check_observation").count() == 2
@@ -1575,11 +1762,21 @@ class TestReportCheckAPI(APIBaseTest):
                 with self.assertRaisesMessage(CheckCreationError, "not enabled"):
                     self._create(config=config)
             response = self.client.get(f"{self.url}{check.id}/")
+            assert "monitoring_timing" not in response.json()
+            SignalReport.objects.filter(id=self.report.id).update(
+                status=SignalReport.Status.MONITORING, monitoring_started_at=timezone.now() - timedelta(hours=1)
+            )
+            monitoring_response = self.client.get(f"{self.url}{check.id}/")
         assert response.status_code == status.HTTP_200_OK
+        assert monitoring_response.status_code == status.HTTP_200_OK
         returned_config = response.json()["config"]
         assert ("monitoring" in returned_config) is (flag_result is True)
         assert returned_config["query"] == _PAGEVIEWS
         assert returned_config["comparison"] == config["comparison"]
+        assert ("monitoring_timing" in monitoring_response.json()) is (flag_result is True)
+        if flag_result is True:
+            assert monitoring_response.json()["monitoring_timing"]["state"] == "waiting"
+            assert monitoring_response.json()["monitoring_timing"]["next_measurement_at"] is None
         check.refresh_from_db()
         assert check.config["monitoring"] == monitoring
 
@@ -2901,6 +3098,8 @@ class TestPendingChecks(APIBaseTest):
                 run_due_report_checks()
             check.refresh_from_db()
             assert check.consecutive_errors == MAX_CONSECUTIVE_CHECK_ERRORS - 1
+            check.monitoring_fallback_expires_at = old_start + timedelta(days=44)
+            check.save(update_fields=["monitoring_fallback_expires_at"])
             with self.captureOnCommitCallbacks(execute=False) as old_callbacks:
                 self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
                 self.report.save(update_fields=self.report.transition_to(self.report.restore_target_status()))
@@ -2916,6 +3115,7 @@ class TestPendingChecks(APIBaseTest):
             check.refresh_from_db()
             assert check.status == SignalReportCheck.Status.PENDING
             assert check.measurement_start_at is None
+            self.assertIsNone(check.monitoring_fallback_expires_at)
             for callback in new_callbacks:
                 callback()
             check.refresh_from_db()

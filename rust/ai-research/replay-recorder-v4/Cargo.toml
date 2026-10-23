@@ -1,0 +1,51 @@
+[package]
+name = "replay-recorder-v4"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Records the v4 AI research replay dataset: sampled, unscrubbed, sealed recordings with a sampling index"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The event ingestion restrictions capture and the replay lanes apply.
+capture = { path = "../../capture" }
+common-alloc = { path = "../../common/alloc" }
+common-database = { path = "../../common/database" }
+common-kafka = { path = "../../common/kafka" }
+common-metrics = { path = "../../common/metrics" }
+common-redis = { path = "../../common/redis" }
+lifecycle = { path = "../../common/lifecycle" }
+replay-core-v4 = { path = "../replay-core-v4" }
+
+aho-corasick = { workspace = true }
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+aws-sdk-kms = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+axum = { workspace = true }
+brotlic = "0.8"
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+moka = { workspace = true }
+rand = { workspace = true }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+aes-gcm = "0.10"
+base64 = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

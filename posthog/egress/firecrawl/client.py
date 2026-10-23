@@ -67,6 +67,7 @@ class FirecrawlScrape:
     were requested, and a page can render without a title or description."""
 
     url: str
+    final_url: str | None = None
     markdown: str | None = None
     summary: str | None = None
     title: str | None = None
@@ -207,6 +208,7 @@ def scrape(
     metadata = _as_mapping(data.get("metadata")) or {}
     return FirecrawlScrape(
         url=url,
+        final_url=_as_str(metadata.get("url")),
         markdown=_as_str(data.get("markdown")),
         summary=_as_str(data.get("summary")),
         title=_as_str(metadata.get("title")),

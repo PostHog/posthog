@@ -1182,6 +1182,27 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
                 )
 
 
+def _condition_cohort_id(value: Any) -> int | None:
+    """Return the cohort id a condition's value names, or None when the value is not an id."""
+    # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string that
+    # parse::<i32>() accepts (ASCII digits with an optional sign), and only when the id fits in 32 bits.
+    # It rejects a float such as 42.5, which int() would truncate to a live cohort's id.
+    # A JSON true is the Python integer 1, so the bool check must come before the int check.
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        if not re.fullmatch(r"[+-]?[0-9]+", value):
+            return None
+        try:
+            value = int(value)
+        except ValueError:
+            # Python refuses to convert a string with more digits than sys.get_int_max_str_digits().
+            return None
+    if isinstance(value, int) and -(2**31) <= value < 2**31:
+        return value
+    return None
+
+
 def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
 
@@ -1189,12 +1210,9 @@ def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     deleted cohort therefore fails the whole flag. The lookup includes deleted cohorts so that the
     error can name the cohort.
     """
-    try:
-        # A JSON true is the Python integer 1, so the lookup would match the cohort with id 1.
-        if isinstance(cohort_id, bool):
-            raise TypeError(cohort_id)
-        cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=project_id)
-    except (Cohort.DoesNotExist, ValueError, TypeError):
+    parsed_id = _condition_cohort_id(cohort_id)
+    cohort = Cohort.objects.filter(pk=parsed_id, team__project_id=project_id).first() if parsed_id is not None else None
+    if cohort is None:
         raise serializers.ValidationError(
             detail=f"Cohort with id {cohort_id} does not exist",
             code="cohort_does_not_exist",
@@ -1208,14 +1226,20 @@ def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     return cohort
 
 
+def _cohort_properties(groups: Any) -> Iterator[dict[str, Any]]:
+    """Yield the cohort properties in a v1 document's release condition groups."""
+    for located in _iter_flag_filter_properties(groups):
+        if located.prop.get("type") == PropertyFilterType.COHORT:
+            yield located.prop
+
+
 def validate_stored_cohort_references(flag: FeatureFlag) -> None:
     """Raise if a stored release condition targets a cohort the flag cannot evaluate."""
     # Only config version 1 can reference a cohort.
     if detect_config_format(flag.filters).kind != "v1":
         return
-    for located in _iter_flag_filter_properties(flag.conditions):
-        if located.prop.get("type") == "cohort":
-            _validate_cohort_reference(located.prop.get("value"), flag.team.project_id)
+    for prop in _cohort_properties(flag.conditions):
+        _validate_cohort_reference(prop.get("value"), flag.team.project_id)
 
 
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
@@ -1327,11 +1351,41 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
-COHORT_NAMES_CONTEXT_KEY = "feature_flag_cohort_names"
+CONDITION_COHORTS_CONTEXT_KEY = "feature_flag_condition_cohorts"
+
+
+@frozen
+class _ConditionCohort:
+    name: str | None
+    deleted: bool
+
+
+def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> dict[int, _ConditionCohort]:
+    """Load the cohorts that the flags' release conditions target, keyed by id.
+
+    Deleted cohorts are included so that a condition on one can show its name. An id with no
+    cohort in the project has no entry.
+    """
+    cohort_ids: set[int] = set()
+    for flag in flags:
+        if detect_config_format(flag.filters).kind != "v1":
+            continue
+        for cohort_prop in _cohort_properties(flag.conditions):
+            cohort_id = _condition_cohort_id(cohort_prop.get("value"))
+            if cohort_id is not None:
+                cohort_ids.add(cohort_id)
+    if not cohort_ids:
+        return {}
+    return {
+        cohort_id: _ConditionCohort(name=name, deleted=deleted)
+        for cohort_id, name, deleted in Cohort.objects.filter(
+            id__in=cohort_ids, team__project_id=project_id
+        ).values_list("id", "name", "deleted")
+    }
 
 
 class FeatureFlagListSerializer(serializers.ListSerializer):
-    """Resolves the cohort names of every flag on a page in one query, instead of one query per flag.
+    """Loads the condition cohorts of every flag on a page in one query, instead of one query per flag.
 
     The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
     the only hook DRF gives that sees the whole page.
@@ -1340,26 +1394,13 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> Any:
         flags = list(data)
         assert isinstance(self.child, FeatureFlagSerializer)
-        cohort_ids: set[int] = set()
-        for flag in flags:
-            config = decode_config(flag.get_filters())
-            # A document no reader can parse has no cohort names to show, and must not fail the page.
-            if isinstance(config, UnsupportedConfig):
-                continue
-            cohort_ids.update(references(config).cohort_ids)
-        cohort_names: dict[str, str | None] = {}
-        if cohort_ids:
-            cohort_names = {
-                str(cohort_id): name
-                for cohort_id, name in Cohort.objects.filter(
-                    id__in=cohort_ids, team__project_id=self.child.context["project_id"], deleted=False
-                ).values_list("id", "name")
-            }
-        self.child.context[COHORT_NAMES_CONTEXT_KEY] = cohort_names
+        self.child.context[CONDITION_COHORTS_CONTEXT_KEY] = _load_condition_cohorts(
+            flags, self.child.context["project_id"]
+        )
         try:
             return super().to_representation(flags)
         finally:
-            self.child.context.pop(COHORT_NAMES_CONTEXT_KEY, None)
+            self.child.context.pop(CONDITION_COHORTS_CONTEXT_KEY, None)
 
 
 class FeatureFlagSerializer(
@@ -2445,10 +2486,6 @@ class FeatureFlagSerializer(
                 if property_type is None or prop.get("type") == property_type:
                     yield prop
 
-    def _get_cohort_properties_from_filters(self, filters: dict):
-        """Extract cohort properties from filters."""
-        return list(self._get_properties_from_filters(filters, PropertyFilterType.COHORT))
-
     def _get_group_key_properties_from_filters(self, filters: dict):
         """Extract $group_key properties from group-type filters."""
         return [
@@ -3018,22 +3055,39 @@ class FeatureFlagSerializer(
         flag_status, _ = checker.get_status()
         return flag_status.name
 
+    def _annotate_condition_cohorts(self, instance: FeatureFlag, filters: dict[str, Any]) -> None:
+        # A document in another config version can still hold `groups`. Annotating it would mark its live
+        # cohorts as deleted.
+        if detect_config_format(filters).kind != "v1":
+            return
+        cohort_props = list(_cohort_properties((filters or {}).get("groups")))
+        if not cohort_props:
+            return
+
+        # FeatureFlagListSerializer loads the cohorts of a whole page. Retrieve and writes serialize one flag.
+        cohorts = self.context.get(CONDITION_COHORTS_CONTEXT_KEY)
+        if cohorts is None:
+            cohorts = _load_condition_cohorts([instance], self.context["project_id"])
+
+        for cohort_prop in cohort_props:
+            cohort_id = _condition_cohort_id(cohort_prop.get("value"))
+            cohort = cohorts.get(cohort_id) if cohort_id is not None else None
+            cohort_prop["cohort_name"] = cohort.name if cohort else None
+            # The flag evaluator loads only non-deleted cohorts. A condition on a deleted or missing
+            # cohort fails the flag. A client that echoes these keys back can store them. Removing a
+            # key here hides that stale value on a live cohort.
+            markers = {"cohort_deleted": cohort is None or cohort.deleted, "cohort_missing": cohort is None}
+            for key, marked in markers.items():
+                if marked:
+                    cohort_prop[key] = True
+                else:
+                    cohort_prop.pop(key, None)
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         filters = representation.get("filters", {})
 
-        # FeatureFlagListSerializer resolves the names of a whole page. Retrieve and writes serialize one flag.
-        cohorts = self.context.get(COHORT_NAMES_CONTEXT_KEY)
-        if cohorts is None:
-            cohort_ids = {cohort_prop.get("value") for cohort_prop in self._get_cohort_properties_from_filters(filters)}
-            cohorts = {
-                str(cohort.id): cohort.name
-                for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
-            }
-
-        # Add cohort names to the response
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
-            cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
+        self._annotate_condition_cohorts(instance, filters)
 
         # Resolve group key display names for $group_key filters. Check both
         # the flag-level and per-condition-set aggregation_group_type_index to

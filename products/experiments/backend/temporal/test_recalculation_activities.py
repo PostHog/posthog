@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
@@ -19,8 +19,10 @@ from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
@@ -1109,6 +1111,35 @@ class TestCalculateActivity(BaseTest):
 
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.query_id == f"experiment_metric_recalc_{recalc.id}_m1_attempt01"
+
+    @parameterized.expand(
+        [
+            ("flag_on", {"return_value": True}, ClickHouseUser.EXPERIMENTS),
+            ("flag_off", {"return_value": False}, ClickHouseUser.CACHE_WARMUP),
+            ("flag_error", {"side_effect": RuntimeError("flags unavailable")}, ClickHouseUser.CACHE_WARMUP),
+        ]
+    )
+    def test_queries_run_as_the_flagged_clickhouse_user(self, name: str, flag: dict, expected_user: ClickHouseUser):
+        exp = self._experiment(flag_key=f"calc-ch-user-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        def run_metric_and_precompute_queries(**kwargs):
+            sync_execute("SELECT 1", flush=False)
+            # The precompute insert runs inside its own tags_context, as run_lazy_computation_insert does.
+            with tags_context(client_query_id="precompute-job"):
+                sync_execute("SELECT 2", flush=False)
+            return MagicMock(model_dump=MagicMock(return_value={}))
+
+        with (
+            patch("products.experiments.backend.recalculation.feature_enabled_or_false", **flag),
+            patch("posthog.clickhouse.client.execute.get_client_from_pool") as client_from_pool,
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+        ):
+            client_from_pool.return_value.__enter__.return_value.execute.return_value = []
+            mock_runner.return_value.run.side_effect = run_metric_and_precompute_queries
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        assert [call.args[3] for call in client_from_pool.call_args_list] == [expected_user, expected_user]
 
     def test_multiple_failures_accumulate_in_metric_errors(self):
         # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the

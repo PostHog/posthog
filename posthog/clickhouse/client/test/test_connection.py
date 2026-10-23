@@ -249,7 +249,7 @@ def test_read_password_uses_static_only_for_an_armed_user_with_an_expired_token(
     assert creds.read_password() == (password if expect_static else token)
 
 
-@pytest.mark.parametrize("user", [ClickHouseUser.COHORTS, ClickHouseUser.SIGNALS])
+@pytest.mark.parametrize("user", [ClickHouseUser.COHORTS, ClickHouseUser.SIGNALS, ClickHouseUser.EXPERIMENTS])
 def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path, user):
     token = tmp_path / "cohorts-token"
     token.write_text("cohorts-token-value")
@@ -283,6 +283,14 @@ def test_signals_development_credentials_do_not_mask_deployment_config(
 
     creds = init_clickhouse_users().get(ClickHouseUser.SIGNALS)
     assert (creds.user if creds else None) == expected_user
+
+
+@pytest.mark.parametrize("user", [ClickHouseUser.COHORTS, ClickHouseUser.EXPERIMENTS])
+def test_unregistered_dedicated_user_falls_back_to_default(monkeypatch, user):
+    default_creds = ClickHouseCredentials(user="default", password="default-password")
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: default_creds})
+
+    assert get_clickhouse_creds(user) == default_creds
 
 
 @pytest.mark.parametrize("user", [ClickHouseUser.BUSINESS_KNOWLEDGE, ClickHouseUser.SIGNALS])

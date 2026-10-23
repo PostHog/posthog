@@ -111,6 +111,11 @@ __all__ = [
     "get_connection_metadata",
 ]
 
+# The source type the managed-warehouse host exemption is keyed on. No managed warehouse
+# serves MySQL, so the exemption grants nothing here; naming it keeps the call site
+# explicit rather than relying on the missing port to deny.
+_HOST_CHECK_SOURCE_TYPE = "mysql"
+
 _IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
 _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 
@@ -717,7 +722,7 @@ def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int |
     except UnicodeError:
         addresses = []
 
-    resolution = check_resolved_addresses(host, addresses, team_id)
+    resolution = check_resolved_addresses(host, addresses, team_id, port=port, source_type=_HOST_CHECK_SOURCE_TYPE)
     if resolution.connect_host is None:
         raise HostNotAllowedError(
             f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"

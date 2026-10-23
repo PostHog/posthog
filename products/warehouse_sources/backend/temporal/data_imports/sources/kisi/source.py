@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.kisi 
 from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.settings import (
     AUTH_ERROR,
     ENDPOINTS,
+    EVENTS,
+    EVENTS_INCREMENTAL_LOOKBACK_SECONDS,
+    INCREMENTAL_FIELDS,
     OFFSET_ERROR,
     PERMISSION_ERROR,
 )
@@ -94,7 +97,12 @@ class KisiSource(ResumableSource[KisiSourceConfig, KisiResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            default_incremental_lookback_seconds={EVENTS: EVENTS_INCREMENTAL_LOOKBACK_SECONDS},
+        )
 
     def validate_credentials(
         self,

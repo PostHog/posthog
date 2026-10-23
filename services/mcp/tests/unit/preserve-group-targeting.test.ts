@@ -544,13 +544,20 @@ describe('preserveGroupTargetingFilters', () => {
         { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
     ]
 
-    // The set aggregates on person, so the candidates decide the type. The operator picks
-    // between two candidates that share a key, and the value picks between those. Without a
-    // match, the first one wins.
+    // The candidates decide the type when the set aggregates on person, or on a group with no
+    // group candidate for the key. The operator picks between two candidates that share a key,
+    // and the value picks between those. When the remaining candidates hold more than one type,
+    // the property stays untyped.
     it.each([
         { name: 'the operator matches the cohort candidate', operator: 'in', expected: { type: 'cohort' } },
         { name: 'the operator matches the person candidate', operator: 'icontains', expected: { type: 'person' } },
-        { name: 'the operator matches neither candidate', operator: 'regex', expected: { type: 'person' } },
+        { name: 'the operator matches neither candidate', operator: 'regex', expected: {} },
+        {
+            name: 'the operator matches neither candidate in a group-aggregated set',
+            aggregation: 0,
+            operator: 'regex',
+            expected: {},
+        },
         {
             name: 'the operator matches a group candidate',
             stored: groupAndPersonCandidates,
@@ -573,14 +580,104 @@ describe('preserveGroupTargetingFilters', () => {
             value: 'globex',
             expected: { type: 'group', group_type_index: 1 },
         },
+        {
+            name: 'the value matches neither a person nor a group candidate with the same operator',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            expected: {},
+        },
+        {
+            name: 'the value matches neither a person nor a cohort candidate with the same operator',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'cohort', operator: 'exact', value: 42 },
+            ],
+            operator: 'exact',
+            value: 43,
+            expected: {},
+        },
+        {
+            name: 'a person and a group candidate both match the operator and value',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+            ],
+            operator: 'exact',
+            expected: {},
+        },
+        {
+            name: 'two person candidates differ only in a numeric group_type_index',
+            stored: [
+                { key: 'name', type: 'person', group_type_index: 0, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'person', operator: 'icontains', value: 'acme' },
+            ],
+            operator: 'regex',
+            expected: { type: 'person' },
+        },
+        {
+            name: 'the edit omits the operator and a person candidate uses exact',
+            stored: groupAndPersonCandidates,
+            operator: undefined,
+            value: 'pro',
+            expected: { type: 'person' },
+        },
+        {
+            name: 'a person candidate omits the operator and the edit uses exact',
+            stored: [
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'icontains', value: 'acme' },
+                { key: 'name', type: 'person', value: 'acme' },
+            ],
+            operator: 'exact',
+            value: 'pro',
+            expected: { type: 'person' },
+        },
+        {
+            name: 'two group candidates on different group types match neither the value nor a sent index',
+            stored: [
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 1, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            expected: {},
+        },
+        {
+            name: 'the edit sends a group index and a person and a group candidate disagree on type',
+            stored: [
+                { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            index: 0,
+            expected: { group_type_index: 0 },
+        },
+        {
+            name: 'the edit sends a group index and two group candidates differ only in index',
+            stored: [
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 1, operator: 'exact', value: 'globex' },
+            ],
+            operator: 'exact',
+            value: 'initech',
+            index: 1,
+            expected: { type: 'group', group_type_index: 1 },
+        },
     ])(
-        'picks a duplicate-key candidate by operator and value when $name',
-        ({ stored = personAndCohortCandidates, operator, value = 'acme', expected }) => {
-            const existing = { groups: [{ properties: stored, rollout_percentage: 100 }] }
+        'chooses a duplicate-key type, or none, by operator and value when $name',
+        ({ stored = personAndCohortCandidates, aggregation, operator, value = 'acme', index, expected }) => {
+            const existing = {
+                ...(aggregation === undefined ? {} : { aggregation_group_type_index: aggregation }),
+                groups: [{ properties: stored, rollout_percentage: 100 }],
+            }
             const incoming = {
                 groups: [
                     {
-                        properties: [{ key: 'name', operator, value }],
+                        properties: [{ key: 'name', operator, value, group_type_index: index }],
                         rollout_percentage: 100,
                     },
                 ],

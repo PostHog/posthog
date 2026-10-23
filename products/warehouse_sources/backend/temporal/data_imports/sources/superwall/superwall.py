@@ -86,7 +86,7 @@ def probe_credentials(config: SuperwallSourceConfig, schema_name: str | None, ap
         params["limit"] = 1
     with make_tracked_session(redact_values=(config.api_key,)) as session:
         return session.get(
-            f"{BASE_URL}{endpoint['path'] if endpoint else f'/{api_version}/me'}",
+            f"{BASE_URL}{endpoint['path'] if endpoint else f'/{api_version}/projects'}",
             params=params,
             headers={"Authorization": f"Bearer {config.api_key}", "Accept": "application/json"},
             timeout=10,

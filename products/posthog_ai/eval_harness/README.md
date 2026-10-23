@@ -37,7 +37,8 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Which variables are required depends on the selected suites' reporting settings and kinds: the Braintrust engine requires `BRAINTRUST_API_KEY` only if at least one selected suite sends logs to Braintrust. A run consisting entirely of suites declaring `NO_SEND_LOGS = True` does not require that reporting credential. Sandboxed suites require `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites require `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Scorers still need credentials for their model provider. A scorer configured to use Braintrust's model proxy needs its proxy credential independently of result reporting.
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -189,6 +190,40 @@ It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by prefligh
 Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
 
 ### Claude and Codex smoke comparison
+
+Run both default models and print one comparison with `--compare`:
+
+```bash
+hogli evals cli_mcp/eval_skill_distribution::eval_skill_distribution \
+  --eval historical_traffic_share_by_type \
+  --provider modal --skill-delivery exec \
+  --trials 3 --max-sandboxes 2 --compare
+```
+
+Both configurations are checked before either agent run starts. The models run in order, in separate processes,
+with the same suite selectors, case filter, provider, skill delivery, trial count, timeout, and concurrency.
+Comparisons use plain text output so each model can finish without waiting for the interactive view to close.
+Ctrl-C stops the comparison after the current child finishes cleanup.
+
+Use repeated `--compare-model claude:MODEL` and `--compare-model codex:MODEL` options to replace the default pair.
+At least two distinct runtime/model pairs and one suite selector are required. Only sandboxed suites are supported;
+one-shot suites select their models internally. Do not combine comparison options with `--agent-model` or `--agent-runtime`.
+
+The command saves `comparison.json`, `comparison.txt`, and each child's run report under `logs/comparisons/<run>/`.
+Use `--comparison-dir PATH` to choose a new directory. Existing directories are rejected to protect previous results.
+Each model retains its own full transcript, and the comparison has a combined transcript whose path prints last.
+Reports retain completed models if a later model fails or the comparison is interrupted.
+
+The table shows named scorer means with scored-trial counts, completed execution coverage, errors, timeouts, and wall time.
+Missing and skipped scores show `n/a`; a real zero shows `0.0%`. Costs show `unavailable` because these results do not contain cost data.
+Case-set, scorer-set, or checkout differences produce a warning and a nonzero exit status.
+Errors, timeouts, incomplete results, and failed score gates also make the comparison exit nonzero.
+The comparison measures model plus runtime. A small smoke case is not a model ranking.
+
+Use `--check` without comparison options to validate a single run without starting services or agents.
+Use `--results-file PATH` on a single run to save its structured scores, coverage, settings, and log locations.
+
+The manual command pair remains available:
 
 Start with one fixed MCP case. It checks skill discovery and tool use for a historical traffic query.
 Both commands below use the same case, provider, skill delivery, concurrency, and scorers.
@@ -418,6 +453,9 @@ Agent and judge trace capture remains available. `no_send_logs=True` suppresses 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal key with `offline_evaluation_ingestion:write`, `evaluation:write`, and access to project `2` to upload and tag results. An ingestion-only personal or project secret key can upload results, but tagging will warn and leave the run untagged.
 The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
+For development, use `http://localhost:8010` with a local API key and set `POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG`
+to a gitignored JSON file containing the local project ID and scorer-version mappings.
+See [local upload setup](../../../docs/internal/ai-offline-evaluation-reporting.md#testing-uploads-against-local-posthog).
 The [suite configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#configured-offline-experiment-suites) lists the metrics and explains local and CI key configuration.
 Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
 A completed upload records its results link before tagging begins. Tagging has a separate five-second deadline; failures, timeouts, and shutdown interruptions only warn and preserve the successful upload status.

@@ -849,6 +849,41 @@ class TestOAuthAccessTokenAuthenticator:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
+        "impersonated_by_id,authenticated",
+        [
+            pytest.param(None, True, id="own_token"),
+            pytest.param(42, False, id="impersonation_token"),
+        ],
+    )
+    async def test_impersonation_token_returns_none(
+        self,
+        authenticator: OAuthAccessTokenAuthenticator,
+        mock_pool: MagicMock,
+        impersonated_by_id: int | None,
+        authenticated: bool,
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 1,
+                "user_id": 123,
+                "scope": "llm_gateway:read",
+                "expires": datetime.now(UTC) + timedelta(hours=1),
+                "current_team_id": 456,
+                "application_id": 789,
+                "distinct_id": "test-distinct-id",
+                "is_staff": False,
+                "impersonated_by_id": impersonated_by_id,
+            }
+        )
+
+        token_hash = authenticator.hash_token("pha_impersonation")
+        result = await authenticator.authenticate(token_hash, mock_pool)
+        assert (result is not None) is authenticated
+        assert "oat.impersonated_by_id" in conn.fetchrow.call_args.args[0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
         "scope",
         [
             pytest.param(None, id="null_scope"),

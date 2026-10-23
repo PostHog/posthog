@@ -647,6 +647,38 @@
             "readOnlyHint": true
         }
     },
+    "activity-summary-get": {
+        "description": "Get a summary of what the current user has been working on in this project: a one-page markdown profile, a short headline, the main focus areas with the day each was last seen, and the PostHog products they use. It is built only from the user's own recent activity in PostHog, such as tasks they gave to PostHog AI and things they created, changed or opened. It updates at most once a day, when there is enough new activity. Use it to tailor answers and suggestions to what this person works on. `status: not_ready` means no summary exists yet, which is normal for new or quiet users. `stale: true` means a newer version will replace it soon. A 404 means activity summaries are not available for this project.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get your activity summary",
+        "title": "Get your activity summary",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/activity_summary/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "activity-summary"
+    },
+    "activity-summary-versions-list": {
+        "description": "List earlier versions of the current user's activity summary in this project, newest first, to see how their focus changed over time. Each version has a headline, the focus areas and `recent_shift`, which says what changed since the version before it. The list leaves out the profile to stay small. Pass `version` to get one version with its full profile. A 404 means activity summaries are not available for this project, or that the requested version does not exist.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List your activity summary versions",
+        "title": "List your activity summary versions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/activity_summary/versions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "activity-summary"
+    },
     "advanced-activity-logs-filters": {
         "description": "Get the valid filter values for activity logs — the scopes, activity types, and users that actually have logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and don't know the exact scope or activity strings to pass; skip it when you already know them.",
         "category": "Platform Features",
@@ -679,6 +711,86 @@
         },
         "feature_entitlement": "audit_logs"
     },
+    "aeo-prompts-get": {
+        "description": "Get one AI citation tracking prompt by id, with its topic, on/off state, when it last ran, and `latest_checks`, the newest result per answer engine. Get the id from `aeo-prompts-list`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Get a tracked AI prompt",
+        "title": "Get a tracked AI prompt",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-import": {
+        "description": "Add prompts to the project's AI citation tracking set, up to 2000 per call. Each item has the `prompt` text, an optional `topic` and an optional `external_visibility` (0-100). Prompts are matched to existing ones by normalized text (case and whitespace ignored), so importing the same set again does not create duplicates: a match updates the topic and visibility and keeps the prompt's on/off state. Empty prompts, and prompts too long for the answer engines, are skipped. Returns the `created`, `updated` and `skipped` counts. New prompts run in the next daily check. Write prompts the way a person would ask an AI assistant, and ask the user to confirm the list before you import it.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Import AI prompts to track",
+        "title": "Import AI prompts to track",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/aeo_prompts/bulk_import/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-list": {
+        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text, topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "List tracked AI prompts",
+        "title": "List tracked AI prompts",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-topics-list": {
+        "description": "List the topics in the project's AI citation tracking prompt set, with the number of prompts in each. An empty topic groups the prompts that have no topic. Use the values as the `topic` filter of `aeo-prompts-list`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "List tracked AI prompt topics",
+        "title": "List tracked AI prompt topics",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/topics/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-update": {
+        "description": "Turn one AI citation tracking prompt on (`active: true`) or off (`active: false`). Only active prompts run in the daily check. Turning a prompt off keeps its past results, and turning it on again resumes the checks. This is the only field you can change; the prompt text and topic change only through `aeo-prompts-import`. Returns the updated prompt.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Turn a tracked AI prompt on or off",
+        "title": "Turn a tracked AI prompt on or off",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/aeo_prompts/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
     "agent-feedback": {
         "description": "Send feedback about anything PostHog to the PostHog team. Set `feedback_type` to route it: `product` (any PostHog product or feature — insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.; put the area in `product_area`), `mcp` (this MCP server itself — a tool, input schema, response format, error, or these instructions; set `category`), `docs`, `scout` (reserved for scheduled scout runs reporting an improvement opportunity in the canonical PostHog scout skill steering the run; set `scout_skill_name`, `scout_skill_version`, and `scout_category`, and generalize — describe the pattern, never the project's data), or `other`. ALL sentiments are welcome via `sentiment` (`positive`/`neutral`/`negative`/`mixed`) — praise and feature requests are useful signal, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you worked around, a feature request, an unhelpful error, or something that worked really well. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting the product surface, tool name, parameter, or error text where possible. Include a concrete `suggested_improvement` whenever you can name one. Do not include user PII or sensitive query content. The user can also ask you to send feedback directly (e.g. 'make a PostHog feedback for this'). IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is a side channel to the PostHog team, not a way to end the conversation.",
         "category": "Feedback",
@@ -695,7 +807,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. The llm detector type asks an AI model to judge the series instead: pass optional instructions (plain text describing what counts as unusual, up to 2000 characters), threshold (the model confidence needed to fire, 0-1, default 0.7), and window (points shown to the model, default 90, max 400). It cannot be an ensemble member, cannot use preprocessing, cannot run on the real_time cadence, is not available on breakdown insights, is capped per project, and is only available where the AI detector is enabled for the organization. Always send detector_config.type explicitly: a config with no type is read as a z-score detector, and any llm-only field you sent with it is dropped without an error. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null for the overall last step), metric is 'conversion_from_start' or 'conversion_from_previous', and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL insights (not funnels).\ncalculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise add-on. The field is optional and defaults to daily. If the user does not specify a cadence, ask before creating the alert.\nTo set the check time, pass schedule_start_time with a local HH:MM time. Updates take effect after the current next_check_at, so they cannot increase the alert check frequency.\nNote: subscribed_users only controls email recipients. To also post the alert to Slack, create it and then call alert-destinations-create with the workspace and channel. For HTTPS webhook or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. The llm detector type asks an AI model whether the latest point is anomalous, given its history, and fires when the model says yes. Its only field is optional instructions (plain text describing what counts as unusual, up to 2000 characters). The history it reads follows the insight interval, and it also sees the points that its earlier checks fired on, so instructions can refer to earlier alerts. It cannot be an ensemble member, cannot use preprocessing, cannot run on the real_time cadence, is not available on breakdown insights, is capped per project, and is only available where the AI detector is enabled for the organization. Always send detector_config.type explicitly: a config with no type is read as a z-score detector, and any llm-only field you sent with it is dropped without an error. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null for the overall last step), metric is 'conversion_from_start' or 'conversion_from_previous', and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL insights (not funnels).\ncalculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise add-on. The field is optional and defaults to daily. If the user does not specify a cadence, ask before creating the alert.\nTo set the check time, pass schedule_start_time with a local HH:MM time. Updates take effect after the current next_check_at, so they cannot increase the alert check frequency.\nNote: subscribed_users only controls email recipients. To also post the alert to Slack, create it and then call alert-destinations-create with the workspace and channel. For HTTPS webhook or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -770,7 +882,7 @@
         }
     },
     "alert-simulate": {
-        "description": "Run an anomaly detector on an insight's historical data without creating any alert or check records. Use this to preview how a detector configuration would perform before saving it as an alert. Pass either the numeric insight ID or its saved short ID. Omit detector_config to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and any llm-only field you sent with it is dropped without an error. A statistical detector only reads, so alert:read and insight:read are enough for it. The llm type makes a real model call per simulation, so that type also needs the alert:write scope; it is rate limited per project, and takes the same instructions, threshold (default 0.7), and window (default 90) as an llm alert; its scores are the model's confidence, not a statistical probability. Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.",
+        "description": "Run an anomaly detector on an insight's historical data without creating any alert or check records. Use this to preview how a detector configuration would perform before saving it as an alert. Pass either the numeric insight ID or its saved short ID. Omit detector_config to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and any llm-only field you sent with it is dropped without an error. A statistical detector only reads, so alert:read and insight:read are enough for it. The llm type makes one real model call per simulation, so that type also needs the alert:write scope; it is rate limited per project, and takes the same instructions as an llm alert. It runs one live check of the latest point, not a scan of the history: it returns the verdict (the latest point in triggered_indices when it fires), the model's rationale and kind, and null scores. Pass alert with a saved alert's ID to give the model the points that alert's earlier checks fired on. Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Simulate detector on insight",
@@ -785,7 +897,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation_interval, and weekend skipping. calculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise add-on. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). A detector_config of type llm (AI judgment: instructions, threshold default 0.7, window default 90) follows the same rules as on create: no real_time cadence, no breakdown insights, and a per-project cap on enabled llm alerts that also applies when re-enabling one. For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). Pass schedule_start_time with a local HH:MM time to change later checks. The current next_check_at stays unchanged, so an update cannot increase the alert check frequency. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. Add or remove a Slack channel with alert-destinations-create and alert-destinations-delete. For webhook and Discord, see the recipe on cdp-functions-create; to change or remove one of those, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation_interval, and weekend skipping. calculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise add-on. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). A detector_config of type llm (AI judgment of the latest point, with optional instructions) follows the same rules as on create: no real_time cadence, no breakdown insights, and a per-project cap on enabled llm alerts that also applies when re-enabling one. For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). Pass schedule_start_time with a local HH:MM time to change later checks. The current next_check_at stays unchanged, so an update cannot increase the alert check frequency. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. Add or remove a Slack channel with alert-destinations-create and alert-destinations-delete. For webhook and Discord, see the recipe on cdp-functions-create; to change or remove one of those, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -1191,7 +1303,7 @@
         }
     },
     "autoresearch-create": {
-        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. Scores are written to that person property only when write_person_property is true (default false); prediction events, validation and segments work without it. iterations_per_run (default 5) sets the experiments in each training run. research_interval_days (7, 14, 30, 60 or 90, default 7; null means only when asked) sets how often scheduled research runs once the first burst of daily runs ends. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional; it is the display label and the source of the derived output property name). An action target needs the action:read scope. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique among the project's non-archived pipelines. Scores are written to that person property only when write_person_property is true (default false); prediction events, validation and segments work without it. iterations_per_run (default 5) sets the experiments in each training run. research_interval_days (7, 14, 30, 60 or 90, default 7; null means only when asked) sets how often scheduled research runs once the first burst of daily runs ends. agent_model and agent_reasoning_effort choose the model and effort the training agent runs on; leave them out to use the autoresearch default (Claude Opus 5.5 at medium effort). A larger model or higher effort costs more per training run, and an unknown model or an effort the model does not support returns 400 with the valid choices. After creating, call autoresearch-train-create to start an asynchronous agent training run.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Create a pipeline",
@@ -1289,7 +1401,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-partial-update": {
-        "description": "Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn person profile writes on or off. When it is on, each live scoring run writes the champion's score to output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list). Changing write_person_property needs the person:write scope. Prediction events, online validation and segments work with it off. Use iterations_per_run and research_interval_days to change the training schedule; null research_interval_days stops scheduled research. target_event, target_definition, horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.",
+        "description": "Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn person profile writes on or off. When it is on, each live scoring run writes the champion's score to output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list). Changing write_person_property needs the person:write scope. Prediction events, online validation and segments work with it off. Use iterations_per_run and research_interval_days to change the training schedule; null research_interval_days stops scheduled research. Use agent_model and agent_reasoning_effort to change the model the training agent runs on; null returns a field to the autoresearch default, and effective_agent_model in the response shows what the next run uses. target_event, target_definition, horizon_days, training_lookback_days and the two populations cannot change once a model has been trained.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Update a pipeline",
@@ -2939,7 +3051,7 @@
         }
     },
     "cohorts-partial-update": {
-        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.",
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.\n\nAn update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the first population right after 'cohorts-create' with a query. Before you send the next query, call 'cohorts-retrieve' and wait until 'is_calculating' is false.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Update cohort",
@@ -3794,7 +3906,7 @@
         }
     },
     "dashboard-insights-run": {
-        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. 'optimized' output is bounded so a wide dashboard fits in context: a tile's table is held to max_result_chars characters by keeping its header and both ends and dropping rows from the middle, held down further by whatever the response has left of its overall budget, and tiles past that budget are not run. To fit more of what you need into that budget, in order: pass tile_ids to run only the tiles you care about; pass filters_override={\"interval\": \"day\"} (or \"week\"/\"month\") to turn a long run of hourly buckets into fewer, wider rows, which also cuts the query cost; raise max_result_chars (200 or more), or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with tile_ids. Supports variables_override and filters_override query params to run insights with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.",
+        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. 'optimized' output is bounded so a wide dashboard fits in context: a tile's table is held to max_result_chars characters by keeping its header and both ends and dropping rows from the middle, held down further by whatever the response has left of its overall budget, and tiles past that budget are not run. To fit more of what you need into that budget, in order: pass dashboard_tile_ids to run only the tiles you care about; pass filters_override={\"interval\": \"day\"} (or \"week\"/\"month\") to turn a long run of hourly buckets into fewer, wider rows, which also cuts the query cost; raise max_result_chars (200 or more), or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with dashboard_tile_ids. Supports variables_override and filters_override query params to run insights with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Run dashboard insights",
@@ -3885,7 +3997,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. This tool does not change a widget tile's own settings (`config`, `name`, `description`): use dashboard-widgets-batch-update for that. To group tiles, give each tile in the group the same `group_key`. Set each group's settings in `groups`, a map from group key to settings that replaces the stored map: `title`, `collapsed` to start the group closed, and `color` for a colored dot before the heading (blue, purple, green, yellow, orange, red, or null for no dot). Viewers see each group as a band that they can open and close. Viewers who do not have bands yet, and shared dashboards, see only the group title above its tiles. Put tiles that viewers check less often in a group that starts closed. To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -3915,7 +4027,7 @@
         }
     },
     "dashboard-widget-catalog-list": {
-        "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
+        "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Pass `widget_type` (one type or a list) to get only the types you will write; the full catalog is large, so omit it only when you still need to pick a type. The valid `widget_type` values are listed in this tool's schema. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "List dashboard widget catalog",
@@ -3930,7 +4042,7 @@
         }
     },
     "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). Config shape is per widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles — to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).",
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Before writing a config, call dashboard-widget-catalog-list with `widget_type` set to the types you will add, to read their config_schema. The valid widget_type values are in this tool's schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). This schema does not list config keys: build each config from the config_schema of its widget_type in the catalog. widgetFilters, when supported, is a map of filter id to property filter entries. An invalid config returns a 400 that names each invalid field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles — to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Add dashboard widgets",
@@ -3945,7 +4057,7 @@
         }
     },
     "dashboard-widgets-batch-update": {
-        "description": "Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change. Only the fields you provide per widget are updated; omitted fields are left unchanged. Optionally pass `widget_type` to get the typed config shape; widget_type is immutable. Config shape is per widget_type — see dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.",
+        "description": "Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change. Only the fields you provide per widget are updated; omitted fields are left unchanged. A config update replaces only the top-level keys you send. This schema does not list config keys: read the config_schema of the tile's widget_type from dashboard-widget-catalog-list, passing `widget_type` to fetch only that type. All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard widget settings",
@@ -4108,11 +4220,11 @@
         }
     },
     "data-catalog-metric-create": {
-        "description": "Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands 'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those); put rationale for the chosen definition in 'reasoning'. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
+        "description": "Create a canonical metric (always lands 'proposed'). If a live metric already holds the name, the call fails with a 409 'metric_name_taken' error, and the existing metric stays unchanged. Never overwrite on your own: tell the user that the name is taken, show them the existing metric with metric-describe, and ask whether to overwrite it, use a different name, or edit the existing metric with data-catalog-metric-update. Only after the user explicitly agrees to overwrite, call this tool again with 'overwrite' set to true. Overwriting an approved metric with a changed meaning resets it to 'proposed'. A deleted metric's name is available again - creating with it starts a fresh metric with no history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number or settled a definition and no metric exists for it, end your answer by offering to save it as a proposed metric. Keep 'description' to 1-2 short sentences under 300 characters: what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics. Never walk through the query or calculation steps (the definition carries those). Put why the definition is shaped this way in 'reasoning', in 1-3 short sentences: the main design decisions and trade-offs, such as the source table or view, a filter or exclusion, the grain, or an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. Before creating a metric, inspect the complete catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift against it, and the metric then links back to the insight so a person can edit the query where it lives.",
         "category": "Data catalog",
         "feature": "data_catalog",
-        "summary": "Create or refine a catalog metric",
-        "title": "Create or refine a catalog metric",
+        "summary": "Create a catalog metric",
+        "title": "Create a catalog metric",
         "required_scopes": ["data_catalog:write"],
         "api_operations": ["POST /api/projects/{project_id}/data_catalog/metrics/"],
         "annotations": {
@@ -4167,7 +4279,7 @@
         }
     },
     "data-catalog-metric-update": {
-        "description": "Update a metric's fields. 'name' picks the metric to update. Editing an approved metric's definition, description, unit, or name resets it to 'proposed' (it must be re-approved by a human). Pass 'new_name' to rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs, later tool calls) must switch to the new name. When editing 'description', keep it to 1-2 short sentences under 300 characters: what the number is and its grain. Leave out source tables or views, lineage, column lists, and comparisons with other metrics; rationale for the definition belongs in 'reasoning'.",
+        "description": "Update a metric's fields. 'name' picks the metric to update. Editing an approved metric's definition, description, unit, or name resets it to 'proposed' (it must be re-approved by a human). Pass 'new_name' to rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs, later tool calls) must switch to the new name. When editing 'description', keep it to 1-2 short sentences under 300 characters: what the number is and its grain. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. When editing 'definition', rewrite 'reasoning' to say why the new definition is shaped this way, in 1-3 short sentences: the main design decisions and trade-offs. It is not a changelog: leave out what changed, the use case, who asked, and run results.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Update a catalog metric",
@@ -4282,8 +4394,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-delete": {
         "description": "Delete a check. The API soft-deletes it, so its run history stays queryable in system.information_schema.data_quality_check_runs and past failures can still be dated.",
@@ -4298,8 +4409,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-results": {
         "description": "The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending rows — re-run that query to investigate a failure.",
@@ -4314,8 +4424,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-run": {
         "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
@@ -4330,8 +4439,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-schedule": {
         "description": "Set how often every enabled check on a metric runs, or stop running them automatically. Name the subject with subject_type 'metric' and subject_uuid. Only a metric runs its checks on a schedule: a table's checks run after each sync of it, and a view's when the view refreshes, so naming either one is rejected. A metric gets a schedule when it takes its first check, so this fails with a 404 until then.",
@@ -4346,8 +4454,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-types": {
         "description": "The check types this project can author, each with the JSON schema its config is validated against. Pass subject_type to see only the types that kind of subject supports.",
@@ -4362,8 +4469,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-check-update": {
         "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The subject it audits is fixed, so subject_type and subject_uuid are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
@@ -4378,8 +4484,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-quality-subjects": {
         "description": "Every table, view, metric and PostHog table in this project you can read, with each one's columns and whether you can put a check on it. Start here: a check names its subject by the subject_type and id this returns, and a relationships check can point at a subject you can only read. A subject whose time_column is set can take a lookback_hours window.",
@@ -4394,8 +4499,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "data-quality-checks"
+        }
     },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
@@ -4652,22 +4756,6 @@
             "readOnlyHint": true
         }
     },
-    "endpoint-materialization-conditions": {
-        "description": "Get the source code of the live checks that decide whether an endpoint query can be materialized, plus the rewrite contract a fix must obey. Use this to rewrite a rejected query yourself: fetch the conditions, produce a semantically equivalent query that passes every check (same results for all variable values, keep every variable placeholder unchanged), update the endpoint with it, then confirm with the materialization status tool. Alternatively, call the materialization suggestion tool to have PostHog produce a validated rewrite for you.",
-        "category": "Endpoints",
-        "feature": "endpoints",
-        "summary": "Get materialization conditions",
-        "title": "Get materialization conditions",
-        "required_scopes": ["endpoint:read"],
-        "api_operations": ["GET /api/projects/{project_id}/endpoints/materialization_conditions/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "endpoints-ai-materialization-fix"
-    },
     "endpoint-materialization-status": {
         "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
         "category": "Endpoints",
@@ -4682,22 +4770,6 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
-    },
-    "endpoint-materialization-suggestion": {
-        "description": "Ask PostHog AI to rewrite a SQL endpoint's query into a semantically equivalent form that passes the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved — apply it with the update endpoint tool if it looks right. Only for SQL (HogQL) endpoints whose materialization status reports can_materialize false. Requires the organization's AI data processing approval. Statuses: ok (validated rewrite), cannot_fix (no equivalent rewrite exists), invalid (attempts exhausted; last attempt returned), model_error. To rewrite the query yourself instead, use the materialization conditions tool.",
-        "category": "Endpoints",
-        "feature": "endpoints",
-        "summary": "Suggest materialization fix",
-        "title": "Suggest materialization fix",
-        "required_scopes": ["endpoint:read"],
-        "api_operations": ["POST /api/projects/{project_id}/endpoints/{name}/materialization_suggestion/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "endpoints-ai-materialization-fix"
     },
     "endpoint-openapi-spec": {
         "description": "Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API clients. Supports ?version=N to generate a spec for a specific version.",
@@ -7110,6 +7182,22 @@
         },
         "feature_flag": "customer-analytics-feature-requests"
     },
+    "feature-requests-link-github-create": {
+        "description": "Link a Customer analytics feature request to one GitHub issue. Pass the request id, its current `expected_version`, the id of a GitHub integration connected to the project, and the issue URL. Pull request URLs are rejected, and a request can have only one linked issue. Link an issue only when it describes the same customer problem and one feature would close both. The link syncs the issue state to the request: a closed issue sets the status to completed or won't fix, and a reopened issue restores the earlier status. The response contains the request with its `github_link` and the next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Link feature request to GitHub issue",
+        "title": "Link feature request to GitHub issue",
+        "required_scopes": ["customer_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/feature_requests/{id}/link_github/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
     "feature-requests-list": {
         "description": "List Customer analytics feature requests linked to accounts the caller can access. Filter by search text, lifecycle status, priority, product area, account, or archive state. Active requests are returned by default. Each request includes its active visible account links, account-specific evidence, product areas, and version. For bulk reads and aggregations, query `system.feature_requests` and its related system tables.",
         "category": "Customer analytics",
@@ -7753,7 +7841,7 @@
         }
     },
     "inbox-report-artefacts-update": {
-        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead.",
+        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead. Do not use this tool to change suggested reviewers. Use `inbox-report-reviewers-update` so reviewer corrections and stale-write protection are preserved.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Replace an artefact's content",
@@ -7829,8 +7917,23 @@
             "readOnlyHint": true
         }
     },
+    "inbox-report-reviewers-update": {
+        "description": "Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the current list. For add or remove, pass the changed people in `targets` and the full list in `content` for compatibility with older servers. For replace or confirm, first read the report and pass `reviewer_assignment.state` as `expected_reviewers`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a report's suggested reviewers",
+        "title": "Update a report's suggested reviewers",
+        "required_scopes": ["task:write"],
+        "api_operations": ["PUT /api/projects/{project_id}/signals/reports/{id}/reviewers/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-bulk-set-state": {
-        "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
+        "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool, including `wrong_assignee` and `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Dismiss or snooze signal reports in bulk",
@@ -7935,7 +8038,7 @@
         }
     },
     "inbox-reports-set-state": {
-        "description": "Transition a single signal report to a new state. Use 'resolved' when the work this report asked for has been done (e.g. you fixed the issue it describes), 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report whose previous status was ready, pending_input, failed, or resolved. Repeat resolution succeeds. Other statuses return 409. Fixed reasons require state='suppressed' or state='resolved', not 'potential'. Dismissing or resolving closes the report's open implementation PR, if it has one; a resolved report never reopens, and a recurrence starts a fresh report linked to it. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request, `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
+        "description": "Transition a single signal report to a new state. Use 'resolved' when the work this report asked for has been done (e.g. you fixed the issue it describes), 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report whose previous status was ready, pending_input, failed, or resolved. Repeat resolution succeeds. Other statuses return 409. Fixed reasons require state='suppressed' or state='resolved', not 'potential'. Dismissing or resolving closes the report's open implementation PR, if it has one; a resolved report never reopens, and a recurrence starts a fresh report linked to it. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`, `wrong_assignee`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request, `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use `wrong_assignee` when the report reached the wrong person or team. Use `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Dismiss or snooze a signal report",
@@ -10449,6 +10552,22 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "marketing-analytics-conversion-recommendations": {
+        "description": "Read the project's persisted conversion recommendations and latest analysis state without starting AI. Previous results remain available during an update. Present source evidence, questions, and limitations for the user to review before configuring a goal. This tool does not create or modify goals.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Read conversion recommendations",
+        "title": "Read conversion recommendations",
+        "required_scopes": ["marketing_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/marketing_analytics/conversion_recommendations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-conversion-setup-ai"
+    },
     "marketing-analytics-create-conversion-goal": {
         "description": "Add one conversion goal to the project. Everything goes inside a single `goal` object — fields sent at the top level are rejected. Required inside it: conversion_goal_name, schema_map naming the fields that hold utm_campaign, utm_source, the timestamp and the distinct id, and conversion_goal_id (assigned by the server, so send an empty string). Also send kind (EventsNode for a PostHog event, ActionsNode for an action, DataWarehouseNode for an external table) and its target: `event` for EventsNode, `id` for ActionsNode, and `id` + table_name + id_field + timestamp_field + distinct_id_field for DataWarehouseNode. Omitting math counts conversions; set it to sum with math_property to total a value. Unknown fields are rejected. Existing goals are left untouched. Set counts_as_customer when converting means the person became a customer, and counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see what already exists — goal names must be unique.",
         "category": "Marketing analytics",
@@ -10546,6 +10665,23 @@
             "readOnlyHint": true
         },
         "feature_flag": "marketing-analytics-setup-plan-mcp"
+    },
+    "marketing-analytics-start-conversion-recommendations": {
+        "description": "Start the first 30-day analysis once with refresh=false. Only use refresh=true after the user explicitly requests an update; later runs analyze 14 days. Active runs are reused. This creates proposals, never goals. Read marketing-analytics-conversion-recommendations for results. Requires project admin access.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Analyze conversion candidates",
+        "title": "Analyze conversion candidates",
+        "required_scopes": ["marketing_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/marketing_analytics/conversion_recommendations/start/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "marketing-analytics-conversion-setup-ai"
     },
     "marketing-analytics-suggest-conversion-goals": {
         "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
@@ -11671,7 +11807,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token, which is safe to put in client-side code. Project listing, project\nupdates and the session context leave it out, so ask for a single project when you need the token.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token. Project listing, project updates and the session context leave it out,\nso ask for a single project when you need the token.\n\nWhen you install or configure a PostHog SDK, use `api_token` as the project token and `api_host` as the\nSDK's `api_host` (the ingestion host for this project's region). The token is public, so it can ship in\nclient-side bundles, but treat it as configuration: read it from the app's environment variable and write\nthe real value to the local env file (for example `.env.local` or `.env`). Never hard-code the token or the\nhost in source files, and never use them as fallback defaults.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
@@ -11852,7 +11988,7 @@
         "reads_ingested_data": "events"
     },
     "query-error-tracking-issue": {
-        "description": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, trend, top in-app frame, and first and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if the shape of the volume over time helps answer the user. To ask whether the issue is getting worse or better, read `trend` instead. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: integer count of equal-width buckets across `dateRange`, from 0 to 200, when sparkline data is needed. It is not a unit such as `hour` or `day`. For daily buckets over the default 7-day range, send `7`.\n- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.\n\n# Response fields\n\n- `first_release`: the release on the issue's first event, in the same shape as `latest_release`. It does not depend on `dateRange`. When the user asks which release caused the issue, compare it with `latest_release`. It is absent when the first event has no release metadata.\n- `trend`: occurrences in the second half of `dateRange` against the first half. Read `direction` (`new`, `increasing`, `decreasing` or `stable`) and do not do the arithmetic again. `increasing` and `decreasing` mean a change of at least 25%. `new` means the issue was first seen in the second half. With small counts, check `current_occurrences` and `previous_occurrences` before you call a change significant. `trend` is absent when the issue has no occurrences in `dateRange`.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.\n\nWhen `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.",
+        "description": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, trend, top in-app frame, and first and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if the shape of the volume over time helps answer the user. To ask whether the issue is getting worse or better, read `trend` instead. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: integer count of equal-width buckets across `dateRange`, from 0 to 200, when sparkline data is needed. It is not a unit such as `hour` or `day`. For daily buckets over the default 7-day range, send `7`.\n- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.\n\n# Response fields\n\n- `summary`: a model-written summary with `what_happened`, `likely_cause`, `who_is_affected`, `suggested_next_step` and `category`. Use it to answer quickly, and check it against the facts in the same response. `likely_cause` is a hypothesis. Report it as a possible cause, never as a fact, and check it against a stack trace from `query-error-tracking-issue-events` before you act on it.\n- `summary_status`: `ready` when `summary` is present. `generating` means a summary may still be written. If the user needs it, call this tool once more after a few seconds. If it is still `generating`, continue without it. `unavailable` means no summary is available for this issue. Do not mention a missing summary to the user.\n- `first_release`: the release on the issue's first event, in the same shape as `latest_release`. It does not depend on `dateRange`. When the user asks which release caused the issue, compare it with `latest_release`. It is absent when the first event has no release metadata.\n- `trend`: occurrences in the second half of `dateRange` against the first half. Read `direction` (`new`, `increasing`, `decreasing` or `stable`) and do not do the arithmetic again. `increasing` and `decreasing` mean a change of at least 25%. `new` means the issue was first seen in the second half. With small counts, check `current_occurrences` and `previous_occurrences` before you call a change significant. `trend` is absent when the issue has no occurrences in `dateRange`.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.\n\nWhen `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Query error tracking issue",
@@ -15273,7 +15409,7 @@
         }
     },
     "view-run": {
-        "description": "Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.",
+        "description": "Trigger a manual materialization run for a saved query. By default, this refreshes only the selected view. Set direction to upstream to also run all dependencies. Set direction to downstream to also run all dependents. Both options include the selected view and run the views in dependency order. Do not set full_refresh when you set direction. Use 'view-run-history' to check each view's status.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Run saved query",
@@ -16543,7 +16679,7 @@
         }
     },
     "warehouse-suggestions-accept-execute": {
-        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (execute)",
@@ -16559,7 +16695,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-accept-prepare": {
-        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (prepare)",
@@ -16590,7 +16726,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-get": {
-        "description": "Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface` those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background included. `days_with_data` is how many days of the window PostHog has read history for, not how active this project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated or materialized before accepting.",
+        "description": "Get one warehouse suggestion by id, with the `evidence` behind it. Evidence counts reads between `evidence_window_start` and `evidence_window_end`. `human_requests` is the queries people ran on the view or table, `human_users` the distinct people, `human_days` the days with such reads, and `requests_by_surface` those queries per place, such as sql_editor, dashboard or mcp. `background_requests` is the queries PostHog ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background included. `days_with_data` is how many days of the window PostHog has read history for, not how active this project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload` to explain to the user why a view or table should be certified, deprecated, materialized or unmaterialized before accepting.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Get a warehouse suggestion",
@@ -16606,7 +16742,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-list": {
-        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
+        "description": "Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion, compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
@@ -17166,6 +17302,37 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "workflows-make-email-template-transactional-execute": {
+        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (execute)",
+        "title": "Make email template transactional (execute)",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
+    "workflows-make-email-template-transactional-prepare": {
+        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make email template transactional (prepare)",
+        "title": "Make email template transactional (prepare)",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-patch-action-email": {
         "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",

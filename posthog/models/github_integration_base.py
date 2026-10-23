@@ -1302,6 +1302,11 @@ class GitHubIntegrationBase:
                 for entry in (pr.get("requested_reviewers") or [])
                 if isinstance(entry, dict) and entry.get("login")
             ],
+            "requested_teams": [
+                entry["slug"]
+                for entry in (pr.get("requested_teams") or [])
+                if isinstance(entry, dict) and entry.get("slug")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
@@ -1543,6 +1548,33 @@ class GitHubIntegrationBase:
                 rejected=rejected,
             )
         return {"success": True, "requested_reviewers": list(dict.fromkeys(requested_reviewers))}
+
+    def get_removed_pull_request_reviewers(self, repository: str, pr_number: int) -> set[str] | None:
+        """Return removed review recipients, or None when the history is incomplete."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/timeline",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/timeline",
+            params={"per_page": 100},
+        )
+        if not complete:
+            return None
+
+        removed: set[str] = set()
+        for response in responses:
+            try:
+                events = response.json()
+            except Exception:
+                return None
+            if not isinstance(events, list):
+                return None
+            for event in events:
+                if not isinstance(event, dict) or event.get("event") != "review_request_removed":
+                    continue
+                reviewer = event.get("requested_reviewer")
+                if isinstance(reviewer, dict) and isinstance(reviewer.get("login"), str):
+                    removed.add(reviewer["login"].lower())
+        return removed
 
     def list_submitted_pull_request_reviewers(self, repository: str, pr_number: int) -> dict[str, Any]:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
