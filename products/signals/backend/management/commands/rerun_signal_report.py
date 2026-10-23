@@ -145,6 +145,8 @@ class Command(BaseCommand):
             previous_run_count = report.run_count
             previous_research_blocked_reason = report.research_blocked_reason
             previous_research_blocked_at = report.research_blocked_at
+            previous_implementation_blocked_reason = report.implementation_blocked_reason
+            previous_implementation_blocked_at = report.implementation_blocked_at
             update_fields = set()
             if report.status == SignalReport.Status.CANDIDATE:
                 report.promoted_at = timezone.now()
@@ -155,6 +157,9 @@ class Command(BaseCommand):
                 update_fields.update(report.transition_to(SignalReport.Status.CANDIDATE))
             report.research_blocked_reason = None
             report.research_blocked_at = None
+            report.implementation_blocked_reason = None
+            report.implementation_blocked_at = None
+            update_fields.update({"implementation_blocked_reason", "implementation_blocked_at"})
             update_fields.update({"research_blocked_reason", "research_blocked_at"})
             report.save(update_fields=update_fields)
             promoted_at = report.promoted_at
@@ -187,8 +192,17 @@ class Command(BaseCommand):
                     current.promoted_at = previous_promoted_at
                     current.research_blocked_reason = previous_research_blocked_reason
                     current.research_blocked_at = previous_research_blocked_at
+                    current.implementation_blocked_reason = previous_implementation_blocked_reason
+                    current.implementation_blocked_at = previous_implementation_blocked_at
                     current.save(
-                        update_fields=["status", "promoted_at", "research_blocked_reason", "research_blocked_at"]
+                        update_fields=[
+                            "status",
+                            "promoted_at",
+                            "research_blocked_reason",
+                            "research_blocked_at",
+                            "implementation_blocked_reason",
+                            "implementation_blocked_at",
+                        ]
                     )
                     restored = True
             if restored:

@@ -89,13 +89,25 @@ class TestRerunSignalReportCommand(BaseTest):
         self.report.status = status
         self.report.research_blocked_reason = "not_connected"
         self.report.research_blocked_at = timezone.now() - timedelta(days=8)
-        self.report.save(update_fields=["status", "research_blocked_reason", "research_blocked_at"])
+        self.report.implementation_blocked_reason = "not_connected"
+        self.report.implementation_blocked_at = self.report.research_blocked_at
+        self.report.save(
+            update_fields=[
+                "status",
+                "research_blocked_reason",
+                "research_blocked_at",
+                "implementation_blocked_reason",
+                "implementation_blocked_at",
+            ]
+        )
         previous_promoted_at = self.report.promoted_at
         assert "Started research" in self.command(execute=True)
         self.report = SignalReport.objects.get(pk=self.report.pk)
         assert self.report.status == SignalReport.Status.CANDIDATE
         assert self.report.research_blocked_reason is None
         assert self.report.research_blocked_at is None
+        assert self.report.implementation_blocked_at is None
+        assert self.report.implementation_blocked_reason is None
         if status == SignalReport.Status.CANDIDATE:
             assert self.report.promoted_at != previous_promoted_at
         start.assert_awaited_once()

@@ -33,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
+    ImplementationResume,
     ReportChangedDuringAutostart,
     ReportSteering,
     ReviewerContent,
@@ -83,6 +84,67 @@ from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
 
 SCOUT_SKILL = "signals-scout-error-tracking"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("case", ["eligible", "changed", "dismissed", "quota", "disabled", "runner", "repository"])
+def test_suspended_implementation_rechecks_current_eligibility(organization, team, case):
+    organization.is_ai_data_processing_approved = True
+    organization.save(update_fields=["is_ai_data_processing_approved"])
+    user = _create_org_member_with_github("runner@example.com", organization, "runner")
+    SignalTeamConfig.objects.create(team=team, autostart_enabled=case != "disabled")
+    report = SignalReport.objects.create(
+        team=team,
+        title="Report",
+        summary="Summary",
+        status=SignalReport.Status.SUPPRESSED if case == "dismissed" else SignalReport.Status.READY,
+        run_count=2 if case == "changed" else 1,
+        implemented_at_run_count=1,
+    )
+    Task = apps.get_model("tasks", "Task")
+    task = Task.objects.create(team=team, title="Implementation", created_by=user)
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.TASK_RUN,
+        content=TaskRunArtefact(task_id=str(task.id), product="signals", type="implementation").model_dump_json(),
+    )
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch(
+            "products.signals.backend.auto_start.self_driving_quota_gate",
+            return_value=SimpleNamespace(limited=case == "quota", enforced=case == "quota"),
+        ),
+        patch("products.signals.backend.auto_start.capture_signal_report_quota_paused"),
+        patch("products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False),
+        patch.object(tasks_facade, "create_and_run_task") as create,
+    ):
+        result = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/repo",
+            title="Report",
+            summary="Summary",
+            actionability=ActionabilityAssessment(
+                explanation="A fix is available.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            triggering_user_id=user.id,
+            priority=PriorityAssessment(explanation="Affects usage.", priority=Priority.P2),
+            github_recovery=True,
+            resume=ImplementationResume(
+                task_id=str(task.id),
+                user_id=user.id + 1 if case == "runner" else user.id,
+                repository="example/changed" if case == "repository" else "example/repo",
+            ),
+        )
+    assert (result.status == "queued") is (case == "eligible"), result
+    create.assert_not_called()
 
 
 @pytest.fixture
