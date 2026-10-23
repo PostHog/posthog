@@ -46,6 +46,7 @@ __all__ = [
     "get_org_id_for_team",
     "get_managed_warehouse_target",
     "managed_warehouse_domain",
+    "managed_warehouse_ingress_ips",
     "get_team_deletion_block_reason",
     "get_stored_bucket_config",
     "get_stored_warehouse_config",
@@ -113,6 +114,17 @@ def get_managed_warehouse_target(organization_id: str, *, source_type: str) -> "
     )
 
     return _get(organization_id, source_type=source_type)
+
+
+def managed_warehouse_ingress_ips() -> tuple[str, ...]:
+    """The address set the managed warehouse ingress answers on, read per call.
+
+    The warehouse-source host guard passes this to `ManagedWarehouseTarget.accepts`, so a settings
+    override in a test takes effect without a reload.
+    """
+    from products.managed_warehouse.backend.managed_ingress import _ingress_ips  # noqa: PLC0415
+
+    return _ingress_ips()
 
 
 def managed_warehouse_domain() -> str:
