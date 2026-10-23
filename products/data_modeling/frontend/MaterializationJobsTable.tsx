@@ -39,12 +39,9 @@ import { pluralize } from 'lib/utils/strings'
 import { computeJobDuration } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { urls } from 'scenes/urls'
 
-import {
-    type DataModelingJobApi,
-    DataModelingJobsListStatus,
-} from 'products/data_warehouse/frontend/generated/api.schemas'
+import { DataModelingJobsListStatus } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { MATERIALIZATION_JOBS_PAGE_SIZE, modelsUsageLogic } from './modelsUsageLogic'
+import { MATERIALIZATION_ENGINE_LABELS, MATERIALIZATION_JOBS_PAGE_SIZE, modelsUsageLogic } from './modelsUsageLogic'
 
 const STATUS_VARIANTS: Record<string, 'success' | 'destructive' | 'warning' | 'default'> = {
     Completed: 'success',
@@ -52,19 +49,6 @@ const STATUS_VARIANTS: Record<string, 'success' | 'destructive' | 'warning' | 'd
     Running: 'warning',
     Cancelled: 'default',
     Skipped: 'default',
-}
-
-function engineLabel(engine: DataModelingJobApi['engine']): string {
-    if (engine === 'managed_warehouse') {
-        return 'Managed warehouse'
-    }
-    if (engine === 'clickhouse') {
-        return 'ClickHouse'
-    }
-    if (engine === 'duckgres') {
-        return 'Duckgres'
-    }
-    return engine
 }
 
 export function MaterializationJobsTable({
@@ -90,7 +74,7 @@ export function MaterializationJobsTable({
                     <CardTitle role="heading" aria-level={3}>
                         Materialization jobs
                     </CardTitle>
-                    <CardDescription>Every model refresh, newest first.</CardDescription>
+                    <CardDescription>Model refreshes since the selected start date, newest first.</CardDescription>
                 </div>
                 <Select
                     value={selectedJobStatus ?? 'all'}
@@ -178,7 +162,7 @@ export function MaterializationJobsTable({
                                             </TableCell>
                                             {managedWarehouseEnabled ? (
                                                 <TableCell className="whitespace-nowrap">
-                                                    {engineLabel(job.engine)}
+                                                    {MATERIALIZATION_ENGINE_LABELS[job.engine] ?? job.engine}
                                                 </TableCell>
                                             ) : null}
                                             <TableCell className="hidden whitespace-nowrap @min-[48rem]/main-content:table-cell">

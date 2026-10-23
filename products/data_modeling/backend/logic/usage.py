@@ -1,8 +1,9 @@
 from datetime import UTC, date, datetime, time, timedelta
+from typing import TypedDict, cast
 from uuid import UUID
 
 from django.db.models import Case, Count, F, Max, Q, QuerySet, Sum, When
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Coalesce, TruncDate
 
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
@@ -11,9 +12,19 @@ from products.data_modeling.backend.models.data_modeling_job import (
 )
 
 
+class EngineUsage(TypedDict):
+    engine: DataModelingJobEngine
+    runs: int
+    measured_runs: int
+    read_bytes: int | None
+    read_rows: int | None
+    cpu_microseconds: int | None
+    query_count: int | None
+
+
 class ModelUsage:
-    ENGINES = (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)
     USAGE_FIELDS = ("runs", "measured_runs", "read_bytes", "read_rows", "cpu_microseconds", "query_count")
+    COUNT_USAGE_FIELDS = ("runs", "measured_runs")
 
     @staticmethod
     def jobs(
@@ -30,11 +41,12 @@ class ModelUsage:
     @staticmethod
     def aggregates(*, prefix: str = "", engine: DataModelingJobEngine | None = None) -> dict[str, Count | Sum]:
         engine_filter = Q(engine=engine) if engine else Q()
-        measured_filter = Q(usage_updated_at__isnull=False) | Q(
-            engine=DataModelingJobEngine.MANAGED_WAREHOUSE, bytes_read__isnull=False
+        measured_filter = Q(usage_updated_at__isnull=False) | (
+            Q(engine=DataModelingJobEngine.MANAGED_WAREHOUSE)
+            & (Q(read_bytes__isnull=False) | Q(bytes_read__isnull=False))
         )
         normalized_read_bytes = Case(
-            When(engine=DataModelingJobEngine.MANAGED_WAREHOUSE, then=F("bytes_read")),
+            When(engine=DataModelingJobEngine.MANAGED_WAREHOUSE, then=Coalesce("read_bytes", "bytes_read")),
             default=F("read_bytes"),
         )
         return {
@@ -55,14 +67,23 @@ class ModelUsage:
         }
 
     @classmethod
-    def engine_usage(cls, row: dict[str, object], engines: tuple[DataModelingJobEngine, ...]) -> list[dict]:
+    def engine_usage(cls, row: dict[str, object], engines: tuple[DataModelingJobEngine, ...]) -> list[EngineUsage]:
         return [
-            {
-                "engine": engine,
-                **{field: row[f"{engine}_{field}"] for field in cls.USAGE_FIELDS},
-            }
+            EngineUsage(
+                engine=engine,
+                runs=cast(int, row[f"{engine}_runs"]),
+                measured_runs=cast(int, row[f"{engine}_measured_runs"]),
+                read_bytes=cast(int | None, row[f"{engine}_read_bytes"]),
+                read_rows=cast(int | None, row[f"{engine}_read_rows"]),
+                cpu_microseconds=cast(int | None, row[f"{engine}_cpu_microseconds"]),
+                query_count=cast(int | None, row[f"{engine}_query_count"]),
+            )
             for engine in engines
         ]
+
+    @classmethod
+    def empty_usage(cls, prefix: str = "") -> dict[str, int | None]:
+        return {f"{prefix}{field}": 0 if field in cls.COUNT_USAGE_FIELDS else None for field in cls.USAGE_FIELDS}
 
     @classmethod
     def get(
@@ -71,18 +92,13 @@ class ModelUsage:
         saved_query_ids: list[UUID],
         page: int,
         page_size: int,
-        engine: str,
-        days: int | None = None,
-        date_from: date | None = None,
-        date_to: date | None = None,
+        start_date: date,
+        end_date: date,
+        engines: tuple[DataModelingJobEngine, ...],
     ) -> dict[str, object]:
-        today = datetime.now(UTC).date()
-        end_date = min(date_to, today - timedelta(days=1)) + timedelta(days=1) if date_to else today
-        start_date = date_from or end_date - timedelta(days=days or 30)
         start = datetime.combine(start_date, time.min, tzinfo=UTC)
         end = datetime.combine(end_date, time.min, tzinfo=UTC)
         range_days = (end_date - start_date).days
-        engines = cls.ENGINES if engine == "all" else (DataModelingJobEngine(engine),)
         jobs = cls.jobs(team_id, start, end, engines).filter(saved_query_id__in=saved_query_ids)
         overview = jobs.aggregate(**cls.aggregates())
         usage_updated_at = jobs.aggregate(latest=Max("usage_updated_at"))["latest"]
@@ -100,11 +116,11 @@ class ModelUsage:
                 day,
                 {
                     "day": day,
-                    **{field: 0 if field in ("runs", "measured_runs") else None for field in cls.USAGE_FIELDS},
+                    **cls.empty_usage(),
                     **{
-                        f"{selected_engine}_{field}": 0 if field in ("runs", "measured_runs") else None
+                        key: value
                         for selected_engine in engines
-                        for field in cls.USAGE_FIELDS
+                        for key, value in cls.empty_usage(f"{selected_engine}_").items()
                     },
                 },
             )
@@ -147,9 +163,16 @@ def get_model_usage(
     saved_query_ids: list[UUID],
     page: int,
     page_size: int,
-    engine: str,
-    days: int | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
+    start_date: date,
+    end_date: date,
+    engines: tuple[DataModelingJobEngine, ...],
 ) -> dict[str, object]:
-    return ModelUsage.get(team_id, saved_query_ids, page, page_size, engine, days, date_from, date_to)
+    return ModelUsage.get(
+        team_id=team_id,
+        saved_query_ids=saved_query_ids,
+        page=page,
+        page_size=page_size,
+        start_date=start_date,
+        end_date=end_date,
+        engines=engines,
+    )

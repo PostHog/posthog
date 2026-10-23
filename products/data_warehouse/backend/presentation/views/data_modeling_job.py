@@ -89,9 +89,27 @@ class DataModelingJobPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
-DATA_MODELING_JOB_LIST_FIELDS = [
-    field for field in DataModelingJobSerializer.Meta.fields if field not in ("saved_query_name", "saved_query_deleted")
-]
+DATA_MODELING_JOB_LIST_FIELDS = (
+    "id",
+    "saved_query_id",
+    "status",
+    "engine",
+    "run_mode",
+    "full_refresh_reason",
+    "rows_materialized",
+    "error",
+    "created_at",
+    "last_run_at",
+    "updated_at",
+    "workflow_id",
+    "workflow_run_id",
+    "rows_expected",
+    "read_bytes",
+    "read_rows",
+    "cpu_microseconds",
+    "query_count",
+    "usage_updated_at",
+)
 
 
 class DataModelingJobFilterSet(django_filters.FilterSet):

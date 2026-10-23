@@ -10,7 +10,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import get_model_usage
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 class ModelUsageEngine(models.TextChoices):
@@ -50,16 +50,20 @@ class ModelUsageQuerySerializer(serializers.Serializer):
             raise serializers.ValidationError("Use days or a custom date range, not both.")
         if date_to is not None and date_from is None:
             raise serializers.ValidationError({"date_from": "A start date is required for a custom date range."})
+        today = datetime.now(UTC).date()
         if date_from is None:
-            attrs["days"] = days or 30
+            end_date = today
+            attrs["start_date"] = end_date - timedelta(days=days or 30)
+            attrs["end_date"] = end_date
             return attrs
 
-        today = datetime.now(UTC).date()
         exclusive_date_to = min(date_to, today - timedelta(days=1)) + timedelta(days=1) if date_to else today
         if date_from >= exclusive_date_to:
             raise serializers.ValidationError({"date_from": "The range must include at least one complete UTC day."})
         if (exclusive_date_to - date_from).days > 366:
             raise serializers.ValidationError({"date_from": "The custom date range cannot exceed 366 days."})
+        attrs["start_date"] = date_from
+        attrs["end_date"] = exclusive_date_to
         return attrs
 
 
@@ -117,16 +121,26 @@ class ModelUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=forced_singular_serializer(ModelUsageSerializer))},
     )
     def list(self, request: ValidatedRequest, **kwargs: object) -> response.Response:
-        query_data = {**request.validated_query_data}
+        query_data = request.validated_query_data
         saved_queries = self.get_queryset()
-        if saved_query_id := query_data.pop("saved_query_id", None):
+        if saved_query_id := query_data.get("saved_query_id"):
             saved_queries = saved_queries.filter(id=saved_query_id)
+        selected_engine = query_data["engine"]
+        engines = (
+            (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)
+            if selected_engine == ModelUsageEngine.ALL
+            else (DataModelingJobEngine(selected_engine),)
+        )
         return response.Response(
             ModelUsageSerializer(
                 get_model_usage(
                     self.team_id,
                     saved_query_ids=list(saved_queries.values_list("id", flat=True)),
-                    **query_data,
+                    page=query_data["page"],
+                    page_size=query_data["page_size"],
+                    start_date=query_data["start_date"],
+                    end_date=query_data["end_date"],
+                    engines=engines,
                 )
             ).data
         )

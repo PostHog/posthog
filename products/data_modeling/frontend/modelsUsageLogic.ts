@@ -25,6 +25,17 @@ import { DataModelingUsageListEngine, type ModelUsageApi } from './generated/api
 
 export const MATERIALIZATION_JOBS_PAGE_SIZE = 20
 export const DEFAULT_MODELS_USAGE_DATE_FROM = '-30d'
+export const MATERIALIZATION_ENGINE_LABELS: Record<string, string> = {
+    all: 'All engines',
+    clickhouse: 'ClickHouse',
+    duckgres: 'Duckgres',
+    managed_warehouse: 'Managed warehouse',
+}
+
+const JOB_ENGINE_BY_USAGE_ENGINE: Partial<Record<DataModelingUsageListEngine, DataModelingJobsListEngine>> = {
+    [DataModelingUsageListEngine.Clickhouse]: DataModelingJobsListEngine.Clickhouse,
+    [DataModelingUsageListEngine.ManagedWarehouse]: DataModelingJobsListEngine.ManagedWarehouse,
+}
 
 function normalizeModelsUsageDateRange(
     dateFrom: string | null,
@@ -55,12 +66,10 @@ function normalizeModelsUsageDateRange(
     }
 }
 
-function completeUtcDateRange(
+function completeUtcUsageDateRange(
     dateFrom: string,
     dateTo: string | null
 ): {
-    after: string
-    before: string
     days?: number
     date_from?: string
     date_to?: string
@@ -68,25 +77,26 @@ function completeUtcDateRange(
     const normalizedRange = normalizeModelsUsageDateRange(dateFrom, dateTo)
     dateFrom = normalizedRange.dateFrom
     dateTo = normalizedRange.dateTo
-    const today = dayjs.utc().startOf('day')
     const relativeDays = dateTo === null ? /^-(\d+)d$/.exec(dateFrom) : null
     if (relativeDays) {
-        const days = Number(relativeDays[1])
-        return {
-            after: today.subtract(days, 'day').toISOString(),
-            before: today.toISOString(),
-            days,
-        }
+        return { days: Number(relativeDays[1]) }
     }
 
     const start = dayjs.utc(dateFrom).startOf('day')
-    const selectedEnd = dateTo ? dayjs.utc(dateTo).add(1, 'day').startOf('day') : today
     return {
-        after: start.toISOString(),
-        before: (selectedEnd.isAfter(today) ? today : selectedEnd).toISOString(),
         date_from: start.format('YYYY-MM-DD'),
         date_to: dateTo ? dayjs.utc(dateTo).format('YYYY-MM-DD') : undefined,
     }
+}
+
+function materializationJobsDateFrom(dateFrom: string, dateTo: string | null): string {
+    const normalizedRange = normalizeModelsUsageDateRange(dateFrom, dateTo)
+    const relativeDays = normalizedRange.dateTo === null ? /^-(\d+)d$/.exec(normalizedRange.dateFrom) : null
+    const start = relativeDays
+        ? dayjs.utc().startOf('day').subtract(Number(relativeDays[1]), 'day')
+        : dayjs.utc(normalizedRange.dateFrom).startOf('day')
+
+    return start.toISOString()
 }
 
 export interface MaterializedViewOption {
@@ -279,7 +289,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             null as ModelUsageApi | null,
             {
                 loadUsage: async (_: void, breakpoint): Promise<ModelUsageApi> => {
-                    const dateRange = completeUtcDateRange(values.dateFrom, values.dateTo)
+                    const dateRange = completeUtcUsageDateRange(values.dateFrom, values.dateTo)
                     const result = await api.dataModelingUsageList(String(getCurrentTeamId()), {
                         days: dateRange.days,
                         date_from: dateRange.date_from,
@@ -300,17 +310,15 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             null as PaginatedDataModelingJobListApi | null,
             {
                 loadMaterializationJobs: async (_: void, breakpoint): Promise<PaginatedDataModelingJobListApi> => {
-                    const dateRange = completeUtcDateRange(values.dateFrom, values.dateTo)
                     const result = await dataModelingJobsList(String(getCurrentTeamId()), {
-                        after: dateRange.after,
-                        before: dateRange.before,
+                        after: materializationJobsDateFrom(values.dateFrom, values.dateTo),
                         limit: MATERIALIZATION_JOBS_PAGE_SIZE,
                         offset: (values.jobsPage - 1) * MATERIALIZATION_JOBS_PAGE_SIZE,
                         saved_query_id: values.selectedSavedQueryId ?? undefined,
                         all_engines: values.managedWarehouseEnabled || undefined,
                         engine:
                             values.managedWarehouseEnabled && values.selectedEngine !== DataModelingUsageListEngine.All
-                                ? (values.selectedEngine as DataModelingJobsListEngine)
+                                ? JOB_ENGINE_BY_USAGE_ENGINE[values.selectedEngine]
                                 : undefined,
                         status: values.selectedJobStatus ?? undefined,
                     })
@@ -352,7 +360,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             (usage: ModelUsageApi | null): Series[] =>
                 (usage?.trends[0]?.engines ?? []).map(({ engine }) => ({
                     key: engine,
-                    label: engine === 'managed_warehouse' ? 'Managed warehouse' : 'ClickHouse',
+                    label: MATERIALIZATION_ENGINE_LABELS[engine] ?? engine,
                     data:
                         usage?.trends.map(
                             (day) => day.engines.find((item) => item.engine === engine)?.read_bytes ?? NaN

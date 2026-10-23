@@ -38,7 +38,7 @@ import type { DateMappingOption } from '~/types'
 import { DataModelingUsageListEngine } from './generated/api.schemas'
 import { MaterializationJobsTable } from './MaterializationJobsTable'
 import { ModelsUsageByModelTable } from './ModelsUsageByModelTable'
-import { MaterializedViewOption, modelsUsageLogic } from './modelsUsageLogic'
+import { MATERIALIZATION_ENGINE_LABELS, MaterializedViewOption, modelsUsageLogic } from './modelsUsageLogic'
 
 const DATE_OPTIONS: DateMappingOption[] = [7, 30, 90].map((days) => ({
     key: `Last ${days} complete days`,
@@ -49,12 +49,6 @@ const DATE_OPTIONS: DateMappingOption[] = [7, 30, 90].map((days) => ({
 }))
 
 const ALL_VIEWS: MaterializedViewOption = { id: 'all', name: 'All materialized views' }
-
-const ENGINE_LABELS: Record<DataModelingUsageListEngine, string> = {
-    all: 'All engines',
-    clickhouse: 'ClickHouse',
-    managed_warehouse: 'Managed warehouse',
-}
 
 function MetricTile({ title, value }: { title: string; value: string }): JSX.Element {
     return (
@@ -154,7 +148,9 @@ export function ModelsUsageTab({
                                 disabled={usageLoading || jobsLoading}
                             >
                                 <SelectValue>
-                                    {(value: DataModelingUsageListEngine) => ENGINE_LABELS[value] ?? value}
+                                    {(value: DataModelingUsageListEngine) =>
+                                        MATERIALIZATION_ENGINE_LABELS[value] ?? value
+                                    }
                                 </SelectValue>
                             </SelectTrigger>
                             <SelectContent align="end" alignItemWithTrigger={false}>
@@ -189,8 +185,8 @@ export function ModelsUsageTab({
                 </div>
             </div>
             <Text size="sm" variant="muted">
-                Usage updates daily and excludes today. All dates are UTC. Includes failed runs, canceled runs, schema
-                checks, and retries.
+                Usage updates daily and excludes today. Job history starts on the selected start date and includes
+                current jobs. All dates are UTC. Usage includes failed runs, canceled runs, schema checks, and retries.
             </Text>
 
             {failed ? (

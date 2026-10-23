@@ -75,7 +75,7 @@ describe('modelsUsageLogic', () => {
         expect(jobRequests[0].get('engine')).toBeNull()
         expect(jobRequests[0].get('saved_query_id')).toBeNull()
         expect(jobRequests[0].get('after')).not.toBeNull()
-        expect(jobRequests[0].get('before')).not.toBeNull()
+        expect(jobRequests[0].get('before')).toBeNull()
         expect(logic.values.materializedViewOptions.map((option) => option.name)).toEqual(['Alpha view', 'Beta view'])
 
         await expectLogic(logic, () => logic.actions.setSelectedSavedQueryId('view-a')).toDispatchActions([
@@ -119,7 +119,7 @@ describe('modelsUsageLogic', () => {
         expect(usageRequests.at(-1)?.get('date_from')).toBe('2026-10-01')
         expect(usageRequests.at(-1)?.get('date_to')).toBe('2026-10-07')
         expect(jobRequests.at(-1)?.get('after')).toBe('2026-10-01T00:00:00.000Z')
-        expect(jobRequests.at(-1)?.get('before')).toBe('2026-10-08T00:00:00.000Z')
+        expect(jobRequests.at(-1)?.get('before')).toBeNull()
         expect(logic.values.page).toBe(1)
         expect(logic.values.jobsPage).toBe(1)
     })

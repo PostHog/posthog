@@ -44,6 +44,15 @@ class TestModelUsageValidation(SimpleTestCase):
     def test_accepts_custom_date_range(self) -> None:
         serializer = ModelUsageQuerySerializer(data={"date_from": "2026-10-01", "date_to": "2026-10-15"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"].isoformat(), "2026-10-01")
+        self.assertEqual(serializer.validated_data["end_date"].isoformat(), "2026-10-16")
+
+    @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
+    def test_resolves_relative_date_range(self) -> None:
+        serializer = ModelUsageQuerySerializer(data={"days": 7})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"].isoformat(), "2026-10-09")
+        self.assertEqual(serializer.validated_data["end_date"].isoformat(), "2026-10-16")
 
     @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
     def test_accepts_maximum_end_date_without_overflow(self) -> None:
@@ -72,7 +81,7 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         DataModelingJob.objects.create(**{**base, "status": "Failed"})
         DataModelingJob.objects.create(**{**base, "status": "Running"}, **measured)
         managed = DataModelingJob.objects.create(
-            **{**base, "engine": "managed_warehouse"}, bytes_read=2048, usage_updated_at=None
+            **{**base, "engine": "managed_warehouse"}, read_bytes=4096, bytes_read=2048, usage_updated_at=None
         )
         DataModelingJob.objects.create(**{**base, "last_run_at": finished + timedelta(days=1)}, **measured)
         other_team = Team.objects.create(organization=self.organization)
@@ -103,21 +112,21 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         ).json()
         self.assertEqual(combined["overview"]["runs"], 3)
         self.assertEqual(combined["overview"]["measured_runs"], 2)
-        self.assertEqual(combined["overview"]["read_bytes"], 3072)
+        self.assertEqual(combined["overview"]["read_bytes"], 5120)
         self.assertEqual(
             [(item["engine"], item["runs"]) for item in combined["trends"][-1]["engines"]],
             [("clickhouse", 2), ("managed_warehouse", 1)],
         )
         self.assertEqual(
             [(item["engine"], item["read_bytes"]) for item in combined["models"][0]["engines"]],
-            [("clickhouse", 1024), ("managed_warehouse", managed.bytes_read)],
+            [("clickhouse", 1024), ("managed_warehouse", managed.read_bytes)],
         )
 
         managed_only = self.client.get(
             f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7, "engine": "managed_warehouse"}
         ).json()
         self.assertEqual(managed_only["overview"]["runs"], 1)
-        self.assertEqual(managed_only["overview"]["read_bytes"], 2048)
+        self.assertEqual(managed_only["overview"]["read_bytes"], 4096)
         self.assertEqual([item["engine"] for item in managed_only["models"][0]["engines"]], ["managed_warehouse"])
 
         filtered = self.client.get(
