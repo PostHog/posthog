@@ -6175,20 +6175,20 @@ Note: Enumerated the API reference from https://docs.hyperspell.com/llms.txt, th
 
 ## Hyros — gaps
 
-Today (14): `AdAccounts`, `Ads`, `CallConversionPaths`, `Calls`, `Keywords`, `LeadConversionPaths`, `Leads`, `Products`, `SaleConversionPaths`, `Sales`, `Sources`, `Stages`, `Subscriptions`, `Tags`
+Today (16): `AdAccounts`, `Ads`, `CallConversionPaths`, `Calls`, `Carts`, `CustomCosts`, `Keywords`, `LeadConversionPaths`, `Leads`, `Products`, `SaleConversionPaths`, `Sales`, `Sources`, `Stages`, `Subscriptions`, `Tags`
 
 Diffed against: <https://api-docs.hyros.com/ai-context/rest-api.txt>
 
 - [x] `Ad Accounts (GET /api/v1.0/ad-accounts)` — resolve adAccountId on sources and attribution records to account names and platforms (high)
 - [x] `Ads (GET /api/v1.0/ads)` — resolve adSourceId on sources and attribution records to individual ads (high)
 - [x] `Products (GET /api/v1.0/products)` — add product prices and cost of goods to sales for profit analysis, using their existing product IDs (high)
-- [ ] `Ads Attribution Report (GET /api/v1.0/attribution)` — produce vendor attribution metrics and ad spend across attribution models and reporting levels (high)
-- [ ] `ROAS (GET /api/v1.0/attribution/roas)` — measure collected revenue against ad spend using the vendor's fixed return calculation (high)
+- ~~`Ads Attribution Report (GET /api/v1.0/attribution)` — produce vendor attribution metrics and ad spend across attribution models and reporting levels (high)~~ — skipped: a parameterized report, not a list. Each call needs explicit ids at one platform-specific level, an attribution model, a metric list and a date window, and with an ad account id it can't group rows by day
+- ~~`ROAS (GET /api/v1.0/attribution/roas)` — measure collected revenue against ad spend using the vendor's fixed return calculation (high)~~ — skipped: a preset over `GET /attribution` that reports one entity id over one date window per call, so there is no list to sync
 - [x] `Conversion Paths (GET /api/v1.0/conversion-paths)` — analyze ordered source touches for each conversion and calculate custom attribution models (high)
 - [ ] `Lead Clicks (GET /api/v1.0/leads/clicks)` — analyze click histories behind attributed sales instead of only first and last touches (medium)
 - [ ] `Leads Journey (GET /api/v1.0/leads/journey)` — measure stage changes, opt-ins, email activity, and other events across each lead's timeline (medium)
-- [ ] `Custom Costs (GET /api/v1.0/custom-costs)` — include recurring and one-time business costs in campaign profitability calculations (medium)
-- [ ] `Carts (GET /api/v1.0/carts)` — measure cart abandonment and connect purchase intent with attributed sales (medium)
+- [x] `Custom Costs (GET /api/v1.0/custom-costs)` — include recurring and one-time business costs in campaign profitability calculations (medium)
+- [x] `Carts (GET /api/v1.0/carts)` — measure cart abandonment and connect purchase intent with attributed sales (medium)
 
 Note: Parsed the vendor's REST OpenAPI 3.1 YAML, linked from its llms.txt, and inspected source and sale schemas. Tags/count and stages already cover their current lookup endpoints. Clicks and journeys require lead IDs, while reports need explicit windows and attribution choices. Tracking configuration and write-status polling are excluded.
 
@@ -6950,12 +6950,12 @@ Today (17): `Catalogs`, `Companies`, `CompanyCustomFields`, `CompanyNotes`, `Com
 
 Diffed against: <https://developers.kommo.com/llms.txt>
 
-- [ ] `Entity field groups (GET /api/v4/{entity_type}/custom_fields/groups)` — resolve group_id in existing custom field tables and organize analysis by field group (high)
-- [ ] `List elements (GET /api/v4/catalogs/{list_id}/elements)` — import product and other catalog records; Catalogs currently contains only list definitions (high)
+- [x] `Entity field groups (GET /api/v4/{entity_type}/custom_fields/groups)` — resolve group_id in existing custom field tables and organize analysis by field group (high). Added as `LeadCustomFieldGroups`, `ContactCustomFieldGroups`, and `CompanyCustomFieldGroups`.
+- [x] `List elements (GET /api/v4/catalogs/{list_id}/elements)` — import product and other catalog records; Catalogs currently contains only list definitions (high). Added as `CatalogElements` (fan-out over `Catalogs`).
 - [ ] `Linked entities (GET /api/v4/{entity}/{entity_id}/links)` — preserve catalog relationships, quantities, and link metadata beyond embedded contact and lead IDs (medium)
 - [ ] `Incoming leads (GET /api/v4/leads/unsorted)` — measure intake and unprocessed leads by source before they enter the sales pipeline (medium)
-- [ ] `Chat history (GET /v2/origin/custom/{scope_id}/chats/{conversation_id}/history)` — analyze message volume, response times, and customer conversations beyond CRM notes (medium)
-- [ ] `Catalog custom fields (GET /api/v4/catalogs/{list_id}/custom_fields)` — interpret custom fields and enum values when importing catalog records (medium)
+- [ ] `Chat history (GET /v2/origin/custom/{scope_id}/chats/{conversation_id}/history)` — analyze message volume, response times, and customer conversations beyond CRM notes (medium); skipped, the Chats API only answers requests signed with a registered chat channel's secret, and only for chats of that channel, so the account's long-lived token cannot read it
+- [x] `Catalog custom fields (GET /api/v4/catalogs/{list_id}/custom_fields)` — interpret custom fields and enum values when importing catalog records (medium). Added as `CatalogCustomFields` (fan-out over `Catalogs`).
 
 Note: Parsed the official llms.txt operation index and OpenAPI blocks in linked Markdown references. Pipelines embed stages; Leads request loss reasons and source names; Users request roles and groups. Catalog records and entity links need requests for each parent ID. Chat history uses the separate Chats API and requires channel credentials.
 
@@ -6965,10 +6965,10 @@ Today (4): `clusters`, `jobs`, `monitors`, `services`
 
 Diffed against: <https://api.komodor.com/api/docs/doc.json>
 
-- [ ] `Cost allocation (GET /api/v2/cost/allocation)` — measure Kubernetes spending by cluster, workspace, and workload (high)
-- [ ] `Service issues (POST /api/v2/services/issues/search)` — measure service incidents, resolution times, and recurring failures (high)
-- [ ] `Cluster issues (POST /api/v2/clusters/issues/search)` — track infrastructure incidents that service inventory cannot show (high)
-- [ ] `Kubernetes events (POST /api/v2/services/k8s-events/search; POST /api/v2/clusters/k8s-events/search)` — connect deployments and Kubernetes changes to service and cluster incidents (high)
+- [x] `Cost allocation (GET /api/v2/cost/allocation)` — measure Kubernetes spending by cluster, workspace, and workload (high). Added as `cost_allocation`: per-service cost over the past 30 days, refreshed each sync.
+- [ ] `Service issues (POST /api/v2/services/issues/search)` — measure service incidents, resolution times, and recurring failures (high); skipped: the search needs one request per service, issue type and 2-day window, and `cluster_issues` returns the same issue types for every namespace in a cluster
+- [x] `Cluster issues (POST /api/v2/clusters/issues/search)` — track infrastructure incidents that service inventory cannot show (high). Added as `cluster_issues` (fan-out over `clusters`, incremental on `startTime`).
+- [x] `Kubernetes events (POST /api/v2/services/k8s-events/search; POST /api/v2/clusters/k8s-events/search)` — connect deployments and Kubernetes changes to service and cluster incidents (high). Added as `k8s_events` from the cluster-scoped search (fan-out over `clusters`, incremental on `startTime`); the service-scoped search returns a subset of the same events.
 - [ ] `Health risks (GET /api/v2/health/risks)` — track workload reliability risks and their severity (medium)
 - [ ] `Audit logs (GET /api/v2/audit-log)` — analyze account activity and operational changes over time (medium)
 - [ ] `Service right-sizing recommendations (GET /api/v2/cost/right-sizing/service)` — compare requested resources with recommendations to identify potential savings (medium)
@@ -7442,10 +7442,10 @@ Today (6): `alerts`, `collectors`, `device_groups`, `devices`, `sdts`, `websites
 Diffed against: <https://www.logicmonitor.com/swagger-ui-master/api-v3/dist/swagger.json>
 
 - [ ] `Collector groups (GET /setting/collector/groups)` — resolve collectorGroupId in existing collector rows for operational ownership reports (high)
-- [ ] `Device datasources (GET /device/devices/{deviceId}/devicedatasources)` — resolve alert resourceTemplateId references and identify monitored datasource assignments (high)
-- [ ] `Device datasource instances (GET /device/devices/{deviceId}/devicedatasources/{hdsId}/instances)` — resolve alert instanceId references to monitored components (high)
-- [ ] `Device instance data (GET /device/devices/{deviceId}/devicedatasources/{hdsId}/instances/{id}/data)` — measure performance, utilization, and availability instead of relying only on alert counts (high)
-- [ ] `Website graph data (GET /website/websites/{id}/graphs/{graphName}/data)` — measure website uptime and response times over time (high)
+- [x] `Device datasources (GET /device/devices/{deviceId}/devicedatasources)` — resolve alert resourceTemplateId references and identify monitored datasource assignments (high). Added as `device_datasources` (fan-out over `devices`).
+- [x] `Device datasource instances (GET /device/devices/{deviceId}/devicedatasources/{hdsId}/instances)` — resolve alert instanceId references to monitored components (high). Added as `device_datasource_instances`, read from `GET /device/devices/{id}/instances`, which returns the same instance rows for all of a device's datasources in one fan-out over `devices`.
+- [ ] `Device instance data (GET /device/devices/{deviceId}/devicedatasources/{hdsId}/instances/{id}/data)` — measure performance, utilization, and availability instead of relying only on alert counts (high) — skipped: raw per-instance metric series, one paginated request per instance per sync after a device and instance fan-out, so a sync grows with every monitored instance and lands a row per poll interval
+- [ ] `Website graph data (GET /website/websites/{id}/graphs/{graphName}/data)` — measure website uptime and response times over time (high) — skipped: it returns a chart render payload (colors, legends, scaled lines) for a graph name the spec does not list. `GET /website/websites/{websiteId}/checkpoints/{checkpointId}/data` is the raw-data alternative
 - [ ] `Device SDT history (GET /device/devices/{id}/historysdts)` — explain historical alert suppression and separate maintenance from service failures (medium)
 - [ ] `Opsnotes (GET /setting/opsnotes)` — connect incidents with operational notes and change annotations (medium)
 - [ ] `Audit logs (GET /setting/accesslogs)` — track administrative activity and changes associated with monitoring incidents (medium)
@@ -7509,10 +7509,10 @@ Today (5): `ProjectPiiLabels`, `Projects`, `ProjectSecurityScans`, `WorkspaceMem
 
 Diffed against: <https://api.lovable.dev/v1/openapi.yaml>
 
-- [ ] `Workspace groups (GET /v1/workspaces/{workspace_id}/groups)` — resolve group audience targets on published projects and report access segmentation (high)
-- [ ] `Project analytics (GET /v1/projects/{project_id}/analytics)` — measure published website traffic and visitors over time (high)
-- [ ] `Security scan findings (GET /v1/projects/{project_id}/security-scans/{scan_id}/findings)` — analyze vulnerability details and remediation states absent from scan metadata (high)
-- [ ] `Workspace analytics (GET /v1/workspaces/{workspace_id}/analytics)` — measure workspace traffic, including historical visits to deleted projects (medium)
+- [x] `Workspace groups (GET /v1/workspaces/{workspace_id}/groups)` — resolve group audience targets on published projects and report access segmentation (high)
+- [x] `Project analytics (GET /v1/projects/{project_id}/analytics)` — measure published website traffic and visitors over time (high)
+- [x] `Security scan findings (GET /v1/projects/{project_id}/security-scans/{scan_id}/findings)` — analyze vulnerability details and remediation states absent from scan metadata (high)
+- [x] `Workspace analytics (GET /v1/workspaces/{workspace_id}/analytics)` — measure workspace traffic, including historical visits to deleted projects (medium)
 - [ ] `Project analytics breakdowns (GET /v1/projects/{project_id}/analytics/breakdowns)` — analyze traffic by page, referring domain, device type, and country (medium)
 - [ ] `Workspace security project inventory (GET /v1/workspaces/{workspace_id}/security-center/insights/projects)` — compare project review priorities, finding counts, and activity across a workspace (medium)
 
@@ -7734,15 +7734,15 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Medusa — gaps
 
-Today (9): `CustomerGroups`, `Customers`, `DraftOrders`, `Orders`, `PriceLists`, `Products`, `ProductVariants`, `Regions`, `Returns`
+Today (13): `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `PriceLists`, `Products`, `ProductVariants`, `Regions`, `Returns`, `StockLocations`
 
 Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
-- [ ] `Stock locations (GET /admin/stock-locations)` — resolve location_id on returns and support stock analysis by warehouse (high)
-- [ ] `Claims (GET /admin/claims)` — resolve claim_id on returns and analyze reasons for after-sale claims (high)
-- [ ] `Exchanges (GET /admin/exchanges)` — resolve exchange_id on returns and measure replacement activity (high)
+- [x] `Stock locations (GET /admin/stock-locations)` — resolve location_id on returns and support stock analysis by warehouse (high). Added as `StockLocations`.
+- [x] `Claims (GET /admin/claims)` — resolve claim_id on returns and analyze reasons for after-sale claims (high). Added as `Claims`.
+- [x] `Exchanges (GET /admin/exchanges)` — resolve exchange_id on returns and measure replacement activity (high). Added as `Exchanges`.
 - [ ] `Payments (GET /admin/payments)` — track captured and refunded payments for revenue reconciliation (high)
-- [ ] `Inventory items (GET /admin/inventory-items)` — measure available, reserved, and stocked quantities, including nested location levels (high)
+- [x] `Inventory items (GET /admin/inventory-items)` — measure available, reserved, and stocked quantities, including nested location levels (high). Added as `InventoryItems` (full refresh: the list route has no timestamp filters).
 - [ ] `Reservations (GET /admin/reservations)` — analyze inventory commitments and their impact on available stock (medium)
 - [ ] `Promotions (GET /admin/promotions)` — compare discount rules with order revenue and promotional performance (medium)
 - [ ] `Campaigns (GET /admin/campaigns)` — measure promotion budgets and campaign usage (medium)
@@ -7772,11 +7772,11 @@ Diffed against: <https://www.membrain.com/developers/api-documentation>
 
 - [ ] `Sales processes (GET /API/v2/salesProcesses/)` — resolve opportunity process and stage IDs, including stage order and process-specific fields (high)
 - [ ] `Prospecting processes (GET /API/v2/prospectingProcesses/)` — resolve prospect process and stage IDs for conversion analysis (high)
-- [ ] `Account Growth processes (GET /API/v2/accountGrowthProcesses/)` — resolve account-growth process and stage IDs for expansion analysis (high)
-- [ ] `Ticket processes (GET /API/v2/ticketProcesses/)` — resolve ticket process and stage IDs for support workflow analysis (high)
-- [ ] `Currencies (GET /API/v2/currencies/)` — resolve ValueCurrencyId and supply exchange rates for comparable pipeline values (high)
+- [x] `Account Growth processes (GET /API/v2/accountGrowthProcesses/)` — resolve account-growth process and stage IDs for expansion analysis (high)
+- [x] `Ticket processes (GET /API/v2/ticketProcesses/)` — resolve ticket process and stage IDs for support workflow analysis (high)
+- [x] `Currencies (GET /API/v2/currencies/)` — resolve ValueCurrencyId and supply exchange rates for comparable pipeline values (high)
 - [ ] `Labels (GET /API/v2/labels/)` — resolve LabelIds on companies and contacts for consistent segmentation (high)
-- [ ] `Activity types (GET /API/v2/activityTypes/)` — resolve ActivityTypeId and provide the complete activity taxonomy (high)
+- [x] `Activity types (GET /API/v2/activityTypes/)` — resolve ActivityTypeId and provide the complete activity taxonomy (high)
 - [ ] `Process Container Contacts (GET /API/v2/processContainerContacts/)` — connect contacts to sales processes and their stakeholder roles (medium)
 - [ ] `Opportunity Products (GET /API/v2/opportunityProducts/)` — join products to opportunities for product-level pipeline and revenue analysis (medium)
 - [ ] `Orders and Order Rows (GET /API/v2/orders/; GET /API/v2/orderRows/)` — measure booked sales and item-level amounts against opportunities and products (medium)
