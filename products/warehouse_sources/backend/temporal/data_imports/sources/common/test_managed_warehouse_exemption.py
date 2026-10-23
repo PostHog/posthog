@@ -33,8 +33,8 @@ _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sourc
 _INGRESS_MODULE = "products.managed_warehouse.backend.managed_ingress"
 
 # Two addresses, because the incident observed the shared load balancer answering on both.
-_NLB_A = "10.0.141.119"
-_NLB_B = "10.0.158.144"
+_NLB_A = "10.1.0.1"
+_NLB_B = "10.1.0.2"
 _TENANT_HOST = "acme.dw.us.postwh.com"
 
 
