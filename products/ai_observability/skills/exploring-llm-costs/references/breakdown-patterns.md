@@ -95,7 +95,8 @@ LIMIT 25
 ```
 
 Then drill into the top traces with `posthog:query-llm-trace` to see which spans
-and generations are driving cost.
+and generations are driving cost. Use this query, not `posthog:query-llm-traces-list`,
+to rank traces: the list tool returns the newest traces first and cannot sort by cost.
 
 ## Cost by custom dimension
 
