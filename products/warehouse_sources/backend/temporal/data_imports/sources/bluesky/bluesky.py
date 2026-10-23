@@ -235,17 +235,24 @@ def bluesky_source(
     )
 
 
+def normalize_actor(actor: str) -> str:
+    # Bluesky shows handles as "@name", but the API rejects the "@" as an invalid AT identifier.
+    return actor.strip().removeprefix("@")
+
+
 def validate_credentials(actor: str) -> tuple[bool, str | None]:
     session = make_tracked_session()
-    response = session.get(f"{BASE_URL}/xrpc/app.bsky.actor.getProfile", params={"actor": actor})
+    response = session.get(f"{BASE_URL}/xrpc/app.bsky.actor.getProfile", params={"actor": normalize_actor(actor)})
     if response.status_code == 200:
         return True, None
+
+    # Bluesky's 400 messages name XRPC params ("Invalid app.bsky.actor.getProfile params: ..."),
+    # which tell the user nothing about which field to fix.
+    if response.status_code == 400:
+        return False, "That handle or DID couldn't be found on Bluesky. Check the spelling and try again."
 
     try:
         message = response.json().get("message")
     except ValueError:
         message = None
-
-    if response.status_code == 400:
-        return False, message or "That handle or DID couldn't be found on Bluesky. Check the spelling and try again."
     return False, message or f"Bluesky returned an unexpected error ({response.status_code})."

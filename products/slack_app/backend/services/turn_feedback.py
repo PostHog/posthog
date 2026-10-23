@@ -32,6 +32,8 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.analytics import slack_event_props
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 
@@ -388,6 +390,9 @@ def handle_turn_feedback_click(payload: dict) -> HttpResponse:
     # resolves the clicker's identity against the database on its way out.
     if sentiment == "negative":
         _open_reason_modal(payload, target)
+    record_feature_used(
+        target.integration.integration_id, payload.get("user", {}).get("id"), SlackFeature.ANSWER_RATING
+    )
     _capture(
         target,
         "$ai_metric",
@@ -557,4 +562,5 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
             "reaction": _reaction_base(reaction),
         },
     )
+    record_feature_used(integration.integration_id, event.get("user"), SlackFeature.ANSWER_RATING)
     return REACTION_HANDLED

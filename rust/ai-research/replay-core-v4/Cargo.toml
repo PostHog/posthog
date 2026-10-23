@@ -1,0 +1,46 @@
+[package]
+name = "replay-core-v4"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Core of the v4 AI research replay dataset: the AISR03 envelope, the v4 keys, the session gate and the byte-level scan"
+
+[lints]
+workspace = true
+
+[features]
+default = ["store"]
+# The key table and KMS clients. A reader that only opens frames turns default features off and skips the AWS SDK.
+store = ["dep:async-trait", "dep:aws-sdk-dynamodb", "dep:aws-sdk-kms", "dep:chrono", "dep:futures", "dep:governor", "dep:moka", "dep:rand", "dep:tokio"]
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = { workspace = true }
+async-trait = { workspace = true, optional = true }
+aws-sdk-dynamodb = { workspace = true, optional = true }
+aws-sdk-kms = { workspace = true, optional = true }
+base64 = { workspace = true }
+chrono = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+governor = { workspace = true, optional = true }
+hkdf = "0.12"
+hmac = { workspace = true }
+libdeflater = { workspace = true }
+lz4 = { workspace = true }
+md5 = "0.8"
+memchr = "2"
+moka = { workspace = true, optional = true }
+percent-encoding = { workspace = true }
+public-suffix = { workspace = true }
+rand = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+tokio = { workspace = true, optional = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }
+tokio = { workspace = true }

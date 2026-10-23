@@ -128,6 +128,26 @@ describe('dataWarehouseViewsLogic', () => {
         expect(logic.values.dataWarehouseSavedQueries).toEqual([])
     })
 
+    it('treats a missing lineage node as no downstream references', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_modeling_nodes/lineage/': [404, { detail: 'Node not found.' }],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadDataWarehouseSavedQueryDownstreamReferences('view-404')
+        })
+            .toDispatchActions(['loadDataWarehouseSavedQueryDownstreamReferencesSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueryDownstreamReferencesFailure'])
+
+        expect(logic.values.dataWarehouseSavedQueryDownstreamReferences['view-404']).toEqual({
+            error: false,
+            loading: false,
+            references: [],
+        })
+    })
+
     // Regression: the blocked node's id arrives on the response body's `extra`, which the error
     // object keeps on `data`. Read off the error's root it was always undefined, so a refused
     // delete offered no way to see what reads the view.

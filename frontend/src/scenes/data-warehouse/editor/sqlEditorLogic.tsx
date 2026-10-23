@@ -342,7 +342,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer' | 'query_history' | 'materialization_fix'
+    source?: 'max_ai' | 'hogql_fixer' | 'query_history'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -686,7 +686,7 @@ export interface sqlEditorLogicValues {
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
     suggestedQueryInput: string
-    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
+    suggestedSource: 'hogql_fixer' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
@@ -991,6 +991,9 @@ export interface sqlEditorLogicActions {
     reportAIQueryRejected: () => {
         value: true
     }
+    reviewEditingViewUpdate: () => {
+        value: true
+    }
     reviewViewUpdate: (
         view: UpdateViewPayload,
         draftId?: string
@@ -1180,7 +1183,7 @@ export interface sqlEditorLogicActions {
         suggestedQueryInput: string,
         source?: SuggestionPayload['source']
     ) => {
-        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | undefined
+        source: 'hogql_fixer' | 'max_ai' | 'query_history' | undefined
         suggestedQueryInput: string
     }
     setUpstreamViewMode: (mode: 'graph' | 'table') => {
@@ -1230,7 +1233,7 @@ export interface sqlEditorLogicMeta {
         placeholderValues: (placeholders: SQLEditorPlaceholder[]) => Record<string, string> | null
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
-        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
+        ) => 'hogql_fixer' | 'max_ai' | 'query_history' | null
         diffShowRunButton: (suggestionPayload: SuggestionPayload | null) => boolean | undefined
         acceptText: (suggestionPayload: SuggestionPayload | null) => string
         rejectText: (suggestionPayload: SuggestionPayload | null) => string
@@ -1496,6 +1499,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        reviewEditingViewUpdate: true,
         reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -3415,6 +3419,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     }
                 }
+            },
+            reviewEditingViewUpdate: () => {
+                const view = values.editingView
+                if (!view) {
+                    return
+                }
+                // The data node is bound inside the editor, so the response is read from the mounted instance.
+                const response = dataNodeLogic.findMounted({ key: values.dataLogicKey })?.values.response
+                actions.reviewViewUpdate({
+                    id: view.id,
+                    query: { ...values.sourceQuery.source, query: values.queryInput ?? '' },
+                    types: response && 'types' in response ? (response.types ?? []) : [],
+                    shouldRematerialize: view.is_materialized === true,
+                    edited_history_id: values.inProgressViewEdits[view.id],
+                })
             },
             reviewViewUpdate: ({ view, draftId }) => {
                 // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate

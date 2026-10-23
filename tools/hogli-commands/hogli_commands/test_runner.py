@@ -726,8 +726,19 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
                 _run(cfg.command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
 
 
-def _run_changed(extra_args: list[str]) -> None:
-    """Find changed test files and tests for changed source files, then run them."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ChangedTests:
+    directly_changed: set[str]
+    discovered: set[str]
+    skipped_playwright_specs: set[str]
+
+    @property
+    def all_files(self) -> list[str]:
+        return sorted(self.directly_changed | self.discovered)
+
+
+def changed_test_files(*, skip_playwright: bool = False) -> ChangedTests:
+    """The changed test files, and the test files found for changed source files."""
     changed = _get_changed_files()
 
     directly_changed = {f for f in changed if _is_test_file(f)}
@@ -737,7 +748,26 @@ def _run_changed(extra_args: list[str]) -> None:
         if not _is_test_file(f):
             discovered.update(_find_test_files_for_source(f))
 
-    all_test_files = sorted(directly_changed | discovered)
+    playwright_specs: set[str] = set()
+    if skip_playwright:
+        playwright_specs = {f for f in directly_changed | discovered if f.startswith("playwright/")}
+        directly_changed -= playwright_specs
+        discovered -= playwright_specs
+
+    return ChangedTests(
+        directly_changed=directly_changed, discovered=discovered, skipped_playwright_specs=playwright_specs
+    )
+
+
+def _run_changed(extra_args: list[str], skip_playwright: bool = False) -> None:
+    """Find changed test files and tests for changed source files, then run them."""
+    tests = changed_test_files(skip_playwright=skip_playwright)
+    if tests.skipped_playwright_specs:
+        click.secho(f"Skipping {len(tests.skipped_playwright_specs)} Playwright spec(s).", fg="yellow")
+    directly_changed = tests.directly_changed
+    discovered = tests.discovered
+
+    all_test_files = tests.all_files
 
     if not all_test_files:
         click.secho("No test files found for changes on this branch.", fg="yellow")
@@ -828,16 +858,21 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 )
 @click.argument("file_path", required=False, type=click.Path())
 @click.option("--changed", is_flag=True, help="Run tests changed on this branch, plus tests for changed source files")
+@click.option(
+    "--skip-playwright",
+    is_flag=True,
+    help="With --changed, leave out Playwright specs, which need a running stack",
+)
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
 @click.pass_context
-def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
+def test_command(ctx: click.Context, file_path: str | None, changed: bool, skip_playwright: bool, watch: bool) -> None:
     """Auto-detect test type and run the correct test runner."""
     if changed:
         if file_path:
             raise click.UsageError("Cannot combine --changed with a file path.")
         if watch:
             raise click.UsageError("Cannot combine --changed with --watch.")
-        _run_changed(list(ctx.args))
+        _run_changed(list(ctx.args), skip_playwright=skip_playwright)
         return
 
     if not file_path:

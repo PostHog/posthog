@@ -41,7 +41,9 @@ from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     ActivitySummaryTierStats,
     daily_usage,
+    enrolled_team_ids,
     feed_queue,
+    is_team_enrolled_for_generation,
     max_update_cost_usd,
     select_pairs,
     sync_pair_state,
@@ -149,14 +151,16 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         # Every pair would fail on the same missing gateway, so the tick runs none.
         logger.warning("activity_summary_tick_gateway_not_configured")
     enabled = config.enabled and not gateway_missing
+    # One enrollment read serves the feed and the selection.
+    team_ids = enrolled_team_ids(config)
     if config.enabled:
         # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
-        feed_queue(config, now)
+        feed_queue(config, now, team_ids)
     usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
     tick_limit = limit or config.max_pairs_per_tick
-    selection = select_pairs(config, now, tick_limit) if updates_left and cost_left else None
+    selection = select_pairs(config, now, tick_limit, team_ids) if updates_left and cost_left else None
     pairs = selection.pairs if selection else []
     due_pairs = selection.due_pairs if selection else 0
 
@@ -243,7 +247,17 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
     )
 
 
+def _enrolled_at_dispatch(team_id: int) -> bool:
+    # The flag can change between the plan and the pair, so the pair reads it again.
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    return team is not None and is_team_enrolled_for_generation(read_config(), team)
+
+
 def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> ActivitySummaryPairResult:
+    if not _enrolled_at_dispatch(input.team_id):
+        return ActivitySummaryPairResult(
+            status=UpdateStatus.SKIPPED_NOT_ENROLLED.value, cost_usd=None, called_model=False
+        )
     try:
         update = update_activity_summary(
             input.team_id,
