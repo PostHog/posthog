@@ -616,6 +616,11 @@ def mark_replay_refused(fingerprint: str, reason: str) -> None:
     _release_claim(fingerprint)
 
 
+def mark_replay_failed(fingerprint: str, reason: str) -> None:
+    _save_state(fingerprint, status="failed", detail=reason)
+    _release_claim(fingerprint)
+
+
 def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult]:
     """Send a claimed plan, one rerun request per chunk, and record progress under its fingerprint."""
     fingerprint = plan.fingerprint
@@ -629,51 +634,62 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
     _save_state(fingerprint, status="running")
     criteria = plan.criteria
     results: list[FunctionReplayResult] = []
-    for function in plan.replayable_functions:
-        for offset in range(0, len(function.invocation_ids), HOG_INVOCATION_RERUN_MAX_COUNT):
-            chunk = list(function.invocation_ids[offset : offset + HOG_INVOCATION_RERUN_MAX_COUNT])
-            try:
-                response = rerun_hog_invocations(
+    try:
+        for function in plan.replayable_functions:
+            for offset in range(0, len(function.invocation_ids), HOG_INVOCATION_RERUN_MAX_COUNT):
+                chunk = list(function.invocation_ids[offset : offset + HOG_INVOCATION_RERUN_MAX_COUNT])
+                try:
+                    response = rerun_hog_invocations(
+                        team_id=function.team_id,
+                        function_kind="hog_function",
+                        function_id=function.function_id,
+                        payload={
+                            "filter": {
+                                "window_start": criteria.window_start.isoformat(),
+                                "window_end": criteria.window_end.isoformat(),
+                                "status": ["failed"],
+                                "invocation_ids": chunk,
+                                "max_count": len(chunk),
+                            }
+                        },
+                    )
+                    status_code, detail = response.status_code, response.text[:500]
+                except Exception as error:
+                    # One unreachable request must not stop the rest of the plan. The
+                    # result records it, so the operator can preview again and send
+                    # only what is still failed.
+                    status_code, detail = 0, repr(error)[:500]
+                result = FunctionReplayResult(
                     team_id=function.team_id,
-                    function_kind="hog_function",
                     function_id=function.function_id,
-                    payload={
-                        "filter": {
-                            "window_start": criteria.window_start.isoformat(),
-                            "window_end": criteria.window_end.isoformat(),
-                            "status": ["failed"],
-                            "invocation_ids": chunk,
-                            "max_count": len(chunk),
-                        }
-                    },
+                    invocation_count=len(chunk),
+                    status_code=status_code,
+                    detail=detail,
                 )
-                status_code, detail = response.status_code, response.text[:500]
-            except Exception as error:
-                # One unreachable request must not stop the rest of the plan. The
-                # result records it, so the operator can preview again and send
-                # only what is still failed.
-                status_code, detail = 0, repr(error)[:500]
-            result = FunctionReplayResult(
-                team_id=function.team_id,
-                function_id=function.function_id,
-                invocation_count=len(chunk),
-                status_code=status_code,
-                detail=detail,
-            )
-            results.append(result)
+                results.append(result)
+                _save_state(
+                    fingerprint,
+                    results=[
+                        {
+                            "team_id": r.team_id,
+                            "function_id": r.function_id,
+                            "invocation_count": r.invocation_count,
+                            "status_code": r.status_code,
+                            "detail": r.detail,
+                        }
+                        for r in results
+                    ],
+                )
+    except BaseException:
+        # An interrupt or a crash before any request was accepted leaves the plan
+        # unchanged, so the claim must not block the operator from sending it again.
+        if not any(r.status_code == 200 for r in results):
+            mark_replay_failed(fingerprint, "The send stopped before any request was accepted.")
+        else:
             _save_state(
-                fingerprint,
-                results=[
-                    {
-                        "team_id": r.team_id,
-                        "function_id": r.function_id,
-                        "invocation_count": r.invocation_count,
-                        "status_code": r.status_code,
-                        "detail": r.detail,
-                    }
-                    for r in results
-                ],
+                fingerprint, status="failed", detail="The send stopped part way. Preview again to send the rest."
             )
+        raise
     failed_requests = sum(1 for r in results if r.status_code != 200)
     _save_state(fingerprint, status="done", failed_requests=failed_requests)
     if results and failed_requests == len(results):

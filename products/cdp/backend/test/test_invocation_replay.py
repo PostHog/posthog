@@ -291,14 +291,31 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         assert sorted(r.status_code for r in results) == [0, 200]
         assert (get_replay_state(plan.fingerprint) or {})["failed_requests"] == 1
 
+    @parameterized.expand(
+        [
+            ("every_request_failed", "send", ConnectionError("cdp api down")),
+            ("send_interrupted", "send", KeyboardInterrupt()),
+            ("planning_failed_in_task", "plan", RuntimeError("clickhouse down")),
+        ]
+    )
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
-    def test_a_send_that_queued_nothing_can_be_sent_again(self, rerun: MagicMock) -> None:
-        rerun.side_effect = ConnectionError("cdp api down")
+    def test_a_send_that_queued_nothing_can_be_sent_again(
+        self, _name: str, stage: str, error: BaseException, rerun: MagicMock
+    ) -> None:
+        rerun.side_effect = error
         _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
-        plan = plan_replay(_criteria())
+        criteria = _criteria()
+        plan = plan_replay(criteria)
         assert claim_replay(plan, actor="first")
 
-        execute_replay(plan, actor="first")
+        with patch(
+            "products.cdp.backend.tasks.invocation_replay.plan_replay",
+            side_effect=error if stage == "plan" else plan_replay,
+        ):
+            try:
+                run_invocation_replay(criteria.to_payload(), plan.fingerprint, "first")
+            except BaseException as raised:
+                assert raised is error
 
         assert claim_replay(plan, actor="second")
 
@@ -368,3 +385,15 @@ class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
         assert task.delay.call_args.args[1] == fingerprint
         status = self.admin_client.get(first["Location"])
         assert status.context["state"]["status"] == "queued"
+
+    @patch("products.cdp.backend.admin.hog_function_admin.run_invocation_replay")
+    def test_send_can_be_retried_when_the_task_cannot_be_queued(self, task: MagicMock) -> None:
+        task.delay.side_effect = [ConnectionError("broker down"), None]
+        fingerprint = self._fingerprint()
+        send = {**self.form, "action": "execute", "fingerprint": fingerprint, "confirm_count": "2"}
+
+        first = self.admin_client.post(self.url, send)
+        assert self.admin_client.get(first["Location"]).context["state"]["status"] == "failed"
+
+        self.admin_client.post(self.url, send)
+        assert task.delay.call_count == 2

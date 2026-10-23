@@ -9,6 +9,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from products.cdp.backend.services.invocation_replay import (
     ReplayCriteria,
     execute_replay,
+    mark_replay_failed,
     mark_replay_refused,
     plan_replay,
 )
@@ -22,7 +23,12 @@ def run_invocation_replay(criteria: dict[str, Any], fingerprint: str, actor: str
     # The plan is computed again here because only the criteria cross the queue.
     # Between the review and this task the runs can change, and then the task
     # must send nothing rather than a set nobody reviewed.
-    plan = plan_replay(ReplayCriteria.from_payload(criteria))
+    try:
+        plan = plan_replay(ReplayCriteria.from_payload(criteria))
+    except Exception:
+        logger.exception("invocation_replay_planning_failed", fingerprint=fingerprint)
+        mark_replay_failed(fingerprint, "The plan could not be computed again, so nothing was sent.")
+        raise
     if plan.fingerprint != fingerprint:
         logger.warning("invocation_replay_plan_changed", fingerprint=fingerprint, new_fingerprint=plan.fingerprint)
         mark_replay_refused(fingerprint, "The runs changed between the review and the send, so nothing was sent.")

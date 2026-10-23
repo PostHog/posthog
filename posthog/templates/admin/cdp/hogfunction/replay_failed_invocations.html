@@ -34,7 +34,7 @@
 {% endblock %}
 {% block extrahead %}
     {{ block.super }}
-    {% if step == "status" and state and state.status != "done" and state.status != "refused" %}
+    {% if step == "status" and state and state.status == "queued" or step == "status" and state and state.status == "running" %}
         <meta http-equiv="refresh" content="3">
     {% endif %}
 {% endblock %}
@@ -69,7 +69,7 @@
                 <p class="replay-note is-bad">No replay is recorded for plan {{ fingerprint }}. It was never sent, or its record expired.</p>
             {% else %}
                 <div class="replay-stats">
-                    <div class="replay-stat {% if state.status == 'done' and not failed_requests %}is-ok{% elif state.status == 'refused' or failed_requests %}is-bad{% else %}is-warn{% endif %}">
+                    <div class="replay-stat {% if state.status == 'done' and not failed_requests %}is-ok{% elif state.status == 'refused' or state.status == 'failed' or failed_requests %}is-bad{% else %}is-warn{% endif %}">
                         <strong>{{ state.status }}</strong><span>status</span>
                     </div>
                     <div class="replay-stat">
@@ -82,7 +82,7 @@
                         <strong>{{ failed_requests }}</strong><span>requests failed</span>
                     </div>
                 </div>
-                {% if state.status == "refused" %}<p class="replay-note is-bad">{{ state.detail }}</p>{% endif %}
+                {% if state.status == "refused" or state.status == "failed" %}<p class="replay-note is-bad">{{ state.detail }}</p>{% endif %}
                 {% if state.status == "queued" or state.status == "running" %}
                     <p class="replay-note">The replay is sending in the background. This page refreshes every 3 seconds.</p>
                 {% endif %}

@@ -10,6 +10,8 @@ from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from posthog.exceptions_capture import capture_exception
+
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from products.cdp.backend.presentation.hog_invocations.rerun import RERUN_MAX_WINDOW_DAYS
 from products.cdp.backend.services.invocation_replay import (
@@ -18,6 +20,7 @@ from products.cdp.backend.services.invocation_replay import (
     ReplayCriteria,
     claim_replay,
     get_replay_state,
+    mark_replay_failed,
     plan_replay,
 )
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
@@ -275,7 +278,11 @@ class HogFunctionAdmin(admin.ModelAdmin):
         else:
             # The send runs in a task, because a plan can need hundreds of requests and
             # the admin request would time out before they finish.
-            run_invocation_replay.delay(plan.criteria.to_payload(), plan.fingerprint, actor)
+            try:
+                run_invocation_replay.delay(plan.criteria.to_payload(), plan.fingerprint, actor)
+            except Exception as error:
+                capture_exception(error)
+                mark_replay_failed(plan.fingerprint, "The replay task could not be queued, so nothing was sent.")
         return redirect("admin:cdp-replay-failed-invocations-status", fingerprint=plan.fingerprint)
 
     def replay_status_view(self, request: HttpRequest, fingerprint: str) -> HttpResponse:
