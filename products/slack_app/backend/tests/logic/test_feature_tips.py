@@ -168,6 +168,25 @@ class TestInboxChannelTarget(SimpleTestCase):
             assert ctx.inbox_channel_target == expected
 
 
+class TestInboxChannelJoin(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, True),
+            (SlackThreadTaskMapping.ConversationType.PRIVATE_CHANNEL, False),
+        ]
+    )
+    def test_join_rechecks_that_the_channel_is_still_public(self, conversation_type, invited):
+        with (
+            patch.object(catalog, "ensure_inbox_channel", return_value=("C1", "#posthog-inbox")),
+            patch.object(catalog, "SlackIntegration"),
+            patch.object(catalog, "resolve_conversation_type", return_value=conversation_type),
+            patch.object(catalog, "invite_user_to_inbox", return_value=True) as invite,
+        ):
+            CATALOG[SlackFeature.INBOX_CHANNEL].apply_action(MagicMock(), SLACK_USER)
+
+        assert invite.called is invited
+
+
 class TestChooseTip(SimpleTestCase):
     candidates = [CATALOG[SlackFeature.SUBSCRIPTION], CATALOG[SlackFeature.CODE_CHANGE_PR]]
 

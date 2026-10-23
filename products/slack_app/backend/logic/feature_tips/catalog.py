@@ -87,14 +87,16 @@ class TipContext:
             return None
         # A tip names the channel and invites the reader, so a private or unknown channel would
         # leak its name or add someone who was not meant to join it.
-        conversation_type = resolve_conversation_type(
-            SlackIntegration(self.integration), {}, channel_id_from_target(target)
-        )
-        return target if conversation_type == SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL else None
+        return target if _is_public_channel(self.integration, channel_id_from_target(target)) else None
 
     @cached_property
     def app_home_url(self) -> str | None:
         return app_home_url(self.integration)
+
+
+def _is_public_channel(integration: Integration, channel_id: str) -> bool:
+    conversation_type = resolve_conversation_type(SlackIntegration(integration), {}, channel_id)
+    return conversation_type == SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
 
 
 @frozen
@@ -328,7 +330,10 @@ class InboxChannelTip(TipFeature):
 
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         channel = ensure_inbox_channel(integration)
-        if channel is None or not invite_user_to_inbox(integration, channel[0], slack_user_id):
+        # Checked again on click, because the channel can turn private after the tip was shown.
+        if channel is None or not _is_public_channel(integration, channel[0]):
+            return "I couldn't add you to the channel. Ask a Slack admin to add you."
+        if not invite_user_to_inbox(integration, channel[0], slack_user_id):
             return "I couldn't add you to the channel. Try again later, or ask a Slack admin to add you."
         return f"✅ Done. You're in {channel[1]}."
 
