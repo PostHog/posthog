@@ -406,7 +406,10 @@ def _run_widget_query(
                 "error": None,
             }
         except WidgetQueryError as error:
-            # An expected, user-facing failure (no access, an invalid query), so it is not logged as an exception.
+            # The message is safe to show, so it is not logged as an exception. Only failures on our side count
+            # against the delivery SLO.
+            if error.operational:
+                slo.fail()
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,

@@ -559,6 +559,9 @@ export interface dashboardLogicActions {
     cancelLayoutEdit: () => {
         value: true
     }
+    cancelWidgetRefresh: (tileIds: number[]) => {
+        tileIds: number[]
+    }
     changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -1565,6 +1568,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** A newly added tile whose widget settings open as soon as it renders. */
         setWidgetEditorTileId: (tileId: number | null) => ({ tileId }),
         setWidgetFiltersKeys: (tileIds: number[], filtersKey: string) => ({ tileIds, filtersKey }),
+        cancelWidgetRefresh: (tileIds: number[]) => ({ tileIds }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -2836,6 +2840,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                   },
                         ])
                     ),
+                }),
+                cancelWidgetRefresh: (state, { tileIds }) => ({
+                    ...state,
+                    ...Object.fromEntries(tileIds.map((tileId) => [tileId, { ...state[tileId], loading: false }])),
                 }),
                 setWidgetRunResults: (state, { results }) => {
                     const next = { ...state }
@@ -4857,10 +4865,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id
+            const signal: AbortSignal | undefined = cache.abortController?.signal
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
                 try {
                     const results = await fetchRunWidgets(projectId, dashboardId, chunk, {
-                        signal: cache.abortController?.signal,
+                        signal,
                         filtersOverride: chunk.some((tileId) => tilesFollowingDashboardFilters.has(tileId))
                             ? filtersOverride
                             : undefined,
@@ -4878,13 +4887,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             result.error ? DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE : null
                         )
                     }
-                } catch (error) {
-                    // An insight refresh aborts running requests and starts its own widget refresh, so an abort is no error.
-                    actions.setWidgetRefreshStatuses(
-                        chunk.filter(isLatest),
-                        false,
-                        shouldCancelQuery(error) ? null : DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE
-                    )
+                } catch {
+                    if (signal?.aborted) {
+                        // An insight refresh aborts running requests and starts its own widget refresh: no error,
+                        // and the tile keeps the time of its last real fetch.
+                        actions.cancelWidgetRefresh(chunk.filter(isLatest))
+                    } else {
+                        actions.setWidgetRefreshStatuses(
+                            chunk.filter(isLatest),
+                            false,
+                            DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE
+                        )
+                    }
                 }
             })
 
