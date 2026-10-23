@@ -18,12 +18,16 @@ use replay_core_v4::keys::kms::{AwsKms, CachedKms, KmsLimits};
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use replay_recorder_v4::config::Config;
 use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Sources};
-use replay_recorder_v4::flush::Writer;
+use replay_recorder_v4::flush::{Writer, PRODUCER_FLUSH_ON_SHUTDOWN};
 use replay_recorder_v4::limits::{Restrictions, SessionLimiter};
 use replay_recorder_v4::store::S3Store;
 use replay_recorder_v4::teams::TeamCache;
 
 common_alloc::used!();
+
+/// The index producer's local queue. A block row is a few KB, so this holds several large flushes.
+const INDEX_QUEUE_MIB: u32 = 512;
+const INDEX_QUEUE_MESSAGES: u32 = 500_000;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,27 +43,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
     tracing::info!(topic = %config.kafka_topic, overflow_topic = %config.kafka_overflow_topic, group = %config.kafka_consumer_group, sample = config.sample_percentage, "starting replay-recorder-v4");
 
+    // The consumer flushes the buffer, then the producer, on shutdown.
+    let consumer_shutdown =
+        Duration::from_secs(config.shutdown_flush_secs + 5) + PRODUCER_FLUSH_ON_SHUTDOWN;
     let mut manager = Manager::builder("replay-recorder-v4")
-        .with_global_shutdown_timeout(Duration::from_secs(config.shutdown_flush_secs + 15))
+        .with_global_shutdown_timeout(consumer_shutdown + Duration::from_secs(10))
         .build();
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(config.shutdown_flush_secs + 5))
+            .with_graceful_shutdown(consumer_shutdown)
             .with_liveness_deadline(Duration::from_secs(60)),
     );
     let restrictions_handle = manager.register(
         "event-restrictions",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
     );
-    // The producer reports itself live from librdkafka's statistics callback.
-    let producer_handle = config.write_enabled.then(|| {
-        manager.register(
-            "image-fetch-producer",
-            ComponentOptions::new()
-                .with_graceful_shutdown(Duration::from_secs(5))
-                .with_liveness_deadline(Duration::from_secs(60)),
-        )
+    // A producer reports itself live from librdkafka's statistics callback.
+    let producer_handles = config.write_enabled.then(|| {
+        let mut register = |name: &str| {
+            manager.register(
+                name,
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_liveness_deadline(Duration::from_secs(60)),
+            )
+        };
+        (register("image-fetch-producer"), register("index-producer"))
     });
     let metrics_handle = manager.register(
         "metrics-server",
@@ -164,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redirecting_topic: (config.ingestion_overflow_mode == "redirect")
             .then(|| config.kafka_topic.clone()),
     };
-    let writer = if let Some(producer_handle) = producer_handle {
+    let writer = if let Some((producer_handle, index_producer_handle)) = producer_handles {
         let aws = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .load()
             .await;
@@ -202,6 +212,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?,
             image_fetch_topic: config.image_fetch_topic.clone(),
+            index_producer: create_kafka_producer(
+                &KafkaConfig {
+                    kafka_compression_codec: "lz4".to_owned(),
+                    kafka_message_timeout_ms: config.index_delivery_timeout_ms,
+                    // Rows of a few flushes, so a slow broker holds them here instead of losing them at once.
+                    kafka_producer_queue_mib: INDEX_QUEUE_MIB,
+                    kafka_producer_queue_messages: INDEX_QUEUE_MESSAGES,
+                    ..config.kafka.clone()
+                },
+                index_producer_handle,
+            )
+            .await?,
+            index_topic: config.index_topic.clone(),
             sent_urls: replay_recorder_v4::urls::sent_urls(500_000),
             seal_permits: Arc::new(tokio::sync::Semaphore::new(settings.flush_concurrency)),
         })

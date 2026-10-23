@@ -127,12 +127,21 @@ pub struct Config {
     )]
     pub image_fetch_topic: String,
 
+    /// Where the block and image index rows go for the Parquet sink.
+    #[envconfig(from = "AI_RESEARCH_V4_INDEX_TOPIC", default = "ai_research_v4_index")]
+    pub index_topic: String,
+
     /// A fetch job not delivered in this time fails its flush. It is well under the flush timeout.
     #[envconfig(
         from = "AI_RESEARCH_V4_IMAGE_FETCH_DELIVERY_TIMEOUT_MS",
         default = "20000"
     )]
     pub image_fetch_delivery_timeout_ms: u32,
+
+    /// An index row not delivered in this time is lost and counted. The flush does not wait for it, so it can be long
+    /// enough to ride out a broker slowdown.
+    #[envconfig(from = "AI_RESEARCH_V4_INDEX_DELIVERY_TIMEOUT_MS", default = "300000")]
+    pub index_delivery_timeout_ms: u32,
 
     #[envconfig(default = "9104")]
     pub metrics_port: u16,
@@ -205,6 +214,7 @@ impl Config {
                 ("AI_RESEARCH_V4_RRWEB_BUCKET", &self.rrweb_bucket),
                 ("AI_RESEARCH_V4_IMAGES_BUCKET", &self.images_bucket),
                 ("AI_RESEARCH_V4_IMAGE_FETCH_TOPIC", &self.image_fetch_topic),
+                ("AI_RESEARCH_V4_INDEX_TOPIC", &self.index_topic),
             ]);
         }
         let missing: Vec<&str> = required
