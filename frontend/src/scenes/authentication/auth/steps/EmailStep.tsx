@@ -14,7 +14,7 @@ import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTi
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { authLogic } from '../authLogic'
@@ -35,7 +35,7 @@ function EmailStepTitle(): JSX.Element {
                         <HighlightedName>{pendingConnection.clientName}</HighlightedName>
                     </>
                 }
-                sub={reviewAccessCopy(pendingConnection, "Once you're in")}
+                sub={`${pendingConnection.clientName} saved you a seat.`}
             />
         )
     }
@@ -50,11 +50,7 @@ function EmailStepTitle(): JSX.Element {
                     <HighlightedName>@PostHog</HighlightedName>
                 </>
             }
-            sub={
-                isReturning
-                    ? "Welcome back. Let's go ship something."
-                    : "Enter your email to continue. If you're new, we'll create your account next."
-            }
+            sub={isReturning ? "Welcome back. Let's go ship something." : 'Hedgehogs of all kinds welcome.'}
         />
     )
 }

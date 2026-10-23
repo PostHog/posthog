@@ -16,7 +16,7 @@ import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTi
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
-import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
@@ -48,12 +48,18 @@ function LoginStepTitle(): JSX.Element {
         )
     }
 
-    const loggingInAs = (
-        <>
-            <span>{entry === 'signup' ? 'You already have an account with' : 'Logging in as'}</span>{' '}
-            <span className="AuthScene__mono">{login.email}</span>
-        </>
-    )
+    const greeting =
+        entry === 'signup' ? (
+            <>
+                <span>Plot twist:</span> <span className="AuthScene__mono">{login.email}</span>{' '}
+                <span>already has an account.</span>
+            </>
+        ) : (
+            <>
+                <span>Good to see you,</span> <span className="AuthScene__mono">{login.email}</span>
+                <span>.</span>
+            </>
+        )
     if (pendingConnection) {
         return (
             <AuthCardTitle
@@ -63,16 +69,11 @@ function LoginStepTitle(): JSX.Element {
                         <HighlightedName>{pendingConnection.clientName}</HighlightedName>
                     </>
                 }
-                sub={
-                    <>
-                        <span className="block">{loggingInAs}</span>
-                        <span className="block mt-1">{reviewAccessCopy(pendingConnection, 'After you log in')}</span>
-                    </>
-                }
+                sub={greeting}
             />
         )
     }
-    return <AuthCardTitle title="Welcome back" sub={loggingInAs} />
+    return <AuthCardTitle title="Welcome back" sub={greeting} />
 }
 
 export function LoginStep(): JSX.Element {
