@@ -201,6 +201,7 @@ function ExceptionCardContent({
                                 <ViewLogsButton
                                     sessionId={sessionId}
                                     timestamp={timestamp}
+                                    openedFrom="exception"
                                     size="xsmall"
                                     data-attr="error-tracking-session-view-logs"
                                 />

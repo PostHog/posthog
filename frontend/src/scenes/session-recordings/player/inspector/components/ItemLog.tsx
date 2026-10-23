@@ -70,7 +70,11 @@ export function ItemLog({ item, groupCount }: ItemLogProps): JSX.Element {
 }
 
 export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): JSX.Element {
-    const { onClick: openSessionLogs } = useViewLogsButton({ sessionId, timestamp: item.timestamp.toISOString() })
+    const { onClick: openSessionLogs } = useViewLogsButton({
+        sessionId,
+        timestamp: item.timestamp.toISOString(),
+        openedFrom: 'recording',
+    })
 
     const attributes =
         item.data.attributes && typeof item.data.attributes === 'object'
