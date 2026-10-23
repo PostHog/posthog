@@ -71,6 +71,25 @@ def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str,
     return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
+def _own_plan_state(integration: Any, user: Any, *, runtime_adapter: str | None) -> dict[str, Any]:
+    """The run-state keys that bill a new run to this user's own plan, or none to keep PostHog credits.
+
+    The caller passes the thread creator, whose plan pays for every turn in the thread.
+    A failed check keeps the run on credits rather than blocking the mention.
+    """
+    from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled  # noqa: PLC0415
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+
+    try:
+        state: dict[str, Any] = tasks_facade.unattended_model_access_state(user, runtime_adapter=runtime_adapter)
+        # The flag is a network call, so the local plan checks run first.
+        if state and is_slack_app_byos_enabled(integration, user.distinct_id, adapter=str(runtime_adapter)):
+            return state
+    except Exception:
+        logger.exception("slack_app_own_plan_resolution_failed", user_id=user.id)
+    return {}
+
+
 def _strip_context_tag(text: str) -> str:
     return re.sub(rf"</?\s*{_THREAD_CONTEXT_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
 
@@ -578,6 +597,7 @@ def create_posthog_code_task_for_repo_activity(
     model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user import User
 
     from products.signals.backend.facade import api as signals_facade
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -716,9 +736,21 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
+    from products.slack_app.backend.facade.run_preferences import (
+        resolve_effective_runtime_adapter,
+        resolve_run_preferences,
+    )
 
     run_prefs = resolve_run_preferences(override=model_override, team_id=integration.team_id, user_id=user_id)
+    own_plan_state: dict[str, Any] = {}
+    if mentioner := User.objects.filter(id=user_id, is_active=True).first():
+        own_plan_state = _own_plan_state(
+            integration,
+            mentioner,
+            runtime_adapter=resolve_effective_runtime_adapter(
+                run_prefs.runtime_adapter, team_id=integration.team_id, user_id=user_id
+            ),
+        )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -752,6 +784,7 @@ def create_posthog_code_task_for_repo_activity(
             model=run_prefs.model,
             reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
+            extra_run_state=own_plan_state,
         )
     except Exception as e:
         logger.exception(
@@ -775,6 +808,7 @@ def create_posthog_code_task_for_repo_activity(
     logger.info(
         "posthog_code_task_created",
         team_id=integration.team_id,
+        uses_own_plan=bool(own_plan_state),
         repository=repository,
         channel=channel,
         thread_ts=thread_ts,
@@ -1008,6 +1042,7 @@ def forward_posthog_code_followup_activity(
                 owner_slack_user_id=mapping.mentioning_slack_user_id,
                 joiner_slack_user_id=slack_user_id,
                 opens_thread=join == ThreadJoinDecision.ASK_FOR_THREAD,
+                plan_name=plan.plan_name if (plan := tasks_facade.get_run_plan(task_run.state)) else None,
             )
             return True
 
@@ -1158,6 +1193,9 @@ def forward_posthog_code_followup_activity(
         message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
         actor_slack_user_id=slack_user_id,
         person_message=person_message,
+        # The join check above applied the thread creator's choice about who may join, and a
+        # run on a plan bills the creator's plan whoever sends the turn.
+        plan_owner_consented=True,
     )
     if signal_result is not True:
         logger.warning(
@@ -1419,6 +1457,7 @@ def _resume_task_with_new_run(
     model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.slack_app.backend.facade.run_preferences import resolve_effective_runtime_adapter
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
         labeled_mentions_to_display_names,
@@ -1483,6 +1522,16 @@ def _resume_task_with_new_run(
     # carried over, like the keys above: a preference changed since the previous run is
     # picked up too.
     extra_state.update(_run_preference_state(model_override, team_id=mapping.task.team_id, user_id=run_actor.id))
+    # The thread creator's plan, whoever replies: the creator chose who may join their thread.
+    # `create_run` resolves the defaults for the replying user, so the runtime is read for them too.
+    own_plan_state = _own_plan_state(
+        integration,
+        created_by,
+        runtime_adapter=resolve_effective_runtime_adapter(
+            extra_state.get("runtime_adapter"), team_id=mapping.task.team_id, user_id=run_actor.id
+        ),
+    )
+    extra_state.update(own_plan_state)
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
@@ -1516,7 +1565,11 @@ def _resume_task_with_new_run(
         # its gated-model entitlement check inside `create_run` must run against whoever
         # launches this follow-up.
         new_run = tasks_facade.create_run(
-            mapping.task_id, mode="interactive", extra_state=extra_state, acting_user_id=run_actor.id
+            mapping.task_id,
+            mode="interactive",
+            extra_state=extra_state,
+            acting_user_id=run_actor.id,
+            subscription_owner_id=created_by.id if own_plan_state else None,
         )
     except Exception:
         logger.exception(
