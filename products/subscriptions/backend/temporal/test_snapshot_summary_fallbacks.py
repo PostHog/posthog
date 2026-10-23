@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
@@ -64,7 +64,8 @@ class TestSnapshotSummaryFallbacks:
         states = _build_states_from_content_snapshot(snapshot, {index: kind for index, (kind, _) in enumerate(queries)})
         original = copy.deepcopy(states)
         client = MagicMock()
-        client.with_options.return_value = client
+        client.__aenter__.return_value = client
+        client.chat.completions.create = AsyncMock()
         client.chat.completions.create.return_value = SimpleNamespace(
             choices=[
                 SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content="One example_action event."))
@@ -72,7 +73,8 @@ class TestSnapshotSummaryFallbacks:
         )
 
         with patch(
-            "products.subscriptions.backend.temporal.query_results_summary._get_openai_client", return_value=client
+            "products.subscriptions.backend.temporal.query_results_summary._get_async_openai_client",
+            return_value=client,
         ):
             await _condense_generic_results(states, snapshot, team=None, delivery_id=None)
 
@@ -88,11 +90,13 @@ class TestSnapshotSummaryFallbacks:
         snapshot = _snapshot_with({"query_results": {"columns": ["event"], "result": [["example_action"]]}})
         states = _build_states_from_content_snapshot(snapshot, {1: "EventsQuery"})
         client = MagicMock()
-        client.with_options.return_value = client
+        client.__aenter__.return_value = client
+        client.chat.completions.create = AsyncMock()
         client.chat.completions.create.side_effect = RuntimeError("Model unavailable")
 
         with patch(
-            "products.subscriptions.backend.temporal.query_results_summary._get_openai_client", return_value=client
+            "products.subscriptions.backend.temporal.query_results_summary._get_async_openai_client",
+            return_value=client,
         ):
             await _condense_generic_results(states, snapshot, team=None, delivery_id=None)
 
@@ -118,8 +122,8 @@ class TestSnapshotSummaryFallbacks:
             return "Complete summary"
 
         with patch(
-            "products.subscriptions.backend.temporal.snapshot_activities.database_sync_to_async",
-            return_value=condense,
+            "products.subscriptions.backend.temporal.snapshot_activities.condense_query_results",
+            side_effect=condense,
         ):
             await _condense_generic_results(states, snapshot, team=None, delivery_id=None)
 

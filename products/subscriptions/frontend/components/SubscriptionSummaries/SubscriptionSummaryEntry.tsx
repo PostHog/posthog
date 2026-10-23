@@ -36,9 +36,11 @@ export function SubscriptionSummaryEntry({ summary }: { summary: SubscriptionSum
                     </span>
                 )}
             </div>
-            <LemonMarkdown className="text-sm" disableImages="all">
-                {summary.change_summary ?? ''}
-            </LemonMarkdown>
+            {summary.change_summary ? (
+                <LemonMarkdown className="text-sm" disableImages="all">
+                    {summary.change_summary}
+                </LemonMarkdown>
+            ) : null}
         </div>
     )
 }

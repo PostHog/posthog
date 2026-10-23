@@ -275,6 +275,7 @@ def build_insight_delivery_snapshot(
     base["value_format"] = _extract_value_format(query_json)
     source = query_json.get("source") or query_json
     if source.get("kind") == "EventsQuery":
+        # Event lists omit resolved_date_range; weekly delivery must not imply a weekly data window.
         base["query_date_range"] = {
             "date_from": source.get("after") or "-24h",
             "date_to": source.get("before") or "now",

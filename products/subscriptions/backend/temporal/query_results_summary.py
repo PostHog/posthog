@@ -5,11 +5,15 @@ from collections import Counter
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+
+import posthoganalytics
+from posthoganalytics.ai.openai import AsyncOpenAI
+
 from posthog.event_usage import groups
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 from posthog.utils import get_instance_region
 
-from products.subscriptions.backend.temporal.llm_change_summary import _get_openai_client
 from products.subscriptions.backend.temporal.results_summarizer import MAX_SUMMARY_LENGTH
 
 if TYPE_CHECKING:
@@ -79,7 +83,11 @@ def _event_statistics(query_kind: str, query_results: dict[str, Any]) -> dict[st
     return statistics
 
 
-def condense_query_results(
+def _get_async_openai_client() -> AsyncOpenAI:
+    return AsyncOpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=0)
+
+
+async def condense_query_results(
     query_kind: str,
     query_results: dict[str, Any],
     *,
@@ -124,31 +132,31 @@ def condense_query_results(
         properties.update({"$ai_billable": True, "team_id": team.id})
         capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
-    client = _get_openai_client(max_retries=0)
-    for _ in range(2):
-        result = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0,
-            max_tokens=1_200,
-            timeout=20,
-            messages=messages,
-            user=user_tag,
-            posthog_distinct_id=user_tag,
-            posthog_properties=properties,
-            posthog_privacy_mode=True,
-            **capture_kwargs,
-        )
-        if result.choices and result.choices[0].finish_reason == "stop":
-            content = (result.choices[0].message.content or "").strip()
-            if content and len(content) <= MAX_SUMMARY_LENGTH:
-                content = sanitize_user_text(content, MAX_SUMMARY_LENGTH, preserve_newlines=True)
-                if content:
-                    return content
-        messages.append(
-            {
-                "role": "user",
-                "content": "Return a complete summary within 1,000 characters. Keep counts, time ranges, and coverage; remove optional detail.",
-            }
-        )
+    async with _get_async_openai_client() as client:
+        for _ in range(2):
+            result = await client.chat.completions.create(
+                model="gpt-4.1-mini",
+                temperature=0,
+                max_tokens=1_200,
+                timeout=20,
+                messages=messages,
+                user=user_tag,
+                posthog_distinct_id=user_tag,
+                posthog_properties=properties,
+                posthog_privacy_mode=True,
+                **capture_kwargs,
+            )
+            if result.choices and result.choices[0].finish_reason == "stop":
+                content = (result.choices[0].message.content or "").strip()
+                if content and len(content) <= MAX_SUMMARY_LENGTH:
+                    content = sanitize_user_text(content, MAX_SUMMARY_LENGTH, preserve_newlines=True)
+                    if content:
+                        return content
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Return a complete summary within 1,000 characters. Keep counts, time ranges, and coverage; remove optional detail.",
+                }
+            )
 
     raise ValueError("The condensed summary is empty, incomplete, or exceeds 2,000 characters")

@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
@@ -12,6 +12,7 @@ from products.subscriptions.backend.temporal.query_results_summary import (
 )
 
 
+@pytest.mark.asyncio
 class TestCondenseQueryResults:
     @parameterized.expand(
         [
@@ -21,7 +22,7 @@ class TestCondenseQueryResults:
             ("incomplete", "Partial sentence", "length", 2),
         ]
     )
-    def test_full_input_and_output_validation(
+    async def test_full_input_and_output_validation(
         self, _name: str, first_content: str, finish_reason: str, expected_calls: int
     ) -> None:
         rows = [
@@ -36,6 +37,8 @@ class TestCondenseQueryResults:
         }
         accepted_content = "25 returned rows include example_failure. Additional results exist."
         client = MagicMock()
+        client.__aenter__.return_value = client
+        client.chat.completions.create = AsyncMock()
         client.chat.completions.create.side_effect = [
             SimpleNamespace(
                 choices=[SimpleNamespace(finish_reason=finish_reason, message=SimpleNamespace(content=first_content))]
@@ -46,9 +49,10 @@ class TestCondenseQueryResults:
         ]
 
         with patch(
-            "products.subscriptions.backend.temporal.query_results_summary._get_openai_client", return_value=client
+            "products.subscriptions.backend.temporal.query_results_summary._get_async_openai_client",
+            return_value=client,
         ):
-            summary = condense_query_results("EventsQuery", query_results)
+            summary = await condense_query_results("EventsQuery", query_results)
 
         assert len(summary) <= 2_000
         assert client.chat.completions.create.call_count == expected_calls
@@ -78,17 +82,20 @@ class TestCondenseQueryResults:
         assert payload["resolved_date_range"] == query_results["resolved_date_range"]
         assert client.chat.completions.create.call_args.kwargs["posthog_privacy_mode"] is True
 
-    def test_rejects_invalid_summary_without_cutting_it(self) -> None:
+    async def test_rejects_invalid_summary_without_cutting_it(self) -> None:
         client = MagicMock()
+        client.__aenter__.return_value = client
+        client.chat.completions.create = AsyncMock()
         client.chat.completions.create.return_value = SimpleNamespace(
             choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content="x" * 2_001))]
         )
         with patch(
-            "products.subscriptions.backend.temporal.query_results_summary._get_openai_client", return_value=client
+            "products.subscriptions.backend.temporal.query_results_summary._get_async_openai_client",
+            return_value=client,
         ):
             with pytest.raises(ValueError, match="condensed summary"):
-                condense_query_results("EventsQuery", {"result": [["example_action"]]})
+                await condense_query_results("EventsQuery", {"result": [["example_action"]]})
 
-    def test_rejects_oversized_input_without_cutting_rows(self) -> None:
+    async def test_rejects_oversized_input_without_cutting_rows(self) -> None:
         with pytest.raises(ValueError, match="input limit"):
-            condense_query_results("EventsQuery", {"result": [["x" * MAX_CONDENSATION_INPUT_LENGTH]]})
+            await condense_query_results("EventsQuery", {"result": [["x" * MAX_CONDENSATION_INPUT_LENGTH]]})

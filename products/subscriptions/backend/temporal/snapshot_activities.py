@@ -414,6 +414,7 @@ async def _condense_generic_results(
     team: Team | None,
     delivery_id: str | None,
 ) -> None:
+    """Preserve older activity that newest-first row truncation would hide from the final summary."""
     snapshots_by_id = {insight["id"]: insight for insight in content_snapshot.get("insights", [])}
     concurrency = asyncio.Semaphore(10)
 
@@ -426,7 +427,7 @@ async def _condense_generic_results(
             return
         try:
             async with concurrency:
-                state["results_summary"] = await database_sync_to_async(condense_query_results, thread_sensitive=False)(
+                state["results_summary"] = await condense_query_results(
                     query_kind,
                     {**query_results, "query_date_range": snapshots_by_id[state["insight_id"]].get("query_date_range")},
                     team=team,
