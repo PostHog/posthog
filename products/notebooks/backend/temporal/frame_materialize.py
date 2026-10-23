@@ -386,6 +386,10 @@ class _GeneratedSQL:
     parse_seconds: float
     resolve_seconds: float
     print_ast_seconds: float
+    # Where the SQL runs, read off the context the printer used: the executor prints on its own copy of the
+    # shared context, so the flag the printer sets never reaches the caller's.
+    workload: Workload
+    clickhouse_url: str | None
 
 
 def _printing_context(team: Team, user: User | None) -> HogQLContext:
@@ -445,6 +449,8 @@ def _generate_sql(
         # Copied because the shared dict is cleared for the next pass, and a caller holds this
         # pass's SQL and values together (the DESCRIBE between the passes reads them).
         values=dict(resolved.values),
+        workload=events_read_workload(Workload.OFFLINE, resolved),
+        clickhouse_url=events_read_http_url(resolved),
         seconds=seconds,
         parse_seconds=_hogql_leaf_seconds(recorded, "query"),
         resolve_seconds=_hogql_leaf_seconds(recorded, "prepare_ast_for_printing"),
@@ -577,8 +583,8 @@ def _print_clickhouse_sql(
             print_seconds=plain.seconds + (second.seconds if second else 0.0),
             describe_seconds=describe_seconds,
             resolve_seconds=plain.resolve_seconds + (second.resolve_seconds if second else 0.0),
-            workload=events_read_workload(Workload.OFFLINE, context),
-            clickhouse_url=events_read_http_url(context),
+            workload=last.workload,
+            clickhouse_url=last.clickhouse_url,
         )
 
     if not any(function for _name, function in conversions):
