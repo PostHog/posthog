@@ -77,7 +77,7 @@ class MaxToolError(Exception):
             max_length: Maximum length of the error message before truncation
 
         Returns:
-            Formatted string with exception class name and truncated message
+            Formatted string with exception class name, truncated message and the whole hint
         """
         exception_name = self.__class__.__name__
         exception_msg = super().__str__().strip()

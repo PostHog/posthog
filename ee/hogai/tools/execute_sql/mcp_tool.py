@@ -120,7 +120,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             hint = build_compatibility_hint(str(e))
             if not hint:
                 raise
-            raise MaxToolRetryableError(str(e), error_type=e.error_type, error_code=e.error_code, hint=hint) from e
+            raise MaxToolRetryableError(e.args[0], error_type=e.error_type, error_code=e.error_code, hint=hint) from e
 
         return MCPToolResult(
             content=_prepend_taxonomy_warnings(results, taxonomy_warnings),
