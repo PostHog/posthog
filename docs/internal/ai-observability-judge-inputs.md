@@ -38,6 +38,9 @@ Generation evaluations extract message text without the per-message character cu
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
 
+Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
+
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
 ## OpenAI-compatible judges
