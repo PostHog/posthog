@@ -5,6 +5,8 @@
 //! The guards log a match. Nothing is refused yet.
 
 use std::collections::HashMap;
+#[cfg(feature = "test-util")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -45,14 +47,36 @@ pub fn matched_oob_domain(host: &str) -> Option<&'static str> {
         .find(|domain| is_same_or_subdomain(&canonical, domain))
 }
 
+/// Same set as `is_cloud` in posthog/cloud_utils.py and `isCloud` in the node env utils.
+const CLOUD_DEPLOYMENTS: &[&str] = &["EU", "US", "DEV", "E2E"];
+
+/// A test cannot use `set_var`: it races libc environment reads from DNS lookups on other threads.
+#[cfg(feature = "test-util")]
+static FORCE_CLOUD: AtomicBool = AtomicBool::new(false);
+
 /// Whether this deployment is PostHog Cloud. The python and node guards read the same variable.
 ///
 /// Read per call rather than cached, because it is only reached once a host already matched, which
-/// is rare, and a cached value could not be varied by a test.
+/// is rare.
 fn is_cloud() -> bool {
-    std::env::var("CLOUD_DEPLOYMENT")
-        .map(|v| !v.trim().is_empty())
-        .unwrap_or(false)
+    #[cfg(feature = "test-util")]
+    if FORCE_CLOUD.load(Ordering::Relaxed) {
+        return true;
+    }
+    is_cloud_deployment(std::env::var("CLOUD_DEPLOYMENT").ok().as_deref())
+}
+
+fn is_cloud_deployment(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        CLOUD_DEPLOYMENTS
+            .iter()
+            .any(|cloud| value.eq_ignore_ascii_case(cloud))
+    })
+}
+
+#[cfg(feature = "test-util")]
+pub fn force_cloud() {
+    FORCE_CLOUD.store(true, Ordering::Relaxed);
 }
 
 /// One line per host, team and guard in this window. A resolver sees a host once per
@@ -136,8 +160,25 @@ fn is_same_or_subdomain(host: &str, domain: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_sight_in_window, matched_oob_domain};
+    use super::{first_sight_in_window, is_cloud_deployment, matched_oob_domain};
     use std::time::Instant;
+
+    #[test]
+    fn only_a_cloud_deployment_value_counts_as_cloud() {
+        for (value, expected) in [
+            (Some("US"), true),
+            (Some("EU"), true),
+            (Some("DEV"), true),
+            (Some("E2E"), true),
+            (Some("us"), true),
+            (Some("local"), false),
+            (Some("TEST"), false),
+            (Some(""), false),
+            (None, false),
+        ] {
+            assert_eq!(is_cloud_deployment(value), expected, "value: {value:?}");
+        }
+    }
 
     #[test]
     fn matches_a_listed_domain_exactly_or_on_a_label_boundary() {
