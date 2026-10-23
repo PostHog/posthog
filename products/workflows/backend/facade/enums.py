@@ -67,6 +67,10 @@ class WorkflowIdeaSource(LabeledStrEnum):
     SCOUT = "scout", "Scout"
 
 
+class WorkflowImportSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"

@@ -78,6 +78,10 @@ import type {
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowImportRecordApi,
+    WorkflowImportRequestApi,
+    WorkflowImportResponseApi,
+    WorkflowImportsListParams,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
@@ -1528,6 +1532,57 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowImportsListUrl = (projectId: string, params: WorkflowImportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_imports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_imports/`
+}
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const workflowImportsList = async (
+    projectId: string,
+    params: WorkflowImportsListParams,
+    options?: RequestInit
+): Promise<WorkflowImportRecordApi[]> => {
+    return apiMutator<WorkflowImportRecordApi[]>(getWorkflowImportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_imports/`
+}
+
+/**
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it, with the templates its messages use. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * @summary Import Customer.io automations as draft workflows
+ */
+export const workflowImportsCreate = async (
+    projectId: string,
+    workflowImportRequestApi: WorkflowImportRequestApi,
+    options?: RequestInit
+): Promise<WorkflowImportResponseApi> => {
+    return apiMutator<WorkflowImportResponseApi>(getWorkflowImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowImportRequestApi),
     })
 }
 
