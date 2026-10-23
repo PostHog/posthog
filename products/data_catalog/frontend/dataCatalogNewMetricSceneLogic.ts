@@ -67,8 +67,6 @@ export interface SqlPreview {
     warnings: string[]
 }
 
-export const SQL_PREVIEW_ROW_LIMIT = 10
-
 const SQL_PREVIEW_QUERY_TAGS = { productKey: ProductKey.DATA_CATALOG, scene: 'DataCatalogNewMetric' }
 
 const SQL_PREVIEW_FAILED_MESSAGE = "Couldn't run the query. Try again, or open it in the SQL editor to see more."
@@ -352,8 +350,8 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
                     return {
                         sql,
                         columns: response.columns ?? [],
-                        rows: (response.results ?? []).slice(0, SQL_PREVIEW_ROW_LIMIT) as unknown[][],
-                        hasMore: !!response.hasMore || (response.results ?? []).length > SQL_PREVIEW_ROW_LIMIT,
+                        rows: (response.results ?? []) as unknown[][],
+                        hasMore: !!response.hasMore,
                         warnings: (response.warnings ?? []).map((warning) => warning.message),
                     }
                 },

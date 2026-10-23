@@ -6,10 +6,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { SqlPreview } from '../dataCatalogNewMetricSceneLogic'
-import { SQL_PREVIEW_ROW_LIMIT } from '../dataCatalogNewMetricSceneLogic'
 import { ResultCell } from './ResultCell'
 
 const SINGLE_VALUE_MAX_FRACTION_DIGITS = 6
+
+const PREVIEW_PAGE_SIZE = 5
 
 export interface SqlTestResultProps {
     preview: SqlPreview
@@ -62,6 +63,7 @@ export function SqlTestResult({ preview, unit, stale, loading, onAddUnit }: SqlT
                     <LemonTable<unknown[]>
                         size="small"
                         dataSource={preview.rows}
+                        pagination={{ pageSize: PREVIEW_PAGE_SIZE, useUrl: false }}
                         columns={preview.columns.map((column, index) => ({
                             title: column,
                             key: `${index}`,
@@ -74,7 +76,7 @@ export function SqlTestResult({ preview, unit, stale, loading, onAddUnit }: SqlT
                 {stale
                     ? 'The query changed since the last test.'
                     : preview.hasMore
-                      ? `From your last test. Showing the first ${SQL_PREVIEW_ROW_LIMIT} rows.`
+                      ? `From your last test. Showing the first ${preview.rows.length} rows.`
                       : 'From your last test.'}
             </span>
         </div>
