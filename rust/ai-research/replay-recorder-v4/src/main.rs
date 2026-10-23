@@ -12,7 +12,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use replay_recorder_v4::config::Config;
-use replay_recorder_v4::consumer::{create_consumer, run};
+use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings};
 use replay_recorder_v4::teams::TeamCache;
 
 common_alloc::used!();
@@ -100,18 +100,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         teams_handle,
     ));
 
-    let consumer = create_consumer(
+    let consumer = RecorderConsumer::new(
         &config.kafka,
         &config.kafka_consumer_group,
         &config.kafka_consumer_offset_reset,
         &config.kafka_topic,
     )?;
-    tokio::spawn(run(
-        consumer,
-        config.sample_percentage,
-        teams,
-        consumer_handle,
-    ));
+    let settings = Settings {
+        sample_percentage: config.sample_percentage,
+        flush_interval: Duration::from_millis(config.flush_interval_ms),
+        flush_max_bytes: config.flush_max_bytes,
+        session_idle: Duration::from_secs(config.session_idle_secs),
+    };
+    tokio::spawn(run(consumer, settings, teams, consumer_handle));
 
     monitor.wait().await?;
     Ok(())

@@ -27,6 +27,18 @@ pub struct Config {
     #[envconfig(from = "AI_RESEARCH_V4_TEAM_REFRESH_SECS", default = "300")]
     pub team_refresh_secs: u64,
 
+    /// A flush every this many milliseconds. The lane is not latency-sensitive, so long flushes keep objects few.
+    #[envconfig(from = "AI_RESEARCH_V4_FLUSH_INTERVAL_MS", default = "60000")]
+    pub flush_interval_ms: u64,
+
+    /// A flush once the buffered messages reach this many bytes.
+    #[envconfig(from = "AI_RESEARCH_V4_FLUSH_MAX_BYTES", default = "67108864")]
+    pub flush_max_bytes: usize,
+
+    /// A session's inspector is dropped after this long without a message, so memory follows live sessions.
+    #[envconfig(from = "AI_RESEARCH_V4_SESSION_IDLE_SECS", default = "3600")]
+    pub session_idle_secs: u64,
+
     #[envconfig(default = "9104")]
     pub metrics_port: u16,
 }
