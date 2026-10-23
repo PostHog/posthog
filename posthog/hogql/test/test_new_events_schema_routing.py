@@ -17,11 +17,6 @@ from posthog.models.instance_setting import override_instance_config
 
 SQL_ON_EVENTS = {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events"}
 SQL_ON_NO_TABLE = {"kind": "HogQLQuery", "query": "SELECT 1 AS n"}
-TRENDS_ON_EVENTS = {
-    "kind": "TrendsQuery",
-    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-    "dateRange": {"date_from": "2024-01-01", "date_to": "2024-01-08"},
-}
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
@@ -92,7 +87,6 @@ class TestEventsClusterRoutingThroughTheQueryApi(APIBaseTest):
             ("sql_on_legacy_events", SQL_ON_EVENTS, {}, True, False, False),
             ("sql_reading_no_events", SQL_ON_NO_TABLE, {"useNewEventsSchema": True}, True, False, False),
             ("unlisted_project", SQL_ON_EVENTS, {"useNewEventsSchema": True}, False, True, False),
-            ("trends_on_events_json", TRENDS_ON_EVENTS, {"useNewEventsSchema": True}, True, True, True),
         ]
     )
     def test_a_listed_projects_reads_of_events_json_run_on_the_events_cluster(

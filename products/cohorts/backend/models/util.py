@@ -852,6 +852,9 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "optimize_on_insert": 0,
                 "max_bytes_ratio_before_external_group_by": 0.5,
                 "max_bytes_ratio_before_external_sort": 0.5,
+                # On the events cluster the target is a Distributed table, and the cohort size is read
+                # back as soon as the INSERT returns, so the rows must reach the shard first.
+                "insert_distributed_sync": 1,
             }
         )
 
@@ -1218,6 +1221,9 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
+        # On the events cluster the target is a Distributed table, and the members are copied to Postgres as
+        # soon as the INSERT returns, so the rows must reach the shard first.
+        settings={"insert_distributed_sync": 1},
         workload=events_read_workload(Workload.DEFAULT, context),
     )
 

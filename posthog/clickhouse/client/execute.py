@@ -446,12 +446,12 @@ def sync_execute(
     # Make sure we always have app traffic through process_query_task on the online cluster.
     # API-key traffic stays offline here too, so an async query lands on the same cluster its
     # synchronous counterpart would.
-    # Workload.LOGS is exempt: it pins queries to the dedicated logs cluster, which is the
-    # only place the logs tables exist, so overriding it would send the query to a cluster
-    # that cannot answer it.
+    # Workload.LOGS and Workload.NEW_EVENTS_CLUSTER are exempt: each pins the query to the only
+    # cluster that holds its tables, so overriding it would send the query to a cluster that
+    # cannot answer it.
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
-        if workload != Workload.LOGS:
+        if workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 

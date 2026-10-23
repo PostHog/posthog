@@ -1645,8 +1645,8 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
-        def test_events_table_modifier_is_not_client_writable(self) -> None:
-            modifier = "useNewEventsSchema"
+        @parameterized.expand([("useNewEventsSchema",), ("useNewEventsCluster",)])
+        def test_events_routing_modifiers_are_not_client_writable(self, modifier: str) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
                 {"modifiers": {modifier: True}},
