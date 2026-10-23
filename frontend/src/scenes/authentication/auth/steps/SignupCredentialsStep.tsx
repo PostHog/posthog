@@ -12,13 +12,13 @@ import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
 
-import { HighlightedName } from '../components/HighlightedName'
+import { ConnectTitle } from '../components/ConnectTitle'
 import { NoAccountInRegionNotice } from '../components/NoAccountInRegionNotice'
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
 
 export function SignupCredentialsStep(): JSX.Element {
     const {
-        signupPanelEmail,
+        signupEmail,
         isSignupPanelAuthSubmitting,
         validatedPassword,
         passkeyRegistered,
@@ -47,7 +47,7 @@ export function SignupCredentialsStep(): JSX.Element {
 
     const greeting = (
         <>
-            <span>Nice to meet you,</span> <span className="AuthScene__mono">{signupPanelEmail.email}</span>
+            <span>Nice to meet you,</span> <span className="AuthScene__mono">{signupEmail}</span>
             <span>.</span>
         </>
     )
@@ -57,17 +57,14 @@ export function SignupCredentialsStep(): JSX.Element {
             <AuthCardTitle
                 title={
                     pendingConnection ? (
-                        <>
-                            <span>Create your account to connect </span>
-                            <HighlightedName>{pendingConnection.clientName}</HighlightedName>
-                        </>
+                        <ConnectTitle lead="Create your account to connect" clientName={pendingConnection.clientName} />
                     ) : (
                         'Create your account'
                     )
                 }
                 sub={greeting}
             />
-            <NoAccountInRegionNotice email={signupPanelEmail.email} />
+            <NoAccountInRegionNotice email={signupEmail} />
             {passkeyError && (
                 <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                     <span>{passkeyError}</span>
@@ -101,14 +98,7 @@ export function SignupCredentialsStep(): JSX.Element {
             )}
             <Form logic={signupLogic} formKey="signupPanelAuth" enableFormOnSubmit className="flex flex-col gap-4">
                 {/* Password managers save the new password under this username */}
-                <input
-                    type="email"
-                    name="email"
-                    autoComplete="username"
-                    value={signupPanelEmail.email}
-                    readOnly
-                    hidden
-                />
+                <input type="email" name="email" autoComplete="username" value={signupEmail} readOnly hidden />
                 {!passkeyRegistered && (
                     <LemonField
                         name="password"

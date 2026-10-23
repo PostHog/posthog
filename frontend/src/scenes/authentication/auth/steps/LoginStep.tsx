@@ -22,18 +22,19 @@ import { VerificationCodeInput } from 'scenes/authentication/shared/Verification
 import { urls } from 'scenes/urls'
 
 import { authLogic } from '../authLogic'
-import { HighlightedName } from '../components/HighlightedName'
+import { ConnectTitle } from '../components/ConnectTitle'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function LoginStepTitle(): JSX.Element {
-    const { login, codeVerificationEmail } = useValues(loginLogic)
-    const { step, entry } = useValues(authLogic)
+    const { login, codeVerificationEmail, codeVerificationRequired, precheckResponse } = useValues(loginLogic)
+    const { entry } = useValues(authLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
+    const isNewAccount = precheckResponse.account_exists === false
 
-    if (step === 'login_code') {
+    if (codeVerificationRequired) {
         return (
             <AuthCardTitle
                 className="mb-2"
@@ -48,36 +49,36 @@ function LoginStepTitle(): JSX.Element {
         )
     }
 
-    const greeting =
-        entry === 'signup' ? (
-            <>
-                <span>Plot twist:</span> <span className="AuthScene__mono">{login.email}</span>{' '}
-                <span>already has an account.</span>
-            </>
-        ) : (
-            <>
-                <span>Good to see you,</span> <span className="AuthScene__mono">{login.email}</span>
-                <span>.</span>
-            </>
-        )
+    const greeting = isNewAccount ? (
+        <>
+            <span>Nice to meet you,</span> <span className="AuthScene__mono">{login.email}</span>
+            <span>.</span>
+        </>
+    ) : entry === 'signup' ? (
+        <>
+            <span>Plot twist:</span> <span className="AuthScene__mono">{login.email}</span>{' '}
+            <span>already has an account.</span>
+        </>
+    ) : (
+        <>
+            <span>Good to see you,</span> <span className="AuthScene__mono">{login.email}</span>
+            <span>.</span>
+        </>
+    )
     if (pendingConnection) {
         return (
             <AuthCardTitle
-                title={
-                    <>
-                        <span>Log in to connect </span>
-                        <HighlightedName>{pendingConnection.clientName}</HighlightedName>
-                    </>
-                }
+                title={<ConnectTitle lead="Log in to connect" clientName={pendingConnection.clientName} />}
                 sub={greeting}
             />
         )
     }
-    return <AuthCardTitle title="Welcome back" sub={greeting} />
+    return <AuthCardTitle title={isNewAccount ? 'Your team uses single sign-on' : 'Welcome back'} sub={greeting} />
 }
 
 export function LoginStep(): JSX.Element {
     const { exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } = useActions(loginLogic)
+    const { chooseAccountPath } = useActions(authLogic)
     const {
         precheckResponse,
         login,
@@ -91,12 +92,13 @@ export function LoginStep(): JSX.Element {
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
+        codeVerificationRequired: isCodeSent,
     } = useValues(loginLogic)
-    const { step } = useValues(authLogic)
     const lastLoginMethod = useLastLoginMethod()
 
-    const isCodeSent = step === 'login_code'
-    const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
+    // A new person reaches this step only on a SAML or OIDC domain, where the IdP creates the account
+    const isNewAccount = precheckResponse.account_exists === false
+    const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable || isNewAccount
 
     return (
         <AuthSceneCard footer={isCodeSent ? undefined : <UseDifferentEmailLink />}>
@@ -279,7 +281,19 @@ export function LoginStep(): JSX.Element {
             )}
             {/* Normally SAML replaces this row, but when the account has no password we need to
                 show whatever it does have. */}
+            {isNewAccount && !precheckResponse.sso_enforcement && (
+                <p className="mt-4 mb-0 text-sm text-secondary text-center">
+                    <Link
+                        onClick={() => chooseAccountPath('signup', false)}
+                        data-attr="auth-sso-domain-signup-with-email"
+                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                    >
+                        Sign up with email instead
+                    </Link>
+                </p>
+            )}
             {!isCodeSent &&
+                !isNewAccount &&
                 !precheckResponse.sso_enforcement &&
                 (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
                     <SocialLoginButtons

@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { AuthScene } from 'scenes/authentication/shared/authScene/AuthScene'
-import { AuthEntry, AuthStep } from 'scenes/authentication/shared/authStepViewed'
+import { AuthEntry } from 'scenes/authentication/shared/authStepViewed'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
 import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
@@ -12,7 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
-import { authLogic } from './authLogic'
+import { AuthPageStep, authLogic } from './authLogic'
 import { authTelemetryLogic } from './authTelemetryLogic'
 import { EmailStep } from './steps/EmailStep'
 import { LoginStep } from './steps/LoginStep'
@@ -25,22 +25,35 @@ export const scene: SceneExport = {
     logic: authLogic,
 }
 
-function authNotes(step: AuthStep, entry: AuthEntry, isReturning: boolean): string[] {
+const WELCOME_BACK_NOTES = ['// welcome back', '// 500,000+ teams ship here']
+const FIRST_VISIT_NOTES = ['// hey, good to see you', '// 500,000+ teams ship here']
+const CREATE_ACCOUNT_NOTES = ['// create an account', '// 1M events free, every month']
+
+function authNotes(step: AuthPageStep, entry: AuthEntry, isReturning: boolean): string[] {
     switch (step) {
         case 'login':
         case 'login_code':
-            return ['// welcome back', '// 500,000+ teams ship here']
+            return WELCOME_BACK_NOTES
         case 'signup_credentials':
         case 'signup_pending_invite':
-            return ['// create an account', '// 1M events free, every month']
+            return CREATE_ACCOUNT_NOTES
         case 'signup_profile':
             return ['// almost there', '// last step']
         default:
             if (entry === 'signup') {
-                return ['// create an account', '// 1M events free, every month']
+                return CREATE_ACCOUNT_NOTES
             }
-            return [isReturning ? '// welcome back' : '// hey, good to see you', '// 500,000+ teams ship here']
+            return isReturning ? WELCOME_BACK_NOTES : FIRST_VISIT_NOTES
     }
+}
+
+const STEP_COMPONENTS: Record<AuthPageStep, () => JSX.Element> = {
+    email: EmailStep,
+    login: LoginStep,
+    login_code: LoginStep,
+    signup_credentials: SignupCredentialsStep,
+    signup_profile: SignupProfileStep,
+    signup_pending_invite: PendingInviteStep,
 }
 
 export function Auth(): JSX.Element | null {
@@ -61,6 +74,8 @@ export function Auth(): JSX.Element | null {
         startConditionalPasskeyLogin()
     }, [startConditionalPasskeyLogin])
 
+    const StepComponent = STEP_COMPONENTS[step]
+
     // A finished signup navigates away with a full page load, so nothing should render in between
     if (user) {
         return null
@@ -69,17 +84,7 @@ export function Auth(): JSX.Element | null {
     return (
         <AuthScene notes={authNotes(step, entry, isReturning)}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
-            {step === 'login' || step === 'login_code' ? (
-                <LoginStep />
-            ) : step === 'signup_pending_invite' ? (
-                <PendingInviteStep />
-            ) : step === 'signup_credentials' ? (
-                <SignupCredentialsStep />
-            ) : step === 'signup_profile' ? (
-                <SignupProfileStep />
-            ) : (
-                <EmailStep />
-            )}
+            <StepComponent />
         </AuthScene>
     )
 }

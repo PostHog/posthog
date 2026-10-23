@@ -110,14 +110,15 @@ describe('Auth', () => {
     // The steps are the only place the signup forms get wired to the logics, so this walkthrough
     // guards that wiring. The payload shaping itself is covered in signupLogic.test.ts.
     it('walks a new email through every signup step and posts what was typed into them', async () => {
-        await submitEmail('test@example.com')
+        // Mixed case, because a lowercase-only check once left this email stuck on the first step
+        await submitEmail('Test@Example.com')
         await submitPassword('Str0ng-Test-Pass!')
         await fillOnboardingAndSubmit({ name: 'Alice Bob', organizationName: 'Hogflix SpinOff' })
 
         await waitFor(() => {
             expect(signupRequestBody).not.toBeNull()
         })
-        expect(signupRequestBody?.email).toBe('test@example.com')
+        expect(signupRequestBody?.email).toBe('Test@Example.com')
         expect(signupRequestBody?.password).toBe('Str0ng-Test-Pass!')
         expect(signupRequestBody?.first_name).toBe('Alice')
         expect(signupRequestBody?.last_name).toBe('Bob')

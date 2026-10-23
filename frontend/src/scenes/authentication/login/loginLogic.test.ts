@@ -276,7 +276,7 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('skips a redundant precheck for an already-resolved email but re-runs for a new one', async () => {
+        it('skips a redundant precheck for an already-resolved or in-flight email but re-runs for a new one', async () => {
             logic.actions.precheck({ email: 'a@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             logic.actions.precheck({ email: 'a@example.com' })
@@ -286,6 +286,16 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'b@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             expect(precheckHandler).toHaveBeenCalledTimes(2)
+
+            // Autofill and Continue both ask before the first answer arrives
+            logic.actions.precheck({ email: 'c@example.com' })
+            logic.actions.precheck({ email: 'c@example.com' })
+            await expectLogic(logic)
+                .toDispatchActions(['precheckSuccess'])
+                .toMatchValues({
+                    precheckResponse: expect.objectContaining({ email: 'c@example.com', status: 'completed' }),
+                })
+            expect(precheckHandler).toHaveBeenCalledTimes(3)
         })
 
         it('prechecks the latest email only after typing pauses for 3 seconds', async () => {

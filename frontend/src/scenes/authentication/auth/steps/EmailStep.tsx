@@ -18,6 +18,7 @@ import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendin
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { authLogic } from '../authLogic'
+import { ConnectTitle } from '../components/ConnectTitle'
 import { HighlightedName } from '../components/HighlightedName'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
 
@@ -29,12 +30,7 @@ function EmailStepTitle(): JSX.Element {
     if (pendingConnection) {
         return (
             <AuthCardTitle
-                title={
-                    <>
-                        <span>Log in or sign up to connect </span>
-                        <HighlightedName>{pendingConnection.clientName}</HighlightedName>
-                    </>
-                }
+                title={<ConnectTitle lead="Log in or sign up to connect" clientName={pendingConnection.clientName} />}
                 sub={`${pendingConnection.clientName} saved you a seat.`}
             />
         )
