@@ -6929,7 +6929,7 @@ snapshots:
     products-dashboards-dashboard-widgets-overview--all-widget-types--dark:
         hash: v1.k794b7964.c8ccf56e7a97ed764ef1b9feff1fbefb1e3b8677fbf34e950adb91fb8ad0c65a.SP6nwmHbLhfX64P11e8X6ceeDvQynhdRrSCHXsblts8
     products-dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.76d3914773ce95c73661a095c09cd13d3886fc71ed8619b405b52d03af75309e.7h4Yavt5bAp86IDjoyzG4duYQRyU4pDb5kMndOnOut0
+        hash: v1.k794b7964.1789aa02fb29e9db314ec5f1d0a10692122b9e98e29867682b3ca4dd8ee5cba3.1Irk_TgyxykBhyaPaGlEUYjAaemmSuzupnX9FbCe8t0
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.c69d28ef03335511de9b7dd75d5ad1c0458272d5d8f340083cdb86acc3b3c888.KB3MNhE9xEjVSl9hmVpz2jLC0IAmOTvaVZBmrl3pNKs
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -6946,6 +6946,26 @@ snapshots:
         hash: v1.k794b7964.9572c4979a6934a94886531af0d64845148e3417b98fe8010c677420bbd1f3b7.zdaJR_5DwY5IX5qeFfu9O2I6VajkSqqv9XU46z8HcMQ
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--tile-filters-read-only--light:
         hash: v1.k794b7964.355b2fe7000461fbb2fb166e627e8f9b4f39631649ff62fd9966c69fa990f94e.GcjA3-hBC1df2mGFD0d6crjPeEbeOnwEZLOICsPTp6Y
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--canvas-not-available--dark:
+        hash: v1.k794b7964.b3c908460dcc2a7bdee2b27e4f1b7db171cb365359140a94c0e90ea9b9a44f46.6M4grry7dbinrnIH0rwE_mc2DugZIK_vhYSJgu7awp4
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--canvas-not-available--light:
+        hash: v1.k794b7964.4ea4e1aff056e3e1d1287c474441316d9a34dd7896a526913f5e1e650d00bf99.dYiibie33BK2FI0guTS2tENDTniEMLRAzd8q4TQ3izA
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--no-canvas-selected--dark:
+        hash: v1.k794b7964.1a9c67b3b1a0bf3bde6e1e531ef13e1392c12c23fb3eaf7f0700af449d09b89c.ofUAmqPS9YkAHl5KO3bzz7m3ttvdEJtJxdNgc-_HRv8
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--no-canvas-selected--light:
+        hash: v1.k794b7964.6f42a3b6b8bf1a70ed493df119be7f7811b9aa8f97fb34caaf82ee3697800be1.CDQ-AdgYT2ONwL5ngmwGhlToPSY5jAAHsD6mpFpUlxY
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--no-canvas-selected-read-only--dark:
+        hash: v1.k794b7964.b06a8c2cfca14ac34b7c79b7515951770f3bfe7b1d12cded403f543a2f0e6f4e.B5blk1Ib-IEeu4R7xPgKKr3HgMNQa3TVtt_EGjhkCUU
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--no-canvas-selected-read-only--light:
+        hash: v1.k794b7964.e50d14ed6c99607304b64aa2b6666f01dd68153232f83b8b09acfc463d3168a6.Vuj6dtwn8fd_JwEJjFudCYBMwqGR2mY9831M5b7T-k8
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--no-canvases-yet--dark:
+        hash: v1.k794b7964.bba8c7e21a1f172414a4b9c36bf7f3711440582e70288db664bc5fe514839c50.JQ7CpOa8NtxW5y0fmgf3NKfYWUMzuZiWzyTXrWuYexM
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--no-canvases-yet--light:
+        hash: v1.k794b7964.5234468fc4a238ac1032837a6086c6df6ff2063722d7287a7005333952c509e4._RNzLzlrsfaNJOOAmdXEKIqH2iJylm4Zoneu7KTXMNk
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--nothing-published-yet--dark:
+        hash: v1.k794b7964.164ad337e6c8a12ff3fda1b15bd468666cdbb357a53b26c637a6d1821a577901.Vx_ts7C79i-OTZeRXSK99JROCrogIcPGsUQkscS_cZQ
+    products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app--nothing-published-yet--light:
+        hash: v1.k794b7964.93ffdedfdabefae9db4b4839179e2176e7503c3f7c049a016837b536ea988539.YcXanA1eZLsS9_8mYlrJ_UHtGHhfV8_JFGWm8y3zoiA
     products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app-widget-settings--default--dark:
         hash: v1.k794b7964.ca92a759abc1822693d6065dba266039e51715a55500585faa2c53982304b214.WNCPKOtHIS1BZuO06dIjRhBREKOJXce328yi8xfAnDc
     products-dashboards-dashboard-widgets-widget-types-canvas-canvas-app-widget-settings--default--light:
