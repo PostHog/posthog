@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,11 @@ class IncrementalConfigRefusedError(MaterializationRefusedError):
     def __init__(self, message: str, refused_keys: tuple[str, ...] = ()) -> None:
         super().__init__(message)
         self.refused_keys = refused_keys
+
+
+class MaterializationRunDirection(LabeledStrEnum):
+    UPSTREAM = "upstream", "Upstream"
+    DOWNSTREAM = "downstream", "Downstream"
 
 
 class MaterializationForbiddenError(Exception):

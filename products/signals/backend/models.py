@@ -365,6 +365,10 @@ class SignalReport(UUIDModel):
         POSTHOG_ONBOARDING = "posthog_onboarding", "PostHog onboarding"
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
+    # Bounds on `tags`, the same as scout finding and task tags.
+    MAX_TAGS = 10
+    MAX_TAG_LENGTH = 50
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     triggering_signal_id = models.UUIDField(null=True, blank=True)
     pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
@@ -438,6 +442,10 @@ class SignalReport(UUIDModel):
     # leaving a stale question beside fresh prose. The inbox offers them above the "Ask AI" box.
     # `db_default` alongside `default` for the reason spelled out on `charts`.
     suggested_prompts = models.JSONField(default=list, db_default=[], blank=True)
+    # Free-form slug tags (lowercase kebab-case) for grouping and filtering reports. Writers go
+    # through `report_tags.set_report_tags`, which normalizes and caps them; report_tags.py holds
+    # the lifecycle rules. `db_default` for the reason spelled out on `charts`.
+    tags = ArrayField(models.CharField(max_length=MAX_TAG_LENGTH), default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1334,6 +1342,8 @@ class SignalEmissionRecord(UUIDModel):
     source_type = models.CharField(max_length=100)
     source_id = models.CharField(max_length=200)
     emitted_at = models.DateTimeField()
+    signal_id = models.CharField(max_length=200, null=True, blank=True)
+    report_id = models.CharField(max_length=200, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -1629,12 +1639,12 @@ class SignalReportArtefact(UUIDModel):
         if isinstance(content, TaskRunArtefact) and content.task_id != attribution.task_id:
             raise ArtefactContentValidationError("task_run content.task_id must match the artefact's attributed task")
         if attribution.task_id and not claim_id and artefact_type_for(content) in {"commit", "note", "task_run"}:
-            from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
+            from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
 
             active = get_active_claim(team_id=team_id, report_id=report_id)
             if (
                 active
-                and actor_owns_claim(active, attribution)
+                and actor_works_under_claim(active, attribution)
                 and cls.objects.filter(team_id=team_id, id=active.claim_id).exists()
             ):
                 claim_id = str(active.claim_id)
@@ -1689,7 +1699,7 @@ class SignalReportArtefact(UUIDModel):
             # The rules import this model; load them only on a reviewer write.
             from posthog.models.team.team import Team
 
-            from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
+            from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
             from products.signals.backend.reviewer_rules import ReviewerRules
 
             rules = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
@@ -1699,7 +1709,11 @@ class SignalReportArtefact(UUIDModel):
                 )
                 if claim_id:
                     claim = get_active_claim(team_id=team_id, report_id=report_id)
-                    if claim is None or str(claim.claim_id) != claim_id or not actor_owns_claim(claim, attribution):
+                    if (
+                        claim is None
+                        or str(claim.claim_id) != claim_id
+                        or not actor_works_under_claim(claim, attribution)
+                    ):
                         raise ArtefactContentValidationError("Claim is stale or belongs to another actor.")
                 update = rules.prepare(content, attribution=attribution, proposal=reviewer_proposal, edit=reviewer_edit)
                 if update.corrections is not None:
@@ -3507,9 +3521,18 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
                 opclasses=["int4_ops", "varchar_pattern_ops"],
             ),
             # Back the `text` search. On UPPER(...) because icontains compiles to
-            # UPPER(col::text) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("content"), name="gin_trgm_ops"), name="signal_scratchpad_content_trgm"),
-            GinIndex(OpClass(Upper("key"), name="gin_trgm_ops"), name="signal_scratchpad_key_trgm"),
+            # UPPER(col::text) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("content"), name="gin_trgm_ops"),
+                name="signal_scratchpad_content_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("key"), name="gin_trgm_ops"),
+                name="signal_scratchpad_key_trgm",
+                fastupdate=False,
+            ),
         ]
 
 

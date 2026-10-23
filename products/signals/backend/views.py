@@ -176,7 +176,7 @@ from products.signals.backend.report_check_authoring import (
     replace_metric_check,
 )
 from products.signals.backend.report_claims import (
-    actor_owns_claim,
+    actor_works_under_claim,
     get_active_claim,
     get_active_claims,
     reports_with_active_claim,
@@ -204,6 +204,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
@@ -699,9 +700,10 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("already_fixed", "Already fixed"),
     ("report_unclear", "Report is unclear to me"),
     ("analysis_wrong", "Agent's analysis is wrong"),
+    ("wrong_assignee", "Wrong assignee"),
     ("wrong_repo", "Agent picked the wrong repository"),
     ("wontfix_intentional", "Won't fix - intentional behavior"),
-    ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
+    ("wontfix_irrelevant", "Not relevant to this project"),
     ("fixed_outside_posthog", "Fixed outside PostHog"),
     ("no_action_needed", "No action needed"),
     ("pr_merged", "PR was merged"),
@@ -710,7 +712,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
-    "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
+    "report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
     "fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
@@ -720,8 +722,9 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
     "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
     "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
-    "The dismissal codes (report_unclear, analysis_wrong, "
+    "The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, "
     "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
+    "'wrong_assignee' when the report was routed to the wrong person or team. "
     "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
     "corrected_repository naming the right one. "
     "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
@@ -2213,6 +2216,11 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.source_suggestion_failed", report_id=str(report.id))
             source_suggestion = None
+        try:
+            plan = report_plan(team_id=self.team_id, report_id=str(report.id))
+        except Exception:
+            logger.exception("signals.enriched_context.report_plan_failed", report_id=str(report.id))
+            plan = None
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -2223,6 +2231,7 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "source_suggestions_map": {str(report.id): source_suggestion},
+            "report_plans_map": {str(report.id): plan},
         }
 
     def retrieve(self, request, *args, **kwargs):
@@ -2268,6 +2277,7 @@ class SignalReportViewSet(
                 pull_requests=data.get("pull_requests"),
                 claim_id=str(data["claim_id"]) if data.get("claim_id") else None,
                 takeover=data["takeover"],
+                takeover_claim_id=str(data["takeover_claim_id"]) if data.get("takeover_claim_id") else None,
             )
         except InvalidPullRequestUrl as err:
             raise serializers.ValidationError({"pr_url": str(err)})
@@ -3075,6 +3085,8 @@ class SignalReportViewSet(
                 "organization_id": str(self.organization.id),
                 "report_id": result.survivor_id,
                 "actor_kind": attribution.kind,
+                "task_id": attribution.task_id,
+                "scout_skill_name": result.scout_skill_name,
                 "source_count": len(result.sources),
                 "released_claim_count": sum(1 for source in result.sources if source.released_claim),
                 "signals_moved": sum(source.signals_moved for source in result.sources),
@@ -5901,7 +5913,7 @@ class SignalReportArtefactViewSet(
                 if (
                     assignment is None
                     or assignment.claim_id != claim_id
-                    or not actor_owns_claim(assignment, attribution)
+                    or not actor_works_under_claim(assignment, attribution)
                 ):
                     return Response(
                         {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
