@@ -2615,6 +2615,45 @@ class SignalReportMonitoringAttempt(UUIDModel):
         ]
 
 
+class SignalReportMonitoringResult(UUIDModel):
+    class EvidenceStatus(models.TextChoices):
+        SUFFICIENT = "sufficient"
+        INSUFFICIENT = "insufficient"
+        UNSUPPORTED = "unsupported"
+        ERRORED = "errored"
+
+    objects = EnvironmentScopedManager()
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="monitoring_results")
+    attempt = models.ForeignKey(SignalReportMonitoringAttempt, on_delete=models.CASCADE, related_name="results")
+    report_check = models.ForeignKey(SignalReportCheck, on_delete=models.CASCADE, related_name="monitoring_results")
+    submission_id = models.UUIDField()
+    definition_version = models.CharField(max_length=64)
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    evaluated_at = models.DateTimeField()
+    outcome = models.CharField(max_length=20, choices=SignalReportCheck.Outcome)
+    evidence_status = models.CharField(max_length=20, choices=EvidenceStatus)
+    evidence_reason = models.TextField()
+    expectation_matches = models.BooleanField(null=True)
+    explanation = models.TextField()
+    evidence_refs = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["attempt", "report_check", "submission_id"], name="signals_result_submission_uniq"
+            ),
+            models.UniqueConstraint(
+                fields=["attempt", "report_check"],
+                condition=models.Q(outcome__in=["passed", "failed"]),
+                name="signals_result_verdict_uniq",
+            ),
+        ]
+
+
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
 # Core tables backing the Signals scout:
