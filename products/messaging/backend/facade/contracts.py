@@ -303,7 +303,6 @@ class EmailStatus(LabeledStrEnum):
     a later one."""
 
     QUEUED = "queued", "Queued"
-    WAITING = "waiting", "Waiting"
     UNKNOWN = "unknown", "Unknown"
     SKIPPED = "skipped", "Skipped"
     FAILED = "failed", "Failed"
