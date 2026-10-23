@@ -4,8 +4,6 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
 
-from posthog.models.team import Team
-
 from products.replay_vision.backend.watch_rank import DUPLICATE_LOOKBACK
 from products.replay_vision.backend.watch_rank_backfill import backfill_team_watch_ranks, teams_with_observations
 
@@ -23,9 +21,8 @@ class Command(BaseCommand):
         team_ids = options["team_id"] or teams_with_observations(since)
         verb = "Would rank" if options["dry_run"] else "Ranked"
         for team_id in team_ids:
-            team = Team.objects.get(id=team_id)
             try:
-                result = backfill_team_watch_ranks(team, since, dry_run=bool(options["dry_run"]))
+                result = backfill_team_watch_ranks(team_id, since, dry_run=bool(options["dry_run"]))
             except Exception as e:
                 # One team without AI data processing, or a slow query, must not stop the rest.
                 self.stderr.write(f"Team {team_id}: skipped ({e.__class__.__name__}: {e})")

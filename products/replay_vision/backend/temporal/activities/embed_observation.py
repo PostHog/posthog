@@ -23,7 +23,6 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.api.embedding_worker import async_generate_and_store_embedding
-from posthog.models.team import Team
 
 from products.replay_vision.backend.embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -74,10 +73,10 @@ def _result_metadata(model_output: AnyScannerOutput) -> dict[str, Any]:
     return {}
 
 
-async def _rank(*, team: Team, scanner_id: UUID, observation_id: UUID, vector: list[float]) -> None:
-    category, contrast = classify(vector, await anchor_vectors(team))
+async def _rank(*, team_id: int, scanner_id: UUID, observation_id: UUID, vector: list[float]) -> None:
+    category, contrast = classify(vector, await anchor_vectors(team_id))
     nearest = await sync_to_async(nearest_earlier_observation, thread_sensitive=False)(
-        team_id=team.id,
+        team_id=team_id,
         scanner_id=str(scanner_id),
         observation_id=str(observation_id),
         vector=vector,
@@ -86,13 +85,13 @@ async def _rank(*, team: Team, scanner_id: UUID, observation_id: UUID, vector: l
     duplicate_of: str | None = None
     if nearest is not None and nearest[1] <= DUPLICATE_MAX_DISTANCE:
         neighbour_rank = await (
-            ReplayObservation.objects.filter(team_id=team.id, id=nearest[0])
+            ReplayObservation.objects.filter(team_id=team_id, id=nearest[0])
             .values_list("watch_rank", flat=True)
             .afirst()
         )
         duplicate_of = duplicate_root(nearest[0], neighbour_rank)
     rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
-    await ReplayObservation.objects.filter(team_id=team.id, id=observation_id).aupdate(watch_rank=rank.to_json())
+    await ReplayObservation.objects.filter(team_id=team_id, id=observation_id).aupdate(watch_rank=rank.to_json())
 
 
 async def _store_and_rank(
@@ -125,8 +124,7 @@ async def _store_and_rank(
     # The embedding is stored by now, so a ranking failure must not fail the activity: a retry
     # would embed and store the text again.
     try:
-        team = await Team.objects.aget(id=team_id)
-        await _rank(team=team, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
+        await _rank(team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
     except Exception:
         logger.exception("replay_vision.embed_observation.rank_failed", observation_id=str(observation_id))
 

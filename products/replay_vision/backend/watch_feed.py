@@ -5,6 +5,7 @@ own window), so "outlier" and "rare" mean unusual for that scanner lately, not a
 """
 
 import re
+import math
 from collections import deque
 from datetime import datetime
 from statistics import fmean, stdev
@@ -389,6 +390,51 @@ def _trim_filler(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
             kept.append(entry)
             budget -= 1
     return kept
+
+
+# One incident can put many near-identical watchable sessions on one scanner, and a pure score
+# sort would fill the top of the feed with them. Hold each scanner to this share of the evidence
+# tier as it is placed (same intent as WATCH_FEED_MAX_SIGNAL_SHARE in the weighted ranker), with a
+# floor so a short feed is not over-constrained; the overflow trails the tier instead of leaving it.
+MAX_SCANNER_SHARE = 0.4
+_SCANNER_SPREAD_FLOOR = 3
+
+
+def spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFeedEntry]:
+    """Hold each scanner to MAX_SCANNER_SHARE of the evidence tier as it is placed.
+
+    Checked per place rather than over the whole list because the view slices the head: a feed of 5
+    obeys the same share as a feed of 50. Overflow trails the tier in probability order — reordering
+    for breadth is the job here, shortening the feed is not.
+    """
+    placed: list[WatchFeedEntry] = []
+    deferred: list[WatchFeedEntry] = []
+    counts: dict[Any, int] = {}
+    for scanner_id, entry in ordered:
+        allowed = max(_SCANNER_SPREAD_FLOOR, math.ceil(MAX_SCANNER_SHARE * (len(placed) + 1)))
+        if counts.get(scanner_id, 0) >= allowed:
+            deferred.append(entry)
+        else:
+            counts[scanner_id] = counts.get(scanner_id, 0) + 1
+            placed.append(entry)
+    return placed + deferred
+
+
+def finish_feed(
+    picks: list[tuple[float, Any, Any, WatchFeedEntry]], filler_rows: list[dict[str, Any]]
+) -> list[WatchFeedEntry]:
+    """Order `(score, created_at, scanner_id, entry)` picks with the scanner spread, then pad with
+    `filler_rows` newest and unviewed first, trimmed to the feed's floor."""
+    ordered = sorted(picks, key=lambda item: (item[0], item[1]), reverse=True)
+    filler: list[tuple[bool, Any, WatchFeedEntry]] = []
+    for row in filler_rows:
+        viewed = bool(row.get("feed_viewed"))
+        entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
+        filler.append((not viewed, row["created_at"], entry))
+    filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return _trim_filler(
+        spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in ordered]) + [entry for *_, entry in filler]
+    )
 
 
 def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:

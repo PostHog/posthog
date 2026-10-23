@@ -7,10 +7,9 @@ memory per scanner, oldest first, the same way the scan workflow would have foun
 """
 
 from collections import defaultdict
-from collections.abc import Iterator
 from datetime import datetime
+from itertools import batched
 from typing import Any
-from uuid import UUID
 
 from django.db.models import Count
 
@@ -22,19 +21,22 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.dataclasses import frozen
-from posthog.models.team import Team
 
-from products.replay_vision.backend.embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
+from products.replay_vision.backend.embeddings import (
+    OBSERVATION_EMBEDDINGS_TABLE,
+    OBSERVATION_SCOPE_PREWHERE,
+    observation_scope_params,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.watch_rank import (
-    _EMBEDDINGS_TABLE,
-    ANCHOR_VERSION,
     DUPLICATE_MAX_DISTANCE,
     WatchCategory,
     WatchRank,
     anchor_vectors,
     classify,
+    current_rank,
     duplicate_root,
+    normalize,
 )
 
 logger = structlog.get_logger(__name__)
@@ -61,47 +63,31 @@ def teams_with_observations(since: datetime) -> list[int]:
     )
 
 
-def _chunks(ids: list[str], size: int) -> Iterator[list[str]]:
-    for start in range(0, len(ids), size):
-        yield ids[start : start + size]
-
-
 def _stored_vectors(
-    team_id: int, scanner_id: str, observation_ids: list[str], since: datetime
+    team_id: int, scanner_ids: list[str], observation_ids: list[str], since: datetime
 ) -> dict[str, np.ndarray]:
-    """Each observation's stored unit vector, read in chunks so a busy scanner never loads at once."""
+    """Each observation's stored unit vector, read in chunks so a busy team never loads at once."""
     vectors: dict[str, np.ndarray] = {}
-    for chunk in _chunks(observation_ids, _VECTOR_CHUNK):
+    for chunk in batched(observation_ids, _VECTOR_CHUNK, strict=False):
         with tags_context(product=Product.REPLAY_VISION, query_type="replay_vision_watch_rank_backfill"):
             rows = sync_execute(
-                # nosemgrep: clickhouse-fstring-param-audit -- table name is a module constant
+                # nosemgrep: clickhouse-fstring-param-audit -- table name and scope are module constants
                 f"""
                 SELECT document_id, any(embedding)
-                FROM {_EMBEDDINGS_TABLE}
-                PREWHERE team_id = %(team_id)s
-                  AND product = %(product)s
-                  AND document_type = %(document_type)s
-                  AND JSONExtractString(metadata, 'scanner_id') = %(scanner_id)s
+                FROM {OBSERVATION_EMBEDDINGS_TABLE}
+                PREWHERE {OBSERVATION_SCOPE_PREWHERE}
                   AND timestamp >= %(since)s
                 WHERE document_id IN %(ids)s
                 GROUP BY document_id
                 """,
-                {
-                    "team_id": team_id,
-                    "product": EMBEDDING_PRODUCT,
-                    "document_type": EMBEDDING_DOCUMENT_TYPE,
-                    "scanner_id": scanner_id,
-                    "since": since,
-                    "ids": chunk,
-                },
+                {**observation_scope_params(team_id, scanner_ids), "since": since, "ids": list(chunk)},
                 team_id=team_id,
                 readonly=True,
                 ch_user=ClickHouseUser.REPLAY_VISION,
                 settings={"max_execution_time": _QUERY_TIMEOUT_S},
             )
         for document_id, embedding in rows:
-            vector = np.asarray(embedding, dtype=np.float32)
-            vectors[str(document_id)] = vector / np.linalg.norm(vector)
+            vectors[str(document_id)] = normalize(np.asarray(embedding, dtype=np.float32))
     return vectors
 
 
@@ -109,69 +95,62 @@ def _rank_scanner(
     rows: list[dict[str, Any]], vectors: dict[str, np.ndarray], anchors: dict[WatchCategory, np.ndarray]
 ) -> dict[str, dict[str, Any]]:
     """New ranks for the scanner's rows that lack a current one, walking oldest first."""
+    embedded = [row for row in rows if str(row["id"]) in vectors]
+    if not embedded:
+        return {}
+    ids = [str(row["id"]) for row in embedded]
+    matrix = np.stack([vectors[observation_id] for observation_id in ids])
     ranks: dict[str, dict[str, Any] | None] = {}
-    seen_ids: list[str] = []
-    seen_vectors: list[np.ndarray] = []
     written: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        observation_id = str(row["id"])
-        vector = vectors.get(observation_id)
-        if vector is None:
-            continue
-        current = row["watch_rank"]
-        if isinstance(current, dict) and current.get("anchor_version") == ANCHOR_VERSION:
-            rank: dict[str, Any] | None = current
-        else:
-            category, contrast = classify(vector.tolist(), anchors)
+    for index, (observation_id, row) in enumerate(zip(ids, embedded)):
+        rank = current_rank(row)
+        if rank is None:
+            category, contrast = classify(matrix[index], anchors)
             duplicate_of: str | None = None
-            if seen_vectors:
-                distances = 1.0 - np.stack(seen_vectors) @ vector
+            if index > 0:
+                distances = 1.0 - matrix[:index] @ matrix[index]
                 nearest = int(np.argmin(distances))
                 if distances[nearest] <= DUPLICATE_MAX_DISTANCE:
-                    duplicate_of = duplicate_root(seen_ids[nearest], ranks.get(seen_ids[nearest]))
+                    duplicate_of = duplicate_root(ids[nearest], ranks.get(ids[nearest]))
             rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of).to_json()
             written[observation_id] = rank
         ranks[observation_id] = rank
-        seen_ids.append(observation_id)
-        seen_vectors.append(vector)
     return written
 
 
-def backfill_team_watch_ranks(team: Team, since: datetime, *, dry_run: bool = False) -> WatchRankBackfillResult:
+def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = False) -> WatchRankBackfillResult:
     """Rank the team's succeeded observations since `since` that lack a rank from the current anchors."""
     rows: list[dict[str, Any]] = [
         dict(row)
         for row in ReplayObservation.objects.filter(
-            team_id=team.id, status=ObservationStatus.SUCCEEDED, created_at__gte=since
+            team_id=team_id, status=ObservationStatus.SUCCEEDED, created_at__gte=since
         )
         .order_by("created_at", "id")
         .values("id", "scanner_id", "watch_rank")
     ]
-    by_scanner: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+    by_scanner: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        by_scanner[row["scanner_id"]].append(row)
+        by_scanner[str(row["scanner_id"])].append(row)
+    vectors = _stored_vectors(team_id, list(by_scanner), [str(row["id"]) for row in rows], since)
 
-    anchors = async_to_sync(anchor_vectors)(team)
-    ranked = 0
-    without_embedding = 0
-    for scanner_id, scanner_rows in by_scanner.items():
-        vectors = _stored_vectors(team.id, str(scanner_id), [str(row["id"]) for row in scanner_rows], since)
-        without_embedding += sum(1 for row in scanner_rows if str(row["id"]) not in vectors)
-        written = _rank_scanner(scanner_rows, vectors, anchors)
-        ranked += len(written)
-        if not dry_run and written:
-            # The ids come from the team-scoped query above, so the update needs no team filter of its own.
-            ReplayObservation.objects.bulk_update(
-                [ReplayObservation(id=observation_id, watch_rank=rank) for observation_id, rank in written.items()],
-                ["watch_rank"],
-                batch_size=_VECTOR_CHUNK,
-            )
+    anchors = async_to_sync(anchor_vectors)(team_id)
+    written: dict[str, dict[str, Any]] = {}
+    for scanner_rows in by_scanner.values():
+        written.update(_rank_scanner(scanner_rows, vectors, anchors))
+    if not dry_run and written:
+        # The ids come from the team-scoped query above, so the update needs no team filter of its own.
+        ReplayObservation.objects.bulk_update(
+            [ReplayObservation(id=observation_id, watch_rank=rank) for observation_id, rank in written.items()],
+            ["watch_rank"],
+            batch_size=_VECTOR_CHUNK,
+        )
+    without_embedding = sum(1 for row in rows if str(row["id"]) not in vectors)
     logger.info(
         "replay_vision.watch_rank_backfill.team_done",
-        team_id=team.id,
+        team_id=team_id,
         observations=len(rows),
-        ranked=ranked,
+        ranked=len(written),
         without_embedding=without_embedding,
         dry_run=dry_run,
     )
-    return WatchRankBackfillResult(observations=len(rows), ranked=ranked, without_embedding=without_embedding)
+    return WatchRankBackfillResult(observations=len(rows), ranked=len(written), without_embedding=without_embedding)

@@ -7,6 +7,7 @@ The feed turns scores into a percentile within each scanner when it loads, so a 
 errors all the time does not fill the feed.
 """
 
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -22,12 +23,12 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.replay_vision.backend.embeddings import (
-    EMBEDDING_DOCUMENT_TYPE,
-    EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
+    OBSERVATION_EMBEDDINGS_TABLE,
+    OBSERVATION_SCOPE_PREWHERE,
+    observation_scope_params,
 )
-from products.replay_vision.backend.jev_watch_feed import _spread_scanners
-from products.replay_vision.backend.watch_feed import WatchFeedEntry, _trim_filler
+from products.replay_vision.backend.watch_feed import WatchFeedEntry, finish_feed
 
 WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
 
@@ -80,7 +81,6 @@ CATEGORY_WEIGHT: dict[str, float] = {"failure": 1.0, "revenue": 1.0, "struggle":
 DUPLICATE_MAX_DISTANCE = 0.1
 DUPLICATE_LOOKBACK = timedelta(days=7)
 _DUPLICATE_QUERY_TIMEOUT_S = 10
-_EMBEDDINGS_TABLE = f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
 
 # The feed surfaces a scanner's top fifth by score, once the scanner has enough ranked rows to
 # make a percentile mean something.
@@ -99,48 +99,53 @@ class WatchRank:
     anchor_version: int = ANCHOR_VERSION
 
     def to_json(self) -> dict[str, Any]:
-        return {
-            "category": self.category,
-            "contrast": self.contrast,
-            "duplicate_of": self.duplicate_of,
-            "anchor_version": self.anchor_version,
-        }
+        return asdict(self)
 
 
 def _anchor_cache_key() -> str:
     return f"replay-vision:watch-rank-anchors:v{ANCHOR_VERSION}:{OBSERVATION_EMBEDDING_MODEL.value}"
 
 
-def _normalize(matrix: np.ndarray) -> np.ndarray:
+def normalize(matrix: np.ndarray) -> np.ndarray:
     return matrix / np.linalg.norm(matrix, axis=-1, keepdims=True)
 
 
-async def anchor_vectors(team: Team) -> dict[WatchCategory, np.ndarray]:
+# The anchors never change within a version, so each process keeps them after the first read.
+_anchors_in_process: dict[str, dict[WatchCategory, np.ndarray]] = {}
+
+
+async def anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
     """Unit vectors for every anchor, embedded once and cached across teams.
 
     Embedded under the calling team because the worker gates every call on a team's AI opt-in, and
     a team that ranks observations has already passed that gate.
     """
-    cached = await cache.aget(_anchor_cache_key())
-    if cached is not None:
-        return {category: _normalize(np.array(rows, dtype=float)) for category, rows in cached.items()}
-    vectors: dict[WatchCategory, list[list[float]]] = {}
-    for category, texts in ANCHORS.items():
-        vectors[category] = [
-            (await async_generate_embedding(team, text, model=OBSERVATION_EMBEDDING_MODEL.value)).embedding
-            for text in texts
-        ]
-    await cache.aset(_anchor_cache_key(), vectors, _ANCHOR_CACHE_TTL_S)
-    return {category: _normalize(np.array(rows, dtype=float)) for category, rows in vectors.items()}
+    key = _anchor_cache_key()
+    if (in_process := _anchors_in_process.get(key)) is not None:
+        return in_process
+    vectors: dict[WatchCategory, list[list[float]]] | None = await cache.aget(key)
+    if vectors is None:
+        team = await Team.objects.aget(id=team_id)
+        vectors = {
+            category: [
+                (await async_generate_embedding(team, text, model=OBSERVATION_EMBEDDING_MODEL.value)).embedding
+                for text in texts
+            ]
+            for category, texts in ANCHORS.items()
+        }
+        await cache.aset(key, vectors, _ANCHOR_CACHE_TTL_S)
+    anchors = {category: normalize(np.array(rows, dtype=float)) for category, rows in vectors.items()}
+    _anchors_in_process[key] = anchors
+    return anchors
 
 
-def classify(vector: list[float], anchors: dict[WatchCategory, np.ndarray]) -> tuple[WatchCategory, float]:
+def classify(vector: list[float] | np.ndarray, anchors: dict[WatchCategory, np.ndarray]) -> tuple[WatchCategory, float]:
     """The closest issue category and its lead over the closest routine anchor, given unit anchors.
 
     A negative lead means the observation reads more like routine than like any issue, and the
     category is then routine.
     """
-    unit = _normalize(np.array(vector, dtype=float))
+    unit = normalize(np.asarray(vector, dtype=float))
     closest = {category: float(np.max(anchors[category] @ unit)) for category in anchors}
     category = max(ISSUE_CATEGORIES, key=lambda c: closest[c])
     contrast = round(closest[category] - closest["routine"], 4)
@@ -153,14 +158,11 @@ def nearest_earlier_observation(
     """The scanner's closest other observation in the lookback window, with its cosine distance."""
     with tags_context(product=Product.REPLAY_VISION, query_type="replay_vision_watch_rank_duplicate"):
         rows = sync_execute(
-            # nosemgrep: clickhouse-fstring-param-audit -- table name is a module constant
+            # nosemgrep: clickhouse-fstring-param-audit -- table name and scope are module constants
             f"""
             SELECT document_id, min(cosineDistance(embedding, %(embedding)s)) AS distance
-            FROM {_EMBEDDINGS_TABLE}
-            PREWHERE team_id = %(team_id)s
-              AND product = %(product)s
-              AND document_type = %(document_type)s
-              AND JSONExtractString(metadata, 'scanner_id') = %(scanner_id)s
+            FROM {OBSERVATION_EMBEDDINGS_TABLE}
+            PREWHERE {OBSERVATION_SCOPE_PREWHERE}
               AND timestamp >= %(since)s
             WHERE document_id != %(observation_id)s
             GROUP BY document_id
@@ -168,11 +170,8 @@ def nearest_earlier_observation(
             LIMIT 1
             """,
             {
+                **observation_scope_params(team_id, [scanner_id]),
                 "embedding": vector,
-                "team_id": team_id,
-                "product": EMBEDDING_PRODUCT,
-                "document_type": EMBEDDING_DOCUMENT_TYPE,
-                "scanner_id": scanner_id,
                 "since": now - DUPLICATE_LOOKBACK,
                 "observation_id": observation_id,
             },
@@ -193,7 +192,8 @@ def duplicate_root(neighbour_id: str, neighbour_rank: dict[str, Any] | None) -> 
     return root if isinstance(root, str) and root else neighbour_id
 
 
-def _current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
+def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
+    """The row's rank when it comes from the current anchors, else None."""
     rank = row.get("watch_rank")
     if not isinstance(rank, dict) or rank.get("anchor_version") != ANCHOR_VERSION:
         return None
@@ -207,7 +207,7 @@ def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Each ranked row's score as a percentile among its scanner's ranked rows in the window."""
     by_scanner: dict[Any, list[tuple[float, str]]] = {}
     for row in rows:
-        if rank := _current_rank(row):
+        if rank := current_rank(row):
             by_scanner.setdefault(row["scanner_id"], []).append((float(rank["contrast"]), str(row["id"])))
     percentiles: dict[str, float] = {}
     for scored in by_scanner.values():
@@ -233,7 +233,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     group_sizes: dict[str, int] = {}
     grouped_ids: set[str] = set()
     for row in rows:
-        rank = _current_rank(row)
+        rank = current_rank(row)
         observation_id = str(row["id"])
         percentile = percentiles.get(observation_id)
         if rank is None or percentile is None or rank.get("category") not in ISSUE_CATEGORIES:
@@ -260,18 +260,5 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         picks.append(
             (score, row["created_at"], row.get("scanner_id"), WatchFeedEntry(observation_id=row["id"], reason=reason))
         )
-    picks.sort(key=lambda item: (item[0], item[1]), reverse=True)
-
-    filler: list[tuple[bool, Any, WatchFeedEntry]] = []
-    for row in rows:
-        # A pick stands for its whole duplicate group, so no member returns as filler.
-        if str(row["id"]) in grouped_ids:
-            continue
-        viewed = bool(row.get("feed_viewed"))
-        entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
-        filler.append((not viewed, row["created_at"], entry))
-    filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-
-    return _trim_filler(
-        _spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in picks]) + [entry for *_, entry in filler]
-    )
+    # A pick stands for its whole duplicate group, so no member returns as filler.
+    return finish_feed(picks, [row for row in rows if str(row["id"]) not in grouped_ids])
