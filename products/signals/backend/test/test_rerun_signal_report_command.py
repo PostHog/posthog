@@ -92,7 +92,7 @@ class TestRerunSignalReportCommand(BaseTest):
         self.report.save(update_fields=["status", "research_blocked_reason", "research_blocked_at"])
         previous_promoted_at = self.report.promoted_at
         assert "Started research" in self.command(execute=True)
-        self.report.refresh_from_db()
+        self.report = SignalReport.objects.get(pk=self.report.pk)
         assert self.report.status == SignalReport.Status.CANDIDATE
         assert self.report.research_blocked_reason is None
         assert self.report.research_blocked_at is None
