@@ -67,13 +67,17 @@ describe("tool-metadata approval states", () => {
   });
 
   describe("setAlwaysAskMcpServers", () => {
-    it("defaults tools on a relayed server to needs_approval", () => {
-      setAlwaysAskMcpServers(["slack"]);
+    it.each([
+      { server: "slack", toolName: "mcp__slack__send_message" },
+      { server: "Google Calendar", toolName: "mcp__Google_Calendar__list" },
+    ])(
+      "defaults tools on relayed server $server to needs_approval",
+      ({ server, toolName }) => {
+        setAlwaysAskMcpServers([server]);
 
-      expect(getMcpToolApprovalState("mcp__slack__send_message")).toBe(
-        "needs_approval",
-      );
-    });
+        expect(getMcpToolApprovalState(toolName)).toBe("needs_approval");
+      },
+    );
 
     it("leaves tools on other servers unaffected", () => {
       setAlwaysAskMcpServers(["slack"]);

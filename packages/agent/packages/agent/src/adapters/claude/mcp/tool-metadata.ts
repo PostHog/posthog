@@ -132,7 +132,9 @@ const alwaysAskMcpServers = new Set<string>();
 
 export function setAlwaysAskMcpServers(serverNames: string[]): void {
   alwaysAskMcpServers.clear();
-  for (const name of serverNames) alwaysAskMcpServers.add(name);
+  for (const name of serverNames) {
+    alwaysAskMcpServers.add(sanitizeMcpServerName(name));
+  }
 }
 
 export function getMcpToolApprovalState(
