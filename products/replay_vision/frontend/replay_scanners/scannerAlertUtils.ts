@@ -37,17 +37,27 @@ export type VisionAlertDestinationGroup = {
     enabled: boolean
 }
 
+function slackDestinationLabel(
+    slackIntegrations: IntegrationType[] | undefined,
+    workspaceId: number | undefined,
+    channelName: string
+): string {
+    const workspaceName = slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
+    return `${workspaceName ?? 'Unknown workspace'} · ${channelName}`
+}
+
 export function pendingVisionAlertNotificationView(
     notification: PendingVisionAlertNotification,
     slackIntegrations: IntegrationType[] | undefined
 ): { title: string; detail?: string } {
     if (notification.type === VISION_ALERT_NOTIFICATION_TYPE_SLACK) {
-        const workspaceName = slackIntegrations?.find(
-            (integration) => integration.id === notification.slackWorkspaceId
-        )?.display_name
         return {
             title: 'Slack',
-            detail: `${workspaceName ?? 'Unknown workspace'} · #${notification.slackChannelName ?? 'channel'}`,
+            detail: slackDestinationLabel(
+                slackIntegrations,
+                notification.slackWorkspaceId,
+                `#${notification.slackChannelName ?? 'channel'}`
+            ),
         }
     }
     return { title: 'Webhook', detail: notification.webhookUrl }
@@ -108,11 +118,8 @@ export function groupVisionAlertDestinations(
         if (templateId === 'template-slack') {
             type = VISION_ALERT_NOTIFICATION_TYPE_SLACK
             key = `slack:${slackWorkspaceValue ?? 'unknown'}:${slackChannelValue ?? hf.id}`
-            const workspaceName = slackIntegrations?.find(
-                (integration) => integration.id === slackWorkspaceValue
-            )?.display_name
             const channelName = hf.name.match(/ → Slack (#\S+)$/)?.[1] ?? '#channel'
-            label = `${workspaceName ?? 'Unknown workspace'} · ${channelName}`
+            label = slackDestinationLabel(slackIntegrations, slackWorkspaceValue, channelName)
         } else {
             type = VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl ?? hf.id}`

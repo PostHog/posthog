@@ -1,7 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
-
-import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 
 import {
     AlertNotificationDestinationEditor,
@@ -38,14 +35,6 @@ export function ScannerAlertNotifications(): JSX.Element {
         setWebhookUrl,
         loadIntegrations,
     } = useActions(scannerAlertNotificationLogic)
-
-    const slackLogic = slackIntegrationLogic({ id: selectedSlackIntegration?.id ?? 0 })
-    const { loadAllSlackChannels } = useActions(slackLogic)
-    useEffect(() => {
-        if (selectedSlackIntegration?.id) {
-            loadAllSlackChannels()
-        }
-    }, [selectedSlackIntegration?.id, loadAllSlackChannels])
 
     const existingDestinations: AlertNotificationDestinationView[] = destinationGroups.map((group) => ({
         key: group.key,

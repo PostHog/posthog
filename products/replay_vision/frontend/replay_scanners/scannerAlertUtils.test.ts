@@ -53,7 +53,6 @@ describe('scannerAlertUtils', () => {
         )
 
         expect(groups.map(({ key }) => key)).toEqual(['slack:1:C123', 'slack:2:C123'])
-        expect(groups).toHaveLength(2)
         expect(groups.map(({ hogFunctions }) => hogFunctions.length)).toEqual([2, 1])
     })
 
