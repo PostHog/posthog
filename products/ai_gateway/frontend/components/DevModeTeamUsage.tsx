@@ -10,8 +10,9 @@ import { ActivityScope } from '~/types'
 import type { DevUserUsageApi } from '../generated/api.schemas'
 import { devModeTeamUsageLogic } from '../logics/devModeTeamUsageLogic'
 
+// Four places, because single calls cost fractions of a cent.
 function usd(value: string): JSX.Element {
-    return <span translate="no">${Number(value).toFixed(2)}</span>
+    return <span translate="no">${Number(value).toFixed(4)}</span>
 }
 
 export function DevModeTeamUsage(): JSX.Element {

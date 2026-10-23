@@ -26,7 +26,7 @@ from urllib3.exceptions import NewConnectionError
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -323,7 +323,7 @@ def team_usage_refusal(user: User) -> DevTokenRefused | None:
 
 
 def _spend_by_distinct_id(team: Team) -> dict[str, tuple[Decimal, Decimal, Decimal]]:
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.AI_GATEWAY_DEV_USAGE):
         response = execute_hogql_query(
             _SPEND_QUERY,
             placeholders={"product": ast.Constant(value=DEV_PRODUCT)},

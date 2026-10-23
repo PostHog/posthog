@@ -102,7 +102,10 @@ def gateway_status(host: str, allow_any_host: bool, as_json: bool) -> None:
     if status.get("remaining_usd") is None:
         click.echo(f"The token is live, with a ${status['cap_usd']} cap. The gateway did not report what is left.")
     else:
-        click.echo(f"${float(status['remaining_usd']):.2f} of ${status['cap_usd']} left.")
+        # Four places, because single calls cost fractions of a cent and two would show an untouched cap.
+        remaining = float(status["remaining_usd"])
+        spent = float(status["cap_usd"]) - remaining
+        click.echo(f"${remaining:.4f} of ${status['cap_usd']} left (${spent:.4f} spent).")
     click.echo(f"The token expires at {status['expires_at']}.")
 
 
