@@ -1561,6 +1561,68 @@ class InstatusIncidentSignalInput(SignalInputBase):
     extra: InstatusIncidentSignalExtra
 
 
+class GooglePlayConsoleIssueSignalExtra(SignalExtraBase):
+    issue_type: str | None
+    code_location: str | None
+    report_count: str | None
+    affected_users: str | None
+    first_version: str | None
+    last_version: str | None
+    last_report_time: str | None
+    issue_url: str | None
+
+
+class GooglePlayConsoleIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.GOOGLE_PLAY_CONSOLE]
+    extra: GooglePlayConsoleIssueSignalExtra
+
+
+class AzureApplicationInsightsIssueSignalExtra(SignalExtraBase):
+    problem_id: str | None
+    exception_type: str | None
+    role_name: str | None
+    occurrences: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class AzureApplicationInsightsIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.AZURE_APPLICATION_INSIGHTS]
+    extra: AzureApplicationInsightsIssueSignalExtra
+
+
+class AppsignalIssueSignalExtra(SignalExtraBase):
+    state: str | None
+    severity: str | None
+    namespace: str | None
+    occurrence_count: str | None
+    created_at: str | None
+    last_occurred_at: str | None
+
+
+class AppsignalIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.APPSIGNAL]
+    extra: AppsignalIssueSignalExtra
+
+
+class CursorIssueSignalExtra(SignalExtraBase):
+    repo: str | None
+    pr_number: str | None
+    commit_sha: str | None
+    bugs_found: str | None
+    publication_status: str | None
+    timestamp: str | None
+
+
+class CursorIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.CURSOR]
+    extra: CursorIssueSignalExtra
+
+
 # ── Error monitors ─────────────────────────────────────────────────────────────
 
 
@@ -1882,6 +1944,10 @@ SignalInput = Annotated[
     | LaceworkScannerFindingSignalInput
     | OrcaSecurityScannerFindingSignalInput
     | TenableVulnerabilityManagementScannerFindingSignalInput
+    | GooglePlayConsoleIssueSignalInput
+    | AzureApplicationInsightsIssueSignalInput
+    | AppsignalIssueSignalInput
+    | CursorIssueSignalInput
     | TriggerDevErrorSignalInput
     | ChecklyErrorGroupSignalInput
     | RoarkIssueSignalInput
@@ -1990,6 +2056,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     LaceworkScannerFindingSignalInput,
     OrcaSecurityScannerFindingSignalInput,
     TenableVulnerabilityManagementScannerFindingSignalInput,
+    GooglePlayConsoleIssueSignalInput,
+    AzureApplicationInsightsIssueSignalInput,
+    AppsignalIssueSignalInput,
+    CursorIssueSignalInput,
     TriggerDevErrorSignalInput,
     ChecklyErrorGroupSignalInput,
     RoarkIssueSignalInput,
