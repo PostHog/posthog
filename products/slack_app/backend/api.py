@@ -2605,6 +2605,9 @@ def _route_untagged_question(
         return ROUTE_HANDLED_LOCALLY
     if target.id not in enabled_integration_ids:
         return ROUTE_HANDLED_LOCALLY
+    # A post that tags the app also arrives as an ``app_mention``, and the mention pipeline answers that copy.
+    if _message_tags_bot(event, target):
+        return ROUTE_HANDLED_LOCALLY
 
     logger.info(
         "slack_app_untagged_question_dispatched",
@@ -4191,16 +4194,22 @@ def post_thread_join_prompt(
     owner_slack_user_id: str,
     joiner_slack_user_id: str,
     opens_thread: bool,
+    plan_name: str | None = None,
 ) -> None:
     """Ask the thread creator whether someone else may join their thread.
 
     ``opens_thread`` says that approving lets anyone join the thread, not only this person.
+    ``plan_name`` names the creator's plan when the thread's task runs on it, so the creator
+    knows that people who join spend it.
 
     The whole event is stashed behind a one-off token, so letting them join sends the original
     message rather than a reconstruction of it. The person who asked hears that the creator was
     asked, so their message does not seem lost. While a prompt for this person waits, their
     next messages post no new prompt, so a chatty joiner cannot flood the creator.
     """
+    plan_note = (
+        f"This task runs on your {plan_name}, so messages from people who join use it too. " if plan_name else ""
+    )
     pending_key = _thread_join_pending_key(integration.id, channel, thread_ts, joiner_slack_user_id)
     if not cache.add(pending_key, True, timeout=THREAD_JOIN_PROMPT_MAX_AGE_SECONDS):
         return
@@ -4258,7 +4267,7 @@ def post_thread_join_prompt(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"In the {home_tab_label} you can choose who joins your threads.",
+                    "text": f"{plan_note}In the {home_tab_label} you can choose who joins your threads.",
                 }
             ],
         },
