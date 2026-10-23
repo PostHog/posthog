@@ -52,7 +52,7 @@ from products.signals.backend.artefact_schemas import (
     RankingScore,
     ReportLink,
 )
-from products.signals.backend.enums import ReportLinkKind, ReportPriority
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, ReportPriority
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_pr_state_for_reports,
@@ -4014,6 +4014,33 @@ class TestSignalReportMergeAPI(APIBaseTest):
         move.assert_called_once_with(
             team_id=self.team.id, survivor_report_id=str(survivor.id), source_report_ids=[str(source.id)]
         )
+
+    def test_merge_labels_the_duplicate_link_event_with_the_merge_write_path(self):
+        survivor = self._report()
+        source = self._report()
+
+        with (
+            patch("products.signals.backend.tasks.move_merged_report_signals.delay"),
+            patch("products.signals.backend.typed_report_links.capture_report_linked") as capture,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                assert (
+                    self.client.post(
+                        self._merge_url(str(survivor.id)),
+                        data=json.dumps({"source_report_ids": [str(source.id)]}),
+                        content_type="application/json",
+                    ).status_code
+                    == status.HTTP_200_OK
+                )
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        assert (kwargs["edge"].source_id, kwargs["edge"].kind, kwargs["edge"].target_id) == (
+            str(source.id),
+            ReportLinkKind.DUPLICATE_OF,
+            str(survivor.id),
+        )
+        assert kwargs["write_path"] == ReportLinkWritePath.MERGE
 
 
 class TestAvailableReviewersAPI(APIBaseTest):
