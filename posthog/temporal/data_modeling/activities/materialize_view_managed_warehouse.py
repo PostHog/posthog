@@ -51,7 +51,7 @@ from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELIN
 from ..metrics import (
     UNKNOWN_RUN_MODE,
     get_managed_warehouse_trino_compile_failure_metric,
-    get_managed_warehouse_trino_user_error_metric,
+    get_managed_warehouse_trino_missing_object_metric,
     get_node_suspended_metric,
 )
 from .utils import (
@@ -362,9 +362,10 @@ async def _materialize_view_managed_warehouse(
         )
         return shadow_result
     except Exception as e:
-        from products.managed_warehouse.backend.facade.client import is_trino_user_error
+        from products.managed_warehouse.backend.facade.client import get_trino_missing_object_error_name
 
         duration = time.monotonic() - start_time
+        missing_object_error_name = get_trino_missing_object_error_name(e)
         if isinstance(e, TrinoLoweringError):
             # Unsupported HogQL is an expected shadow outcome, so it is not an exception to track.
             get_managed_warehouse_trino_compile_failure_metric(e.feature_code).add(1)
@@ -374,14 +375,13 @@ async def _materialize_view_managed_warehouse(
                 error_code=e.feature_code,
                 duration_seconds=round(duration, 2),
             )
-        elif is_trino_user_error(e):
+        elif missing_object_error_name is not None:
             # A column or table that Trino cannot resolve is an expected shadow outcome, so it is not an exception to track.
-            error_name = getattr(e, "error_name", None) or "UNKNOWN"
-            get_managed_warehouse_trino_user_error_metric(error_name).add(1)
+            get_managed_warehouse_trino_missing_object_metric(missing_object_error_name).add(1)
             await logger.awarning(
                 "Managed warehouse shadow query failed in Trino",
                 node_name=node.name,
-                error_name=error_name,
+                error_name=missing_object_error_name,
                 error=str(e),
                 duration_seconds=round(duration, 2),
             )

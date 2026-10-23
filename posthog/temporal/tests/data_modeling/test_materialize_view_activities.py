@@ -163,13 +163,14 @@ class TestMaterializeViewManagedWarehouseActivity:
             is_ready.assert_not_called()
 
     @pytest.mark.parametrize(
-        "compile_error,alias_dispatch_fails",
+        "compile_error,error_tracked,alias_dispatch_fails",
         [
-            (None, False),
-            (ValueError("Trino compilation failed"), False),
-            (TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"), False),
-            (TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}), False),
-            (None, True),
+            (None, False, False),
+            (ValueError("Trino compilation failed"), True, False),
+            (TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"), False, False),
+            (TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}), False, False),
+            (TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}), True, False),
+            (None, True, True),
         ],
     )
     async def test_trino_shadow_records_execution_or_compilation_result(
@@ -181,6 +182,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         adag,
         asaved_query,
         compile_error: Exception | None,
+        error_tracked: bool,
         alias_dispatch_fails: bool,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
@@ -235,11 +237,11 @@ class TestMaterializeViewManagedWarehouseActivity:
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.bytes_read == 345
+        assert capture.called is error_tracked
         if compile_error is not None:
             reconcile_aliases.assert_not_awaited()
             assert result.error == str(compile_error)
             assert ajob.status == DataModelingJobStatus.FAILED
-            assert capture.called is not isinstance(compile_error, TrinoLoweringError | TrinoUserError)
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
             assert result.row_count == 12
