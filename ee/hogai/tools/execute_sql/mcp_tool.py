@@ -116,7 +116,10 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             )
         except MaxToolRetryableError as e:
             # ClickHouse rejections, and the validation a connection query defers to the runner,
-            # surface here rather than through the local validator above.
+            # surface here rather than through the local validator above. A raw query never went
+            # through HogQL, so HogQL rewrite advice would send the caller the wrong way.
+            if args.sendRawQuery:
+                raise
             hint = build_compatibility_hint(str(e))
             if not hint:
                 raise
