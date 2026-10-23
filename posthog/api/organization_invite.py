@@ -1,4 +1,5 @@
 import concurrent.futures
+from collections.abc import Callable, Iterable
 from datetime import timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -68,17 +69,25 @@ _DELEGATION_FLAG_MAX_QUEUE = _DELEGATION_FLAG_MAX_WORKERS * 2
 class OrganizationInviteManager:
     @staticmethod
     def combine_invites(
-        organization_id: UUID | str, validated_data: dict[str, Any], combine_pending_invites: bool = True
+        organization_id: UUID | str,
+        validated_data: dict[str, Any],
+        combine_pending_invites: bool = True,
+        *,
+        can_replace: Callable[[OrganizationInvite], bool],
     ) -> dict[str, Any]:
         """Combines multiple pending invites for the same email address."""
         if not combine_pending_invites:
             return validated_data
 
-        existing_invites = OrganizationInviteManager._get_invites_for_user_org(
-            organization_id=organization_id, target_email=validated_data["target_email"]
-        )
+        existing_invites = [
+            invite
+            for invite in OrganizationInviteManager._get_invites_for_user_org(
+                organization_id=organization_id, target_email=validated_data["target_email"]
+            )
+            if can_replace(invite)
+        ]
 
-        if not existing_invites.exists():
+        if not existing_invites:
             return validated_data
 
         validated_data["level"] = OrganizationInviteManager._get_highest_level(
@@ -107,13 +116,13 @@ class OrganizationInviteManager:
         return OrganizationInvite.objects.filter(**filters).order_by("-created_at")
 
     @staticmethod
-    def _get_highest_level(existing_invites: QuerySet, new_level: int) -> int:
+    def _get_highest_level(existing_invites: Iterable[OrganizationInvite], new_level: int) -> int:
         levels = [invite.level for invite in existing_invites]
         levels.append(new_level)
         return max(levels)
 
     @staticmethod
-    def _combine_project_access(existing_invites: QuerySet, new_access: list[dict]) -> list[dict]:
+    def _combine_project_access(existing_invites: Iterable[OrganizationInvite], new_access: list[dict]) -> list[dict]:
         combined_access: dict[int, int] = {}
 
         # Add new access first
@@ -133,11 +142,23 @@ class OrganizationInviteManager:
         return [{"id": project_id, "level": level} for project_id, level in combined_access.items()]
 
     @staticmethod
-    def delete_existing_invites(organization_id: UUID | str, target_email: str) -> None:
-        """Deletes all existing invites for a given email in an organization."""
-        OrganizationInviteManager._get_invites_for_user_org(
+    def delete_existing_invites(
+        organization_id: UUID | str, target_email: str, *, can_replace: Callable[[OrganizationInvite], bool]
+    ) -> None:
+        """Deletes the existing invites for a given email in an organization that `can_replace` accepts."""
+        existing_invites = OrganizationInviteManager._get_invites_for_user_org(
             organization_id=organization_id, target_email=target_email, include_expired=True
+        )
+        OrganizationInvite.objects.filter(
+            id__in=[invite.id for invite in existing_invites if can_replace(invite)]
         ).delete()
+
+
+def _project_access_level_exceeds(*, requested_level: str, granted_level: Optional[str]) -> bool:
+    levels: list[str] = [*ordered_access_levels("project")]
+    granted_rank = levels.index(granted_level) if granted_level in levels else 0
+    requested_rank = levels.index(requested_level) if requested_level in levels else 0
+    return requested_rank > granted_rank
 
 
 def first_bulk_invite_error(errors: list[Any]) -> exceptions.ValidationError:
@@ -281,26 +302,50 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # User is not an org admin/owner
                 pass
 
-            user_access_control = UserAccessControl(user=self.context["request"].user, team=team)
-            access_level = user_access_control.access_level_for_object(team)
+            access_level = self._inviter_project_access_level(team)
             if access_level == "none":
                 raise exceptions.ValidationError(team_error)
 
             # Check if user is trying to invite with a higher level than their own
-            levels = ordered_access_levels("project")
-            user_level_rank = levels.index(access_level) if access_level in levels else 0
-            requested_level_rank = levels.index(level) if level in levels else 0
-
-            if requested_level_rank > user_level_rank:
+            if _project_access_level_exceeds(requested_level=level, granted_level=access_level):
                 raise exceptions.ValidationError(
                     "You cannot invite to a restricted project with a higher level than your own."
                 )
 
         return private_project_access
 
+    def _inviter_project_access_level(self, team: Team) -> Optional[str]:
+        user_access_control = UserAccessControl(user=self.context["request"].user, team=team)
+        return user_access_control.access_level_for_object(team)
+
+    def _inviter_can_grant(self, invite: OrganizationInvite, inviter_membership: OrganizationMembership) -> bool:
+        # Combining or replacing a pending invite carries its grants into the new invite, or removes them.
+        # The field validators check only the request, so the inviter may only combine or replace an invite
+        # whose level and project access they could have granted themselves.
+        if invite.level > inviter_membership.level:
+            return False
+        if inviter_membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+        for item in invite.private_project_access or []:
+            team = Team.objects.filter(organization_id=self.context["organization_id"], id=item["id"]).first()
+            if team is None:
+                return False
+            access_level = self._inviter_project_access_level(team)
+            if access_level == "none" or _project_access_level_exceeds(
+                requested_level=item["level"], granted_level=access_level
+            ):
+                return False
+        return True
+
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         combine_pending_invites = validated_data.pop("combine_pending_invites", False)
         send_email = validated_data.pop("send_email", True)
+        inviter_membership = OrganizationMembership.objects.get(
+            organization_id=self.context["organization_id"], user=self.context["request"].user
+        )
+
+        def can_replace(invite: OrganizationInvite) -> bool:
+            return self._inviter_can_grant(invite, inviter_membership)
 
         # Handle invite combination if requested
         if combine_pending_invites:
@@ -308,11 +353,14 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 organization_id=self.context["organization_id"],
                 validated_data=validated_data,
                 combine_pending_invites=True,
+                can_replace=can_replace,
             )
 
         # Delete existing invites for this email
         OrganizationInviteManager.delete_existing_invites(
-            organization_id=self.context["organization_id"], target_email=validated_data["target_email"]
+            organization_id=self.context["organization_id"],
+            target_email=validated_data["target_email"],
+            can_replace=can_replace,
         )
 
         # Create new invite
