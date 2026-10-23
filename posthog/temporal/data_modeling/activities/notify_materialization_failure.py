@@ -22,9 +22,10 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async_pool
-from posthog.tasks.email import send_matview_failure_immediate_email
+from posthog.tasks.email import matview_view_path, send_matview_failure_immediate_email
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.api import get_node_ids_for_saved_queries
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -170,6 +171,42 @@ def maybe_notify_materialization_failure(
     return True
 
 
+@database_sync_to_async_pool
+def notify_node_suspended(
+    job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int, reason: str
+) -> None:
+    """Tell the team a view stopped running, which is the moment that needs someone to act.
+
+    The failure notifications go quiet after a streak's first failure, so without this the
+    view would stop updating with nothing said.
+    """
+    send_matview_failure_immediate_email.delay(team_id, str(saved_query.id), str(job.id), suspended=True)
+    create_notification(
+        NotificationData(
+            team_id=team_id,
+            notification_type=NotificationType.MATERIALIZATION_FAILURE,
+            priority=Priority.NORMAL,
+            title=f"{saved_query.name} was suspended after repeated failures"[:255],
+            body=f"Fix the query, then open the view and select Resume. Last error: {reason}"[:400],
+            target_type=TargetType.TEAM,
+            target_id=str(team_id),
+            resource_type="warehouse_objects",
+            resource_id=str(saved_query.id),
+            source_url=_view_path(team_id, saved_query),
+            source_id=str(job.id),
+            # A retry of the suspending run sends again, so this dedupes it. Sharing the failure
+            # notification's key also means one run never produces both.
+            idempotency_key=_dedupe_key([_FailedView(job=job, saved_query=saved_query)]),
+            resolver=_SavedQueryViewers(saved_query),
+        )
+    )
+
+
+def _view_path(team_id: int, saved_query: DataWarehouseSavedQuery) -> str:
+    node_ids = get_node_ids_for_saved_queries(team_id, [saved_query.id])
+    return matview_view_path(team_id, str(saved_query.id), node_ids.get(str(saved_query.id)))
+
+
 def _failure_copy(views: list[_FailedView]) -> tuple[str, str]:
     names = [view.saved_query.name for view in views]
     if len(names) == 1:
@@ -205,9 +242,7 @@ def _failure_notification(
     priority: Priority = Priority.NORMAL,
 ) -> NotificationData:
     title, body = _failure_copy(views)
-    source_url = f"/project/{team_id}/sql"
-    if len(views) == 1:
-        source_url = f"{source_url}?open_view={views[0].saved_query.id}"
+    source_url = _view_path(team_id, views[0].saved_query) if len(views) == 1 else f"/project/{team_id}/models"
     return NotificationData(
         team_id=team_id,
         notification_type=NotificationType.MATERIALIZATION_FAILURE,
