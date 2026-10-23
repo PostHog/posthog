@@ -239,6 +239,8 @@ def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: Sugge
         dismissal_note=row.dismissal_note,
         created_asset=row.created_asset,
         asset_outcome=WarehouseSuggestionAssetOutcome(row.asset_outcome) if row.asset_outcome else None,
+        realized_seconds_saved_per_month=row.realized_seconds_saved_per_month,
+        realized_bytes_saved_per_month=row.realized_bytes_saved_per_month,
         can_act=access.can_act_on(row),
     )
 

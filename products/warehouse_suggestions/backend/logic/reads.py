@@ -65,6 +65,8 @@ class SubjectReads:
     human_days: int
     background_requests: int
     background_reads: int
+    background_duration_ms: int
+    background_read_bytes: int
     human_reads: int
     human_duration_ms: int
     human_read_bytes: int
@@ -220,6 +222,8 @@ SELECT
     uniqIf(day, is_human),
     uniqMergeIf(requests, NOT is_human),
     sumIf(read_count, NOT is_human),
+    sumIf(duration_ms_sum, NOT is_human),
+    sumIf(read_bytes_sum, NOT is_human),
     sumIf(read_count, is_human),
     sumIf(duration_ms_sum, is_human),
     sumIf(read_bytes_sum, is_human),
@@ -305,15 +309,17 @@ def _subject_reads(
             human_days=row[4],
             background_requests=row[5],
             background_reads=row[6],
-            human_reads=row[7],
-            human_duration_ms=row[8],
-            human_read_bytes=row[9],
-            alone_reads=row[10],
-            alone_duration_ms_median=float(row[11]),
-            alone_read_bytes_median=float(row[12]),
-            alone_duration_ms_p90=float(row[13]),
-            alone_read_bytes_p90=float(row[14]),
-            last_read_at=row[15],
+            background_duration_ms=row[7],
+            background_read_bytes=row[8],
+            human_reads=row[9],
+            human_duration_ms=row[10],
+            human_read_bytes=row[11],
+            alone_reads=row[12],
+            alone_duration_ms_median=float(row[13]),
+            alone_read_bytes_median=float(row[14]),
+            alone_duration_ms_p90=float(row[15]),
+            alone_read_bytes_p90=float(row[16]),
+            last_read_at=row[17],
             requests_by_surface=surface_counts.get(subject, {}),
         )
     return reads

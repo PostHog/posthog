@@ -14,6 +14,7 @@ import threading
 import dataclasses
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from http import HTTPStatus
 from io import StringIO
@@ -617,8 +618,13 @@ def _build_slim_template_image() -> modal.Image:
     changes pays a one-time Modal-side build; every create after that reuses the cached
     image layers.
     """
+    # Modal caches each layer by its definition, so the apt packages below, nodejs included,
+    # keep the versions of their first build. The ISO week in the first layer changes the
+    # definition once a week, so the first create of each week rebuilds them from the newest packages.
+    year, week, _ = datetime.now(UTC).isocalendar()
     return (
         modal.Image.debian_slim()
+        .run_commands(f"echo 'Refresh the apt packages for {year}-W{week:02d}'")
         # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
         .apt_install("git", "ca-certificates", "curl", "bash")
         .run_commands(
