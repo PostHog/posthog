@@ -21,14 +21,6 @@ KAFKA_EMAIL_STATUS_TABLE = f"kafka_{EMAIL_STATUS_TABLE}"
 EMAIL_STATUS_MV_TABLE = f"{EMAIL_STATUS_TABLE}_mv"
 
 
-def EMAIL_STATUS_ENGINE() -> ReplacingMergeTree:
-    return ReplacingMergeTree(
-        EMAIL_STATUS_DATA_TABLE,
-        ver="version",
-        replication_scheme=ReplicationScheme.REPLICATED,
-    )
-
-
 EMAIL_STATUS_KAFKA_COLUMNS = """
     team_id Int64,
     message_id UUID,
@@ -51,7 +43,7 @@ CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_DATA_TABLE}
     INDEX recipient_hash_idx recipient_hash TYPE bloom_filter(0.01) GRANULARITY 1
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {EMAIL_STATUS_ENGINE()}
+ENGINE = {ReplacingMergeTree(EMAIL_STATUS_DATA_TABLE, ver="version", replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMMDD(created_at)
 ORDER BY (team_id, message_id)
 {ttl_period("created_at", EMAIL_STATUS_TTL_DAYS, unit="DAY")}
