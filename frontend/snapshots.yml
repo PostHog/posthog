@@ -16940,3 +16940,19 @@ snapshots:
         hash: v1.k794b7964.bb428bce34a71ce86eb2bcbd242891c30b2587e4c2832312ed187858dc0e557e.2--iSbo0szpR2wW_Mm-t-0xlj7Km8lZLqTQdnyykPuI
     web-analytics-tiles--world-map--light:
         hash: v1.k794b7964.a629f8ad749c539453f0c4337a0b6455a43da6b4c341316ced9b0d86ca6f73f7.4CHgm0-R2GWY6RT7zyDspwHgOFpsPLrIbCNDQ01J2nY
+    web-analytics-tiles-error-tracking--not-set-up--dark:
+        hash: v1.k794b7964.53f0a34611e55eb4e923e0d894043c7fc852b2aaef6816be6ab99c77ccf79b2c.UbdogbF1ZBYNre485tN8W05N0-VtQZPfCOnnTNngq8E
+    web-analytics-tiles-error-tracking--not-set-up--light:
+        hash: v1.k794b7964.6193bb1b633db917bee11faa0eebac938e19755de5d91312aa3a13c0ea87163c.jb1HbGLHwmEpriROVA00XGU4J5n_WttzZAGh-E0U1-o
+    web-analytics-tiles-error-tracking--not-set-up-narrow--dark:
+        hash: v1.k794b7964.c5c64d045020762dcc06023afcf592c663290b7168299b0705c244a73054f5b2.ahwlWMaexNNNO2nv6PirypMVmsugnChbMkC7S7tG-Eg
+    web-analytics-tiles-error-tracking--not-set-up-narrow--light:
+        hash: v1.k794b7964.33c3f9c3100efbc3a753c0d9597d988b52e73301095e885cce416e10080e7847.xQ8Byuqi5DwvPK1cPci52Xo5bMXTOdiDRmbacac2Xqg
+    web-analytics-tiles-error-tracking--set-up-without-issues--dark:
+        hash: v1.k794b7964.829735547464ad4b79e99d7db52b1df1f52477f6a0563c2f04634cf4a17c03bc.kX_OdA2gNq3VvbskBQVLrBEaPkobBqwd0gRdTp1mqBs
+    web-analytics-tiles-error-tracking--set-up-without-issues--light:
+        hash: v1.k794b7964.d044deb7a3511aa4e083e3caf69f062ced9a5fe9bd0ae10a2b867e09ae0011f8.Biupi7mp3e0pq_U7SIxkbkzrUEGp6vcvXsgPVFUB3Zo
+    web-analytics-tiles-error-tracking--with-issues--dark:
+        hash: v1.k794b7964.a2c7bef258943e6c214711ab0c75a62d5c15d9e3f18577ff253a5b9e52b95372.pYsHHvyjE6Bc_wJfelJBpUeH6Lp0avzXmuxHbHuICVY
+    web-analytics-tiles-error-tracking--with-issues--light:
+        hash: v1.k794b7964.8554a239ce82ed32f3ebf2fc8e003ee69f55a1453194f015e05b769752431344._admxEVKJsw0JzvS4lvRF9RByxBjNWXGELL56UB1764
