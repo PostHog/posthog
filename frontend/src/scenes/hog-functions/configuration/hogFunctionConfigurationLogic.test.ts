@@ -432,16 +432,31 @@ describe('hogFunctionConfigurationLogic', () => {
 
         // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
         it.each([
-            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0]],
-            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0]],
-            ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, 1203, [0, 200, 0]],
-        ])('estimates the calls it would receive on the %s mode', async (_name, mode, count, highVolume) => {
-            mountOnMode(mode)
-            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
+            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0], undefined],
+            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0], undefined],
+            [
+                'flag evaluations only',
+                FlagEvaluationsModeEnumApi.Number2,
+                1203,
+                [0, 200, 0],
+                'person_id_no_override_properties_on_events',
+            ],
+        ])(
+            'estimates the calls it would receive on the %s mode',
+            async (_name, mode, count, highVolume, flagCallsPersonsMode) => {
+                mountOnMode(mode)
+                await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
 
-            expect(logic.values.sparkline?.count).toEqual(count)
-            expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(highVolume)
-        })
+                expect(logic.values.sparkline?.count).toEqual(count)
+                expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(
+                    highVolume
+                )
+                const flagCallsQuery = (performQuery as jest.Mock).mock.calls
+                    .map(([query]) => query)
+                    .find((query) => query.kind === NodeKind.EventsQuery)
+                expect(flagCallsQuery?.modifiers?.personsOnEventsMode).toBe(flagCallsPersonsMode)
+            }
+        )
 
         it.each([
             [
