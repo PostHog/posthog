@@ -103,7 +103,9 @@ class TestSlackThreadTaskMapping(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
         self.task = self.Task.objects.create(
             team=self.team,
             title="Test task",
@@ -199,7 +201,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com", distinct_id="user-1")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
         # The mock SlackIntegration doesn't stub `auth_test`, so `get_cached_bot_user_id`
         # would return None and the bot-mention fast-path strip wouldn't kick in. Force
         # it to return the literal "BOT" so `<@BOT>` in test inputs is stripped from
@@ -860,7 +864,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
         # See note in TestCreatePostHogCodeTaskForRepoActivity.setUp: force the
         # bot-id lookup so `<@BOT>` mentions in test inputs strip the way they
         # do in production.
@@ -977,6 +983,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_instance.client.token = "xoxb-test"
+        mock_slack_instance.integration = self.integration
         mock_slack_cls.return_value = mock_slack_instance
 
         event = {
@@ -1632,13 +1639,15 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         if terminal:
             self.task_run.status = self.TaskRun.Status.COMPLETED
             self.task_run.save()
+        self.integration.config = {}
+        self.integration.save()
         self._create_mapping()
         event = {
             "channel": "C123",
             "ts": "1234.5679",
             "user": "U_ALICE",
             "text": "",
-            "files": [_make_slack_file(name="installer.exe", mimetype="application/x-msdownload", filetype="binary")],
+            "files": [_make_slack_file(name="debug.log")],
         }
         inputs = PostHogCodeSlackMentionWorkflowInputs(
             event=event,
@@ -1655,6 +1664,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         ):
             mock_slack_instance = MagicMock()
             mock_slack_instance.client.token = "xoxb-test"
+            mock_slack_instance.integration = self.integration
             mock_slack_cls.return_value = mock_slack_instance
 
             result = forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
@@ -1666,7 +1676,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert self.TaskRun.objects.count() == 1
         notice = mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
         assert "no attachment was accepted" in notice
-        assert "installer.exe" in notice
+        assert "`files:read`" in notice
+        assert "reconnect Slack" in notice
 
     @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1699,7 +1710,9 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
