@@ -89,6 +89,13 @@ class AEOPromptListQuerySerializer(serializers.Serializer):
         max_length=PROMPT_TOPIC_MAX_LENGTH,
         help_text="Only list prompts with this topic. An empty value lists the prompts that have no topic.",
     )
+    # A QueryDict reads a missing boolean as false, so the default keeps "no filter" distinct from active=false.
+    active = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Only list prompts that are on (true) or off (false). Omit to list both.",
+    )
 
 
 class AEOPromptTopicSerializer(DataclassSerializer):
@@ -168,7 +175,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptListQuerySerializer,
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, grouped by topic, one page at a time. Each prompt carries its latest check per answer engine.",
+        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Each prompt carries its latest check per answer engine.",
         responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -179,6 +186,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE,
             offset=paginator.get_offset(request),
             topic=request.validated_query_data.get("topic"),
+            active=request.validated_query_data.get("active"),
         )
         paginator.set_count(count)
         page = self.paginate_queryset(prompts)
@@ -187,6 +195,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_retrieve",
         summary="Get an AEO prompt",
+        description="Gets one prompt from the project's AEO prompt set, with its latest check per answer engine.",
         responses={200: OpenApiResponse(response=AEOPromptSerializer)},
         tags=["web_analytics"],
     )
@@ -200,6 +209,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=AEOPromptUpdateRequestSerializer,
         operation_id="aeo_prompts_partial_update",
         summary="Turn an AEO prompt on or off",
+        description="Turns a prompt on or off. Only active prompts run against the answer engines. Past checks are kept either way.",
         responses={200: OpenApiResponse(response=AEOPromptSerializer)},
         tags=["web_analytics"],
     )

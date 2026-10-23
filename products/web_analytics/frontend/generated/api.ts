@@ -116,7 +116,7 @@ export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListP
 }
 
 /**
- * Lists the project's AEO prompt set, grouped by topic, one page at a time. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const aeoPromptsList = async (
@@ -135,6 +135,7 @@ export const getAeoPromptsRetrieveUrl = (projectId: string, id: string) => {
 }
 
 /**
+ * Gets one prompt from the project's AEO prompt set, with its latest check per answer engine.
  * @summary Get an AEO prompt
  */
 export const aeoPromptsRetrieve = async (
@@ -153,6 +154,7 @@ export const getAeoPromptsPartialUpdateUrl = (projectId: string, id: string) => 
 }
 
 /**
+ * Turns a prompt on or off. Only active prompts run against the answer engines. Past checks are kept either way.
  * @summary Turn an AEO prompt on or off
  */
 export const aeoPromptsPartialUpdate = async (

@@ -3,21 +3,27 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsList, aeoPromptsTopics } from '../generated/api'
+import { aeoPromptsList, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
+import type { AEOPromptApi } from '../generated/api.schemas'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
 
 jest.mock('../generated/api', () => ({
     aeoPromptsList: jest.fn(),
     aeoPromptsTopics: jest.fn(),
+    aeoPromptsPartialUpdate: jest.fn(),
 }))
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn() } }))
 
 const mockPromptsList = jest.mocked(aeoPromptsList)
 const mockPromptsTopics = jest.mocked(aeoPromptsTopics)
+const mockPromptsPartialUpdate = jest.mocked(aeoPromptsPartialUpdate)
 
 describe('contentAutopilotPromptsLogic', () => {
     let logic: ReturnType<typeof contentAutopilotPromptsLogic.build>
@@ -68,5 +74,34 @@ describe('contentAutopilotPromptsLogic', () => {
         } finally {
             resumeKeaLoadersErrors()
         }
+    })
+
+    it.each([
+        ['saves', true, false],
+        ['rolls back', false, true],
+    ])('turns a prompt off optimistically, then %s', async (_name, succeeds, expectedActive) => {
+        const prompt = EXAMPLE_PROMPTS[0]
+        let settle: () => void = () => {}
+        mockPromptsPartialUpdate.mockReturnValue(
+            new Promise<AEOPromptApi>((resolve, reject) => {
+                settle = () => (succeeds ? resolve({ ...prompt, active: false }) : reject(new Error('Server error')))
+            })
+        )
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setPromptActive(prompt.id, false)
+        expect(logic.values.prompts?.results[0].active).toBe(false)
+        expect(logic.values.promptActiveUpdating).toEqual({ [prompt.id]: true })
+
+        settle()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockPromptsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), prompt.id, {
+            active: false,
+        })
+        expect(logic.values.prompts?.results[0].active).toBe(expectedActive)
+        expect(logic.values.promptActiveUpdating).toEqual({})
+        expect(lemonToast.error).toHaveBeenCalledTimes(succeeds ? 0 : 1)
     })
 })

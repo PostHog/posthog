@@ -1,6 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonSelect, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonCard,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -21,9 +29,18 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
 }
 
 export const ContentAutopilotPrompts = (): JSX.Element => {
-    const { prompts, promptsLoading, promptsError, promptsPage, promptsTopic, promptTopics, promptEngines } =
-        useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, setPromptsPage, setPromptsTopic } = useActions(contentAutopilotPromptsLogic)
+    const {
+        prompts,
+        promptsLoading,
+        promptsError,
+        promptsPage,
+        promptsTopic,
+        promptTopics,
+        promptEngines,
+        promptActiveUpdating,
+    } = useValues(contentAutopilotPromptsLogic)
+    const { loadAeoPrompts, setPromptsPage, setPromptsTopic, setPromptActive } =
+        useActions(contentAutopilotPromptsLogic)
 
     if (promptsError === 'forbidden') {
         return (
@@ -44,6 +61,10 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
             <p className="m-0 text-muted max-w-3xl">
                 The questions PostHog asks AI assistants every day, and whether each one cited your site the last time
                 it ran.
+            </p>
+            <p className="m-0 text-muted max-w-3xl">
+                You can view tracked prompts and turn them on or off here. To add prompts or change their text, use the
+                API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
             </p>
             <div className="flex flex-wrap items-center gap-2">
                 <LemonSelect
@@ -79,8 +100,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                        Import prompts with a POST to <code>/api/projects/:project_id/aeo_prompts/bulk_import/</code>.
-                        They're checked against AI assistants on the next daily run.
+                        Add prompts with the API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>)
+                        or the PostHog MCP tools. They're checked against AI assistants on the next daily run.
                     </p>
                 </LemonCard>
             ) : (
@@ -132,12 +153,15 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         {
                             title: 'Active',
                             key: 'active',
-                            render: (_, { active }) =>
-                                active ? (
-                                    <LemonTag type="success">Active</LemonTag>
-                                ) : (
-                                    <LemonTag type="muted">Inactive</LemonTag>
-                                ),
+                            render: (_, { id, active }) => (
+                                <LemonSwitch
+                                    checked={active}
+                                    onChange={(checked) => setPromptActive(id, checked)}
+                                    loading={!!promptActiveUpdating[id]}
+                                    aria-label={active ? 'Turn prompt off' : 'Turn prompt on'}
+                                    data-attr="content-autopilot-prompt-active-toggle"
+                                />
+                            ),
                         },
                     ]}
                 />

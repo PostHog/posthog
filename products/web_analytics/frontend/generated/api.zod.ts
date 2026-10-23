@@ -10,6 +10,7 @@
 import * as zod from 'zod'
 
 /**
+ * Turns a prompt on or off. Only active prompts run against the answer engines. Past checks are kept either way.
  * @summary Turn an AEO prompt on or off
  */
 export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({

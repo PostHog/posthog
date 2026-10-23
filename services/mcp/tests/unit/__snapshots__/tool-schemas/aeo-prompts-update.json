@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "active": {
+            "description": "Turn the prompt on or off for future runs.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "The prompt id (a UUID), from `aeo-prompts-list`.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

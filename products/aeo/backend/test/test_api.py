@@ -85,20 +85,32 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.json() == {"created": 0, "updated": 2, "skipped": 1}
         assert AEOPrompt.objects.for_team(self.team.id).get(id=replay_id).active is False
 
-    @parameterized.expand([("all_topics", None, 6), ("one_topic", "same topic", 5), ("no_topic", "", 1)])
-    def test_list_pages_without_overlap(self, _name: str, topic: str | None, expected: int) -> None:
+    @parameterized.expand(
+        [
+            ("no_filter", "", 6, None),
+            ("one_topic", "&topic=same topic", 5, ("topic", "same topic")),
+            ("no_topic", "&topic=", 1, ("topic", "")),
+            ("active", "&active=true", 5, ("active", True)),
+            ("inactive", "&active=false", 1, ("active", False)),
+        ]
+    )
+    def test_list_pages_without_overlap(
+        self, _name: str, filters: str, expected: int, field_value: tuple[str, object] | None
+    ) -> None:
         prompts = [{"prompt": f"q{i}?", "topic": "same topic"} for i in range(5)] + [{"prompt": "untopiced?"}]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
-        topic_param = "" if topic is None else f"&topic={topic}"
+        untopiced = next(row for row in self.client.get(self.url).json()["results"] if row["topic"] == "")
+        self.client.patch(f"{self.url}{untopiced['id']}/", {"active": False}, format="json")
 
-        first = self.client.get(f"{self.url}?limit=3{topic_param}").json()
-        second = self.client.get(f"{self.url}?limit=3&offset=3{topic_param}").json()
+        first = self.client.get(f"{self.url}?limit=3{filters}").json()
+        second = self.client.get(f"{self.url}?limit=3&offset=3{filters}").json()
 
         assert first["count"] == expected
         ids = [row["id"] for row in first["results"] + second["results"]]
         assert len(ids) == len(set(ids)) == expected
-        if topic is not None:
-            assert {row["topic"] for row in first["results"] + second["results"]} == {topic}
+        if field_value is not None:
+            field, value = field_value
+            assert {row[field] for row in first["results"] + second["results"]} == {value}
 
     def test_topics_lists_each_topic_with_its_prompt_count(self) -> None:
         prompts = [{"prompt": "a?", "topic": "Replay"}, {"prompt": "b?", "topic": "Replay"}, {"prompt": "c?"}]

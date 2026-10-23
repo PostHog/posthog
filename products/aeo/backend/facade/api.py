@@ -43,12 +43,16 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     return gaps.list_citation_gaps(team_id, since=since)
 
 
-def list_prompts(team_id: int, *, limit: int, offset: int, topic: str | None = None) -> tuple[list[Prompt], int]:
+def list_prompts(
+    team_id: int, *, limit: int, offset: int, topic: str | None = None, active: bool | None = None
+) -> tuple[list[Prompt], int]:
     """One page of the team's prompt set and the total count, paged in SQL.
     A topic of "" selects the prompts that have no topic."""
     prompts = AEOPrompt.objects.for_team(team_id)
     if topic is not None:
         prompts = prompts.filter(topic=topic)
+    if active is not None:
+        prompts = prompts.filter(active=active)
     page = list(prompts.order_by("topic", "-rank", "created_at", "id")[offset : offset + limit])
     latest_checks = _latest_checks(team_id, [prompt.id for prompt in page])
     return [_to_prompt(prompt, latest_checks.get(prompt.id, ())) for prompt in page], prompts.count()

@@ -1747,6 +1747,11 @@ export interface GeneratePathCleaningSuggestionResponseApi {
 
 export type AeoPromptsListParams = {
     /**
+     * Only list prompts that are on (true) or off (false). Omit to list both.
+     * @nullable
+     */
+    active?: boolean | null
+    /**
      * Number of results to return per page.
      */
     limit?: number
