@@ -73,7 +73,12 @@ def prepare_version(force=False):
         if name.text not in UNVERSIONED_FUNCTIONS:
             name.text = augment_function_name(name.text)
             command = function.find("command")
-            command.text = f"{VERSION_STR}/{command.text}"
+            if command.text.startswith("aggregate_funnel "):
+                command.text = command.text.replace(
+                    "aggregate_funnel ", f"aggregate_funnel --udf-version={VERSION_STR} ", 1
+                )
+            elif not command.text.endswith(".py"):
+                command.text = f"{VERSION_STR}/{command.text}"
         last_version_root.append(function)
 
     comment = Comment(
