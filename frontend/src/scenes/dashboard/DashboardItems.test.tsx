@@ -385,6 +385,23 @@ describe('DashboardItems', () => {
     })
 
     it.each([
+        ['queued', true, true, false],
+        ['loading', true, false, true],
+        ['idle', false, false, false],
+    ])('with the dashboard load %s, tells the card not to load: %s', (_state, doNotLoad, queued, loading) => {
+        const defaultValues = mockedUseValues.getMockImplementation()!
+        mockedUseValues.mockImplementation((logic) =>
+            logic === dashboardLogic
+                ? { ...defaultValues(logic), isRefreshingQueued: () => queued, isRefreshing: () => loading }
+                : defaultValues(logic)
+        )
+
+        render(<DashboardItems />)
+
+        expect(mockInsightCard).toHaveBeenLastCalledWith(expect.objectContaining({ doNotLoad }))
+    })
+
+    it.each([
         ['tight', '8,8'],
         ['condensed', '12,12'],
         ['relaxed', '32,32'],

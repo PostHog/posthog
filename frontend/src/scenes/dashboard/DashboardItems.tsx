@@ -633,6 +633,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     insight={insight}
                     loadingQueued={loadingQueued}
                     loading={loading}
+                    // The dashboard load queue owns this tile, so the card must not start its own query.
+                    doNotLoad={loading || loadingQueued}
                     apiErrored={apiErrored}
                     apiError={apiError}
                     queryId={insight.query_status?.id}
