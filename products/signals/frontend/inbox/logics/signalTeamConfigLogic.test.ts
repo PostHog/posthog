@@ -38,6 +38,24 @@ describe('signalTeamConfigLogic', () => {
 
     afterEach(() => logic?.unmount())
 
+    it.each([
+        [undefined, null],
+        ['ready', null],
+        ['temporarily_unavailable', null],
+        ['not_connected', 'not_connected'],
+        ['reconnect_required', 'reconnect_required'],
+        ['no_repositories', 'no_repositories'],
+    ] as const)('shows a connection notice only for actionable readiness: %s', async (readiness, expected) => {
+        await mountWith({})
+        expect(logic.values.githubConnectionIssue).toBeNull()
+        logic.actions.loadTeamConfigSuccess({ github_readiness: readiness })
+        expect(logic.values.githubConnectionIssue).toBe(expected)
+        logic.actions.loadTeamConfigFailure('Could not check the connection')
+        expect(logic.values.githubConnectionIssue).toBeNull()
+        logic.actions.loadTeamConfigSuccess({ github_readiness: 'ready' })
+        expect(logic.values.githubConnectionIssue).toBeNull()
+    })
+
     it('adds an override without clobbering existing repos, and clears the draft', async () => {
         await mountWith({ 'acme/web': 'staging' })
         logic.actions.setDraftBaseBranchRepo('Acme/API')

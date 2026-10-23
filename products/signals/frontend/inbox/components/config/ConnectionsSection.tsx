@@ -3,12 +3,16 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
+
 export function ConnectionsSection(): JSX.Element {
-    const { githubReadiness, integrationsLoading, integrationsLoadFailed } = useValues(integrationsLogic)
-    const { loadIntegrations } = useActions(integrationsLogic)
+    const { teamConfig, teamConfigLoading, teamConfigLoadFailed } = useValues(signalTeamConfigLogic)
+    const { loadTeamConfig } = useActions(signalTeamConfigLogic)
+    const githubReadiness = teamConfig?.github_readiness ?? 'temporarily_unavailable'
+    const integrationsLoading = teamConfigLoading || (!teamConfig && !teamConfigLoadFailed)
+    const integrationsLoadFailed = teamConfigLoadFailed
 
     const isConnected = githubReadiness === 'ready' && !integrationsLoading && !integrationsLoadFailed
     const label = {
@@ -59,7 +63,7 @@ export function ConnectionsSection(): JSX.Element {
                 to={
                     integrationsLoadFailed ? undefined : urls.settings('environment-integrations', 'integration-github')
                 }
-                onClick={integrationsLoadFailed ? () => loadIntegrations() : undefined}
+                onClick={integrationsLoadFailed ? () => loadTeamConfig() : undefined}
             >
                 {integrationsLoadFailed ? 'Retry' : label}
             </LemonButton>

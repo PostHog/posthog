@@ -104,6 +104,16 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
+export const GitHubDisconnected: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/config': { ...mockTeamConfig, github_readiness: 'not_connected' },
+            },
+        }),
+    ],
+}
+
 const valueSummaryMocks = mswDecorator({
     get: {
         '/api/projects/:team_id/signals/inbox_summary/': {
