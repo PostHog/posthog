@@ -113,12 +113,40 @@ class TestBuildCompatibilityHint:
                 "Code: 43. DB::Exception: Illegal type String of argument #1 'datetime' of function toStartOfDay, expected DateTime or DateTime64. (ILLEGAL_TYPE_OF_ARGUMENT)",
                 "`toStartOfDay` does not accept String",
             ),
+            (
+                "illegal_aggregate_argument_type",
+                "Code: 43. DB::Exception: Illegal type String of argument for aggregate function sum. (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`sum` does not accept String",
+            ),
+            (
+                "illegal_parenthesized_argument_types",
+                "Code: 43. DB::Exception: Illegal types of arguments (Date, UInt16) of function greater. (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`greater` does not accept Date, UInt16",
+            ),
+            (
+                "hogql_nested_aggregate",
+                "Aggregation 'count' cannot be nested inside another aggregation 'avg'.",
+                "`count` is nested inside another aggregate",
+            ),
         ]
     )
     def test_clickhouse_rejection_names_the_accepted_shape(self, _name: str, message: str, expected_start: str) -> None:
         hint = build_compatibility_hint(message)
         assert hint is not None
         assert expected_start in hint
+
+    def test_long_printed_property_aggregate_is_matched_and_shortened(self) -> None:
+        expression = (
+            "sum(toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'order_total'), ''), "
+            "'null'), '^\"|\"$', '')))"
+        )
+        hint = build_compatibility_hint(
+            f"Code: 184. DB::Exception: Aggregate function {expression} is found in WHERE in query. (ILLEGAL_AGGREGATION)"
+        )
+        assert hint is not None
+        assert "is an aggregate, so it cannot filter rows in WHERE" in hint
+        assert expression not in hint
+        assert f"`{expression[:40]}" in hint
 
     @parameterized.expand(
         [

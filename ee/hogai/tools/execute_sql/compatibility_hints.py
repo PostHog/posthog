@@ -48,18 +48,31 @@ _BAD_CAST_RE = re.compile(r"Unsupported type cast to '([^']{1,40})'")
 
 # ClickHouse rejections that reach the caller unchanged. Each names the construct and the rule it
 # broke, but not the HogQL shape that satisfies the rule.
-_NESTED_AGGREGATE_RE = re.compile(r"Aggregate function (.{1,80}?) is found inside another aggregate function")
-_AGGREGATE_IN_FILTER_RE = re.compile(r"Aggregate function (.{1,80}?) is found in (WHERE|PREWHERE)")
+# A property aggregate prints as a long JSONExtract chain, so the captured expression can run to
+# hundreds of characters; it is shortened for display, not for matching.
+_NESTED_AGGREGATE_RE = re.compile(r"Aggregate function (.{1,1000}?) is found inside another aggregate function")
+_HOGQL_NESTED_AGGREGATE_RE = re.compile(r"Aggregation '(\w+)' cannot be nested inside another aggregation")
+_AGGREGATE_IN_FILTER_RE = re.compile(r"Aggregate function (.{1,1000}?) is found in (WHERE|PREWHERE)")
 _NOT_AN_AGGREGATE_RE = re.compile(r"Column (.{1,200}?) is not under aggregate function and not in GROUP BY")
-# ClickHouse prints the position two ways: `of first argument of function f` and
-# `of argument #1 'name' of function f`.
-_ILLEGAL_ARGUMENT_TYPE_RE = re.compile(
-    r"Illegal types? (.{1,120}?) of (?:(?:\w+ )?arguments?|argument #\d+(?: '[^']{0,60}')?) of function (\w+)"
+# ClickHouse prints the rejected types and the function in three shapes: `type of first argument of
+# function f`, `type of argument #1 'name' of function f`, `type of argument for aggregate function
+# f`, and `of arguments (type, type) of function f`.
+_ILLEGAL_ARGUMENT_TYPE_RES = (
+    re.compile(
+        r"Illegal types? (.{1,120}?) of (?:(?:\w+ )?arguments?|argument #\d+(?: '[^']{0,60}')?) of function (\w+)"
+    ),
+    re.compile(r"Illegal types? (.{1,120}?) of arguments? for aggregate function (\w+)"),
+    re.compile(r"Illegal types? of arguments? \((.{1,120}?)\) of function (\w+)"),
 )
+_DISPLAY_LIMIT = 80
 _TYPE_WRAPPER_RE = re.compile(r"(?:Nullable|LowCardinality)\(([^()]*)\)")
 # A column ClickHouse names back to us is HogQL only when it is a plain field chain. Printed
 # expressions and resolved names such as `events__person.properties___email` are not.
 _HOGQL_FIELD_CHAIN_RE = re.compile(r"^[A-Za-z_$][\w.$]*$")
+
+
+def _display(expression: str) -> str:
+    return expression if len(expression) <= _DISPLAY_LIMIT else f"{expression[: _DISPLAY_LIMIT - 3]}..."
 
 
 def _nested_call(name: str, arity: int) -> str:
@@ -149,11 +162,11 @@ def _cast_rewrite(error_message: str) -> str | None:
 
 
 def _nested_aggregate_rewrite(error_message: str) -> str | None:
-    match = _NESTED_AGGREGATE_RE.search(error_message)
+    match = _NESTED_AGGREGATE_RE.search(error_message) or _HOGQL_NESTED_AGGREGATE_RE.search(error_message)
     if match is None:
         return None
     return (
-        f"`{match.group(1)}` is nested inside another aggregate, which ClickHouse rejects. Aggregate per "
+        f"`{_display(match.group(1))}` is nested inside another aggregate, which is not allowed. Aggregate per "
         "group in a subquery first, then aggregate that result in the outer query: "
         "SELECT avg(n) FROM (SELECT person_id, count() AS n FROM events GROUP BY person_id)."
     )
@@ -164,7 +177,7 @@ def _aggregate_in_filter_rewrite(error_message: str) -> str | None:
     if match is None:
         return None
     return (
-        f"`{match.group(1)}` is an aggregate, so it cannot filter rows in {match.group(2)}. Put the condition "
+        f"`{_display(match.group(1))}` is an aggregate, so it cannot filter rows in {match.group(2)}. Put the condition "
         "in HAVING after GROUP BY, or compute the aggregate in a subquery and filter its result."
     )
 
@@ -186,7 +199,7 @@ def _not_an_aggregate_rewrite(error_message: str) -> str | None:
 
 
 def _argument_type_rewrite(error_message: str) -> str | None:
-    match = _ILLEGAL_ARGUMENT_TYPE_RE.search(error_message)
+    match = next((m for pattern in _ILLEGAL_ARGUMENT_TYPE_RES if (m := pattern.search(error_message))), None)
     if match is None:
         return None
     types, function = match.group(1), match.group(2)
