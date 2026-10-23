@@ -332,3 +332,4 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # Last, because the model call behind it is the slowest step and the answer must not wait for it.
     if answer_delivered and input.offer_reply_suggestions:
         handler.offer_reply_suggestions(text)
+        handler.offer_feature_tip()

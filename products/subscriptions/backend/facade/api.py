@@ -155,6 +155,11 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
     return queries.subscription_ids_in_team(team_id=team_id, subscription_ids=subscription_ids)
 
 
+def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
+    """Whether the user created a subscription that delivers to Slack in this team. A disabled one counts."""
+    return queries.user_has_slack_subscription(team_id=team_id, user_id=user_id)
+
+
 def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
     # nosemgrep: environment-model-scoped-by-project -- insights are project-level, so deleting one removes its subscriptions in every environment
     for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
