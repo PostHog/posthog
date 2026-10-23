@@ -666,6 +666,7 @@ export namespace Schemas {
      * * `loop` - loop
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
+     * * `mcp_event_subscription` - mcp_event_subscription
      * * `mcp_registry` - mcp_registry
      * * `metrics` - metrics
      * * `notebook` - notebook
@@ -788,6 +789,7 @@ export namespace Schemas {
       Loop: 'loop',
       MarketingAnalytics: 'marketing_analytics',
       McpAnalytics: 'mcp_analytics',
+      McpEventSubscription: 'mcp_event_subscription',
       McpRegistry: 'mcp_registry',
       Metrics: 'metrics',
       Notebook: 'notebook',
@@ -910,6 +912,7 @@ export namespace Schemas {
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
+       * * `mcp_event_subscription` - mcp_event_subscription
        * * `mcp_registry` - mcp_registry
        * * `metrics` - metrics
        * * `notebook` - notebook
@@ -1155,6 +1158,7 @@ export namespace Schemas {
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
+       * * `mcp_event_subscription` - mcp_event_subscription
        * * `mcp_registry` - mcp_registry
        * * `metrics` - metrics
        * * `notebook` - notebook
@@ -1563,6 +1567,7 @@ export namespace Schemas {
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
+       * * `mcp_event_subscription` - mcp_event_subscription
        * * `mcp_registry` - mcp_registry
        * * `metrics` - metrics
        * * `notebook` - notebook
@@ -69901,6 +69906,168 @@ export namespace Schemas {
       candidates: MCPDiscoverCandidate[];
     }
 
+    export type MCPEventFiltersActionsItem = { [key: string]: unknown };
+
+    export type MCPEventFiltersEventsItem = { [key: string]: unknown };
+
+    export type MCPEventFiltersPropertiesItem = { [key: string]: unknown };
+
+    export interface MCPEventFilters {
+      /** Captured PostHog events. Use events. */
+      source?: string;
+      /** Saved action entries combined with the event entries using OR. Example: [{"id": "123", "type": "actions"}]. */
+      actions?: MCPEventFiltersActionsItem[];
+      /** Captured event entries combined with OR. Example: [{"id": "survey sent", "type": "events", "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}]}]. */
+      events?: MCPEventFiltersEventsItem[];
+      /** Property conditions applied to all selected events. Example: [{"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"}]. */
+      properties?: MCPEventFiltersPropertiesItem[];
+      /** Apply the project's existing test-account exclusions. */
+      filter_test_accounts?: boolean;
+    }
+
+    export interface MCPEventArguments {
+      /**
+         * Project whose captured events should be monitored.
+         * @minimum 1
+         */
+      project_id: number;
+      /** Normal real-time destination filters. Preview the filters before subscribing. */
+      filters: MCPEventFilters;
+    }
+
+    /**
+     * Event properties the subscriber is allowed to read.
+     */
+    export type MCPEventDataProperties = {[key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null};
+
+    export interface MCPEventData {
+      /** Event properties the subscriber is allowed to read. */
+      properties: MCPEventDataProperties;
+      /** Original captured event name. */
+      event: string;
+      /** Distinct ID attached to the captured event. */
+      distinct_id: string;
+    }
+
+    /**
+     * * `posthog.event_captured` - posthog.event_captured
+     */
+    export type MCPEventEnvelopeNameEnum = typeof MCPEventEnvelopeNameEnum[keyof typeof MCPEventEnvelopeNameEnum];
+
+
+    export const MCPEventEnvelopeNameEnum = {
+      PosthogeventCaptured: 'posthog.event_captured',
+    } as const;
+
+    export interface MCPEventEnvelope {
+      /** Event occurrence time, including its timezone. */
+      timestamp: string;
+      /** Null because replay is unavailable. */
+      cursor: unknown;
+      /**
+         * Stable source event ID used to deduplicate deliveries.
+         * @minLength 1
+         * @maxLength 255
+         */
+      eventId: string;
+      /** Subscribed MCP event type.
+       *
+       * * `posthog.event_captured` - posthog.event_captured */
+      name: MCPEventEnvelopeNameEnum;
+      /** Captured event data. */
+      data: MCPEventData;
+    }
+
+    export interface MCPEventIdentityArguments {
+      /**
+         * Project whose captured events should be monitored.
+         * @minimum 1
+         */
+      project_id: number;
+      /** Original event filters, including filters for deleted resources. */
+      filters: MCPEventFilters;
+    }
+
+    export interface MCPEventPreview {
+      /** Normalized filters the subscription would use. */
+      readonly filters: MCPEventFilters;
+      /** Up to five matching events from the lookback window. */
+      examples: MCPEventEnvelope[];
+      /** Number of days searched for examples. */
+      lookback_days: number;
+      /** Maximum number of examples. This is not a total event count. */
+      sample_limit: number;
+    }
+
+    export interface MCPEventWebhook {
+      /** Delivery mode. Use webhook. */
+      mode: string;
+      /**
+         * HTTPS callback supplied by the receiving MCP client.
+         * @maxLength 4096
+         */
+      url: string;
+      /**
+         * Client-supplied whsec_ signing secret.
+         * @maxLength 128
+         */
+      secret: string;
+    }
+
+    export interface MCPEventSubscribe {
+      /** Event type. Use posthog.event_captured. */
+      name: string;
+      /** Project and event filters for this subscription. */
+      arguments: MCPEventArguments;
+      /** Callback and signing information supplied by the client. */
+      delivery: MCPEventWebhook;
+      /**
+         * Requested lifetime in milliseconds. The server grants a finite lifetime of at most 24 hours.
+         * @minimum 1000
+         * @nullable
+         */
+      ttl_ms?: number | null;
+      /**
+         * Replay is unavailable. Use null to receive future events.
+         * @nullable
+         */
+      cursor?: string | null;
+    }
+
+    export interface MCPEventSubscription {
+      /** Subscription ID supplied to the receiving MCP client. */
+      readonly id: string;
+      /** Project and event filters. */
+      readonly arguments: MCPEventArguments;
+      /** Callback hostname. Paths and signing secrets are hidden. */
+      readonly callback_host: string;
+      /** Time when this subscription stops delivering events. */
+      readonly expires_at: string;
+      /** Whether this subscription is enabled. */
+      readonly active: boolean;
+      /** Time when this subscription was created. */
+      readonly created_at: string;
+    }
+
+    export interface MCPEventUnsubscribeDelivery {
+      /** Delivery mode. Use webhook. */
+      mode: string;
+      /**
+         * Original callback URL supplied when subscribing.
+         * @maxLength 4096
+         */
+      url: string;
+    }
+
+    export interface MCPEventUnsubscribe {
+      /** Event type. Use posthog.event_captured. */
+      name: string;
+      /** Original project and event filters. */
+      arguments: MCPEventIdentityArguments;
+      /** Original callback identity. */
+      delivery: MCPEventUnsubscribeDelivery;
+    }
+
     export interface MCPFeedbackCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -71935,6 +72102,7 @@ export namespace Schemas {
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
+       * * `mcp_event_subscription` - mcp_event_subscription
        * * `mcp_registry` - mcp_registry
        * * `metrics` - metrics
        * * `notebook` - notebook
@@ -77451,6 +77619,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPAuditEvent[];
+    }
+
+    export interface PaginatedMCPEventSubscriptionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPEventSubscription[];
     }
 
     export interface PaginatedMCPGatewayServerList {
@@ -138126,6 +138303,17 @@ export namespace Schemas {
      * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string;
+    };
+
+    export type McpEventSubscriptionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type McpGatewayAuditListParams = {
