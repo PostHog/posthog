@@ -20,6 +20,7 @@ const SUMMARY: ErrorTrackingIssueSummaryApi = {
     category: 'own_code',
     model: 'gpt-4.1-mini',
     generated_at: '2026-10-20T09:00:00Z',
+    checked_at: '2026-10-20T09:00:00Z',
 }
 
 const noop = (): void => {}

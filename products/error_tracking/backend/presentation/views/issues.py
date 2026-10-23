@@ -277,6 +277,9 @@ class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
     )
     model = serializers.CharField(help_text="Model that wrote the summary.")
     generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+    checked_at = serializers.DateTimeField(
+        help_text="When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it."
+    )
 
 
 class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
@@ -294,21 +297,16 @@ class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
     )
 
 
-def issue_summary_response(team_id: int, issue_id: UUID, *, regenerate: bool) -> dict[str, object]:
+def issue_summary_response(team_id: int, issue_id: UUID, *, user: User, regenerate: bool) -> dict[str, object]:
     """Read the stored summary and ask the facade to start generation, which it skips while the summary is fresh.
 
     `regenerate` only changes the status of a started refresh of a stored summary: `generating` instead of `ready`.
     Never waits.
     """
-    summary = summaries_facade.get_issue_summary(team_id, issue_id)
+    summary = summaries_facade.get_issue_summary(team_id, issue_id, user=user)
     # Starting is a no-op while a stored summary is younger than the regenerate interval,
     # so a read of a stale summary also refreshes it in the background.
-    try:
-        started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
-    except Exception as e:
-        # A read must not fail when the task queue is down, so a stored summary still shows.
-        posthoganalytics.capture_exception(e, properties={"team_id": team_id, "issue_id": str(issue_id)})
-        started = False
+    started = summaries_facade.start_issue_summary_generation(team_id, issue_id, user=user)
     if started and (regenerate or summary is None):
         summary_status = IssueSummaryStatus.GENERATING
     elif summary is not None:
@@ -615,7 +613,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Without this, another team's issue id would queue a generation task under this team.
         if not facade_api.issue_exists_by_id(self.team_id, issue_id):
             raise NotFound("Issue not found")
-        return Response(issue_summary_response(self.team_id, issue_id, regenerate=regenerate))
+        return Response(
+            issue_summary_response(self.team_id, issue_id, user=cast(User, self.request.user), regenerate=regenerate)
+        )
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

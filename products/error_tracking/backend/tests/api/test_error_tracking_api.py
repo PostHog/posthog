@@ -621,12 +621,10 @@ class TestErrorTracking(APIBaseTest):
             ("regenerate_started", "post", "/regenerate", True, True, "generating"),
             ("regenerate_fresh", "post", "/regenerate", True, False, "ready"),
             ("regenerate_blocked", "post", "/regenerate", False, False, "unavailable"),
-            ("read_stale_queue_down", "get", "", True, ConnectionError("broker down"), "ready"),
-            ("read_none_queue_down", "get", "", False, ConnectionError("broker down"), "unavailable"),
         ]
     )
     def test_issue_summary_status(
-        self, _name: str, method: str, suffix: str, stored: bool, started: bool | Exception, expected_status: str
+        self, _name: str, method: str, suffix: str, stored: bool, started: bool, expected_status: str
     ) -> None:
         issue = self.create_issue()
         summary = contracts.ErrorTrackingIssueSummary(
@@ -638,21 +636,19 @@ class TestErrorTracking(APIBaseTest):
             category=contracts.IssueSummaryCategory.OWN_CODE,
             model="gpt-4.1-mini",
             generated_at=datetime(2026, 10, 20, 12, 0, tzinfo=UTC),
+            checked_at=datetime(2026, 10, 21, 12, 0, tzinfo=UTC),
         )
         with (
-            patch.object(summaries_facade, "get_issue_summary", return_value=summary if stored else None),
-            patch.object(
-                summaries_facade,
-                "start_issue_summary_generation",
-                **({"side_effect": started} if isinstance(started, Exception) else {"return_value": started}),
-            ) as start,
+            patch.object(summaries_facade, "get_issue_summary", return_value=summary if stored else None) as get,
+            patch.object(summaries_facade, "start_issue_summary_generation", return_value=started) as start,
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{suffix}"
             )
 
         assert response.status_code == 200
-        start.assert_called_once_with(self.team.id, issue.id)
+        get.assert_called_once_with(self.team.id, issue.id, user=self.user)
+        start.assert_called_once_with(self.team.id, issue.id, user=self.user)
         expected_summary = (
             {
                 "what_happened": "A TypeError in checkout.",
@@ -662,6 +658,7 @@ class TestErrorTracking(APIBaseTest):
                 "category": "own_code",
                 "model": "gpt-4.1-mini",
                 "generated_at": "2026-10-20T12:00:00Z",
+                "checked_at": "2026-10-21T12:00:00Z",
             }
             if stored
             else None

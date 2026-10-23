@@ -69,7 +69,7 @@ export function IssueSummarySection({
     }
     // Generation runs at most once a day per issue, so a regenerate inside that window would do nothing.
     const regenerateDisabledReason =
-        summary && dayjs().diff(dayjs(summary.generated_at), 'hour') < 24
+        summary && dayjs().diff(dayjs(summary.checked_at), 'hour') < 24
             ? 'A summary can be regenerated once a day'
             : undefined
     return (
