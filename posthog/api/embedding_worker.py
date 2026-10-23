@@ -46,6 +46,8 @@ class DocumentKey:
 
 _EMBEDDING_URL = EMBEDDING_API_URL + "/generate/ad_hoc"
 _RECENTLY_SEEN_URL = EMBEDDING_API_URL + "/recently_seen"
+_STORED_URL = EMBEDDING_API_URL + "/generate/stored"
+_STORED_TIMEOUT_S = 90.0
 
 
 def _build_embedding_payload(team: Team, content: str, model: str | None, no_truncate: bool) -> dict:
@@ -112,6 +114,53 @@ async def async_generate_embedding(
         return _parse_embedding_response(response.json())
 
 
+def _build_document_request_payload(
+    content: str,
+    *,
+    team_id: int,
+    product: str,
+    document_type: str,
+    rendering: str,
+    document_id: str,
+    models: list[str],
+    timestamp: Optional[datetime],
+    metadata: Optional[dict],
+) -> dict:
+    # Validate models against configured embedding tables
+    if not models:
+        raise ValueError("At least one model must be specified")
+    valid_models = {table.model_name for table in EMBEDDING_TABLES}
+    invalid_models = set(models) - valid_models
+    if invalid_models:
+        raise ValueError(
+            f"Invalid model name(s): {', '.join(sorted(invalid_models))}. "
+            f"Valid models are: {', '.join(sorted(valid_models))}"
+        )
+
+    if timestamp is not None:
+        if not isinstance(timestamp, datetime):
+            raise ValueError(f"timestamp must be a datetime instance, got {type(timestamp).__name__}")
+        if timestamp.tzinfo is None or timestamp.tzinfo.utcoffset(timestamp) is None:
+            raise ValueError(
+                "timestamp must be timezone-aware (e.g. '2026-03-10T12:17:44.394000Z'). "
+                "Got a naive datetime without timezone info."
+            )
+    else:
+        timestamp = now()
+
+    return {
+        "team_id": team_id,
+        "product": product,
+        "document_type": document_type,
+        "rendering": rendering,
+        "document_id": document_id,
+        "timestamp": timestamp.isoformat(),
+        "content": content,
+        "metadata": metadata or {},
+        "models": models,
+    }
+
+
 def emit_embedding_request(
     content: str,
     *,
@@ -139,42 +188,58 @@ def emit_embedding_request(
         timestamp: Optional timestamp (defaults to now)
         metadata: Optional metadata dict to include as structured JSON, not part of content
     """
-    # Validate models against configured embedding tables
-    if not models:
-        raise ValueError("At least one model must be specified")
-    valid_models = {table.model_name for table in EMBEDDING_TABLES}
-    invalid_models = set(models) - valid_models
-    if invalid_models:
-        raise ValueError(
-            f"Invalid model name(s): {', '.join(sorted(invalid_models))}. "
-            f"Valid models are: {', '.join(sorted(valid_models))}"
-        )
-
-    if timestamp is not None:
-        if not isinstance(timestamp, datetime):
-            raise ValueError(f"timestamp must be a datetime instance, got {type(timestamp).__name__}")
-        if timestamp.tzinfo is None or timestamp.tzinfo.utcoffset(timestamp) is None:
-            raise ValueError(
-                "timestamp must be timezone-aware (e.g. '2026-03-10T12:17:44.394000Z'). "
-                "Got a naive datetime without timezone info."
-            )
-    else:
-        timestamp = now()
-
-    payload = {
-        "team_id": team_id,
-        "product": product,
-        "document_type": document_type,
-        "rendering": rendering,
-        "document_id": document_id,
-        "timestamp": timestamp.isoformat(),
-        "content": content,
-        "metadata": metadata or {},
-        "models": models,
-    }
+    payload = _build_document_request_payload(
+        content,
+        team_id=team_id,
+        product=product,
+        document_type=document_type,
+        rendering=rendering,
+        document_id=document_id,
+        models=models,
+        timestamp=timestamp,
+        metadata=metadata,
+    )
 
     producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
     return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)
+
+
+async def async_generate_and_store_embedding(
+    content: str,
+    *,
+    team_id: int,
+    product: str,
+    document_type: str,
+    rendering: str,
+    document_id: str,
+    models: list[str],
+    timestamp: Optional[datetime] = None,
+    metadata: Optional[dict] = None,
+) -> dict[str, list[float]]:
+    """Store a document's embeddings like `emit_embedding_request`, and return each model's vector.
+
+    Use it instead of emitting and then calling `async_generate_embedding`, which pays for the embedding twice.
+    """
+    payload = _build_document_request_payload(
+        content,
+        team_id=team_id,
+        product=product,
+        document_type=document_type,
+        rendering=rendering,
+        document_id=document_id,
+        models=models,
+        timestamp=timestamp,
+        metadata=metadata,
+    )
+    # The worker retries the provider up to four times per model before it answers.
+    async with internal_httpx_async_client(timeout=_STORED_TIMEOUT_S) as client:
+        response = await client.post(_STORED_URL, json=payload)
+        _raise_for_embedding_response(response)
+        return {
+            result["model"]: result["embedding"]
+            for result in response.json()["results"]
+            if result["outcome"] == "success"
+        }
 
 
 def _build_recently_seen_payload(documents: list[DocumentKey], team_id: int) -> dict:
