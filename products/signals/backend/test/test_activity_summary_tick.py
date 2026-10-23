@@ -33,6 +33,7 @@ from products.signals.backend.activity_summary.queue import (
     DailyUsage,
     daily_usage,
     enrolled_team_ids,
+    enrollment,
     feed_queue,
     is_team_enrolled_for_generation,
     is_team_enrolled_for_read,
@@ -59,6 +60,7 @@ from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickPlan,
     ActivitySummaryTickResult,
     ActivitySummaryTickWorkflow,
+    EnrollmentCounts,
     plan_tick,
     run_pair,
 )
@@ -506,6 +508,27 @@ class TestActivitySummaryQueue(BaseTest):
         if config.self_driving_organization_percentage and not config.organization_ids:
             assert sourceless.id not in enrolled_team_ids(config)
 
+    @parameterized.expand([("percentage_0", 0.0, 0), ("percentage_100", 100.0, 1)])
+    def test_enrollment_counts_qualifying_organizations_apart_from_enrolled_ones(
+        self, _name: str, percentage: float, enrolled: int
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+        )
+        Team.objects.create(organization=self.organization, name="No source")
+        sourceless_organization = Organization.objects.create(name="No source", is_ai_data_processing_approved=True)
+        Team.objects.create(organization=sourceless_organization, name="No source")
+
+        result = enrollment(
+            dataclasses.replace(self._config(), organization_ids=(), self_driving_organization_percentage=percentage)
+        )
+
+        assert result.qualifying_organization_ids == [self.organization.id]
+        assert result.organization_ids == [self.organization.id][:enrolled]
+        assert result.team_ids == [self.team.id][:enrolled]
+
     def test_a_pair_is_not_updated_when_the_team_leaves_the_enrollment_before_dispatch(self) -> None:
         self._changes(self.user, 3)
         assert self._select() == [(self.team.id, self.user.id)]
@@ -720,7 +743,7 @@ class TestActivitySummaryQueue(BaseTest):
                 )
             )
 
-        assert (result.status, result.called_model) == ("ok", True)
+        assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
         assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nFocus areas: signup funnel"
         event = capture.call_args.kwargs
@@ -764,6 +787,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "limits": DEFAULT_LIMITS,
         "max_error_rate": 0.5,
         "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
+        "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
@@ -786,7 +810,9 @@ async def _run_tick(
         peak = max(peak, running)
         await asyncio.sleep(0.01)
         running -= 1
-        return ActivitySummaryPairResult(status=pair_status, cost_usd=pair_cost, called_model=True)
+        return ActivitySummaryPairResult(
+            status=pair_status, cost_usd=pair_cost, called_model=True, new_summary=input.user_id % 2 == 0
+        )
 
     @activity.defn(name="capture_activity_summary_tick_activity")
     async def fake_capture(result: ActivitySummaryTickResult) -> None:
@@ -811,24 +837,31 @@ async def _run_tick(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "plan,pair_cost,pair_status,picked,stop_reason",
+    "plan,pair_cost,pair_status,picked,stop_reason,builds",
     [
-        (_plan(5), 0.01, "ok", 5, None),
-        (_plan(5, updates_left=3), 0.01, "ok", 3, STOP_MAX_PAIRS_PER_DAY),
+        (_plan(5), 0.01, "ok", 5, None, (3, 2)),
+        (_plan(5, updates_left=3), 0.01, "ok", 3, STOP_MAX_PAIRS_PER_DAY, (2, 1)),
         # A missing cost counts at the bound, so the second wave spends the last of the budget.
-        (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY),
+        (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY, (2, 2)),
         # The breaker waits for a sample of 10 model calls, which is five waves.
-        (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE),
+        (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE, (0, 0)),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
-    plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str, picked: int, stop_reason: str | None
+    plan: ActivitySummaryTickPlan,
+    pair_cost: float | None,
+    pair_status: str,
+    picked: int,
+    stop_reason: str | None,
+    builds: tuple[int, int],
 ) -> None:
     result, peak, captured = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
+    assert (result.new_builds, result.refresh_builds) == builds
+    assert result.enrollment == plan.enrollment
     assert captured == [result]
 
 
