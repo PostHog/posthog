@@ -20,11 +20,18 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, hydrate_event_reference
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    GenerationNotFoundError,
+    as_utc_datetime,
+    hydrate_event_reference,
+)
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import (
+    EvaluationActivityResult,
+    build_generation_not_found_result,
+)
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team, raise_emit_failure
@@ -548,7 +555,12 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
         # of an evaluation turned off since it started returns unrun, so the workflow reports the skip.
         return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
 
-    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    try:
+        event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    except GenerationNotFoundError:
+        return LocalEvaluationOutcome(
+            evaluation=evaluation, result=build_generation_not_found_result(evaluation), emitted=False
+        )
     if evaluation_type == "hog":
         result = await run_hog_eval_for_event(evaluation, event_data)
     else:
