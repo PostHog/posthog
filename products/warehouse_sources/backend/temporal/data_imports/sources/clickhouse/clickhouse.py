@@ -1093,7 +1093,12 @@ _EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
 
 def _is_expected_probe_failure(message: str) -> bool:
     """Whether a duplicate-PK probe failure is an expected environment limit or designed fallback."""
-    return any(substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS)
+    # A transient egress-proxy blip (see `is_transient_egress_proxy_error`) is our own
+    # infrastructure being briefly unreachable, not a sign the probe's query itself is
+    # suspect — same designed-fallback reasoning as the budget caps above.
+    return any(
+        substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS
+    ) or is_transient_egress_proxy_error(message)
 
 
 def _has_duplicate_primary_keys(
