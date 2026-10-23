@@ -20,7 +20,7 @@ from products.experiments.backend.health.skips import (
     NO_FLAG,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
-    CheckSkip,
+    CheckOutcome,
     not_applicable,
     not_checked,
 )
@@ -30,38 +30,25 @@ EXPOSURE_EVENT_NOT_INGESTED = "exposure_event_not_ingested"
 FILTER_ON_ANOTHER_FLAG = "filter_on_another_flag"
 
 
-def exposure_criteria_skip(ctx: HealthContext) -> CheckSkip | None:
+def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
     events = ctx.exposure_events
     if events is None:
         return not_checked("Couldn't check because the exposure criteria can't be read")
-    if events.custom_event is not None:
+    event = events.custom_event
+    if event is not None:
         if ctx.has_ended:
             return not_applicable(NOT_AFTER_END)
-        if events.custom_event not in ctx.events_received:
+        received = ctx.events_received.get(event)
+        if received is None:
             return not_checked("Couldn't check because PostHog keeps no record of this event name")
-        return None
-    if events.required_flag_key is None:
-        if ctx.flag is None:
-            return not_applicable(NO_FLAG)
-        return not_applicable("Doesn't check exposure criteria that use an action")
-    return None
-
-
-def exposure_criteria_cannot_match(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    events = ctx.exposure_events
-    if ctx.archived or events is None:
-        return None
+        return None if received else _exposure_event_not_ingested(ctx, event)
     flag_key = events.required_flag_key
-    if flag_key is not None:
-        other = next((f for f in events.flag_key_filters if _requires_another_flag(f, flag_key)), None)
-        if other is not None:
-            return _filter_on_another_flag(flag_key, other)
-    event = events.custom_event
-    if event is not None and not ctx.has_ended and ctx.events_received.get(event) is False:
-        return _exposure_event_not_ingested(ctx, event)
-    return None
+    if flag_key is None:
+        return not_applicable(NO_FLAG if ctx.flag is None else "Doesn't check exposure criteria that use an action")
+    other = next((f for f in events.flag_key_filters if _requires_another_flag(f, flag_key)), None)
+    return None if other is None else _filter_on_another_flag(flag_key, other)
 
 
 def _requires_another_flag(flag_filter: FlagKeyFilter, flag_key: str) -> bool:
