@@ -1651,18 +1651,22 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
 
         if not live_logs_checkpoint:
+            event_properties: dict[str, object] = {
+                "results_count": len(results),
+                "has_more": has_more,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "is_paginated": bool(after_cursor),
+            }
+            if results:
+                # This endpoint serves the app, API keys, MCP and other integrations, so the property covers all of them.
+                event_properties["$set_once"] = {"first_used_logs_at": timezone.now().isoformat()}
             report_user_action(
                 request.user,
                 "logs query executed",
-                {
-                    "results_count": len(results),
-                    "has_more": has_more,
-                    "has_search_term": bool(query_data.get("searchTerm")),
-                    "has_filter_group": bool(query_data.get("filterGroup")),
-                    "severity_levels_count": len(query_data.get("severityLevels") or []),
-                    "service_names_count": len(query_data.get("serviceNames") or []),
-                    "is_paginated": bool(after_cursor),
-                },
+                event_properties,
                 team=self.team,
                 request=request,
             )
