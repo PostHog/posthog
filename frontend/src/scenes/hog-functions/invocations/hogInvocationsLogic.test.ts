@@ -147,6 +147,16 @@ describe('hogInvocationsLogic', () => {
             flat.unmount()
         })
 
+        it('reads a digit-only inv_search from the URL as a string', async () => {
+            // kea-router decodes `12345` as a number, which has no `trim()` for the search clause.
+            router.actions.push('/?inv_search=12345')
+            const flat = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            flat.mount()
+            expect(flat.values.filters.search).toBe('12345')
+            await expectLogic(flat).toFinishAllListeners()
+            flat.unmount()
+        })
+
         it('anchors the initial window to defaultDateFrom for a scoped table', () => {
             // A broadcast older than 24h would show no runs if the scoped table used the default -24h window.
             const scoped = hogInvocationsLogic({
