@@ -24,6 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
+from products.signals.backend.anomaly_scores.config import DEFAULT_PROFILE
 from products.signals.backend.anomaly_scores.queue import SCORE_EVENT, SOURCE_INSIGHT
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 
@@ -36,6 +37,9 @@ MAX_BUCKETS = 2_000
 PRIOR_BUCKETS = 10
 # The prior when no series of the project has a scored baseline: about what a 0.95 threshold flags on noise.
 DEFAULT_PRIOR_RATE = 0.05
+# The intervals the scorer writes. Any member can capture a row with another interval, such as `second`,
+# and stepping through its buckets over a long range would take hours.
+SCORED_INTERVALS = frozenset(DEFAULT_PROFILE.intervals)
 
 _LATEST_BUCKETS = """
 SELECT
@@ -173,6 +177,19 @@ class SeriesImportance:
     viewers: int
 
 
+@frozen(order=True)
+class _RankKey:
+    """Sorts smallest first, field by field, so each measure is negated to put the largest first."""
+
+    negative_lift: float
+    negative_flagged_buckets: int
+    negative_last_flagged: float
+    off_dashboard: bool
+    negative_viewers: int
+    insight_id: int
+    series_key: str
+
+
 @frozen
 class InsightRollup:
     """Buckets summed over the series of one insight. Rates of series are never averaged."""
@@ -295,7 +312,7 @@ def series_summaries(
         points,
     ) in rows[:MAX_SERIES]:
         # Any member can capture an event with any properties, so a row may not name a real series.
-        if insight_id is None or not key or interval not in tuple(IntervalType):
+        if insight_id is None or not key or interval not in SCORED_INTERVALS:
             continue
         flagged_points = sorted(
             (
@@ -426,17 +443,17 @@ def rank_series(
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
 
-    def key(summary: SeriesSummary) -> tuple[float, int, float, bool, int, int, str]:
+    def key(summary: SeriesSummary) -> _RankKey:
         last_flagged = summary.last_flagged_bucket
         insight_importance = importance.get(summary.insight_id, unknown)
-        return (
-            -rate_lift(summary, prior),
-            -summary.flagged_buckets,
-            -last_flagged.timestamp() if last_flagged else math.inf,
-            not insight_importance.on_dashboard,
-            -insight_importance.viewers,
-            summary.insight_id,
-            summary.series_key,
+        return _RankKey(
+            negative_lift=-rate_lift(summary, prior),
+            negative_flagged_buckets=-summary.flagged_buckets,
+            negative_last_flagged=-last_flagged.timestamp() if last_flagged else math.inf,
+            off_dashboard=not insight_importance.on_dashboard,
+            negative_viewers=-insight_importance.viewers,
+            insight_id=summary.insight_id,
+            series_key=summary.series_key,
         )
 
     return sorted(series, key=key)

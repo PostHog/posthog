@@ -87,7 +87,7 @@ class TestAnomalyRanking(SimpleTestCase):
 class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.insight = Insight.objects.create(team=self.team, name="Signups", saved=True, query={"kind": "TrendsQuery", "series": []})
+        self.insight = Insight.objects.create(team=self.team, name="Signups", saved=True)
         flag = patch("products.signals.backend.presentation.anomalies.feature_enabled_or_false", return_value=True)
         self.flag = flag.start()
         self.addCleanup(flag.stop)
@@ -106,6 +106,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         flag: int | None,
         scored_at: datetime.datetime = NOW,
         series_key: str = "signups",
+        interval: str = "day",
         insight: Insight | None = None,
         team: Team | None = None,
     ) -> None:
@@ -119,7 +120,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
                 "$anomaly_flag": flag,
                 "$anomaly_value": 10.0,
                 "$anomaly_bucket_start": bucket.isoformat(),
-                "$anomaly_interval": "day",
+                "$anomaly_interval": interval,
                 "$anomaly_series_key": series_key,
                 "$anomaly_source": "insight",
                 "$anomaly_insight_id": (insight or self.insight).id,
@@ -140,6 +141,8 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         self._score(_day(20), score=None, flag=None)
         self._score(_day(22), score=0.98, flag=1)
         self._score(_day(22), score=0.10, flag=0, series_key="logins")
+        # Any member can capture a row like this. The scorer never writes a `second` interval.
+        self._score(_day(22), score=0.99, flag=1, series_key="forged", interval="second")
 
     def _get(self, endpoint: str, **params: Any) -> Any:
         return self.client.get(f"/api/projects/{self.team.id}/signals/anomalies/{endpoint}/", params)
