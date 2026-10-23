@@ -139,6 +139,7 @@ export const VerifyingRecordsInPlace: Story = {
         seed: (backend) => backend.publishRecords(DOMAIN),
         stage: (_, id) => emailDomainStatusLogic.findMounted({ id })?.actions.stopPolling(),
     },
+    parameters: pollingStory,
 }
 
 export const VerifyingTemporaryFailure: Story = {
@@ -150,6 +151,7 @@ export const VerifyingTemporaryFailure: Story = {
             backend.sesReports(DOMAIN, 'temporary_failure')
         },
     },
+    parameters: pollingStory,
 }
 
 export const VerifyingFailed: Story = {
