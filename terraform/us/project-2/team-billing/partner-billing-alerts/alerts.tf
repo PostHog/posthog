@@ -16,7 +16,8 @@
 # =============================================================================
 
 locals {
-  mentions = join(" ", [for id in var.billing_alert_mention_slack_user_ids : "<@${id}>"])
+  # Each mention carries its own trailing space, so an empty list leaves no stray space before the text.
+  mentions = join("", [for id in var.billing_alert_mention_slack_user_ids : "<@${id}> "])
 
   # Anyone holding project 2's public key can send an event that passes the filter below.
   # Escaping every event value stops such an event from adding links or mentions to the post.
@@ -38,14 +39,14 @@ resource "posthog_hog_function" "partner_billing_alert" {
   inputs_json = jsonencode({
     # Slack shows this fallback text in notifications and can't set verbatim on it, so it carries no event values.
     "text" = {
-      "value"      = "${local.mentions} Partner billing alert"
+      "value"      = "${local.mentions}Partner billing alert"
       "templating" = "hog"
     }
     "blocks" = {
       "value" = [
         {
           "text" = {
-            "text"     = "${local.mentions} {${local.message}}"
+            "text"     = "${local.mentions}{${local.message}}"
             "type"     = "mrkdwn"
             "verbatim" = true
           }
