@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 import subprocess
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 
@@ -18,7 +18,17 @@ from hogli.manifest import REPO_ROOT
 
 from hogli_commands.build import TRIGGERS as BUILD_TRIGGERS
 from hogli_commands.change_detection import changed_files, matches_globs
-from hogli_commands.ci_preflight import _COLOR, _ICON, DIFF_CHECKS, DiffCheck, _run_diff_check
+from hogli_commands.ci_preflight import (
+    _COLOR,
+    _ICON,
+    DIFF_CHECKS,
+    DiffCheck,
+    Outcome,
+    Scope,
+    _capability_met,
+    _run_diff_check,
+)
+from hogli_commands.test_runner import changed_test_files
 
 
 class Rung(IntEnum):
@@ -83,6 +93,7 @@ KIND_RULES: tuple[KindRule, ...] = (
             "posthog/urls.py",
             "products/*/backend/routes.py",
             "posthog/middleware.py",
+            "posthog/csp_middleware.py",
             "docker-compose*.yml",
         ),
         sufficient=Rung.STACK,
@@ -110,6 +121,19 @@ STATIC_CHECK_KEYS = (
     "migrations",
 )
 
+
+def _streamed(command: list[str]) -> Callable[[Scope], Outcome]:
+    # Preflight keeps three lines of a failure, and the pnpm banner fills them, so the compiler
+    # errors and the typecheck wrapper's recovery steps print straight to the terminal instead.
+    def run(_scope: Scope) -> Outcome:
+        if not _capability_met("node"):
+            return "skipped", "needs node"
+        returncode = subprocess.run(command, cwd=REPO_ROOT).returncode
+        return ("pass", "ok") if returncode == 0 else ("fail", f"exit {returncode}, see the output above")
+
+    return run
+
+
 FRONTEND_TS = ("frontend/src/*.ts", "frontend/src/*.tsx", "products/*/frontend/*.ts", "products/*/frontend/*.tsx")
 
 VERIFY_ONLY_CHECKS: tuple[DiffCheck, ...] = (
@@ -125,8 +149,8 @@ VERIFY_ONLY_CHECKS: tuple[DiffCheck, ...] = (
         key="typescript",
         label="frontend typecheck (tsgo)",
         triggers=list(FRONTEND_TS),
-        verify=["pnpm", "--filter=@posthog/frontend", "typescript:check"],
-        requires=("node",),
+        verify=None,
+        run=_streamed(["pnpm", "--filter=@posthog/frontend", "typescript:check"]),
     ),
     DiffCheck(
         key="skills-lint",
@@ -179,16 +203,14 @@ def _print_plan(plan: LadderPlan) -> None:
     click.echo()
 
 
-def _print_rungs_by_hand(plan: LadderPlan, skipped: int = 0) -> None:
+def _print_rungs_by_hand(plan: LadderPlan, outstanding: tuple[str, ...] = ()) -> None:
     covered = "Lint, format, typecheck and the nearest tests" if plan.runs_unit_tests else "Lint, format and typecheck"
-    if skipped:
-        click.secho(
-            f"  {skipped} check(s) skipped, so this diff is not verified yet. "
-            "Set up what they need, then run `hogli verify --changed` again.",
-            fg="yellow",
-        )
+    if outstanding:
+        click.secho("  This diff is not verified yet. Do these, then run `hogli verify --changed` again:", fg="yellow")
+        for step in outstanding:
+            click.echo(f"   - {step}")
     if not plan.rungs_by_hand:
-        if not skipped:
+        if not outstanding:
             click.secho(f"  {covered} are enough for this diff. Higher rungs add no coverage.", fg="green")
         return
     click.secho(f"  {covered} are not enough for this diff. Run these next, cheapest first:", bold=True)
@@ -215,11 +237,14 @@ def verify(changed: bool, plan_only: bool) -> None:
 
     click.secho("  Rung 1: lint, format, typecheck", bold=True)
     failures = 0
-    skipped = 0
+    outstanding: list[str] = []
     for check in _static_checks(files):
         status, detail = _run_diff_check(check, do_fix=False, against=None, strict=False, changed=files)
         failures += status == "fail"
-        skipped += status == "skipped"
+        if status == "skipped":
+            outstanding.append(f"[{check.key}] was skipped: {detail}. Set up what it needs.")
+        elif status == "advisory":
+            outstanding.append(f"[{check.key}] did not run: {detail}.")
         click.secho(f"   {_ICON[status]} [{check.key}] {check.label}", fg=_COLOR[status])
         click.echo(f"       {detail}")
     click.echo()
@@ -227,7 +252,11 @@ def verify(changed: bool, plan_only: bool) -> None:
         click.secho("  Fix the failures above, then run `hogli verify --changed` again.", fg="red")
         sys.exit(1)
 
-    if plan.runs_unit_tests:
+    if plan.runs_unit_tests and not changed_test_files(skip_playwright=True).all_files:
+        outstanding.append(
+            "No tests were found for the changed files. Pick the nearest test and run `hogli test <file>`."
+        )
+    elif plan.runs_unit_tests:
         click.secho("  Rung 2: hogli test --changed --skip-playwright", bold=True)
         test_command = [sys.executable, "-m", "hogli", "test", "--changed", "--skip-playwright"]
         if subprocess.run(test_command, cwd=REPO_ROOT).returncode != 0:
@@ -235,4 +264,4 @@ def verify(changed: bool, plan_only: bool) -> None:
             sys.exit(1)
         click.echo()
 
-    _print_rungs_by_hand(plan, skipped)
+    _print_rungs_by_hand(plan, tuple(outstanding))

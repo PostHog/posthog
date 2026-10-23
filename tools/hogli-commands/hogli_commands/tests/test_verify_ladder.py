@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import patch
 
-from hogli_commands.verify_ladder import ChangeKind, Rung, _print_rungs_by_hand, classify, plan_ladder
+from click.testing import CliRunner
+from hogli_commands.test_runner import ChangedTests
+from hogli_commands.verify_ladder import ChangeKind, Rung, _print_rungs_by_hand, classify, plan_ladder, verify
 
 
 class TestClassify:
@@ -26,6 +29,7 @@ class TestClassify:
             ("products/surveys/skills/creating-surveys/references/guide.md", ChangeKind.DOCS_OR_SKILLS),
             ("posthog/settings/web.py", ChangeKind.APP_WIRING),
             ("products/surveys/backend/routes.py", ChangeKind.APP_WIRING),
+            ("posthog/csp_middleware.py", ChangeKind.APP_WIRING),
             ("posthog/models/team/team.py", ChangeKind.PURE_LOGIC),
         ],
     )
@@ -51,9 +55,30 @@ class TestPlanLadder:
         assert plan.runs_unit_tests is runs_unit_tests
         assert plan.rungs_by_hand == rungs_by_hand
 
-    @pytest.mark.parametrize("skipped,claims_enough", [(0, True), (1, False)])
-    def test_skipped_check_does_not_claim_enough(
-        self, capsys: pytest.CaptureFixture[str], skipped: int, claims_enough: bool
+    @pytest.mark.parametrize(
+        "outstanding,claims_enough",
+        [((), True), (("[markdown-format] was skipped: needs node. Set up what it needs.",), False)],
+    )
+    def test_outstanding_check_does_not_claim_enough(
+        self, capsys: pytest.CaptureFixture[str], outstanding: tuple[str, ...], claims_enough: bool
     ) -> None:
-        _print_rungs_by_hand(plan_ladder(["docs/internal/monorepo-layout.md"]), skipped)
+        _print_rungs_by_hand(plan_ladder(["docs/internal/monorepo-layout.md"]), outstanding)
         assert ("are enough for this diff" in capsys.readouterr().out) is claims_enough
+
+
+class TestVerifyCommand:
+    def test_an_advisory_check_and_no_tests_leave_the_diff_unverified(self) -> None:
+        no_tests = ChangedTests(directly_changed=set(), discovered=set(), skipped_playwright_specs=set())
+        with (
+            patch("hogli_commands.verify_ladder.changed_files", return_value=["posthog/models/team/team.py"]),
+            patch("hogli_commands.verify_ladder._run_diff_check", return_value=("advisory", "run mypy")),
+            patch("hogli_commands.verify_ladder.changed_test_files", return_value=no_tests),
+            patch("hogli_commands.verify_ladder.subprocess.run") as run,
+        ):
+            result = CliRunner().invoke(verify, ["--changed"])
+
+        assert result.exit_code == 0
+        assert "[type-check] did not run: run mypy." in result.output
+        assert "No tests were found for the changed files" in result.output
+        assert "are enough for this diff" not in result.output
+        run.assert_not_called()

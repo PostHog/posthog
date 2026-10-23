@@ -726,8 +726,19 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
                 _run(cfg.command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
 
 
-def _run_changed(extra_args: list[str], skip_playwright: bool = False) -> None:
-    """Find changed test files and tests for changed source files, then run them."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ChangedTests:
+    directly_changed: set[str]
+    discovered: set[str]
+    skipped_playwright_specs: set[str]
+
+    @property
+    def all_files(self) -> list[str]:
+        return sorted(self.directly_changed | self.discovered)
+
+
+def changed_test_files(*, skip_playwright: bool = False) -> ChangedTests:
+    """The changed test files, and the test files found for changed source files."""
     changed = _get_changed_files()
 
     directly_changed = {f for f in changed if _is_test_file(f)}
@@ -737,14 +748,26 @@ def _run_changed(extra_args: list[str], skip_playwright: bool = False) -> None:
         if not _is_test_file(f):
             discovered.update(_find_test_files_for_source(f))
 
+    playwright_specs: set[str] = set()
     if skip_playwright:
         playwright_specs = {f for f in directly_changed | discovered if f.startswith("playwright/")}
-        if playwright_specs:
-            click.secho(f"Skipping {len(playwright_specs)} Playwright spec(s).", fg="yellow")
         directly_changed -= playwright_specs
         discovered -= playwright_specs
 
-    all_test_files = sorted(directly_changed | discovered)
+    return ChangedTests(
+        directly_changed=directly_changed, discovered=discovered, skipped_playwright_specs=playwright_specs
+    )
+
+
+def _run_changed(extra_args: list[str], skip_playwright: bool = False) -> None:
+    """Find changed test files and tests for changed source files, then run them."""
+    tests = changed_test_files(skip_playwright=skip_playwright)
+    if tests.skipped_playwright_specs:
+        click.secho(f"Skipping {len(tests.skipped_playwright_specs)} Playwright spec(s).", fg="yellow")
+    directly_changed = tests.directly_changed
+    discovered = tests.discovered
+
+    all_test_files = tests.all_files
 
     if not all_test_files:
         click.secho("No test files found for changes on this branch.", fg="yellow")

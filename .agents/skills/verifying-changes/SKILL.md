@@ -25,6 +25,7 @@ Start at the bottom, and climb only when the rung you are on cannot see the thin
 | 6    | Playwright or a recorded run | `hogli test playwright/<spec>.spec.ts` against a running stack                                          |
 
 `hogli verify --changed` classifies the diff against master, runs rungs 1 and 2, and stops with the next rung you must run by hand.
+It does not call the diff verified while a check is skipped, a check only advises (mypy runs repo-wide, so it lists the command), or no test covers the changed files.
 Use `--plan` to see the classification without running anything.
 
 ## Decision table
