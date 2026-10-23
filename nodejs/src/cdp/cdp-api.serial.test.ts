@@ -2351,7 +2351,7 @@ describe('CDP API', () => {
         describe('send checks', () => {
             type Target = { teamId: number; flowId: string; to: string }
 
-            const suppressedRecipient = async (): Promise<Target> => {
+            const suppress = async (address: string): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_messagesuppression
@@ -2359,9 +2359,13 @@ describe('CDP API', () => {
                          suppressed, suppressed_at, deleted, created_at, updated_at)
                      VALUES (gen_random_uuid(), $1, $2, 'MANUAL', 'Manually added', 0,
                          true, NOW(), false, NOW(), NOW())`,
-                    [team.id, 'bounced@example.com'],
+                    [team.id, address],
                     'suppress-recipient'
                 )
+            }
+
+            const suppressedRecipient = async (): Promise<Target> => {
+                await suppress('bounced@example.com')
                 return { teamId: team.id, flowId: hogFlow.id, to: 'bounced@example.com' }
             }
 
@@ -2442,6 +2446,29 @@ describe('CDP API', () => {
                 })
                 expect(await outcomeCount(code)).toEqual(rejectedBefore + 1)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it('sends a keyed send that was refused once the refusal is fixed', async () => {
+                // An address of its own, because suppression lookups stay cached for the whole suite.
+                const to = `lifted-${new UUIDT().toString()}@example.com`
+                await suppress(to)
+                const keyed = { ...body, to, idempotency_key: `key-${new UUIDT().toString()}` }
+                const sendKeyed = () =>
+                    send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, keyed)
+
+                const refused = await sendKeyed()
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `DELETE FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
+                    [team.id, to],
+                    'lift-suppression'
+                )
+                api['emailTrackingService']['emailSuppressionService'].clear()
+                const retried = await sendKeyed()
+
+                expect([refused.status, refused.body.code]).toEqual([400, 'recipient_suppressed'])
+                expect(retried.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
         })
 
