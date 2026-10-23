@@ -18,12 +18,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
-from products.messaging.backend.facade.email_status import (
-    EmailStatus,
-    EmailStatusCursor,
-    email_recipient_hash,
-    list_email_statuses_by_recipient,
-)
+from products.messaging.backend.facade.email_status import email_recipient_hash
 
 RANK = {"queued": 0, "sent": 4, "delivered": 5, "bounced": 6}
 
@@ -37,7 +32,7 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         raw_token = generate_random_token_secret()
         ProjectSecretAPIKey.objects.create(
             team=self.team,
-            label="email status",
+            label=f"email status {raw_token[:8]}",
             secure_value=hash_key_value(raw_token),
             scopes=scopes,
             mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
@@ -130,36 +125,59 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
         assert (response.status_code, response.json()["code"]) == (status.HTTP_404_NOT_FOUND, "not_found")
 
-    def test_needs_the_read_scope(self, _flag):
-        response = self._client(["message_template:write"]).get(self._url(self._sent_at(datetime.now(UTC))))
+    @parameterized.expand(["by_id", "by_recipient"])
+    def test_needs_the_read_scope(self, _flag, read):
+        client = self._client(["message_template:write"])
+        if read == "by_id":
+            response = client.get(self._url(self._sent_at(datetime.now(UTC))))
+        else:
+            response = client.get(f"/api/projects/{self.team.id}/messaging/emails/", {"to": "jane@example.com"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_lists_a_recipients_emails_newest_first_for_the_normalized_address(self, _flag):
-        first_at = datetime.now(UTC) - timedelta(hours=2)
-        first, second = self._sent_at(first_at), self._sent_at(first_at + timedelta(hours=1))
+    def _list(self, query: dict[str, Any], scopes: list[str] | None = None) -> Any:
+        return self._client(scopes or ["hog_flow:read"]).get(f"/api/projects/{self.team.id}/messaging/emails/", query)
+
+    def test_lists_a_recipients_emails_newest_first_a_page_at_a_time(self, _flag):
+        first_at = datetime.now(UTC) - timedelta(hours=3)
+        first, second, third = (self._sent_at(first_at + timedelta(hours=hour)) for hour in range(3))
         self._record(first, "queued", first_at, recipient="Lookup@Example.com")
         self._record(first, "sent", first_at + timedelta(seconds=2), recipient="Lookup@Example.com")
-        self._record(second, "queued", first_at + timedelta(hours=1), recipient="  lookup@example.com ")
+        self._record(second, "bounced", first_at + timedelta(hours=1), recipient="lookup@example.com", reason="hard")
+        self._record(third, "queued", first_at + timedelta(hours=2), recipient="  lookup@example.com ")
+        self._record(self._sent_at(first_at), "sent", first_at, recipient="someone@example.com")
         other_team = Team.objects.create(organization=self.organization)
         self._record(self._sent_at(first_at), "sent", first_at, team_id=other_team.id, recipient="lookup@example.com")
+        older_than_kept = datetime.now(UTC) - timedelta(days=31)
+        self._record(self._sent_at(older_than_kept), "sent", older_than_kept, recipient="lookup@example.com")
 
-        records = list_email_statuses_by_recipient(
-            self.team.id, " LOOKUP@example.com", since=first_at - timedelta(minutes=1), limit=10
-        )
+        first_page = self._list({"to": " LOOKUP@example.com", "limit": 2})
 
-        assert [(record.message_id, record.status) for record in records] == [
-            (second, EmailStatus.QUEUED),
-            (first, EmailStatus.SENT),
+        assert first_page.status_code == status.HTTP_200_OK, first_page.json()
+        assert [(email["id"], email["status"], email.get("reason")) for email in first_page.json()["results"]] == [
+            (str(third), "queued", None),
+            (str(second), "bounced", "hard"),
         ]
-        next_page = list_email_statuses_by_recipient(
-            self.team.id,
-            "lookup@example.com",
-            since=first_at - timedelta(minutes=1),
-            limit=10,
-            cursor=EmailStatusCursor(created_at=records[0].created_at, message_id=records[0].message_id),
-        )
-        assert [record.message_id for record in next_page] == [first]
+        assert "lookup" not in first_page.json()["next_cursor"].lower()
+        next_page = self._list({"to": "lookup@example.com", "limit": 2, "cursor": first_page.json()["next_cursor"]})
+        assert [(email["id"], email["status"]) for email in next_page.json()["results"]] == [(str(first), "sent")]
+        assert next_page.json()["next_cursor"] is None
+
+    @parameterized.expand(
+        [
+            ("no_address", {}, "to"),
+            ("not_an_address", {"to": "jane-at-example.com"}, "to"),
+            ("page_too_large", {"to": "jane@example.com", "limit": 101}, "limit"),
+            ("cursor_from_nowhere", {"to": "jane@example.com", "cursor": "not-a-cursor"}, "cursor"),
+        ]
+    )
+    def test_refuses_a_lookup_it_cannot_run_without_echoing_the_address(self, _flag, _name, query, attr):
+        response = self._list(query)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("invalid_request", attr)
+        assert response.json()["why"] and response.json()["fix"]
+        assert "jane" not in response.content.decode()
 
     def test_lists_a_recipients_emails_recorded_before_a_salt_key_rotation(self, _flag):
         sent_at = datetime.now(UTC) - timedelta(hours=1)
@@ -170,11 +188,9 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         with override_settings(
             ENCRYPTION_SALT_KEYS=["11cafe0011cafe0011cafe0011cafe00", "00beef0000beef0000beef0000beef00"]
         ):
-            records = list_email_statuses_by_recipient(
-                self.team.id, "jane@example.com", since=sent_at - timedelta(minutes=1), limit=10
-            )
+            response = self._list({"to": "jane@example.com"})
 
-        assert [record.message_id for record in records] == [message_id]
+        assert [email["id"] for email in response.json()["results"]] == [str(message_id)]
 
     @parameterized.expand(["by_id", "by_recipient"])
     def test_tags_its_clickhouse_reads(self, _flag, read):
@@ -189,9 +205,7 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
             if read == "by_id":
                 self._client(["hog_flow:read"]).get(self._url(self._sent_at(datetime.now(UTC))))
             else:
-                list_email_statuses_by_recipient(
-                    self.team.id, "jane@example.com", since=datetime.now(UTC) - timedelta(days=1), limit=10
-                )
+                self._list({"to": "jane@example.com"})
 
         assert observed == [(self.team.id, Product.MESSAGING, Feature.QUERY)]
 

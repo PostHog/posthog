@@ -1,7 +1,10 @@
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -9,13 +12,24 @@ from rest_framework.response import Response
 
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 
-from products.messaging.backend.facade.email_status import EmailStatus, EmailStatusRecord, get_email_status
+from products.messaging.backend.facade.email_status import (
+    EMAIL_STATUS_RETENTION,
+    EmailStatus,
+    EmailStatusCursor,
+    EmailStatusRecord,
+    get_email_status,
+    list_email_statuses_by_recipient,
+)
 from products.messaging.backend.presentation.views.transactional_email_api import (
     TRANSACTIONAL_EMAIL_THROTTLES,
     TemplateErrorSerializer,
     TemplateRefusal,
     TransactionalEmailViewSetMixin,
+    invalid_request,
 )
+
+LOOKUP_PAGE_SIZE = 50
+LOOKUP_MAX_PAGE_SIZE = 100
 
 
 class EmailStatusSerializer(serializers.Serializer):
@@ -44,6 +58,76 @@ class EmailStatusSerializer(serializers.Serializer):
         return super().to_representation(representation)
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class EmailStatusCursorField(serializers.Field):
+    default_error_messages = {"invalid": "This cursor did not come from a previous page of this lookup."}
+
+    def to_representation(self, value: EmailStatusCursor) -> str:
+        token = f"{value.created_at.isoformat()}|{value.message_id}"
+        return urlsafe_b64encode(token.encode()).decode().rstrip("=")
+
+    def to_internal_value(self, data: Any) -> EmailStatusCursor:
+        token = str(data)
+        try:
+            created_at, message_id = urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode().split("|")
+            cursor = EmailStatusCursor(created_at=datetime.fromisoformat(created_at), message_id=UUID(message_id))
+        except ValueError:
+            self.fail("invalid")
+        if cursor.created_at.tzinfo is None:
+            self.fail("invalid")
+        return cursor
+
+
+class EmailLookupSerializer(serializers.Serializer):
+    to = serializers.EmailField(
+        help_text="The recipient's address. Case and the spaces around it do not matter. A send's `cc` and `bcc` "
+        "copies are not looked up.",
+    )
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=LOOKUP_MAX_PAGE_SIZE,
+        default=LOOKUP_PAGE_SIZE,
+        help_text=f"How many emails a page holds, from 1 to {LOOKUP_MAX_PAGE_SIZE}.",
+    )
+    cursor = EmailStatusCursorField(
+        required=False,
+        help_text="The `next_cursor` of the previous page. Leave it out to read the first page.",
+    )
+
+
+class EmailStatusPageSerializer(serializers.Serializer):
+    results = EmailStatusSerializer(many=True, help_text="The recipient's emails, newest first.")
+    next_cursor = EmailStatusCursorField(
+        allow_null=True,
+        help_text="Pass this as `cursor` to read the next page. Null on the last page.",
+    )
+
+
+def invalid_lookup(errors: Any) -> TemplateRefusal:
+    return invalid_request(
+        errors,
+        why=f"A lookup needs the recipient's address, a page size from 1 to {LOOKUP_MAX_PAGE_SIZE}, and a cursor "
+        "only from a previous page.",
+        retry="look up again",
+    )
+
+
+def recipient_email_page(
+    team_id: int, to: str, limit: int, cursor: EmailStatusCursor | None = None
+) -> dict[str, list[EmailStatusRecord] | EmailStatusCursor | None]:
+    # One extra row tells whether a next page exists without a second query.
+    records = list_email_statuses_by_recipient(
+        team_id, to, since=datetime.now(UTC) - EMAIL_STATUS_RETENTION, limit=limit + 1, cursor=cursor
+    )
+    page = records[:limit]
+    next_cursor = (
+        EmailStatusCursor(created_at=page[-1].created_at, message_id=page[-1].message_id)
+        if len(records) > limit
+        else None
+    )
+    return {"results": page, "next_cursor": next_cursor}
+
+
 def email_not_found(message_id: str) -> TemplateRefusal:
     return TemplateRefusal(
         code="not_found",
@@ -59,8 +143,32 @@ class MessagingEmailsViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["retrieve"]
+    psak_allowed_actions = ["list", "retrieve"]
     throttle_classes = TRANSACTIONAL_EMAIL_THROTTLES
+
+    @extend_schema(
+        parameters=[EmailLookupSerializer],
+        responses={
+            200: OpenApiResponse(response=EmailStatusPageSerializer, description="A page of the recipient's emails"),
+            400: OpenApiResponse(
+                response=TemplateErrorSerializer,
+                description="The address, the page size or the cursor is not valid",
+            ),
+            429: OpenApiResponse(response=TemplateErrorSerializer, description="Rate limited, retry later"),
+        },
+        summary="List a recipient's transactional emails",
+        description="Read the status of each email sent to an address in the last 30 days, newest first. Use it when "
+        "you did not keep the `message_id` a send answered.",
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_transactional_email_flag()
+        lookup = EmailLookupSerializer(data=request.query_params)
+        if not lookup.is_valid():
+            return Response(
+                TemplateErrorSerializer(invalid_lookup(lookup.errors)).data, status=status.HTTP_400_BAD_REQUEST
+            )
+        page = recipient_email_page(self.team_id, **lookup.validated_data)
+        return Response(EmailStatusPageSerializer(page).data)
 
     @extend_schema(
         responses={
