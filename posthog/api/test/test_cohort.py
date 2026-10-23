@@ -4832,8 +4832,10 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 400, response.content)
         detail = response.json()["detail"]
-        self.assertTrue(detail.startswith(f"Invalid behavioral value '{value}'. Use one of: performed_event, "), detail)
+        self.assertTrue(detail.startswith(f"Invalid behavioral value '{value}'. Use one of: "), detail)
+        self.assertIn("performed_event,", detail)
         self.assertIn("performed_event_sequence", detail)
+        self.assertNotIn("performed_event_multiple_times", detail)
         self.assertFalse(Cohort.objects.filter(team=self.team, name="cohort behavioral").exists())
 
     @parameterized.expand([("canonical", "performed_event_multiple"), ("alias", "performed_event_multiple_times")])

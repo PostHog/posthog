@@ -400,7 +400,7 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
-_BEHAVIORAL_VALUES = sorted(behavioral_type.value for behavioral_type in VALIDATE_BEHAVIORAL_PROP_TYPES)
+_BEHAVIORAL_VALUES: list[str] = sorted(behavioral_type.value for behavioral_type in VALIDATE_BEHAVIORAL_PROP_TYPES)
 
 
 class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
@@ -1760,12 +1760,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
         """
-        make pydantic's missing-field error read like the old
-        'Missing required keys for <kind> filter: <field>' string.
-        if we can't map it, fall back to the raw pydantic payload.
+        One sentence for the API caller: a value error's own message, or the old
+        'Missing required keys for <kind> filter: <field>' string for a missing field.
+        Anything else falls back to the raw pydantic payload.
         """
         for err in exc.errors():
-            # custom ValueError raised by model_validator
             if err["type"] == "value_error":
                 msg = err["msg"].removeprefix("Value error, ")
                 idx = msg.find("Missing required keys")
