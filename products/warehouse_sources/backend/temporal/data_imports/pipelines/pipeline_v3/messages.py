@@ -82,6 +82,9 @@ class ExportSignalMessage:
     # rather than as none. Resolved once per run, because the consumer reads it per batch.
     external_destination_ids: Optional[list[str]] = None
     replace_scope: Optional[ReplaceScopeRef] = None
+    # Jobs that worker restarts stopped and whose cursor this run continues. Their queued batches
+    # hold the rows before that cursor, so this run must not complete while one of them is unloaded.
+    continued_job_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -120,4 +123,5 @@ class ExportSignalMessage:
             destination_ids=data.get("destination_ids") or [],
             external_destination_ids=data.get("external_destination_ids"),
             replace_scope=ReplaceScopeRef.from_dict(data.get("replace_scope")),
+            continued_job_ids=list(data.get("continued_job_ids") or []),
         )

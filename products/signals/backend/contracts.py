@@ -997,6 +997,92 @@ class RetentlyFeedbackSignalInput(SignalInputBase):
     extra: RetentlyFeedbackSignalExtra
 
 
+class UsersnapFeedbackSignalExtra(SignalExtraBase):
+    feedback_number: str | None
+    public_link: str | None
+    status_type: str | None
+    priority: str | None
+    created_at: str | None
+    labels: list
+
+
+class UsersnapFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.USERSNAP]
+    extra: UsersnapFeedbackSignalExtra
+
+
+class TypeformFeedbackSignalExtra(SignalExtraBase):
+    form_id: str | None
+    submitted_at: str | None
+
+
+class TypeformFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.TYPEFORM]
+    extra: TypeformFeedbackSignalExtra
+
+
+class QualtricsFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    recorded_date: str | None
+    finished: str | None
+
+
+class QualtricsFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.QUALTRICS]
+    extra: QualtricsFeedbackSignalExtra
+
+
+class SurveymonkeyFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    date_created: str | None
+    response_status: str | None
+
+
+class SurveymonkeyFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SURVEYMONKEY]
+    extra: SurveymonkeyFeedbackSignalExtra
+
+
+class FormbricksFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    finished: str | None
+    created_at: str | None
+
+
+class FormbricksFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.FORMBRICKS]
+    extra: FormbricksFeedbackSignalExtra
+
+
+class SurvicateFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    collected_at: str | None
+    url: str | None
+
+
+class SurvicateFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SURVICATE]
+    extra: SurvicateFeedbackSignalExtra
+
+
+class SurveysparrowFeedbackSignalExtra(SignalExtraBase):
+    survey_id: str | None
+    completed: str | None
+    completed_time: str | None
+
+
+class SurveysparrowFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SURVEYSPARROW]
+    extra: SurveysparrowFeedbackSignalExtra
+
+
 class AppfiguresReviewSignalExtra(SignalExtraBase):
     stars: str | None
     version: str | None
@@ -1301,6 +1387,59 @@ class BetterstackIncidentSignalInput(SignalInputBase):
     extra: BetterstackIncidentSignalExtra
 
 
+class AsanaIssueSignalExtra(SignalExtraBase):
+    url: str | None
+    resource_subtype: str | None
+    created_at: str | None
+    projects: list[str]
+    tags: list[str]
+
+
+class AsanaIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.ASANA]
+    extra: AsanaIssueSignalExtra
+
+
+class MondayIssueSignalExtra(SignalExtraBase):
+    state: str | None
+    group: str | None
+    board_id: str | None
+    created_at: str | None
+
+
+class MondayIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.MONDAY]
+    extra: MondayIssueSignalExtra
+
+
+class PlaneIssueSignalExtra(SignalExtraBase):
+    identifier: str | None
+    sequence_id: str | None
+    priority: str | None
+    created_at: str | None
+
+
+class PlaneIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.PLANE]
+    extra: PlaneIssueSignalExtra
+
+
+class AzureDevopsIssueSignalExtra(SignalExtraBase):
+    work_item_type: str | None
+    state: str | None
+    priority: str | None
+    created_at: str | None
+
+
+class AzureDevopsIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.AZURE_DEVOPS]
+    extra: AzureDevopsIssueSignalExtra
+
+
 class MonteCarloAlertSignalExtra(SignalExtraBase):
     type: str | None
     status: str | None
@@ -1371,6 +1510,129 @@ class RoarkIssueSignalInput(SignalInputBase):
     extra: RoarkIssueSignalExtra
 
 
+# ── Community, survey, docs feedback and reviews ──────────────────────────────────
+
+
+class SleekplanFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    type: str | None
+    total_up: str | None
+    created: str | None
+
+
+class SleekplanFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SLEEKPLAN]
+    extra: SleekplanFeedbackSignalExtra
+
+
+class BettermodeFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    url: str | None
+    created_at: str | None
+
+
+class BettermodeFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.BETTERMODE]
+    extra: BettermodeFeedbackSignalExtra
+
+
+class DiscourseFeedbackSignalExtra(SignalExtraBase):
+    topic_id: str | None
+    category_id: str | None
+    created_at: str | None
+
+
+class DiscourseFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.DISCOURSE]
+    extra: DiscourseFeedbackSignalExtra
+
+
+class MintlifyFeedbackSignalExtra(SignalExtraBase):
+    path: str | None
+    helpful: str | None
+    status: str | None
+    source: str | None
+    created_at: str | None
+
+
+class MintlifyFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.MINTLIFY]
+    extra: MintlifyFeedbackSignalExtra
+
+
+class LangsmithFeedbackSignalExtra(SignalExtraBase):
+    key: str | None
+    score: str | None
+    value: str | None
+    run_id: str | None
+    trace_id: str | None
+    created_at: str | None
+
+
+class LangsmithFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.LANGSMITH]
+    extra: LangsmithFeedbackSignalExtra
+
+
+class SprigFeedbackSignalExtra(SignalExtraBase):
+    question_type: str | None
+    survey_id: str | None
+    created_at: str | None
+
+
+class SprigFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.SPRIG]
+    extra: SprigFeedbackSignalExtra
+
+
+class GainsightPxFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    question_type: str | None
+    content_type: str | None
+    engagement_id: str | None
+    date: str | None
+
+
+class GainsightPxFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.GAINSIGHT_PX]
+    extra: GainsightPxFeedbackSignalExtra
+
+
+class TrustpilotReviewSignalExtra(SignalExtraBase):
+    stars: str | None
+    language: str | None
+    status: str | None
+    source: str | None
+    created_at: str | None
+
+
+class TrustpilotReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.TRUSTPILOT]
+    extra: TrustpilotReviewSignalExtra
+
+
+class OkendoReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    status: str | None
+    product_name: str | None
+    is_recommended: str | None
+    date_created: str | None
+
+
+class OkendoReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.OKENDO]
+    extra: OkendoReviewSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -1423,6 +1685,13 @@ SignalInput = Annotated[
     | CannyFeedbackSignalInput
     | AsknicelyFeedbackSignalInput
     | RetentlyFeedbackSignalInput
+    | UsersnapFeedbackSignalInput
+    | TypeformFeedbackSignalInput
+    | QualtricsFeedbackSignalInput
+    | SurveymonkeyFeedbackSignalInput
+    | FormbricksFeedbackSignalInput
+    | SurvicateFeedbackSignalInput
+    | SurveysparrowFeedbackSignalInput
     | AppfiguresReviewSignalInput
     | AppfollowReviewSignalInput
     | JudgemeReviewsReviewSignalInput
@@ -1444,6 +1713,10 @@ SignalInput = Annotated[
     | GrafanaIrmIncidentSignalInput
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
+    | AsanaIssueSignalInput
+    | MondayIssueSignalInput
+    | PlaneIssueSignalInput
+    | AzureDevopsIssueSignalInput
     | MonteCarloAlertSignalInput
     | BigeyeIssueSignalInput
     | LaceworkScannerFindingSignalInput
@@ -1451,7 +1724,16 @@ SignalInput = Annotated[
     | TenableVulnerabilityManagementScannerFindingSignalInput
     | TriggerDevErrorSignalInput
     | ChecklyErrorGroupSignalInput
-    | RoarkIssueSignalInput,
+    | RoarkIssueSignalInput
+    | SleekplanFeedbackSignalInput
+    | BettermodeFeedbackSignalInput
+    | DiscourseFeedbackSignalInput
+    | MintlifyFeedbackSignalInput
+    | LangsmithFeedbackSignalInput
+    | SprigFeedbackSignalInput
+    | GainsightPxFeedbackSignalInput
+    | TrustpilotReviewSignalInput
+    | OkendoReviewSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1500,6 +1782,13 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     CannyFeedbackSignalInput,
     AsknicelyFeedbackSignalInput,
     RetentlyFeedbackSignalInput,
+    UsersnapFeedbackSignalInput,
+    TypeformFeedbackSignalInput,
+    QualtricsFeedbackSignalInput,
+    SurveymonkeyFeedbackSignalInput,
+    FormbricksFeedbackSignalInput,
+    SurvicateFeedbackSignalInput,
+    SurveysparrowFeedbackSignalInput,
     AppfiguresReviewSignalInput,
     AppfollowReviewSignalInput,
     JudgemeReviewsReviewSignalInput,
@@ -1521,6 +1810,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GrafanaIrmIncidentSignalInput,
     XmattersIncidentSignalInput,
     BetterstackIncidentSignalInput,
+    AsanaIssueSignalInput,
+    MondayIssueSignalInput,
+    PlaneIssueSignalInput,
+    AzureDevopsIssueSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
     LaceworkScannerFindingSignalInput,
@@ -1529,6 +1822,15 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     TriggerDevErrorSignalInput,
     ChecklyErrorGroupSignalInput,
     RoarkIssueSignalInput,
+    SleekplanFeedbackSignalInput,
+    BettermodeFeedbackSignalInput,
+    DiscourseFeedbackSignalInput,
+    MintlifyFeedbackSignalInput,
+    LangsmithFeedbackSignalInput,
+    SprigFeedbackSignalInput,
+    GainsightPxFeedbackSignalInput,
+    TrustpilotReviewSignalInput,
+    OkendoReviewSignalInput,
     CheckFailedSignalInput,
 )
 

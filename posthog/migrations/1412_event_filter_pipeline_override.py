@@ -9,7 +9,7 @@ import posthog.models.event_filter_config
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1410_deletion_run_log")]
+    dependencies = [("posthog", "1411_personalapikey_expires_at")]
 
     operations = [
         migrations.CreateModel(

@@ -29,6 +29,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.activity_summary import read as activity_summary_read
+from products.signals.backend.activity_summary.read import (
+    ActivitySummaryFocusArea as ActivitySummaryFocusArea,
+    ActivitySummaryVersionView as ActivitySummaryVersionView,
+    ActivitySummaryView as ActivitySummaryView,
+)
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
@@ -197,6 +203,18 @@ def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth:
         pull_requests=tuple(pull_requests),
         people=people if participation_complete else None,
     )
+
+
+def get_activity_summary(*, team: Team, user_id: int) -> ActivitySummaryView | None:
+    """The user's own activity summary in this project, or None when the flag payload does not enroll the team."""
+    return activity_summary_read.get_summary(team, user_id)
+
+
+def list_activity_summary_versions(
+    *, team: Team, user_id: int, limit: int, version: int | None = None
+) -> list[ActivitySummaryVersionView] | None:
+    """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
+    return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
 
 
 @frozen
@@ -714,10 +732,10 @@ def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSo
 # the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
-# Keys that name a person rather than attribute a signal. A source may carry one on `extra` because
-# triage needs it (a GitHub issue's `author_login` separates a maintainer's report from a stranger's),
-# but no lifecycle event needs the identity, so the scalar passthrough drops it.
-_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login"})
+# Keys that contain identity or customer-authored content rather than attributes of a signal. A source
+# may carry one on `extra` because triage needs it, but lifecycle events do not, so the scalar
+# passthrough drops it.
+_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login", "value"})
 
 
 def _telemetry_props_from_extra(extra: dict | None) -> dict:

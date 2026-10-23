@@ -38,6 +38,7 @@ from posthog.middleware import (
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
+    UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
     user_logging_context_middleware,
 )
@@ -46,7 +47,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.settings import SITE_URL
+from posthog.run_mode import derive_run_mode
+from posthog.settings import SITE_URL, base_variables
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -416,6 +418,59 @@ class TestFix204Middleware(SimpleTestCase):
 
         assert response.content == b""
         assert "Content-Length" not in response.headers
+
+
+class TestUnversionedStaticPathMiddleware(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("versioned_script", "/static/1.438.12/posthog-recorder.js", "/static/posthog-recorder.js"),
+            ("prerelease_version", "/static/1.438.12-beta.1/array.js", "/static/array.js"),
+            ("nested_file", "/static/1.438.12/icons/a.png", "/static/icons/a.png"),
+            ("unversioned_script", "/static/posthog-recorder.js", "/static/posthog-recorder.js"),
+            ("hashed_asset_folder", "/static/chunks/1.2.js", "/static/chunks/1.2.js"),
+            ("version_outside_static", "/api/1.438.12/foo", "/api/1.438.12/foo"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_rewrites_only_versioned_static_paths(self, _name: str, path: str, expected_path: str) -> None:
+        seen_paths: list[str] = []
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen_paths.append(request.path_info)
+            return HttpResponse()
+
+        UnversionedStaticPathMiddleware(get_response)(RequestFactory().get(path))
+
+        assert seen_paths == [expected_path]
+
+    @parameterized.expand(
+        [
+            ("us_cloud", "US", False),
+            ("eu_cloud", "EU", False),
+            ("cloud_dev", "DEV", False),
+            ("local_development", None, True),
+        ]
+    )
+    def test_never_rewrites_outside_hobby(self, _name: str, cloud_deployment: str | None, debug: bool) -> None:
+        seen_paths: list[str] = []
+
+        def get_response(request: HttpRequest) -> HttpResponse:
+            seen_paths.append(request.path_info)
+            return HttpResponse()
+
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
+            UnversionedStaticPathMiddleware(get_response)(RequestFactory().get("/static/1.438.12/array.js"))
+
+        assert seen_paths == ["/static/1.438.12/array.js"]
+
+    def test_registered_only_in_hobby_and_before_whitenoise(self) -> None:
+        middleware = list(settings.MIDDLEWARE)
+        name = "posthog.middleware.UnversionedStaticPathMiddleware"
+        registered_expected = derive_run_mode(base_variables.CLOUD_DEPLOYMENT, base_variables.DEBUG).is_hobby
+
+        assert (name in middleware) == registered_expected
+        if registered_expected:
+            assert middleware.index(name) < middleware.index("whitenoise.middleware.WhiteNoiseMiddleware")
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
