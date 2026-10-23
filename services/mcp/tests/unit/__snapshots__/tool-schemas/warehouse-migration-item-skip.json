@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this warehouse migration.",
+            "type": "string"
+        },
+        "item_id": {
+            "description": "Item ID.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "item_id"],
+    "type": "object"
+}

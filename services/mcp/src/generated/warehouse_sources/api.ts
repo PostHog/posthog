@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 31 enabled ops
+ * PostHog API - MCP 38 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2300,6 +2300,32 @@ export const ExternalDataSourcesWebhookInfoRetrieveParams = () => zod.object({
 })
 
 /**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const ExternalDataSourcesApplyMigrationItemCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSourcesApplyMigrationItemCreateBody = () => zod.object({
+    item_id: zod.string().describe('The migration item to create a PostHog source for.'),
+    credential_id: zod
+        .string()
+        .describe("Stored credential from the source connect page, for the item's PostHog source type."),
+    prefix: zod
+        .string()
+        .optional()
+        .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
+    destination_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
+})
+
+/**
  * Validate CDC prerequisites against a live Postgres connection.
  *
  * Used by the source wizard to surface ✅/❌ checks before source creation,
@@ -3863,4 +3889,84 @@ export const ExternalDataSourcesWizardRetrieveQueryParams = () => zod.object({
         .describe(
             "Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types."
         ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseMigrationsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsItemsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsItemsSkipCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    item_id: zod.string().describe('Item ID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsRefreshCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsConnectLinkRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseMigrationsConnectLinkRetrieveQueryParams = () => zod.object({
+    provider: zod.enum(['fivetran']).describe('The ETL vendor to import from.'),
 })
