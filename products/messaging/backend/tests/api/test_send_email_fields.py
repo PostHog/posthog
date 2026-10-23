@@ -94,6 +94,7 @@ class TestSendEmailFields(SimpleTestCase):
 
 
 INVITE = base64.b64encode(b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n").decode()
+LONGEST_CONTENT_TYPE = "text/plain; name=" + "a" * 61
 
 
 def attachment(**fields: Any) -> dict[str, Any]:
@@ -107,6 +108,7 @@ class TestSendEmailAttachments(SimpleTestCase):
                 attachments=[
                     attachment(content_type="text/calendar; method=REQUEST"),
                     attachment(filename="logo.png", content="iVBORw0KGgo=", content_id="logo"),
+                    attachment(filename="notes.txt", content_type=LONGEST_CONTENT_TYPE, content_id="a" * 78),
                 ]
             )
         )
@@ -119,6 +121,12 @@ class TestSendEmailAttachments(SimpleTestCase):
                 "content_type": "text/calendar; method=REQUEST",
             },
             {"filename": "logo.png", "content": b"\x89PNG\r\n\x1a\n", "content_id": "logo"},
+            {
+                "filename": "notes.txt",
+                "content": b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+                "content_type": LONGEST_CONTENT_TYPE,
+                "content_id": "a" * 78,
+            },
         ]
 
     @parameterized.expand(
@@ -136,7 +144,8 @@ class TestSendEmailAttachments(SimpleTestCase):
             ("content_type_with_a_line_break", [attachment(content_type="text/plain\r\nBcc: a@example.com")]),
             ("content_type_not_a_type", [attachment(content_type="calendar")]),
             ("content_id_with_brackets", [attachment(content_id="<logo>")]),
-            ("content_id_too_long", [attachment(content_id="a" * 129)]),
+            ("content_type_too_long", [attachment(content_type=LONGEST_CONTENT_TYPE + "a")]),
+            ("content_id_too_long", [attachment(content_id="a" * 79)]),
             ("unknown_key", [attachment(contentType="text/calendar")]),
         ]
     )

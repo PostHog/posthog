@@ -75,12 +75,12 @@ export const EmailAttachmentSchema = z
             .regex(/^[A-Za-z0-9+/]+={0,2}$/),
         contentType: z
             .string()
-            .max(255)
+            .max(78)
             .regex(/^[!-~]+\/[!-~]+(;[ -~]*)?$/)
             .optional(),
         contentId: z
             .string()
-            .max(128)
+            .max(78)
             .regex(/^[!-;=?-~]+$/)
             .optional(),
     })

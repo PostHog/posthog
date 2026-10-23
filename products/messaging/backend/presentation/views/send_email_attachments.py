@@ -12,8 +12,8 @@ from products.messaging.backend.presentation.views.send_email_fields import Refu
 MAX_ATTACHMENTS = 10
 MAX_ATTACHMENTS_BYTES = 512 * 1024
 MAX_FILENAME_LENGTH = 255
-MAX_CONTENT_TYPE_LENGTH = 255
-MAX_CONTENT_ID_LENGTH = 128
+MAX_CONTENT_TYPE_LENGTH = 78
+MAX_CONTENT_ID_LENGTH = 78
 
 CONTENT_TYPE = re.compile(r"[!-~]+/[!-~]+(;[ -~]*)?")
 CONTENT_ID = re.compile(r"[!-;=?-~]+")
