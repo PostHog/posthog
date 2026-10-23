@@ -635,7 +635,11 @@ Product teams own their definitions and control which operations are exposed as 
    The two overrides above reshape a generated tool's schema.
    Neither can change what happens around the request.
    `validators` runs as a synchronous `superRefine`, so it cannot await anything;
-   `inject_body` supplies static values; `rename_params` only renames.
+   `inject_body` supplies static values; `rename_params` renames body or query parameters.
+   Query aliases retain the original HTTP parameter name. For example, `dashboard-insights-run` exposes
+   `dashboard_tile_ids` as an integer array and sends it as the API's comma-separated `tile_ids` parameter.
+   The tool also accepts `tile_ids` as a legacy alias, with either an array or a comma-separated string.
+   Its `id` parameter accepts `dashboard_id` and `dashboardId` aliases.
 
    When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
    The value is a module path relative to `src/tools/`, without the extension:

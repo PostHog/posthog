@@ -38,10 +38,18 @@ SECONDS_PER_MONTH = DAYS_PER_MONTH * 24 * 60 * 60
 @frozen
 class SavingsEstimate:
     interval: timedelta
+    read_seconds: float
+    read_bytes: float
     seconds_saved: float
     bytes_saved: float
     clears_a_floor: bool
     score: float
+
+
+@frozen
+class RefreshCost:
+    seconds: float
+    read_bytes: float
 
 
 @frozen
@@ -102,6 +110,8 @@ class MaterializeCandidate(Candidate):
                     score_inputs={
                         "seconds_saved_per_month": outcome.estimate.seconds_saved,
                         "bytes_saved_per_month": outcome.estimate.bytes_saved,
+                        "read_seconds_per_month": outcome.estimate.read_seconds,
+                        "read_bytes_per_month": outcome.estimate.read_bytes,
                         "refresh_interval_seconds": outcome.estimate.interval.total_seconds(),
                     },
                 )
@@ -133,6 +143,8 @@ class MaterializeCandidate(Candidate):
         reads: SubjectReads,
         incremental: _IncrementalProposer,
     ) -> _Proposal | str:
+        if context.accepted_recently(WarehouseSuggestionKind.UNMATERIALIZE, saved_query.id):
+            return f"was unmaterialized on a suggestion in the last {context.rules.lifecycle.flip_cooldown_days} days"
         rejection = self._read_floor_rejection(context, reads)
         if rejection is not None:
             return rejection
@@ -143,10 +155,11 @@ class MaterializeCandidate(Candidate):
         intervals = allowed_intervals(context, frequency.bounds.allowed, reads)
         if not intervals:
             return f"its sources allow no refresh interval up to {context.rules.refresh.max_interval}"
+        refresh = refresh_cost(context, saved_query.id, reads)
         estimate = next(
             (
                 estimate
-                for estimate in (estimate_savings(context, reads, interval) for interval in intervals)
+                for estimate in (estimate_savings(context, reads, interval, refresh) for interval in intervals)
                 if estimate.clears_a_floor
             ),
             None,
@@ -233,22 +246,38 @@ def _with_refresh_mode(
     )
 
 
-def estimate_savings(context: CandidateContext, reads: SubjectReads, interval: timedelta) -> SavingsEstimate:
+def refresh_cost(context: CandidateContext, saved_query_id: UUID, reads: SubjectReads) -> RefreshCost:
+    refreshes = context.reads.refreshes.get(saved_query_id)
+    if refreshes is not None and refreshes.runs > 0:
+        return RefreshCost(
+            seconds=refreshes.duration_ms / MILLISECONDS_PER_SECOND / refreshes.runs,
+            read_bytes=refreshes.read_bytes / refreshes.runs,
+        )
+    return RefreshCost(
+        seconds=reads.alone_duration_ms_p90 / MILLISECONDS_PER_SECOND, read_bytes=reads.alone_read_bytes_p90
+    )
+
+
+def estimate_savings(
+    context: CandidateContext, reads: SubjectReads, interval: timedelta, refresh: RefreshCost
+) -> SavingsEstimate:
     rules = context.rules.materialize
     scale = context.month_scale
     refreshes_per_month = SECONDS_PER_MONTH / interval.total_seconds()
     body_seconds = reads.alone_duration_ms_median / MILLISECONDS_PER_SECOND
     read_seconds = reads.human_duration_ms / MILLISECONDS_PER_SECOND * scale
     read_bytes = reads.human_read_bytes * scale
-    seconds_saved = min(read_seconds, reads.human_reads * body_seconds * scale) - refreshes_per_month * body_seconds
+    seconds_saved = min(read_seconds, reads.human_reads * body_seconds * scale) - refreshes_per_month * refresh.seconds
     bytes_saved = (
         min(read_bytes, reads.human_reads * reads.alone_read_bytes_median * scale)
-        - refreshes_per_month * reads.alone_read_bytes_median
+        - refreshes_per_month * refresh.read_bytes
     )
     clears_time = seconds_saved >= rules.min_seconds_saved and seconds_saved >= rules.min_saved_share * read_seconds
     clears_bytes = bytes_saved >= rules.min_bytes_saved and bytes_saved >= rules.min_saved_share * read_bytes
     return SavingsEstimate(
         interval=interval,
+        read_seconds=read_seconds,
+        read_bytes=read_bytes,
         seconds_saved=seconds_saved,
         bytes_saved=bytes_saved,
         clears_a_floor=clears_time or clears_bytes,

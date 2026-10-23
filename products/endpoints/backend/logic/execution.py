@@ -82,7 +82,6 @@ from products.endpoints.backend.logic.validation import NATIVE_CLUSTER_UNSUPPORT
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
-    ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
@@ -637,7 +636,6 @@ class EndpointExecutionService(PydanticModelMixin):
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
             record_endpoint_rate_limited(
                 team_id=self.team.pk,
                 endpoint_name=endpoint.name,

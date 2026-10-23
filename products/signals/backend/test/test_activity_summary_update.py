@@ -271,8 +271,13 @@ class TestUpdateActivitySummary(BaseTest):
         assert skipped is not None
         assert (skipped.status, skipped.summary) == (UserActivitySummary.Status.SKIPPED, None)
         assert skipped.next_eligible_at == NOW + datetime.timedelta(hours=6)
-
         with time_machine.travel(NOW + datetime.timedelta(hours=7), tick=False):
+            assert self._update(llm).status == UpdateStatus.SKIPPED_TOO_FEW_UNITS
+        skipped_again = self._stored()
+        assert skipped_again is not None
+        assert skipped_again.next_eligible_at == NOW + datetime.timedelta(hours=7 + 12)
+
+        with time_machine.travel(NOW + datetime.timedelta(hours=20), tick=False):
             assert self._update(FakeLLM([ANSWER]), min_units=2).status == UpdateStatus.OK
         before = self._stored()
         assert before is not None

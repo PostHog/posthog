@@ -91,6 +91,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "config",
     "AppStoreConnect": "config",
     "AppleSearchAds": "config",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "config",
     "AzureCostManagement": "config",
     "BigQuery": "driver",

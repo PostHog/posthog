@@ -1,1 +1,1 @@
-0191_useractivitysummaryversion
+0197_signalscratchpad_trgm_fastupdate_off

@@ -2,8 +2,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from posthog.temporal.common.shutdown import ShutdownMonitor
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -22,13 +20,13 @@ class PipelineSafePointHandler:
     def __init__(
         self,
         *,
-        shutdown_monitor: ShutdownMonitor,
+        raise_if_should_hand_off: Callable[[], None],
         resumable_source_manager: ResumableSourceManager[Any],
         has_unwritten_rows: Callable[[], bool],
         commit_interval_seconds: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
-        self._shutdown_monitor = shutdown_monitor
+        self._raise_if_should_hand_off = raise_if_should_hand_off
         self._resumable_source_manager = resumable_source_manager
         self._has_unwritten_rows = has_unwritten_rows
         self._commit_interval_seconds = (
@@ -42,7 +40,7 @@ class PipelineSafePointHandler:
         self._resumable_source_manager.confirm()
         # The pipeline's `except` path writes the rows it holds and then commits the confirmed cursor,
         # so a raise here hands the run to another worker without losing progress.
-        self._shutdown_monitor.raise_if_is_worker_shutdown()
+        self._raise_if_should_hand_off()
 
         now = self._clock()
         if now - self._last_commit < self._commit_interval_seconds:

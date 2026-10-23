@@ -59,19 +59,23 @@ class TestSlackBlocks(SimpleTestCase):
         assert "*Failed checks:* 3" in section["text"]["text"]
 
     def test_user_text_cannot_speak_as_slack_markup(self) -> None:
-        message = alert_message(
-            headline="API errors could not be checked",
-            details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
-            context=("Services: <!channel>",),
+        message = replace(
+            alert_message(
+                headline="API errors could not be checked",
+                details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
+                context=("Services: <!channel>",),
+            ),
+            project=MessageLink(label="Prod <!channel>", url="https://app.example.com/project/2"),
         )
 
         blocks = blocks_for(message)
         body = blocks[1]["text"]["text"]
-        context = blocks[2]["elements"][0]["text"]
+        context, project = (element["text"] for element in blocks[2]["elements"])
 
-        assert "<!channel>" not in body + context
+        assert "<!channel>" not in body + context + project
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
+        assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
 
     def test_escaped_context_stays_inside_what_slack_accepts(self) -> None:
         message = alert_message(context=("&" * 300,) * 3)

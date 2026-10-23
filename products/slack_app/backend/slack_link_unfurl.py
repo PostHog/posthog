@@ -66,6 +66,7 @@ from products.slack_app.backend.logic.link_unfurl_charts import (
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
     SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
     SlackAppUnfurlChartsWorkflow,
@@ -1319,9 +1320,10 @@ def add_artifact_image_to_unfurl(
 def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
     """The Slack user steering the run in this thread, when that run was told to share chart links.
 
-    Slack reports every bot-posted message under one placeholder author, so a thread whose run
-    shares links is the signal that a placeholder-authored message is our reply, written for that
-    person with their PostHog access. The run state holds the decision, so no flag call here."""
+    Slack credits a message our app posts to our bot user, and some bot-posted messages to the
+    placeholder author. Neither resolves to a PostHog user, so a thread whose run shares links is
+    the signal that such a message is our reply, written for that person with their PostHog
+    access. The run state holds the decision, so no flag call here."""
     if not event.get("thread_ts"):
         return None
     actors = (
@@ -1361,7 +1363,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     # Imported here to avoid circular import with api (api imports this module at load time).
     from products.slack_app.backend.api import SLACK_PLACEHOLDER_USER_ID, resolve_slack_user
 
-    bot_reply_actor = _bot_reply_actor(integration, event) if slack_user_id == SLACK_PLACEHOLDER_USER_ID else None
+    bot_authors = {SLACK_PLACEHOLDER_USER_ID, get_cached_bot_user_id(slack, integration)}
+    bot_reply_actor = _bot_reply_actor(integration, event) if slack_user_id in bot_authors else None
     if bot_reply_actor:
         slack_user_id = bot_reply_actor
         # Everything downstream, the chart workflow included, reads the sharer from the event.

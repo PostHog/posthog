@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.utils import timezone
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
@@ -67,6 +68,7 @@ from products.warehouse_sources.backend.models.util import (
 )
 from products.warehouse_sources.backend.source_status import effective_source_status
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 
 from . import contracts
 
@@ -87,12 +89,15 @@ __all__ = [
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "discard_backing_table",
+    "record_table_row_count",
     "allowed_table_ids",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    "saved_queries_feeding_consumers",
     # framework-free helper transforms
     "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
@@ -598,6 +603,20 @@ def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
         table.soft_delete()
         deleted += 1
     return deleted
+
+
+def record_table_row_count(team_id: int, table_id: UUID, row_count: int) -> None:
+    """Set a table's row count, unless the table was deleted in the meantime."""
+    _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).update(
+        row_count=row_count, updated_at=timezone.now()
+    )
+
+
+def discard_backing_table(team_id: int, table_id: UUID) -> None:
+    """Soft-delete a view's backing table but keep the view's joins, which match the table's name."""
+    table = _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).first()
+    if table is not None:
+        table.soft_delete(delete_joins=False)
 
 
 MAX_JOBS_PER_SOURCE = 100
