@@ -14,15 +14,24 @@ Everything is built from existing machinery:
 
 Environment (all default empty — the runner is a no-op until configured):
 
-| Variable                                   | Purpose                                                        |
-| ------------------------------------------ | -------------------------------------------------------------- |
-| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines. |
-| `EXA_API_KEY`                              | Enables the Exa engine.                                        |
-| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.          |
-| `AEO_TARGET_DOMAINS`                       | Domains counted as "us" in citations (default `posthog.com`).  |
-| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                        |
+| Variable                                   | Purpose                                                         |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.  |
+| `EXA_API_KEY`                              | Enables the Exa engine.                                         |
+| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.           |
+| `AEO_TARGET_DOMAINS`                       | Default domains counted as "us" for teams without a config row. |
+| `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                         |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
+
+### Per-team config
+
+`posthog_aeo_team_config` is a Team extension holding what counts as "us" and "them" for one team: `target_domains`, `brand_names`, and `competitors` (`[{"name": ..., "domains": [...]}]`).
+The runner reads it through `get_config` in `facade/api.py` when a run starts, and each check records what it detected.
+A team without a row falls back to `AEO_TARGET_DOMAINS`, with the registrable name of each domain as the brand (`posthog.com` means "posthog") and no competitors.
+Load a config from a JSON file with `python manage.py seed_aeo_config --team-id <id> --file ~/aeo-config.json`.
+Keep that file outside the checkout: this repository is public, and a team's competitor list must not end up in a commit.
+The command rejects an empty `target_domains`, a domain that is not a bare hostname with a public suffix, and a name shorter than 2 characters, so a mis-keyed file fails instead of turning detection off.
 
 ## Usage
 
@@ -61,17 +70,19 @@ A run takes at most 50 prompts. It takes one prompt per topic in turn, so every 
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
 
-| Column                                                                   | Meaning                                                                                                             |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
-| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
-| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
-| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
-| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
-| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
-| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
+| Column                                                                   | Meaning                                                                                                                                                                      |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                                                                                        |
+| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.                                                                     |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                                                                                   |
+| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                                                                               |
+| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                                                                         |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                                                                          |
+| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.                                                                        |
+| `brand_mentioned`                                                        | A configured brand name appears in the answer text. `NULL` means there was no answer to inspect: the check failed, or the row predates brand detection.                      |
+| `competitors_mentioned`, `competitors_cited`                             | Configured competitor names found in the answer text, and those whose domains appear in `cited_urls`. `NULL` means there was no answer to inspect, as for `brand_mentioned`. |
+| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                                                                                 |
+| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs).                                                          |
 
 ## The join (the product thesis)
 

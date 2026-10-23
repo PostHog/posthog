@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.aeo.backend.facade.api import list_citation_gaps
+from products.aeo.backend.facade.api import list_citation_gaps, update_config
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 
@@ -28,6 +28,7 @@ class TestListCitationGaps(BaseTest):
         failed: bool = False,
         answer_text: str | None = None,
         queries: list[str] | None = None,
+        brand_mentioned: bool | None = None,
     ) -> None:
         target_urls = [url for url in cited_urls if "posthog.com" in url]
         AEOCitationCheck.objects.for_team(self.team.id).create(
@@ -45,6 +46,7 @@ class TestListCitationGaps(BaseTest):
             target_urls=target_urls,
             search_queries=queries or [],
             answer_text=answer_text,
+            brand_mentioned=brand_mentioned,
         )
 
     def test_returns_only_uncited_active_prompts_with_competitor_evidence(self) -> None:
@@ -93,20 +95,41 @@ class TestListCitationGaps(BaseTest):
 
     @parameterized.expand(
         [
-            ("registrable_name_under_a_multi_part_suffix", "Example Analytics records every session.", 1),
-            ("public_suffix_label_is_not_the_brand", "Rival Co records every session.", 0),
+            ("null_row_matches_the_registrable_name", None, None, "Example Analytics records every session.", 1),
+            ("null_row_ignores_the_public_suffix_label", None, None, "Rival Co records every session.", 0),
+            ("column_wins_when_set", None, True, "Rival Co records every session.", 1),
+            ("column_wins_when_unset", None, False, "Example Analytics records every session.", 0),
+            ("null_row_matches_a_dotted_name", ["example.io"], None, "Try example.io for replay.", 1),
+            ("null_row_needs_a_boundary_after_a_dotted_name", ["example.io"], None, "Try example.iota today.", 0),
+            ("null_row_matches_a_name_with_a_non_word_edge", ["Replay!"], None, "Replay! records sessions.", 1),
         ]
     )
-    def test_counts_brand_mentions_by_the_registrable_domain_name(
-        self, _name: str, answer_text: str, mentioned_checks: int
+    def test_counts_brand_mentions_from_the_column_or_the_regex_for_null_rows(
+        self,
+        _name: str,
+        brand_names: list[str] | None,
+        brand_mentioned: bool | None,
+        answer_text: str,
+        mentioned_checks: int,
     ) -> None:
         prompt = self._prompt("best session replay tool")
-        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/replay"], answer_text=answer_text)
+        self._check(
+            prompt,
+            "claude-web-search",
+            cited_urls=["https://rival.example/replay"],
+            answer_text=answer_text,
+            brand_mentioned=brand_mentioned,
+        )
+        if brand_names is not None:
+            update_config(self.team.id, target_domains=["example.co.uk"], brand_names=brand_names, competitors=[])
 
         with override_settings(AEO_TARGET_DOMAINS=["example.co.uk"]):
             gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
 
         assert gaps[0].mentioned_checks == mentioned_checks
+
+    def test_returns_nothing_for_an_unknown_team(self) -> None:
+        assert list_citation_gaps(self.team.id + 100_000, since=timezone.now() - dt.timedelta(days=14)) == []
 
     def test_ignores_checks_before_the_window(self) -> None:
         prompt = self._prompt("old gap")

@@ -13,6 +13,8 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -28,6 +30,8 @@ from posthog.security.llm_prompt_sanitization import (
     sanitize_user_text,
     strip_llm_framing_markers,
 )
+
+from products.aeo.backend.facade.contracts import AEOConfig
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
 EXA_TIMEOUT_SECONDS = 60
@@ -245,7 +249,7 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
     )
 
 
-def is_target_url(url: str, target_domains: list[str]) -> bool:
+def is_target_url(url: str, target_domains: Sequence[str]) -> bool:
     """True when the URL's host is one of the target domains or a subdomain of it."""
     try:
         host = (urlparse(url).hostname or "").lower()
@@ -254,7 +258,23 @@ def is_target_url(url: str, target_domains: list[str]) -> bool:
     return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
 
 
-def target_position(cited_urls: list[str], target_domains: list[str]) -> int | None:
+def name_mentioned(name: str, text: str) -> bool:
+    """Case-insensitive whole-word match. Lookarounds instead of \\b so a name that
+    starts or ends with a non-word character ("example.io") still needs a boundary."""
+    if not name:
+        return False
+    return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text, re.IGNORECASE) is not None
+
+
+def competitors_mentioned(config: AEOConfig, answer_text: str) -> list[str]:
+    return [c.name for c in config.competitors if name_mentioned(c.name, answer_text)]
+
+
+def competitors_cited(config: AEOConfig, cited_urls: list[str]) -> list[str]:
+    return [c.name for c in config.competitors if any(is_target_url(url, c.domains) for url in cited_urls)]
+
+
+def target_position(cited_urls: list[str], target_domains: Sequence[str]) -> int | None:
     """1-based position of the first target-domain URL in the citation list."""
     for index, url in enumerate(cited_urls, start=1):
         if is_target_url(url, target_domains):
@@ -293,14 +313,18 @@ def build_check_fields(
     prompt_text: str,
     prompt_source: str,
     prompt_hash: str,
-    target_domains: list[str],
+    config: AEOConfig,
 ) -> dict[str, Any]:
     """Column values for one AEOCitationCheck row. Pure, so it's testable.
 
     Failed checks are recorded too — the alerting scout must be able to tell
     "the engine broke" apart from "the citations disappeared".
     """
+    target_domains = config.target_domains
     target_urls = [url for url in check.cited_urls if is_target_url(url, target_domains)]
+    # Detection runs over the text the row keeps, so a stored row can always confirm its own verdict.
+    answer_text = strip_llm_framing_markers(check.answer_text, MAX_ANSWER_TEXT_LENGTH)
+    failed = check.error is not None
     return {
         "run_id": run_id,
         "prompt_id": prompt_id,
@@ -309,17 +333,21 @@ def build_check_fields(
         "prompt_hash": prompt_hash,
         "engine": check.engine,
         "model": check.model,
-        "check_failed": check.error is not None,
+        "check_failed": failed,
         "error": sanitize_user_text(check.error, MAX_ERROR_LENGTH) if check.error is not None else None,
         "cited": bool(target_urls),
         "num_citations": len(check.cited_urls),
         "cited_urls": _safe_values(check.cited_urls),
         "retrieved_urls": _safe_values(check.retrieved_urls),
         "search_queries": _safe_values(check.search_queries, limit=MAX_QUERIES_PER_CHECK),
-        "answer_text": strip_llm_framing_markers(check.answer_text, MAX_ANSWER_TEXT_LENGTH) or None,
+        "answer_text": answer_text or None,
         "target_urls": _safe_values(target_urls),
         "target_best_position": target_position(check.cited_urls, target_domains),
         "top_cited_domains": _safe_values(top_domains(check.cited_urls)),
+        # A failed check has no answer to inspect, so the detection columns stay null rather than False.
+        "brand_mentioned": None if failed else any(name_mentioned(name, answer_text) for name in config.brand_names),
+        "competitors_mentioned": None if failed else competitors_mentioned(config, answer_text),
+        "competitors_cited": None if failed else competitors_cited(config, check.cited_urls),
         "cost_usd": check.cost_usd,
         "gateway_trace_id": check.trace_id,
     }

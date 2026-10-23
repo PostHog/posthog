@@ -13,9 +13,12 @@ from django.core.exceptions import ValidationError
 from posthog.models.team import Team
 
 from products.aeo.backend import gaps
+from products.aeo.backend.config import resolve_config, store_config
 from products.aeo.backend.facade.contracts import (
+    AEOConfig,
     CitationGap,
     CitationRunSummary,
+    Competitor,
     Prompt,
     PromptImport,
     PromptImportResult,
@@ -36,6 +39,24 @@ def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
 
 def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]:
     return gaps.list_citation_gaps(team_id, since=since)
+
+
+def get_config(team_id: int) -> AEOConfig:
+    """The team's brand and competitor config, or the instance defaults when the
+    team has none."""
+    return resolve_config(team_id)
+
+
+def update_config(
+    team_id: int,
+    *,
+    target_domains: list[str],
+    brand_names: list[str],
+    competitors: list[Competitor],
+) -> AEOConfig:
+    """Replace the team's brand and competitor config. Later runs read it; rows
+    already written keep the detection they ran with."""
+    return store_config(team_id, target_domains=target_domains, brand_names=brand_names, competitors=competitors)
 
 
 def list_prompts(team_id: int, *, limit: int, offset: int) -> tuple[list[Prompt], int]:

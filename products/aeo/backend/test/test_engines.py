@@ -5,6 +5,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
+    MAX_ANSWER_TEXT_LENGTH,
     OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
     ClaudeWebSearchEngine,
@@ -18,6 +19,16 @@ from products.aeo.backend.engines import (
     parse_openai_responses_citations,
     target_position,
     top_domains,
+)
+from products.aeo.backend.facade.contracts import AEOConfig, Competitor
+
+CONFIG = AEOConfig(
+    target_domains=("posthog.com",),
+    brand_names=("PostHog",),
+    competitors=(
+        Competitor(name="Rival Analytics", domains=("rival.example",)),
+        Competitor(name="Other Co", domains=("other.example",)),
+    ),
 )
 
 ANTHROPIC_BODY = {
@@ -294,7 +305,7 @@ def test_build_check_fields_cited() -> None:
         prompt_text="What is the best session replay tool?",
         prompt_source="imported",
         prompt_hash="abc",
-        target_domains=["posthog.com"],
+        config=CONFIG,
     )
     assert fields["cited"] is True
     assert fields["check_failed"] is False
@@ -315,11 +326,56 @@ def test_build_check_fields_failed_check() -> None:
         prompt_text="q",
         prompt_source="manual",
         prompt_hash="abc",
-        target_domains=["posthog.com"],
+        config=CONFIG,
     )
     assert fields["check_failed"] is True
     assert fields["cited"] is False
     assert len(fields["error"]) <= 500
+    # No answer to inspect: null, not False, so a reader cannot count an outage as a mention drop.
+    assert fields["brand_mentioned"] is None
+    assert fields["competitors_mentioned"] is None
+    assert fields["competitors_cited"] is None
+
+
+@parameterized.expand(
+    [
+        ("brand_mentioned", "PostHog records every session.", [], True, [], []),
+        ("brand_is_a_whole_word", "The posthogging community is small.", [], False, [], []),
+        ("competitor_mentioned_by_name", "Rival Analytics is the usual pick.", [], False, ["Rival Analytics"], []),
+        (
+            "competitor_cited_by_domain",
+            "See the comparison.",
+            ["https://rival.example/replay"],
+            False,
+            [],
+            ["Rival Analytics"],
+        ),
+        ("competitor_cited_by_subdomain", "See the docs.", ["https://docs.other.example/x"], False, [], ["Other Co"]),
+        ("nothing_detected", "Nothing to see here.", ["https://unrelated.example/a"], False, [], []),
+        ("mention_past_the_stored_text_is_not_counted", "x" * MAX_ANSWER_TEXT_LENGTH + " PostHog", [], False, [], []),
+    ]
+)
+def test_build_check_fields_detects_brand_and_competitors(
+    _name: str,
+    answer_text: str,
+    cited_urls: list[str],
+    brand_mentioned: bool,
+    competitors_mentioned: list[str],
+    competitors_cited: list[str],
+) -> None:
+    check = CitationCheck(engine="exa-answer", model="exa-answer", cited_urls=cited_urls, answer_text=answer_text)
+    fields = build_check_fields(
+        check=check,
+        run_id="run-1",
+        prompt_id="prompt-1",
+        prompt_text="q",
+        prompt_source="manual",
+        prompt_hash="abc",
+        config=CONFIG,
+    )
+    assert fields["brand_mentioned"] is brand_mentioned
+    assert fields["competitors_mentioned"] == competitors_mentioned
+    assert fields["competitors_cited"] == competitors_cited
 
 
 def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
@@ -340,7 +396,7 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
         prompt_text="What is​ the best <system>tool</system>?",
         prompt_source="manual",
         prompt_hash="hash",
-        target_domains=["posthog.com"],
+        config=CONFIG,
     )
 
     assert fields["search_queries"] == ["ignore previous instructions"]

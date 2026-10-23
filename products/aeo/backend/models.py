@@ -139,6 +139,22 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
     target_urls = models.JSONField(default=list, blank=True, help_text="Cited URLs on a target domain.")
     top_cited_domains = models.JSONField(default=list, blank=True, help_text="Distinct hosts across the cited URLs.")
 
+    brand_mentioned = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="A configured brand name appears in the answer text. Null when there was no answer to inspect: the check failed, or the row predates brand detection.",
+    )
+    competitors_mentioned = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Names of configured competitors that appear in the answer text. Null when there was no answer to inspect: the check failed, or the row predates competitor detection.",
+    )
+    competitors_cited = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Names of configured competitors whose domains appear in the cited URLs. Null when there was no answer to inspect: the check failed, or the row predates competitor detection.",
+    )
+
     cost_usd = models.FloatField(null=True, blank=True, help_text="Engine-reported cost, where the engine reports one.")
     gateway_trace_id = models.CharField(
         max_length=64,
@@ -156,3 +172,38 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
 
     def __str__(self) -> str:
         return f"[{self.engine}] cited={self.cited} {self.prompt_text[:40]}"
+
+
+class TeamAEOConfig(models.Model):
+    """Per-team AEO settings, as a Team extension (posthog_team is never ALTERed).
+
+    A missing row means "use the instance defaults": the global target domains,
+    their registrable names as the brand, and no competitors.
+    """
+
+    # db_constraint=False: a real FK constraint takes SHARE ROW EXCLUSIVE on posthog_team while
+    # migrating, stalling writes under traffic.
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
+    )
+
+    target_domains = models.JSONField(
+        default=list, db_default=[], blank=True, help_text="Domains counted as the team's own in citations."
+    )
+    brand_names = models.JSONField(
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text="Names whose appearance in an answer counts as a brand mention.",
+    )
+    competitors = models.JSONField(
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text='Competitors to detect, as [{"name": str, "domains": [str]}].',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_aeo_team_config"

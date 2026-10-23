@@ -233,6 +233,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamEventVolume",
         "TeamTasksConfig",
         "TeamLogsConfig",
+        # OneToOne extension of Team, read only through get_or_create_team_extension and
+        # filter(team_id=...); no endpoint looks it up by a user-supplied ID.
+        "TeamAEOConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         # OneToOne extension keyed on the team, read by team_id from the suggestion refresher and endpoint;

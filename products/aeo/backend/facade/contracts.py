@@ -60,6 +60,21 @@ PROMPT_TOPIC_MAX_LENGTH = 200
 
 
 @frozen
+class Competitor:
+    name: str
+    domains: tuple[str, ...]
+
+
+@frozen
+class AEOConfig:
+    """What counts as "us" and "them" when a check reads an engine's answer."""
+
+    target_domains: tuple[str, ...]
+    brand_names: tuple[str, ...]
+    competitors: tuple[Competitor, ...]
+
+
+@frozen
 class Prompt:
     id: str
     prompt: str
@@ -89,3 +104,7 @@ class PromptImportResult:
 
 class PromptNotFoundError(Exception):
     pass
+
+
+class AEOConfigError(ValueError):
+    """The config rejected: an empty domain list, a malformed domain, or a name too short to detect."""

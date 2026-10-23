@@ -82,6 +82,30 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "top_cited_domains": StringJSONDatabaseField(
             name="top_cited_domains", description="JSON array of distinct hosts across the cited URLs."
         ),
+        "brand_mentioned": BooleanDatabaseField(
+            name="brand_mentioned",
+            nullable=True,
+            description=(
+                "A configured brand name appears in the answer text. Null when there was no answer to "
+                "inspect: the check failed, or the row predates brand detection."
+            ),
+        ),
+        "competitors_mentioned": StringJSONDatabaseField(
+            name="competitors_mentioned",
+            nullable=True,
+            description=(
+                "JSON array of configured competitor names that appear in the answer text. "
+                "Null when there was no answer to inspect: the check failed, or the row predates competitor detection."
+            ),
+        ),
+        "competitors_cited": StringJSONDatabaseField(
+            name="competitors_cited",
+            nullable=True,
+            description=(
+                "JSON array of configured competitor names whose domains appear in the cited URLs. "
+                "Null when there was no answer to inspect: the check failed, or the row predates competitor detection."
+            ),
+        ),
         "cost_usd": FloatDatabaseField(
             name="cost_usd", nullable=True, description="Engine-reported cost, where the engine reports one."
         ),

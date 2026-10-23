@@ -5,39 +5,48 @@ import datetime as dt
 from collections import Counter, defaultdict
 from typing import Any
 
-from django.conf import settings
 from django.db.models import BooleanField, Case, Q, Value, When
 
-import tldextract
+from posthog.models.scoping.manager import TeamScopeError, resolve_effective_team_id
 
+from products.aeo.backend.config import resolve_config
 from products.aeo.backend.engines import is_target_url, top_domains
 from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
 from products.aeo.backend.models import AEOCitationCheck
 
 MAX_GAP_URLS = 10
 MAX_GAP_QUERIES = 10
-_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
 
 def _ranked(counter: Counter[str], limit: int) -> tuple[str, ...]:
     return tuple(value for value, _ in counter.most_common(limit))
 
 
-def _brand_regex(target_domains: list[str]) -> str | None:
-    names = {(_DOMAIN_PARTS(domain).domain or domain).lower() for domain in target_domains if domain}
+def _brand_regex(brand_names: tuple[str, ...]) -> str | None:
+    names = {name.lower() for name in brand_names if name}
     if not names:
         return None
-    return r"\m(" + "|".join(re.escape(name) for name in sorted(names)) + r")\M"
+    # The same lookaround boundaries as engines.name_mentioned, so a NULL row read
+    # here agrees with a row the runner scored at write time.
+    return r"(?<!\w)(" + "|".join(re.escape(name) for name in sorted(names)) + r")(?!\w)"
 
 
 def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]:
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
-    checks_in_window = AEOCitationCheck.objects.for_team(team_id).filter(
+    try:
+        canonical_team_id = resolve_effective_team_id(team_id)
+    except TeamScopeError:
+        # An unknown team has no checks; callers expect an empty list, not an exception.
+        return []
+    config = resolve_config(team_id, canonical_team_id=canonical_team_id)
+    target_domains = list(config.target_domains)
+    checks_in_window = AEOCitationCheck.objects.for_team(canonical_team_id, canonical=True).filter(
         created_at__gte=since, check_failed=False, prompt__active=True
     )
-    mention = Q(cited=True)
-    if brand := _brand_regex(target_domains):
-        mention |= Q(answer_text__iregex=brand)
+    mention = Q(cited=True) | Q(brand_mentioned=True)
+    # Rows written before the runner recorded brand_mentioned carry NULL, so they
+    # still get the read-time regex over the answer text.
+    if brand := _brand_regex(config.brand_names):
+        mention |= Q(brand_mentioned__isnull=True, answer_text__iregex=brand)
     rows = (
         checks_in_window.annotate(
             mentioned=Case(When(mention, then=Value(True)), default=Value(False), output_field=BooleanField())

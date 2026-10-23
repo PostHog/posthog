@@ -1219,6 +1219,7 @@ rules:
                         |Task
                         |TaskRun
                         |TeamAccessControlConfig
+                        |TeamAEOConfig
                         |TeamBusinessKnowledgeConfig
                         |TeamConversationsSlackConfig
                         |TeamConversationsTeamsConfig

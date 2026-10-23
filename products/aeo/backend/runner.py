@@ -17,7 +17,6 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from django.conf import settings
 from django.db.models import F, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
@@ -27,6 +26,7 @@ import structlog
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.aeo.backend.config import resolve_config
 from products.aeo.backend.engines import CitationEngine, available_engines, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
@@ -62,7 +62,7 @@ def run_citation_checks(
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
     canonical_team_id = team.parent_team_id or team.id
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    config = resolve_config(team.id, canonical_team_id=canonical_team_id)
     checks: list[dict[str, Any]] = []
     engine_failures = 0
     rows_written = 0
@@ -101,7 +101,7 @@ def run_citation_checks(
                     prompt_text=prompt.prompt,
                     prompt_source=prompt.prompt_source,
                     prompt_hash=prompt.prompt_hash,
-                    target_domains=target_domains,
+                    config=config,
                 ),
                 "prompt_topic": prompt.topic,
             }
