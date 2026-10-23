@@ -123,7 +123,9 @@ it('toggles the menu on the same datapoint without changing the filter', async (
         })
         fireEvent.click(screen.getByText('Chart point'))
         expect(logic.values.selection).not.toBeNull()
-        fireEvent.click(screen.getByText('Filter dashboard by this result'))
+        const remove = screen.getByText('Remove filter')
+        expect(remove.closest('a')!.href).not.toContain('insight_filter=')
+        fireEvent.click(remove)
         expect(logic.values.selection).toBeNull()
         expect(openedModal).not.toHaveBeenCalled()
     } finally {

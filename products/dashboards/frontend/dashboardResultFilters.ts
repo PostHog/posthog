@@ -162,11 +162,15 @@ export function getDashboardResultTargets(
     )
 }
 
-export function getDashboardResultFilterLink(selection: DashboardResultSelection): string {
+export function getDashboardResultFilterLink(selection: DashboardResultSelection, remove = false): string {
     const url = new URL(window.location.href)
     const hash = new URLSearchParams(url.hash.slice(1))
     hash.delete('bi_filter')
-    hash.set('insight_filter', JSON.stringify(selection))
+    if (remove) {
+        hash.delete('insight_filter')
+    } else {
+        hash.set('insight_filter', JSON.stringify(selection))
+    }
     return `${url.pathname}${url.search}#${hash}`
 }
 

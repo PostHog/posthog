@@ -9,7 +9,7 @@ import { HogQLVariable } from '~/queries/schema/schema-general'
 import { InsightModel } from '~/types'
 
 import { biDashboardCrossFilterLogic } from './biDashboardCrossFilterLogic'
-import { canSelectBIWorksheet, getBIDashboardItemId } from './biDashboardCrossFilters'
+import { canSelectBIWorksheet, createBIDashboardSelection, getBIDashboardItemId } from './biDashboardCrossFilters'
 import { getBIDashboardFilterLink } from './biDashboardFilterLinks'
 import { getBIDrillSelection } from './biDrilldown'
 
@@ -34,6 +34,12 @@ export function BIDashboardTile({
     const { selectMark } = useActions(biDashboardCrossFilterLogic({ dashboardId }))
     const filtered = targets[tileId]
     const effectiveQuery = filtered ?? query
+    const isActiveFilter = (record: Record<string, unknown>): boolean =>
+        !!selection &&
+        deepEqual(
+            selection,
+            createBIDashboardSelection(tileId, insight.name || 'Untitled worksheet', effectiveQuery, record)
+        )
     return (
         <div className="flex h-full min-h-0 flex-col">
             {selection && (
@@ -54,6 +60,7 @@ export function BIDashboardTile({
                 context={{
                     dashboardResultMenu: true,
                     dashboardFilterActive: !!selection,
+                    isBIMarkActiveFilter: isActiveFilter,
                     dataVisualizationTableVirtualized: true,
                     isBIMarkSelected:
                         selection?.tileId === tileId
@@ -82,7 +89,8 @@ export function BIDashboardTile({
                             dashboardId,
                             tileId,
                             effectiveQuery.config,
-                            record
+                            record,
+                            isActiveFilter(record)
                         ),
                 }}
                 readOnly

@@ -47,6 +47,16 @@ describe('dashboard worksheet cross filters', () => {
         expect(url).toContain('?date_from=all')
         expect(hash.get('other')).toBe('value')
         expect(readBIDashboardFilterLink(hash.get('bi_filter'))?.record).toEqual(mark(query, value))
+        const clearedUrl = getBIDashboardFilterLink(
+            new URL(url, 'http://localhost').href,
+            1,
+            1,
+            query.config,
+            mark(query, value),
+            true
+        )
+        expect(clearedUrl).not.toContain('bi_filter=')
+        expect(clearedUrl).toContain('?date_from=all#other=value')
         router.actions.push(url)
         const logic = biDashboardCrossFilterLogic({ dashboardId: 1, tiles: [] })
         const unmount = logic.mount()

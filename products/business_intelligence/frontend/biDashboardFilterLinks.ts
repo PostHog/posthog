@@ -40,11 +40,16 @@ export function getBIDashboardFilterLink(
     dashboardId: number,
     tileId: number,
     config: BIConfig,
-    record: Record<string, unknown>
+    record: Record<string, unknown>,
+    remove = false
 ): string {
     const url = new URL(currentUrl)
     const hash = new URLSearchParams(url.hash.slice(1))
     hash.delete('insight_filter')
+    if (remove) {
+        hash.delete('bi_filter')
+        return `${url.pathname}${url.search}#${hash}`
+    }
     const columns = [...getBIResultDimensions(config).map(({ column }) => column), 'bi_comparison']
     hash.set(
         'bi_filter',

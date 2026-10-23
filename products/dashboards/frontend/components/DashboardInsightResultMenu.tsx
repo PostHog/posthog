@@ -81,6 +81,11 @@ export function DashboardInsightResultMenu({
         close()
     }
     const selectedFilter = actors ? getSelection(actors) : null
+    const removesFilter =
+        !!selectedFilter &&
+        dashboardSelection?.tileId === selectedFilter.tileId &&
+        objectsEqual(dashboardSelection.query, selectedFilter.query) &&
+        objectsEqual(dashboardSelection.chartPoint, selectedFilter.chartPoint)
     const query = insight.query
     const sqlQuery = query && (isDataVisualizationNode(query) || isBIVisualizationNode(query)) ? query : undefined
     const rowsQuery: DataTableNode | undefined =
@@ -181,10 +186,10 @@ export function DashboardInsightResultMenu({
                         ...(selectedFilter
                             ? [
                                   {
-                                      name: 'Filter dashboard by this result',
+                                      name: removesFilter ? 'Remove filter' : 'Filter dashboard by this result',
                                       icon: <IconFilter />,
                                       className: 'BIDrilldownMenu__filter',
-                                      to: getDashboardResultFilterLink(selectedFilter),
+                                      to: getDashboardResultFilterLink(selectedFilter, removesFilter),
                                       inPlace: true,
                                       onClick: () => filterResult(selectedFilter),
                                   },

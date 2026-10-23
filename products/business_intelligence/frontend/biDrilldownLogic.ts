@@ -17,6 +17,7 @@ export interface BIDrilldownProps {
     onFilterDashboard?: (record: Record<string, unknown>) => void
     getDashboardFilterUrl?: (record: Record<string, unknown>) => string
     dashboardMenu?: boolean
+    isDashboardFilterSelected?: (record: Record<string, unknown>) => boolean
     dashboardFilterActive?: boolean
 }
 

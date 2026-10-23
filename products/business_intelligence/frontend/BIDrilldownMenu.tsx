@@ -28,7 +28,10 @@ export function BIDrilldownMenu({
     const canFilter = !!logicProps.onFilterDashboard && !dashboardFilterDisabledReason
     const actions: ResultMenuAction[] = [
         {
-            name: 'Filter dashboard by this result',
+            name:
+                record && logicProps.isDashboardFilterSelected?.(record)
+                    ? 'Remove filter'
+                    : 'Filter dashboard by this result',
             icon: <IconFilter />,
             className: 'BIDrilldownMenu__filter',
             disabledReason: dashboardFilterDisabledReason,

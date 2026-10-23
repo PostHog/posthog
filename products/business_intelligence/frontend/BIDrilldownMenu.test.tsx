@@ -49,7 +49,7 @@ describe('native result-menu links', () => {
             const unmount = logic.mount()
             try {
                 logic.actions.inspect({ status: 'paid' })
-                render(<BIDrilldownMenu logicProps={props} />)
+                const view = render(<BIDrilldownMenu logicProps={props} />)
                 await screen.findByText('Filter dashboard by this result')
                 const names = [
                     'Filter dashboard by this result',
@@ -71,6 +71,16 @@ describe('native result-menu links', () => {
                     }
                 }
                 expect(onFilterDashboard).not.toHaveBeenCalled()
+                view.rerender(
+                    <BIDrilldownMenu
+                        logicProps={{ ...props, isDashboardFilterSelected: (record) => record.status === 'paid' }}
+                    />
+                )
+                expect(screen.getByText('Remove filter')).toBeInTheDocument()
+                expect(screen.queryByText('Filter dashboard by this result')).not.toBeInTheDocument()
+                act(() => logic.actions.inspect({ status: 'refunded' }))
+                expect(screen.getByText('Filter dashboard by this result')).toBeInTheDocument()
+                expect(screen.queryByText('Remove filter')).not.toBeInTheDocument()
                 fireEvent.click(screen.getByText('View underlying rows'))
                 expect(logic.values.showRows).toBe(true)
                 act(() => logic.actions.inspect({ count: 8 }))

@@ -71,6 +71,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Virtualize rows in an embedded SQL result table with a bounded height. */
     dataVisualizationTableVirtualized?: boolean
     /** Select another BI mark directly while a dashboard filter is active. */
+    isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
     dashboardFilterActive?: boolean
     dataVisualizationTableVirtualizationCellThreshold?: number
     /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */

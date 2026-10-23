@@ -234,6 +234,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         filtersOverride: props.filtersOverride,
         variablesOverride: props.variablesOverride,
         dashboardMenu: !props.inSharedMode && props.context?.dashboardResultMenu,
+        isDashboardFilterSelected: !props.inSharedMode ? props.context?.isBIMarkActiveFilter : undefined,
         dashboardFilterActive: !props.inSharedMode && props.context?.dashboardFilterActive,
         onFilterDashboard: !props.inSharedMode ? props.context?.onSelectBIMark : undefined,
         getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
