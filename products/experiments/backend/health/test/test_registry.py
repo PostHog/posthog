@@ -213,6 +213,11 @@ class TestEvaluate(TestCase):
                 {Key.NEW_FLAG_NO_TRAFFIC: Status.NOT_APPLICABLE},
             ),
             (
+                "early_significance_needs_the_primary_metrics_results",
+                {"primary_metric": None},
+                {Key.EARLY_SIGNIFICANCE: Status.NOT_CHECKED},
+            ),
+            (
                 "zero_exposures_finds_a_day_after_launch",
                 {"exposures": replace(NO_EXPOSURES, hours_since_launch=24)},
                 {Key.ZERO_EXPOSURES: Status.FINDING},
