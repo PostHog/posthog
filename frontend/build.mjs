@@ -13,6 +13,7 @@ import {
     createHashlessEntrypoints,
     isDev,
     reportTopChunks,
+    runExclusiveHeavy,
     startDevServer,
 } from '@posthog/esbuilder'
 import { minifySeparately } from '@posthog/esbuilder/minify.mjs'
@@ -130,47 +131,8 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
-                let stable = null
-                if (!isDev) {
-                    const unminifiedDir = await minifyAppChunks(buildResponse)
-                    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
-                    const preloadManifest = writePreloadManifest(buildResponse.outputs)
-                    // A throw here must fail the build: it reaches buildInParallel's catch, which
-                    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
-                    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
-                    const cssPlan = planCssGroups(buildResponse)
-                    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
-                    stable = await writeStableChunks({
-                        absWorkingDir: __dirname,
-                        sourceDir: unminifiedDir,
-                        target: commonConfig.target,
-                        outputs: buildResponse.outputs,
-                        chunks,
-                        entrypoints,
-                        preloadManifest,
-                        preludes: new Map(
-                            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
-                                file,
-                                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
-                            ])
-                        ),
-                        extraImports: Object.fromEntries(
-                            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
-                        ),
-                        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
-                        loggedOut: {
-                            ...loggedOutImportMapScope(),
-                            cssSpecifiersByOutput: new Map(
-                                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
-                                    file,
-                                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
-                                ])
-                            ),
-                        },
-                    })
-                    fs.rmSync(unminifiedDir, { recursive: true, force: true })
-                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
-                }
+                // Heavy esbuild work: run it under the heavy-build lock so it cannot overlap the Exporter build.
+                const stable = isDev ? null : await runExclusiveHeavy(() => finishAppBuild(buildResponse))
                 writeIndexHtml(chunks, entrypoints, stable)
             }
 
@@ -198,6 +160,53 @@ await buildInParallel(
         },
     }
 )
+
+/**
+ * Production-only post-build work for the app: minifies each chunk, writes the preload manifest,
+ * the CSS groups and the stable chunk copies. Returns the stable chunk result for index.html.
+ */
+async function finishAppBuild(buildResponse) {
+    const { chunks, entrypoints } = buildResponse
+    const unminifiedDir = await minifyAppChunks(buildResponse)
+    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
+    const preloadManifest = writePreloadManifest(buildResponse.outputs)
+    // A throw here must fail the build: it reaches buildInParallel's catch, which
+    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
+    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
+    const cssPlan = planCssGroups(buildResponse)
+    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
+    const stable = await writeStableChunks({
+        absWorkingDir: __dirname,
+        sourceDir: unminifiedDir,
+        target: commonConfig.target,
+        outputs: buildResponse.outputs,
+        chunks,
+        entrypoints,
+        preloadManifest,
+        preludes: new Map(
+            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                file,
+                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
+            ])
+        ),
+        extraImports: Object.fromEntries(
+            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
+        ),
+        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
+        loggedOut: {
+            ...loggedOutImportMapScope(),
+            cssSpecifiersByOutput: new Map(
+                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                    file,
+                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
+                ])
+            ),
+        },
+    })
+    fs.rmSync(unminifiedDir, { recursive: true, force: true })
+    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
+    return stable
+}
 
 /**
  * Minifies every app chunk on its own, in place (see minifySeparately). Keeps the unminified chunks and
