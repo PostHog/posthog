@@ -243,7 +243,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 continue
         else:
             if ticket_id_str in engaged:
-                if ticket_id_str in untriaged_ticket_ids:
+                if ticket_id_str in untriaged_ticket_ids and ticket_id_str in latest_human_msg:
                     skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].append(ticket_id_str)
                 continue
             # Settle: wait until the customer has gone quiet. Reference is the most recent customer

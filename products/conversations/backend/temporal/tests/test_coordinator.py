@@ -492,10 +492,18 @@ class TestCollectEligibleAwaitingClarification:
 
     @parameterized.expand(
         [
-            ("team_started_ticket", {}, True, None, "skipped_team_replied"),
-            ("channel_excluded", {"ai_resolution_channels": ["email"]}, True, None, "skipped_channel_excluded"),
-            ("ai_data_processing_not_approved", {}, False, None, None),
-            ("already_triaged", {}, True, {"status": "done", "result": "suggested"}, "suggested"),
+            ("team_started_ticket", {}, True, None, "human", "skipped_team_replied"),
+            ("ai_note_only", {}, True, None, "AI", None),
+            (
+                "channel_excluded",
+                {"ai_resolution_channels": ["email"]},
+                True,
+                None,
+                "human",
+                "skipped_channel_excluded",
+            ),
+            ("ai_data_processing_not_approved", {}, False, None, "human", None),
+            ("already_triaged", {}, True, {"status": "done", "result": "suggested"}, "human", "suggested"),
         ]
     )
     @pytest.mark.django_db
@@ -506,6 +514,7 @@ class TestCollectEligibleAwaitingClarification:
         extra_settings,
         ai_data_processing_approved,
         existing_triage,
+        comment_author_type,
         expected_result,
         mock_master_flag,
     ):
@@ -518,7 +527,7 @@ class TestCollectEligibleAwaitingClarification:
 
         if existing_triage is not None:
             TicketModel.objects.filter(id=ticket.id).update(ai_triage=existing_triage)
-        self._comment(team, ticket, author_type="human", minutes_ago=3)
+        self._comment(team, ticket, author_type=comment_author_type, minutes_ago=3)
 
         assert _collect_eligible() == []
         ticket.refresh_from_db()
