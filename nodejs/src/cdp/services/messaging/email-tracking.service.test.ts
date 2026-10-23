@@ -450,6 +450,13 @@ describe('EmailTrackingService', () => {
                     timestamp: '2026-10-22T07:02:00.000Z',
                 },
             }
+            const complaintDetail = (complaintFeedbackType: string): Record<string, unknown> => ({
+                complaint: {
+                    complainedRecipients: [{ emailAddress: 'user@example.com' }],
+                    timestamp: '2026-10-22T07:03:00.000Z',
+                    complaintFeedbackType,
+                },
+            })
 
             const postSesEvent = async (
                 eventType: string,
@@ -502,6 +509,12 @@ describe('EmailTrackingService', () => {
                     bounceDetail,
                     { status: 'bounced', status_at: '2026-10-22 07:02:00.000000', reason: 'hard' },
                 ],
+                [
+                    'a complaint as complained with its feedback type',
+                    'Complaint',
+                    complaintDetail('abuse'),
+                    { status: 'complained', status_at: '2026-10-22 07:03:00.000000', reason: 'abuse' },
+                ],
             ])('records %s', async (_name, eventType, detail, expected) => {
                 const res = await postSesEvent(eventType, detail, { ph_recipient_hash: ['a1b2'] })
 
@@ -519,8 +532,16 @@ describe('EmailTrackingService', () => {
                 ])
             })
 
-            it('records nothing for an email the transactional route did not send', async () => {
-                const res = await postSesEvent('Delivery', deliveryDetail, {})
+            it.each([
+                ['an email the transactional route did not send', 'Delivery', deliveryDetail, {}],
+                [
+                    'a not-spam correction of a complaint',
+                    'Complaint',
+                    complaintDetail('Not-Spam'),
+                    { ph_recipient_hash: ['a1b2'] },
+                ],
+            ])('records nothing for %s', async (_name, eventType, detail, tags) => {
+                const res = await postSesEvent(eventType, detail, tags)
 
                 expect(res.status).toBe(200)
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
