@@ -31,6 +31,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     PROJECT_VECTORS_SCHEMA_VERSION,
     project_vectors,
 )
+from products.signals.dags.inbox_ranking.mirror import dag as mirror_dag
 from products.signals.dags.inbox_ranking.multihead.prototype import project_context
 
 AS_OF = datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
@@ -277,3 +278,102 @@ def test_the_engagement_export_sends_only_remote_reports_to_the_mirror(
     assert exported.to_pylist() == [
         dict.fromkeys(LABEL_COLUMNS) | {"report_id": REMOTE_REPORT_ID, "first_opened_at": BEFORE}
     ]
+
+
+class _RegionStorage:
+    def __init__(self, objects: dict[str, tuple[bytes, dict[str, str]]]) -> None:
+        self.objects = objects
+        self.writes: list[dict[str, Any]] = []
+
+    def head_object_strict(self, bucket: str, file_key: str) -> dict | None:
+        stored = self.objects.get(file_key)
+        return None if stored is None else {"Metadata": stored[1]}
+
+    def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> bytes | None:
+        stored = self.objects.get(key)
+        return None if stored is None else stored[0]
+
+    def write(self, bucket: str, key: str, content: bytes, extras: dict | None) -> None:
+        self.writes.append({"bucket": bucket, "key": key, "content": content, "extras": extras})
+
+
+def _export_object(engagements: list[tuple[int, int, str, datetime.datetime]], schema_version: int) -> tuple:
+    buffer = io.BytesIO()
+    pq.write_table(_labels(engagements).select(list(LABEL_COLUMNS)), buffer)
+    return buffer.getvalue(), {common.SCHEMA_VERSION_METADATA_KEY: str(schema_version)}
+
+
+@pytest.mark.parametrize(
+    "export_ages,schema_version,expected_export_age",
+    [
+        ([0, 1], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION, 0),
+        ([1], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION, 1),
+        ([mirror_dag.ENGAGEMENT_EXPORT_MAX_AGE_DAYS + 1], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION, None),
+        ([0], dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION + 1, None),
+    ],
+    ids=["fresh", "one_day_late", "too_stale", "unknown_schema"],
+)
+def test_the_mirror_region_builds_its_vectors_from_its_embeddings_and_the_export(
+    monkeypatch: pytest.MonkeyPatch, export_ages: list[int], schema_version: int, expected_export_age: int | None
+) -> None:
+    partition_day = AS_OF.date() - datetime.timedelta(days=1)
+    reports = [(team_id, index, 1.0, BEFORE) for team_id in (5, 9) for index in range(MIN_HISTORY_REPORTS)]
+    engagements = [(5, index, "first_opened_at", BEFORE) for index in range(MIN_HISTORY_REPORTS)]
+    storage = _RegionStorage(
+        {
+            serving_engagement_key(
+                "inbox_ranking", (partition_day - datetime.timedelta(days=age)).isoformat()
+            ): _export_object(engagements, schema_version)
+            for age in export_ages
+        }
+    )
+    read_consent: list[frozenset[int]] = []
+
+    def fake_report_embeddings_table(partition_key: str, rendering: str, consent_team_ids: frozenset[int]) -> pa.Table:
+        read_consent.append(consent_team_ids)
+        return _embeddings([report for report in reports if report[0] in consent_team_ids])
+
+    monkeypatch.setattr(mirror_dag.object_storage, "object_storage_client", lambda: storage)
+    monkeypatch.setattr(mirror_dag, "report_embeddings_table", fake_report_embeddings_table)
+    monkeypatch.setattr(mirror_dag, "tag_dagster_queries", lambda context, query_type: None)
+    monkeypatch.setattr(mirror_dag, "training_consent_team_ids", lambda: frozenset({5}))
+    monkeypatch.setattr(mirror_dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+    monkeypatch.setattr(mirror_dag.settings, "OBJECT_STORAGE_BUCKET", "region-bucket")
+    context = dagster.build_asset_context(partition_key=partition_day.isoformat())
+
+    if expected_export_age is None:
+        with pytest.raises(dagster.Failure):
+            mirror_dag.inbox_mirror_project_vectors(context)
+        assert storage.writes == []
+        return
+    mirror_dag.inbox_mirror_project_vectors(context)
+
+    assert read_consent == [frozenset({5})]
+    (write,) = storage.writes
+    assert write["key"] == serving_project_vectors_key("inbox_ranking", partition_day.isoformat())
+    export_date = (partition_day - datetime.timedelta(days=expected_export_age)).isoformat()
+    written = pq.read_table(io.BytesIO(write["content"]))
+    assert write["extras"]["Metadata"] == {
+        common.ROW_COUNT_METADATA_KEY: str(written.num_rows),
+        common.SNAPSHOT_DATE_METADATA_KEY: partition_day.isoformat(),
+        common.SCHEMA_VERSION_METADATA_KEY: str(PROJECT_VECTORS_SCHEMA_VERSION),
+        mirror_dag.ENGAGEMENT_EXPORT_DATE_METADATA_KEY: export_date,
+    }
+    assert written.schema == PROJECT_VECTORS_SCHEMA
+    rows = _rows_by_key(written)
+    assert {team_id for team_id, _ in rows} == {5}
+    assert rows[(5, "open")]["n_reports"] == MIN_HISTORY_REPORTS
+    assert set(written.column("as_of").to_pylist()) == {AS_OF}
+
+
+def test_the_mirror_schedule_skips_until_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mirror_dag.settings, "INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED", False)
+    context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2026, 7, 30, 5, 30))
+
+    assert isinstance(mirror_dag.inbox_ranking_mirror_schedule(context), dagster.SkipReason)
+
+    monkeypatch.setattr(mirror_dag.settings, "INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED", True)
+    run_request = mirror_dag.inbox_ranking_mirror_schedule(context)
+
+    assert isinstance(run_request, dagster.RunRequest)
+    assert run_request.partition_key == "2026-07-29"
