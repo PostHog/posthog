@@ -99,6 +99,12 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
             },
             personId: 'person-1',
             messageOptOuts: [{ identifier: 'opted-out@example.com', categoryId: '$all' }],
+            send: {
+                content: { subject: 'Welcome', html: '<p>Hi</p>', text: 'Hi' },
+                from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
+                replyTo: ['help@example.com'],
+                tracking: { captureEngagement: false },
+            },
         }
         const rows = [
             {
@@ -133,6 +139,8 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         expect(invocation.state?.actionStepCount).toBe(3)
         expect(invocation.state?.customerTaskIdempotencyVersion).toBe(version)
         expect(invocation.state?.variables).toEqual({ ticket_id: '123' })
+        // A code send's content, sender and tracking choice live only here, so a rerun without them sends nothing.
+        expect(invocation.state?.send).toEqual(persistedState.send)
         // Sticky rerun counter still increments so max_attempts guards apply.
         expect(invocation.state?.rerunAttempts).toBe(1)
     })
