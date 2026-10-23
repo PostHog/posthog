@@ -417,7 +417,7 @@ impl S3SourceConfig {
     /// Catches literal IP addresses that would bypass DNS-level SSRF protection.
     ///
     /// A listed out-of-band interaction domain is logged above the escape hatch below, so a
-    /// probe is recorded in every environment. That check refuses nothing.
+    /// probe is recorded whatever `allow_internal_ips` says. That check refuses nothing.
     fn validate_endpoint_url(
         url: &str,
         allow_internal_ips: bool,

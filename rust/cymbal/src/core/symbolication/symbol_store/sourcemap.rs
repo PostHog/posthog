@@ -56,7 +56,8 @@ const MAX_REDIRECTS: usize = 10;
 /// `PublicIPv4Resolver` normally, or the egress proxy when one is configured.
 ///
 /// An out-of-band interaction domain is logged on the way past. That check is detection only,
-/// and it sits above the escape hatch below so a probe is recorded in every environment.
+/// and it sits above the escape hatch below so a probe is recorded whatever
+/// `allow_internal_ips` says.
 fn ensure_fetchable_host(
     url: &Url,
     allow_internal_ips: bool,
