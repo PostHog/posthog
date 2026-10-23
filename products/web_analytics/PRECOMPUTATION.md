@@ -42,7 +42,7 @@ Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHas
   They also narrow HogQL's 3-day session lookback to 25 hours, after the wider read ran the shared sessions node out of memory (#117872).
   The job has no stale grace or forced refresh of its own: today's window rebuilds only when a run finds its job expired.
   So today's data can lag by up to the TTL plus one cron period (20 minutes).
-- **Monitoring**: after the writers, a second op reads the READY jobs back for each team and table, merges their intervals, and fails the run when a UTC day in the window has no fresh job or today's newest job is older than the TTL plus two runs.
+- **Monitoring**: after the writers, a second op reads the READY jobs back for each team and table, merges their intervals, and fails the run when a UTC day in the writers' window has no fresh job or the newest job for the writers' current day is older than the TTL plus two runs. The check takes the window and the current day from the writers, so a run that crosses UTC midnight does not report the new day as missing.
   A failed run alerts `#alerts-web-analytics` through `notify_slack_on_failure`, which routes on the job's `owner` tag.
   The op also pushes `web_dimensional_precompute_coverage_missing_days` and `web_dimensional_precompute_today_lag_seconds` gauges, labeled by `team_id` and `table`, to the Prometheus push gateway.
 - **Coverage**: the same stats-breakdown and overview shapes v2 serves — about 45% of user-facing web-analytics reads by shape (stats breakdowns on the stored dimensions, plus overview).

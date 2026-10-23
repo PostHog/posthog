@@ -25,6 +25,7 @@ from products.web_analytics.dags.web_dimensional_precompute import (
     SELECTED_TEAM_IDS_ENV_VAR,
     STATS_TABLE,
     DimensionalPrecomputeRun,
+    TimeSpan,
     check_web_dimensional_precompute_coverage_op,
     chunk_ranges,
     ensure_web_dimensional_precompute_op,
@@ -138,7 +139,12 @@ class TestSummarizeCoverage(SimpleTestCase):
     )
     def test_reports_missing_days_and_today_lag(self, _name, jobs, expected_missing, expected_lag):
         coverage = summarize_coverage(
-            team_id=1, table=STATS_TABLE, ready_jobs=jobs, window_start=_day(-3), window_end=_day(1), now=_NOW
+            team_id=1,
+            table=STATS_TABLE,
+            ready_jobs=jobs,
+            window=TimeSpan(start=_day(-3), end=_day(1)),
+            current_day=_NOW.date(),
+            now=_NOW,
         )
 
         assert coverage.missing_days == expected_missing
@@ -296,40 +302,48 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
 
 
 class TestCheckWebDimensionalPrecomputeCoverageOp(APIBaseTest):
-    def _create_jobs(self, query_hash: str, today_built_minutes_ago: int) -> PreaggregationJob:
-        window_start = precompute_window(_NOW).start
+    def _create_jobs(self, query_hash: str, today_built_minutes_ago: int, now: datetime = _NOW) -> PreaggregationJob:
+        window = precompute_window(now)
+        today = window.end - timedelta(days=1)
         PreaggregationJob.objects.create(
             team=self.team,
-            time_range_start=window_start,
-            time_range_end=_TODAY,
+            time_range_start=window.start,
+            time_range_end=today,
             query_hash=query_hash,
             status=PreaggregationJob.Status.READY,
-            computed_at=_NOW - timedelta(days=1),
-            expires_at=_NOW + timedelta(days=60),
+            computed_at=now - timedelta(days=1),
+            expires_at=now + timedelta(days=60),
         )
-        built_at = _NOW - timedelta(minutes=today_built_minutes_ago)
+        built_at = now - timedelta(minutes=today_built_minutes_ago)
         return PreaggregationJob.objects.create(
             team=self.team,
-            time_range_start=_TODAY,
-            time_range_end=_day(1),
+            time_range_start=today,
+            time_range_end=window.end,
             query_hash=query_hash,
             status=PreaggregationJob.Status.READY,
             computed_at=built_at,
             expires_at=built_at + timedelta(hours=1),
         )
 
+    def _run(self, sample_job_ids: dict[tuple[int, str], str], failures: int = 0) -> DimensionalPrecomputeRun:
+        return DimensionalPrecomputeRun(
+            teams=1,
+            failures=failures,
+            team_ids=(self.team.pk,),
+            sample_job_ids=sample_job_ids,
+            window=precompute_window(_NOW),
+            current_day=_NOW.date(),
+        )
+
     @parameterized.expand([("fresh_today", 10, False), ("today_not_rebuilt", 3 * 60, True)])
     def test_fails_the_run_on_incomplete_coverage(self, _name, today_built_minutes_ago, expect_failure):
         stats_job = self._create_jobs("stats-hash", 10)
         bounces_job = self._create_jobs("bounces-hash", today_built_minutes_ago)
-        run = DimensionalPrecomputeRun(
-            teams=1,
-            failures=0,
-            team_ids=(self.team.pk,),
-            sample_job_ids={
+        run = self._run(
+            {
                 (self.team.pk, STATS_TABLE): str(stats_job.id),
                 (self.team.pk, BOUNCES_TABLE): str(bounces_job.id),
-            },
+            }
         )
 
         with time_machine.travel(_NOW, tick=False):
@@ -342,12 +356,34 @@ class TestCheckWebDimensionalPrecomputeCoverageOp(APIBaseTest):
     def test_table_without_a_ready_result_this_run_fails(self):
         stats_job = self._create_jobs("stats-hash", 10)
         self._create_jobs("bounces-hash", 10)
-        run = DimensionalPrecomputeRun(
-            teams=1,
-            failures=1,
-            team_ids=(self.team.pk,),
-            sample_job_ids={(self.team.pk, STATS_TABLE): str(stats_job.id)},
-        )
+        run = self._run({(self.team.pk, STATS_TABLE): str(stats_job.id)}, failures=1)
 
         with time_machine.travel(_NOW, tick=False), pytest.raises(dagster.Failure, match=BOUNCES_TABLE):
+            check_web_dimensional_precompute_coverage_op(dagster.build_op_context(), run)
+
+    @patch(_SINGLE_CHUNK, PRECOMPUTE_WINDOW_DAYS)
+    def test_run_crossing_utc_midnight_checks_the_writers_day(self):
+        # The writers finish before midnight and the check runs after it. The new UTC day has no job
+        # yet, and the check must not report it as missing.
+        writer_now = datetime(2026, 10, 19, 23, 50, tzinfo=UTC)
+        stats_job = self._create_jobs("stats-hash", 10, now=writer_now)
+        bounces_job = self._create_jobs("bounces-hash", 10, now=writer_now)
+
+        with (
+            time_machine.travel(writer_now, tick=False),
+            patch(
+                "products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[stats_job.id]),
+            ),
+            patch(
+                "products.web_analytics.dags.web_dimensional_precompute.ensure_web_bounces_dimensional_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[bounces_job.id]),
+            ),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: str(self.team.pk)}),
+        ):
+            run = ensure_web_dimensional_precompute_op(dagster.build_op_context())
+
+        assert (run.window.end, run.current_day) == (datetime(2026, 10, 20, tzinfo=UTC), date(2026, 10, 19))
+
+        with time_machine.travel(writer_now + timedelta(minutes=15), tick=False):
             check_web_dimensional_precompute_coverage_op(dagster.build_op_context(), run)

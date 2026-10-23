@@ -26,7 +26,7 @@ A failed run alerts the job owner through `notify_slack_on_failure`.
 
 import os
 from collections.abc import Iterable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from django.conf import settings
 
@@ -154,6 +154,11 @@ class DimensionalPrecomputeRun:
     teams: int
     failures: int
     team_ids: tuple[int, ...]
+    # The window the writers requested and the UTC day they treated as current. The coverage check
+    # reads these instead of its own clock: a run that crosses UTC midnight would otherwise look for
+    # a day no writer was asked to build.
+    window: TimeSpan
+    current_day: date
     # One job id per (team id, table) from the writers of this run. The coverage check reads its
     # query_hash, because the executor derives the hash from the INSERT template and has no public
     # helper for it.
@@ -166,7 +171,7 @@ class TableCoverage:
     table: str
     window_days: int
     missing_days: tuple[date, ...]
-    # None when no READY job covers the current UTC day.
+    # None when no READY job covers the writer's current UTC day.
     today_lag_seconds: float | None
 
     @property
@@ -207,14 +212,15 @@ def summarize_coverage(
     team_id: int,
     table: str,
     ready_jobs: Iterable[PreaggregationJob],
-    window_start: datetime,
-    window_end: datetime,
+    window: TimeSpan,
+    current_day: date,
     now: datetime,
 ) -> TableCoverage:
     """Report which UTC days of the window have a fresh READY job, and how old the current day's job is.
 
-    Jobs can span more than one day, so the check merges the job intervals instead of counting
-    job start dates.
+    `window` and `current_day` come from the writer; `now` is the check's own clock and only drives
+    freshness and lag. Jobs can span more than one day, so the check merges the job intervals instead
+    of counting job start dates.
     """
     jobs = list(ready_jobs)
     fresh_cutoff = now - timedelta(seconds=COVERAGE_GRACE_SECONDS)
@@ -225,14 +231,14 @@ def summarize_coverage(
     )
 
     missing: list[date] = []
-    day = window_start
-    while day < window_end:
+    day = window.start
+    while day < window.end:
         day_end = day + timedelta(days=1)
         if not any(span.start <= day and span.end >= day_end for span in merged):
             missing.append(day.date())
         day = day_end
 
-    today_start = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.combine(current_day, time(), tzinfo=UTC)
     today_end = today_start + timedelta(days=1)
     today_built_at = [
         job.computed_at or job.created_at
@@ -244,7 +250,7 @@ def summarize_coverage(
     return TableCoverage(
         team_id=team_id,
         table=table,
-        window_days=(window_end - window_start).days,
+        window_days=(window.end - window.start).days,
         missing_days=tuple(missing),
         today_lag_seconds=today_lag,
     )
@@ -255,8 +261,8 @@ def find_table_coverage(
     team_id: int,
     table: str,
     query_hash: str | None,
-    window_start: datetime,
-    window_end: datetime,
+    window: TimeSpan,
+    current_day: date,
     now: datetime,
 ) -> TableCoverage:
     # Expired READY jobs stay in the result, so the current day's lag still shows the age of the
@@ -268,16 +274,16 @@ def find_table_coverage(
                 team_id=team_id,
                 query_hash=query_hash,
                 status=PreaggregationJob.Status.READY,
-                time_range_start__lt=window_end,
-                time_range_end__gt=window_start,
+                time_range_start__lt=window.end,
+                time_range_end__gt=window.start,
             )
         )
     return summarize_coverage(
         team_id=team_id,
         table=table,
         ready_jobs=ready_jobs,
-        window_start=window_start,
-        window_end=window_end,
+        window=window,
+        current_day=current_day,
         now=now,
     )
 
@@ -292,7 +298,7 @@ def _push_coverage_gauges(coverages: list[TableCoverage]) -> None:
         )
         today_lag = Gauge(
             COVERAGE_TODAY_LAG_GAUGE,
-            "Age of the newest READY dimensional precompute job that covers the current UTC day.",
+            "Age of the newest READY dimensional precompute job that covers the writer's current UTC day.",
             ["team_id", "table"],
             registry=registry,
         )
@@ -355,7 +361,9 @@ def _ensure_for_team(
 @dagster.op
 def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) -> DimensionalPrecomputeRun:
     """Drive `ensure_*_dimensional_precomputed` over the rolling window for each selected team."""
-    window = precompute_window(datetime.now(UTC))
+    started_at = datetime.now(UTC)
+    window = precompute_window(started_at)
+    current_day = started_at.date()
 
     team_ids = get_selected_team_ids()
     context.log.info(
@@ -365,7 +373,9 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
     if not team_ids:
         context.log.info(f"web_dimensional_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
         context.add_output_metadata({"teams": 0, "failures": 0})
-        return DimensionalPrecomputeRun(teams=0, failures=0, team_ids=(), sample_job_ids={})
+        return DimensionalPrecomputeRun(
+            teams=0, failures=0, team_ids=(), sample_job_ids={}, window=window, current_day=current_day
+        )
 
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
 
@@ -383,7 +393,12 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
     context.log.info(f"web_dimensional_precompute_complete teams={len(processed)} failures={failures}")
     context.add_output_metadata({"teams": len(processed), "failures": failures})
     return DimensionalPrecomputeRun(
-        teams=len(processed), failures=failures, team_ids=tuple(processed), sample_job_ids=sample_job_ids
+        teams=len(processed),
+        failures=failures,
+        team_ids=tuple(processed),
+        sample_job_ids=sample_job_ids,
+        window=window,
+        current_day=current_day,
     )
 
 
@@ -393,7 +408,6 @@ def check_web_dimensional_precompute_coverage_op(
 ) -> None:
     """Fail the run when a processed team has a missing day or a stale current day in either table."""
     now = datetime.now(UTC)
-    window = precompute_window(now)
     query_hash_by_job_id = {
         str(job_id): query_hash
         for job_id, query_hash in PreaggregationJob.objects.filter(
@@ -410,8 +424,8 @@ def check_web_dimensional_precompute_coverage_op(
                     team_id=team_id,
                     table=table,
                     query_hash=query_hash_by_job_id.get(job_id) if job_id is not None else None,
-                    window_start=window.start,
-                    window_end=window.end,
+                    window=run.window,
+                    current_day=run.current_day,
                     now=now,
                 )
             )
