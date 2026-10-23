@@ -109,8 +109,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         isRecordingDeleted,
         recordingDeletedAt,
         recordingDeletedBy,
+        snapshotCheckState,
     } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
-    const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
+    const { checkForNewSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const { isPlaylistCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -368,18 +369,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                 The snapshot of the screen taken when this recording started never
                                                 reached PostHog, so there is nothing to play back. This usually happens
                                                 when the browser is closed or goes offline before the recording finishes
-                                                uploading.{' '}
+                                                uploading. Reloading won't bring this data back.{' '}
                                                 <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                     Learn more
                                                 </Link>
                                             </p>
-                                            <LemonButton
-                                                data-attr="player-error-retry-load"
-                                                type="secondary"
-                                                onClick={loadSnapshots}
-                                            >
-                                                Reload
-                                            </LemonButton>
                                         </>
                                     ) : (
                                         <>
@@ -392,10 +386,16 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             <LemonButton
                                                 data-attr="player-error-retry-load-still-working"
                                                 type="secondary"
-                                                onClick={loadSnapshots}
+                                                onClick={checkForNewSnapshots}
+                                                loading={snapshotCheckState === 'checking'}
                                             >
-                                                Reload
+                                                Check for new data
                                             </LemonButton>
+                                            {snapshotCheckState === 'checked' ? (
+                                                <p className="text-secondary text-sm mt-2 mb-0">
+                                                    It's not ready to play yet. Try again in a minute.
+                                                </p>
+                                            ) : null}
                                         </>
                                     )}
                                 </div>
