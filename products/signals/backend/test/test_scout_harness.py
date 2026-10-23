@@ -1267,6 +1267,10 @@ class TestPromptBuilder(BaseTest):
         assert "include_unlisted=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
+        # A scout that finds two live twins must fold them together and then rewrite the survivor,
+        # because a merge leaves the survivor's title and summary as they were.
+        assert "inbox-reports-merge" in prompt
+        assert "rewrite its `title` / `summary` to cover both" in prompt
         # Report authors need the metric semantics the generated tool shape cannot express on its own:
         # distinct people, a live bounded query, and whole-window rather than summed-bucket totals.
         assert "Measuring report impact" in prompt
@@ -1509,6 +1513,8 @@ class TestPromptBuilder(BaseTest):
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
+        # The edit-only section is a separate constant, so it can lose the merge guidance on its own.
+        assert "inbox-reports-merge" in prompt
 
     @parameterized.expand(
         [

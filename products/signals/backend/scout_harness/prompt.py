@@ -204,6 +204,7 @@ _REPORT_CLOSE_OUT_STEP = _CLOSE_OUT_STEP_TEMPLATE.format(number=6, output="repor
 _REPORT_STEPS_BOTH = """4. **Search the inbox before you author.** A report you'd write may already exist. ALWAYS check first (see *Authoring vs. editing: search the inbox first*) and edit the existing one rather than minting a near-duplicate.
 5. **Author or edit.** For each issue worth surfacing, decide whether to:
    - **Edit** an existing report (`scout-edit-report`) when one already covers it. This is the default when a match exists.
+   - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see **Merge live duplicates** under *Authoring vs. editing: search the inbox first*), then rewrite the survivor.
    - **Author** a fresh report (`scout-emit-report`) only when nothing in the inbox covers it, or a known issue has new evidence that changes the verdict. Set `suggested_reviewers` (see *Suggested reviewers route the report*).
    - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
    - **Skip** with a one-line note in your final summary.
@@ -221,6 +222,7 @@ _REPORT_STEPS_EMIT_ONLY = """4. **Search the inbox before you author.** A report
 _REPORT_STEPS_EDIT_ONLY = """4. **Find the report to update.** Locate the report your evidence bears on (see *Editing existing reports*). This run can update existing reports but cannot author new ones.
 5. **Edit or skip.** For each issue worth surfacing, decide whether to:
    - **Edit** the existing report (`scout-edit-report`): use `append_evidence` for a fresh observation, or `append_note` for commentary.
+   - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see **Merge live duplicates** under *Editing existing reports*), then rewrite the survivor.
    - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
    - **Skip** with a one-line note in your final summary, including when nothing in the inbox matches and there's therefore nothing to update.
 
@@ -476,12 +478,17 @@ _EDIT_EVIDENCE_VS_NOTE = (
 
 _EDIT_REPOSITORY_BULLET = "- **Fix a misrouted report.** If a report points at the wrong codebase, set `repository` to the right `owner/repo` instead of authoring a duplicate that carries the correct one. It replaces the report's target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Pass `NO_REPO` when nothing under version control could change, and omit the field entirely when the target is already right. The response carries `repository`, the target the report holds afterwards — read it back to confirm the correction landed."
 
+# Rendered only for personas that hold `edit_report`, because the merge leaves the survivor's title
+# and summary as they were and the scout has to rewrite them afterwards.
+_MERGE_DUPLICATES_BULLET = "- **Merge live duplicates.** When two or more *live* reports describe the same issue (one root cause, one fix), fold them into one with `inbox-reports-merge` instead of editing each. Call it on the survivor, which should be the older report or the one with an open implementation pull request, and give a one-line `reason`. Reports that are only related are not duplicates: leave both, and name the other report in an `append_note`. Don't merge when a person holds a claim on either report or a source has an open pull request. Append a note on the survivor that names the twin, and let the person decide. A merge doesn't combine titles or summaries, so afterwards `inbox-reports-retrieve` the survivor, rewrite its `title` / `summary` to cover both with `scout-edit-report`, and repoint every `report:` scratchpad entry that named a merged report at the survivor."
+
 _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbox first
 
 `scout-emit-report` has no dedupe matcher: two calls covering one issue in different words author two reports. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
 {_REPORT_SEARCH_BULLET}
 - **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `scout-edit-report`. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own. One living report beats three near-duplicates fragmenting the inbox. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item: when the match is no longer live, treat the relapse as genuinely new, author a fresh report, and repoint your `report:` pointer at it.
+{_MERGE_DUPLICATES_BULLET}
 {_EDIT_REPOSITORY_BULLET}
 - **Author only when it's genuinely new.** A materially new issue, a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_BOTH}"""
 
@@ -500,6 +507,7 @@ This run updates reports that already exist; it can't author new ones. Find the 
 - **Find it.** {_INBOX_SEARCH_RECIPE} Status matters twice over here: appending to a dismissed or closed report buries your evidence under an item nobody is watching. Reuse the `report:<domain>:<entity>` scratchpad entry from a prior run when you have one. {_DISMISSAL_CONTEXT}
 - **Append, or rewrite.** Prefer appending. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own, and only when the framing is genuinely stale; lead the summary with the verdict (see *Writing the summary*).
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{user_uuid}}` (preferred — it names a PostHog member directly, with or without a GitHub account) or `{{github_login}}` (a bare lowercase login, no `@`), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
+{_MERGE_DUPLICATES_BULLET}
 {_EDIT_REPOSITORY_BULLET}
 - **Don't retry blindly.** `edit_report` is NOT idempotent. A retried `append_note` adds a second note. A retried `append_evidence` adds duplicate signals and increases the report counters again. If unsure whether an edit landed, re-read the report rather than re-sending."""
 
