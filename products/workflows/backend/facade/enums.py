@@ -79,6 +79,8 @@ class HogFlowOriginProduct(LabeledStrEnum):
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
+    # A code send key's workflow. Its content comes with each send, so it has nothing to show or edit in the workflow list.
+    TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
