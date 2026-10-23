@@ -25,6 +25,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
@@ -75,7 +76,7 @@ def run_citation_checks(
         }
         for done, future in enumerate(as_completed(futures), start=1):
             try:
-                prompt, fields_per_engine, failures = future.result()
+                result = future.result()
             except Exception as e:
                 # One prompt's unexpected engine error must not end a run that takes hours.
                 engine_failures += len(engines)
@@ -86,13 +87,13 @@ def run_citation_checks(
                     error=str(e)[:300],
                 )
                 continue
-            engine_failures += failures
-            checks.extend(fields_per_engine)
-            if record and fields_per_engine:
-                if _record_prompt_checks(team, canonical_team_id, run_id, prompt, fields_per_engine):
-                    rows_written += len(fields_per_engine)
+            engine_failures += result.failures
+            checks.extend(result.fields_per_engine)
+            if record and result.fields_per_engine:
+                if _record_prompt_checks(team, canonical_team_id, run_id, result.prompt, result.fields_per_engine):
+                    rows_written += len(result.fields_per_engine)
                 else:
-                    write_failures += len(fields_per_engine)
+                    write_failures += len(result.fields_per_engine)
             if done % 100 == 0:
                 logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
 
@@ -121,9 +122,18 @@ def run_citation_checks(
     return summary, checks
 
 
+@frozen
+class PromptCheckResult:
+    """One prompt's checks across every engine, before they are written."""
+
+    prompt: AEOPrompt
+    fields_per_engine: list[dict[str, Any]]
+    failures: int
+
+
 def _check_prompt(
     team: Team, run_id: str, engines: list[CitationEngine], target_domains: list[str], prompt: AEOPrompt
-) -> tuple[AEOPrompt, list[dict[str, Any]], int]:
+) -> PromptCheckResult:
     """Run one prompt on every engine. Runs in a worker thread, so it must not touch the database."""
     fields_per_engine: list[dict[str, Any]] = []
     failures = 0
@@ -164,7 +174,7 @@ def _check_prompt(
                 "prompt_topic": prompt.topic,
             }
         )
-    return prompt, fields_per_engine, failures
+    return PromptCheckResult(prompt=prompt, fields_per_engine=fields_per_engine, failures=failures)
 
 
 def _record_prompt_checks(
