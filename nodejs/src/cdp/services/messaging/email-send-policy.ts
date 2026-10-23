@@ -93,7 +93,7 @@ export class EmailSendPolicy {
         return {
             ok: false,
             code: 'recipient_suppressed',
-            detail: `Skipping send: recipient(s) on the suppression list — ${suppressed.join(', ')}`,
+            detail: `Recipient(s) on the suppression list: ${suppressed.join(', ')}`,
             why: `An earlier email to ${suppressed.join(', ')} bounced or was marked as spam, so PostHog no longer sends to it.`,
             fix: 'Send to another address, or remove the address from the suppression list once it can receive email again.',
         }
@@ -121,7 +121,7 @@ function sendingSuspended(cause: EmailSendingSuspensionCause): PolicyRejection {
             ok: false,
             code: 'sending_suspended',
             cause,
-            detail: `Skipping send: email sending is suspended for this project. ${CONTACT_SUPPORT}`,
+            detail: `Email sending is suspended for this project. ${CONTACT_SUPPORT}`,
             why: 'Email sending is suspended for this project.',
             fix: CONTACT_SUPPORT,
         }
@@ -130,7 +130,7 @@ function sendingSuspended(cause: EmailSendingSuspensionCause): PolicyRejection {
         ok: false,
         code: 'sending_suspended',
         cause,
-        detail: 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
+        detail: 'Our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
         why: 'Our email provider paused sending for this project.',
         fix: 'Check the Reputation tab to see what to fix.',
     }
@@ -151,7 +151,7 @@ function workflowPaused(metadata: HogFunctionType['metadata']): PolicyRejection 
         return {
             ok: false,
             code: 'template_paused',
-            detail: `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} ${CONTACT_SUPPORT}`,
+            detail: `PostHog staff paused email sending for this workflow.${pauseDetail} ${CONTACT_SUPPORT}`,
             why: `PostHog staff paused email sending for this email's workflow.${pauseDetail}`,
             fix: CONTACT_SUPPORT,
         }
@@ -160,7 +160,7 @@ function workflowPaused(metadata: HogFunctionType['metadata']): PolicyRejection 
     return {
         ok: false,
         code: 'template_paused',
-        detail: `Skipping send: email sending is paused for this workflow.${pauseDetail} ${fix}`,
+        detail: `Email sending is paused for this workflow.${pauseDetail} ${fix}`,
         why: `Email sending is paused for this email's workflow.${pauseDetail}`,
         fix,
     }

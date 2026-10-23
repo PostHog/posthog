@@ -37,13 +37,10 @@ describe('EmailSendPolicy', () => {
     })
 
     it.each([
-        [
-            'staff',
-            'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.',
-        ],
+        ['staff', 'Email sending is suspended for this project. Contact support to get sending re-enabled.'],
         [
             'provider',
-            'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
+            'Our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
         ],
     ] as const)('rejects a send while the team is suspended by %s', async (cause, detail) => {
         const decision = await policyWith({ suspension: cause }).check(candidate())
@@ -57,12 +54,12 @@ describe('EmailSendPolicy', () => {
         [
             'a pause for complaints',
             { email_sending_paused_reason: 'Spam complaints reached 2% of the 400 emails sent.' },
-            'Skipping send: email sending is paused for this workflow. Spam complaints reached 2% of the 400 emails sent. Resume it from the workflow page once the audience is cleaned up.',
+            'Email sending is paused for this workflow. Spam complaints reached 2% of the 400 emails sent. Resume it from the workflow page once the audience is cleaned up.',
         ],
         [
             'a staff pause',
             { email_sending_paused_reason: 'Paused by staff.', email_sending_paused_by: 'staff' },
-            'Skipping send: PostHog staff paused email sending for this workflow. Paused by staff. Contact support to get sending re-enabled.',
+            'PostHog staff paused email sending for this workflow. Paused by staff. Contact support to get sending re-enabled.',
         ],
     ])('rejects a send while its workflow has %s', async (_name, pause, detail) => {
         const decision = await policyWith().check(
@@ -112,7 +109,7 @@ describe('EmailSendPolicy', () => {
         expect(decision).toMatchObject({
             ok: false,
             code: 'recipient_suppressed',
-            detail: 'Skipping send: recipient(s) on the suppression list — cc@example.com, bcc@example.com',
+            detail: 'Recipient(s) on the suppression list: cc@example.com, bcc@example.com',
         })
     })
 

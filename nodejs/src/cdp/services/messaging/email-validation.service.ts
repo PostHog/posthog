@@ -109,7 +109,9 @@ export class EmailValidationService {
             return null
         }
         const undeliverable = await this.findUndeliverable(rawEmail, invocation.teamId)
-        return undeliverable ? this.skip(invocation.teamId, undeliverable.reason, undeliverable.message) : null
+        return undeliverable
+            ? this.skip(invocation.teamId, undeliverable.reason, `Skipping send: ${undeliverable.message}`)
+            : null
     }
 
     /** Why the address can never receive email, or null when it may. */
@@ -121,7 +123,7 @@ export class EmailValidationService {
             return {
                 reason: 'invalid_syntax',
                 address: email,
-                message: `Skipping send: "${email}" is not a valid email address, so it would hard bounce.`,
+                message: `"${email}" is not a valid email address, so it would hard bounce.`,
             }
         }
 
@@ -142,7 +144,7 @@ export class EmailValidationService {
                 reason: 'invalid_domain',
                 address: email,
                 domain,
-                message: `Skipping send: the domain "${domain}" has no reachable mail servers, so this message would hard bounce.`,
+                message: `The domain "${domain}" has no reachable mail servers, so this message would hard bounce.`,
             }
         }
         return null

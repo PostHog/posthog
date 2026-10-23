@@ -2440,7 +2440,7 @@ describe('CDP API', () => {
                 expect(res.body).toEqual({
                     error: code,
                     code,
-                    detail: expect.any(String),
+                    detail: expect.not.stringMatching(/^Skipping send/),
                     why: expect.stringContaining(why),
                     fix: expect.any(String),
                 })

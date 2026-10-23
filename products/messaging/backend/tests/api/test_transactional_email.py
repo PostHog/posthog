@@ -481,8 +481,14 @@ class TestTransactionalEmail(APIBaseTest):
                     "url_id",
                     400,
                     code,
-                    {"error": code, "code": code, "detail": "Skipping send.", "why": f"Why {code}.", "fix": "Fix it."},
-                    "Skipping send.",
+                    {
+                        "error": code,
+                        "code": code,
+                        "detail": "Refused by a send check.",
+                        "why": f"Why {code}.",
+                        "fix": "Fix it.",
+                    },
+                    "Refused by a send check.",
                 )
                 for code in (
                     "invalid_recipient",

@@ -1220,7 +1220,9 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
-                expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
+                expect(result.logs.map((l) => l.message)).toContain(
+                    'Skipping send: Email sending is paused for this workflow. Spam complaints reached 2% of the 400 emails sent. Resume it from the workflow page once the audience is cleaned up.'
+                )
                 // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
                 expect(result.skipped).toBe(true)
             })
