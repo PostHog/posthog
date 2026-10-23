@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "fields": {
+            "description": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
+            "items": {
+                "enum": [
+                    "sending_allowance",
+                    "reputation",
+                    "workflows",
+                    "aws",
+                    "isps",
+                    "isp_shared_domains",
+                    "isp_withheld_domains",
+                    "email_sending_suspended",
+                    "email_sending_suspended_at",
+                    "email_sending_suspension_reason"
+                ],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "search": {
+            "description": "Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
