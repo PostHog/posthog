@@ -62,3 +62,13 @@ test('reclaims the oldest released query first, and never one a node still uses'
     expect(getInflightResponse('in use')).toBe(inUse)
     expect(getInflightResponse('older')).toBeNull()
 })
+
+test('retains large results until the total size budget is reached', () => {
+    const large = (index: number): { results: string[] } => ({ results: [String(index).repeat(9_000_000)] })
+    for (let index = 0; index < 6; index++) {
+        retainResponse(String(index), large(index))
+    }
+    expect(getRetainedResponse('0')).toBeNull()
+    expect(getRetainedResponse('1')).toEqual(large(1))
+    expect(getRetainedResponse('5')).toEqual(large(5))
+})
