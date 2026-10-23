@@ -1,5 +1,7 @@
 import type {
     AEOPromptApi,
+    AEOPromptCheckApi,
+    AEOPromptStatsApi,
     AEOPromptTopicApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalApi,
@@ -291,3 +293,112 @@ export const EXAMPLE_PROMPT_TOPICS: AEOPromptTopicApi[] = [
     { topic: 'Product analytics', prompts: 2 },
     { topic: 'Session replay', prompts: 1 },
 ]
+
+const EXAMPLE_CHECK: AEOPromptCheckApi = {
+    id: '00000000-0000-4000-8000-000000000401',
+    run_id: '00000000-0000-4000-8000-000000000501',
+    engine: 'claude-web-search',
+    model: 'example-model-large',
+    created_at: '2026-09-29T09:00:00Z',
+    cited: true,
+    check_failed: false,
+    error: null,
+    cited_urls: [
+        'https://analytics-review.example.com/best-open-source-tools',
+        'https://example.com/docs/product-analytics',
+        'https://community.example.org/threads/startup-analytics',
+    ],
+    target_urls: ['https://example.com/docs/product-analytics'],
+    target_best_position: 2,
+    top_cited_domains: ['analytics-review.example.com', 'example.com', 'community.example.org'],
+    search_queries: ['best open source product analytics', 'self-hosted product analytics for startups'],
+    answer_text:
+        'For a small startup, a few open source product analytics tools stand out.\n\n' +
+        '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
+        '2. A self-hosted option if you need to keep data on your own servers.\n\n' +
+        'Pick the one that matches how much infrastructure you want to run.',
+}
+
+export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
+    EXAMPLE_CHECK,
+    {
+        ...EXAMPLE_CHECK,
+        id: '00000000-0000-4000-8000-000000000402',
+        engine: 'openai-web-search',
+        cited: false,
+        cited_urls: ['https://analytics-review.example.com/best-open-source-tools'],
+        target_urls: [],
+        target_best_position: null,
+        top_cited_domains: ['analytics-review.example.com'],
+        search_queries: ['open source product analytics startup'],
+        answer_text: 'Most startups begin with a hosted tool.\nCompare pricing tiers before you commit.',
+    },
+    {
+        ...EXAMPLE_CHECK,
+        id: '00000000-0000-4000-8000-000000000403',
+        engine: 'exa-answer',
+        created_at: '2026-09-28T09:00:00Z',
+        cited: false,
+        check_failed: true,
+        error: 'The engine timed out.',
+        cited_urls: [],
+        target_urls: [],
+        target_best_position: null,
+        top_cited_domains: [],
+        search_queries: [],
+        answer_text: null,
+    },
+]
+
+const EXAMPLE_ENGINE_DAYS: Record<string, ('cited' | 'not_cited' | 'failed' | null)[]> = {
+    'claude-web-search': ['cited', 'cited', null, 'not_cited', 'cited', 'cited', 'cited', 'failed', 'cited', 'cited'],
+    'openai-web-search': [
+        'not_cited',
+        'not_cited',
+        null,
+        'cited',
+        'not_cited',
+        'not_cited',
+        null,
+        'not_cited',
+        'cited',
+        'not_cited',
+    ],
+    'exa-answer': ['cited', 'failed', null, 'cited', 'cited', 'not_cited', 'cited', 'cited', 'failed', 'cited'],
+}
+
+const EXAMPLE_PROMPT_DAILY: AEOPromptStatsApi['daily'] = Object.entries(EXAMPLE_ENGINE_DAYS).flatMap(
+    ([engine, pattern]) =>
+        Array.from({ length: 29 }, (_, index) => ({ index, status: pattern[index % pattern.length] }))
+            .filter(({ status }) => status !== null)
+            .map(({ index, status }) => ({
+                date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+                engine,
+                checks: 1,
+                cited: status === 'cited' ? 1 : 0,
+                failed: status === 'failed' ? 1 : 0,
+            }))
+)
+
+const exampleEngineStats = (engine: string): AEOPromptStatsApi['engines'][number] => {
+    const days = EXAMPLE_PROMPT_DAILY.filter((row) => row.engine === engine)
+    const sum = (key: 'checks' | 'cited' | 'failed'): number => days.reduce((total, row) => total + row[key], 0)
+    const answered = sum('checks') - sum('failed')
+    return {
+        engine,
+        checks: sum('checks'),
+        cited: sum('cited'),
+        failed: sum('failed'),
+        citation_rate: answered ? sum('cited') / answered : null,
+        first_checked_at: `${days[0].date}T09:00:00Z`,
+        last_checked_at: `${days[days.length - 1].date}T09:00:00Z`,
+    }
+}
+
+export const EXAMPLE_PROMPT_STATS: AEOPromptStatsApi = {
+    total_checks: EXAMPLE_PROMPT_DAILY.length,
+    daily_from: '2026-09-01',
+    daily_to: '2026-09-30',
+    engines: Object.keys(EXAMPLE_ENGINE_DAYS).map(exampleEngineStats),
+    daily: EXAMPLE_PROMPT_DAILY,
+}

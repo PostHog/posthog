@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -61,6 +61,45 @@ export const AeoPromptsPartialUpdateParams = () => zod.object({
 
 export const AeoPromptsPartialUpdateBody = () => zod.object({
     active: zod.boolean().optional().describe('Turn the prompt on or off for future runs.'),
+})
+
+/**
+ * Lists every check of one prompt, newest first, one page at a time. Each check has the engine's answer, the URLs it cited and the searches it ran.
+ * @summary List an AEO prompt's checks
+ */
+export const AeoPromptsChecksParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsChecksQueryEngineMax = 64
+
+export const AeoPromptsChecksQueryParams = () => zod.object({
+    engine: zod
+        .string()
+        .min(1)
+        .max(aeoPromptsChecksQueryEngineMax)
+        .optional()
+        .describe("Only list checks from this answer engine, for example 'claude-web-search'."),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Gets citation totals per answer engine for one prompt, plus per-day counts for the last 30 days in the project's timezone.
+ * @summary Get an AEO prompt's citation stats
+ */
+export const AeoPromptsStatsParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**

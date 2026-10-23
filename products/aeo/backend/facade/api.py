@@ -9,9 +9,13 @@ from __future__ import annotations
 import uuid
 import datetime as dt
 from collections import defaultdict
+from typing import Any
+from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ValidationError
-from django.db.models import Count
+from django.db.models import Count, Max, Min, Q
+from django.db.models.functions import TruncDate
+from django.utils import timezone
 
 from posthog.models.team import Team
 
@@ -20,10 +24,14 @@ from products.aeo.backend.facade.contracts import (
     CitationGap,
     CitationRunSummary,
     Prompt,
+    PromptCheck,
+    PromptDailyEngineStats,
     PromptEngineCheck,
+    PromptEngineStats,
     PromptImport,
     PromptImportResult,
     PromptNotFoundError,
+    PromptStats,
     PromptTopic,
 )
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
@@ -74,6 +82,67 @@ def set_prompt_active(team_id: int, prompt_id: str, active: bool) -> Prompt:
     return _with_latest_checks(team_id, prompt)
 
 
+def list_prompt_checks(
+    team_id: int, prompt_id: str, *, limit: int, offset: int, engine: str | None = None
+) -> tuple[list[PromptCheck], int]:
+    """One page of a prompt's check history, newest first, and the total count."""
+    prompt = _get_prompt_row(team_id, prompt_id)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
+    if engine is not None:
+        checks = checks.filter(engine=engine)
+    page = checks.order_by("-created_at", "-id").values(*_CHECK_FIELDS)[offset : offset + limit]
+    return [_to_prompt_check(row) for row in page], checks.count()
+
+
+def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: int) -> PromptStats:
+    """Totals per engine over the prompt's whole history, plus per-day counts for the last `days` days
+    in the team's timezone."""
+    prompt = _get_prompt_row(team_id, prompt_id)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
+    counts = {
+        "checks": Count("id"),
+        "cited": Count("id", filter=Q(cited=True)),
+        "failed": Count("id", filter=Q(check_failed=True)),
+    }
+
+    engines = tuple(
+        PromptEngineStats(
+            engine=row["engine"],
+            checks=row["checks"],
+            cited=row["cited"],
+            failed=row["failed"],
+            first_checked_at=row["first_checked_at"],
+            last_checked_at=row["last_checked_at"],
+        )
+        for row in checks.values("engine")
+        .annotate(**counts, first_checked_at=Min("created_at"), last_checked_at=Max("created_at"))
+        .order_by("engine")
+    )
+
+    tz = ZoneInfo(timezone_name)
+    daily_to = timezone.now().astimezone(tz).date()
+    daily_from = daily_to - dt.timedelta(days=days - 1)
+    window_start = dt.datetime.combine(daily_from, dt.time.min, tzinfo=tz)
+    daily = tuple(
+        PromptDailyEngineStats(
+            date=row["date"], engine=row["engine"], checks=row["checks"], cited=row["cited"], failed=row["failed"]
+        )
+        for row in checks.filter(created_at__gte=window_start)
+        .annotate(date=TruncDate("created_at", tzinfo=tz))
+        .values("date", "engine")
+        .annotate(**counts)
+        .order_by("date", "engine")
+    )
+
+    return PromptStats(
+        total_checks=sum(engine.checks for engine in engines),
+        engines=engines,
+        daily_from=daily_from,
+        daily_to=daily_to,
+        daily=daily,
+    )
+
+
 def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportResult:
     """Add prompts to the team's set, or update the topic and evidence of
     prompts that already exist. Existing prompts keep their active state."""
@@ -97,6 +166,47 @@ def _get_prompt_row(team_id: int, prompt_id: str) -> AEOPrompt:
         return AEOPrompt.objects.for_team(team_id).get(id=prompt_id)
     except (AEOPrompt.DoesNotExist, ValueError, ValidationError) as error:
         raise PromptNotFoundError(prompt_id) from error
+
+
+_CHECK_FIELDS = (
+    "id",
+    "run_id",
+    "engine",
+    "model",
+    "created_at",
+    "cited",
+    "check_failed",
+    "error",
+    "cited_urls",
+    "target_urls",
+    "target_best_position",
+    "top_cited_domains",
+    "search_queries",
+    "answer_text",
+)
+
+
+def _strings(value: Any) -> tuple[str, ...]:
+    return tuple(str(item) for item in value) if isinstance(value, list) else ()
+
+
+def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
+    return PromptCheck(
+        id=str(row["id"]),
+        run_id=str(row["run_id"]),
+        engine=row["engine"],
+        model=row["model"],
+        created_at=row["created_at"],
+        cited=row["cited"],
+        check_failed=row["check_failed"],
+        error=row["error"],
+        cited_urls=_strings(row["cited_urls"]),
+        target_urls=_strings(row["target_urls"]),
+        target_best_position=row["target_best_position"],
+        top_cited_domains=_strings(row["top_cited_domains"]),
+        search_queries=_strings(row["search_queries"]),
+        answer_text=row["answer_text"],
+    )
 
 
 def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[PromptEngineCheck, ...]]:

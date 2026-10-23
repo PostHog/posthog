@@ -19,12 +19,15 @@ import {
     type ContentAutopilotWorkspaceTab,
     contentAutopilotLogic,
 } from './contentAutopilotLogic'
+import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
     EXAMPLE_FAILED_PROPOSAL_LIST,
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
+    EXAMPLE_PROMPT_CHECKS,
+    EXAMPLE_PROMPT_STATS,
     EXAMPLE_PROMPT_TOPICS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROPOSAL,
@@ -73,6 +76,18 @@ const workspaceHandlers = ({
                 { count: prompts.length, next: null, previous: null, results: prompts },
             ],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, prompts.length ? EXAMPLE_PROMPT_TOPICS : []],
+            '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
+            '/api/projects/:team_id/aeo_prompts/:id/checks/': ({ request }) => {
+                const engine = new URL(request.url).searchParams.get('engine')
+                const checks = engine
+                    ? EXAMPLE_PROMPT_CHECKS.filter((check) => check.engine === engine)
+                    : EXAMPLE_PROMPT_CHECKS
+                return [200, { count: checks.length, next: null, previous: null, results: checks }]
+            },
+            '/api/projects/:team_id/aeo_prompts/:id/': ({ params }) => [
+                200,
+                prompts.find((prompt) => prompt.id === params.id) ?? prompts[0],
+            ],
         },
         post: {
             '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/refresh/': () => [200, opportunities],
@@ -247,3 +262,23 @@ PromptsTab.decorators = [
         prompts: EXAMPLE_PROMPTS,
     }),
 ]
+
+const PromptDetailStory = (): JSX.Element => {
+    const { profileDataLoaded } = useValues(contentAutopilotLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
+    useEffect(() => {
+        if (profileDataLoaded) {
+            setWorkspaceTab('prompts')
+            openPromptDetail(EXAMPLE_PROMPTS[0].id)
+        }
+    }, [profileDataLoaded, setWorkspaceTab, openPromptDetail])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const PromptDetail: StoryFn<typeof ContentAutopilot> = () => <PromptDetailStory />
+PromptDetail.decorators = PromptsTab.decorators
