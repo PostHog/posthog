@@ -235,6 +235,14 @@ export const uptimeMonitoringSceneLogic = kea<uptimeMonitoringSceneLogicType>([
             actions.closeCreateModal()
             lemonToast.success('Monitor created')
         },
+        setNewMonitorValue: ({ name }) => {
+            // kea-forms clears a server error only on blur, which would block a retry with Enter.
+            const field = String(Array.isArray(name) ? name[0] : name)
+            if (field in values.newMonitorManualErrors) {
+                const { [field]: _, ...rest } = values.newMonitorManualErrors
+                actions.setNewMonitorManualErrors(rest)
+            }
+        },
         submitNewMonitorFailure: ({ error }) => {
             // Client-side validation also lands here, and the form already shows those errors on the fields.
             if (!(error instanceof ApiError)) {

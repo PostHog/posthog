@@ -98,8 +98,8 @@ describe('uptimeMonitoringSceneLogic', () => {
         expect(logic.values.monitors?.map((m) => m.id)).toEqual([created.id, EXISTING.id])
     })
 
-    it('shows a server validation error on its field and keeps the modal open', async () => {
-        createSpy.mockRejectedValue(
+    it('shows a server validation error on its field, keeps the modal open and lets a fixed value retry', async () => {
+        createSpy.mockRejectedValueOnce(
             new ApiError('Bad request', 400, undefined, { attr: 'url', detail: 'Enter a valid URL.' })
         )
         const logic = uptimeMonitoringSceneLogic()
@@ -109,6 +109,11 @@ describe('uptimeMonitoringSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.submitNewMonitor()).toFinishAllListeners()
         expect(logic.values.newMonitorManualErrors).toEqual({ url: 'Enter a valid URL.' })
         expect(logic.values.isCreateModalOpen).toBe(true)
+
+        createSpy.mockResolvedValueOnce({ ...EXISTING, url: 'https://intranet.example.com' })
+        logic.actions.setNewMonitorValue('url', 'https://intranet.example.com')
+        await expectLogic(logic, () => logic.actions.submitNewMonitor()).toFinishAllListeners()
+        expect(createSpy).toHaveBeenCalledTimes(2)
     })
 
     it('refuses a URL without an http scheme', async () => {
