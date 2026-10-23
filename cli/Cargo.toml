@@ -77,7 +77,7 @@ similar = "2.7"
 open = "5"
 zip = { version = "2.2", default-features = false, features = ["deflate", "deflate-zlib"] }
 tempfile = "3"
-symbolic = { version = "12.12", features = ["debuginfo", "symcache"] }
+symbolic = { version = "12.12", features = ["debuginfo", "demangle", "symcache"] }
 plist = "1"
 
 [target.'cfg(unix)'.dependencies]

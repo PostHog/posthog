@@ -11,9 +11,11 @@ use clap::Args;
 use posthog_symbol_data::{
     read_symbol_data, AppleDsym, ElfDebugInfo, HermesMap, ProguardMapping, SourceAndMap,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use symbolic::{
     debuginfo::Archive,
+    demangle::{Demangle, DemangleOptions},
     symcache::{SymCache, SymCacheConverter},
 };
 
@@ -62,41 +64,84 @@ fn frame_ref<'a>(frame: &'a Value, platform: &str, image: Option<&'a Value>) -> 
     }
 }
 
-fn verify_map(map: &str, frame: &Value, hermes: bool) -> Result<Value> {
-    let decoded = sourcemap::decode_slice(map.as_bytes()).context("invalid source map")?;
-    if hermes && !matches!(decoded, sourcemap::DecodedMap::Hermes(_)) {
-        // Hermes maps without Metro scope data decode as regular maps. They must still
-        // carry the Hermes bytecode-offset marker, as Cymbal's parser requires.
-        let metadata: Value = serde_json::from_str(map).context("invalid Hermes metadata")?;
-        if metadata.get("x_hermes_function_offsets").is_none() {
-            bail!("map has no Hermes bytecode offsets");
-        }
-    }
-    let line = if hermes {
-        0
-    } else {
-        frame
-            .get("lineno")
-            .and_then(Value::as_u64)
-            .context("missing lineno")?
-            .checked_sub(1)
-            .context("lineno must be >= 1")?
-            .try_into()
-            .context("lineno is out of range")?
-    };
-    // Cymbal uses the SDK's column directly; only the line is 1-based.
-    let col: u32 = frame
+fn generated_column(frame: &Value) -> Result<u32> {
+    frame
         .get("colno")
         .and_then(Value::as_u64)
         .context("missing colno")?
         .try_into()
-        .context("colno is out of range")?;
+        .context("colno is out of range")
+}
+
+fn verify_js_map(map: &str, minified_source: &str, frame: &Value) -> Result<Value> {
+    let line = frame
+        .get("lineno")
+        .and_then(Value::as_u64)
+        .context("missing lineno")?
+        .checked_sub(1)
+        .context("lineno must be >= 1")?
+        .try_into()
+        .context("lineno is out of range")?;
+    let column = generated_column(frame)?;
+    let decoded = sourcemap::decode_slice(map.as_bytes()).context("invalid source map")?;
     let token = decoded
-        .lookup_token(line, col)
+        .lookup_token(line, column)
         .context("no mapping for frame location")?;
     let source = token.get_source().context("mapping has no source")?;
+    let source_view = sourcemap::SourceView::new(minified_source.into());
+    // A token name can be a local variable rather than the enclosing function.
+    let function = frame
+        .get("function")
+        .and_then(Value::as_str)
+        .and_then(|name| {
+            decoded.get_original_function_name(line, column, Some(name), Some(&source_view))
+        });
     Ok(json!({"source": source, "line": token.get_src_line() + 1,
-        "column": token.get_src_col(), "function": token.get_name(),
+        "column": token.get_src_col(), "function": function,
+        "hasContent": token.get_source_view().is_some()}))
+}
+
+#[derive(Deserialize)]
+struct HermesMapMetadata {
+    #[serde(default, deserialize_with = "marker_present")]
+    x_hermes_function_offsets: bool,
+}
+
+fn marker_present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    serde::de::IgnoredAny::deserialize(deserializer)?;
+    Ok(true)
+}
+
+fn has_hermes_function_offsets(map: &str) -> Result<bool> {
+    let map = match map.as_bytes().first() {
+        Some(b')' | b']' | b'}' | b'\'') => {
+            map.split_once('\n').map(|(_, map)| map).unwrap_or_default()
+        }
+        _ => map,
+    };
+    let metadata: HermesMapMetadata =
+        serde_json::from_str(map).context("invalid Hermes metadata")?;
+    Ok(metadata.x_hermes_function_offsets)
+}
+
+fn verify_hermes_map(map: &str, frame: &Value) -> Result<Value> {
+    let decoded = sourcemap::decode_slice(map.as_bytes()).context("invalid Hermes source map")?;
+    match &decoded {
+        sourcemap::DecodedMap::Hermes(_) => {}
+        sourcemap::DecodedMap::Regular(_) if has_hermes_function_offsets(map)? => {}
+        _ => bail!("map has no Hermes bytecode offsets"),
+    }
+    let column = generated_column(frame)?;
+    let token = decoded
+        .lookup_token(0, column)
+        .context("no mapping for frame location")?;
+    let source = token.get_source().context("mapping has no source")?;
+    let function = match &decoded {
+        sourcemap::DecodedMap::Hermes(map) => map.get_original_function_name(column),
+        _ => None,
+    };
+    Ok(json!({"source": source, "line": token.get_src_line() + 1,
+        "column": token.get_src_col(), "function": function,
         "hasContent": token.get_source_view().is_some()}))
 }
 
@@ -130,6 +175,15 @@ fn verify_proguard(map: &str, frame: &Value) -> Result<Value> {
     Ok(json!({"frames": frames}))
 }
 
+fn display_name(name: symbolic::common::Name<'_>) -> String {
+    name.demangle(DemangleOptions::name_only())
+        .unwrap_or_else(|| name.to_string())
+}
+
+fn lookup_address(offset: u64) -> u64 {
+    offset.saturating_sub(1)
+}
+
 fn hex(value: &str) -> Result<u64> {
     u64::from_str_radix(value.trim_start_matches("0x").trim_start_matches("0X"), 16)
         .with_context(|| format!("invalid address: {value}"))
@@ -140,7 +194,6 @@ fn verify_native(
     frame: &Value,
     image: &Value,
     expected_id: &str,
-    apple: bool,
 ) -> Result<Value> {
     let mut zip =
         zip::ZipArchive::new(Cursor::new(zip_data)).context("invalid symbol bundle ZIP")?;
@@ -186,18 +239,14 @@ fn verify_native(
     let offset = instruction
         .checked_sub(base)
         .context("instruction is before image base")?;
-    // Apple exception frames are return addresses; Cymbal subtracts one for the call site.
-    let lookup = if apple {
-        offset.saturating_sub(1)
-    } else {
-        offset
-    };
+    // Both Apple and native return addresses point after the call site.
+    let lookup = lookup_address(offset);
     let frames: Vec<_> = cache
         .lookup(lookup)
         .map(|f| {
             json!({
                 "source": f.file().map(|file| file.full_path()), "line": f.line(),
-                "function": f.function().name_for_demangling().to_string()
+                "function": display_name(f.function().name_for_demangling())
             })
         })
         .collect();
@@ -286,12 +335,12 @@ fn resolve_frames(args: &ResolveArgs) -> Result<Value> {
         "node:javascript" | "web:javascript" => {
             let parsed: SourceAndMap =
                 read_symbol_data(&data).context("expected a source-and-map symbol set")?;
-            verify_map(&parsed.sourcemap, &frame, false)?
+            verify_js_map(&parsed.sourcemap, &parsed.minified_source, &frame)?
         }
         "hermes" => {
             let parsed: HermesMap =
                 read_symbol_data(&data).context("expected a Hermes symbol set")?;
-            verify_map(&parsed.sourcemap, &frame, true)?
+            verify_hermes_map(&parsed.sourcemap, &frame)?
         }
         "java" => {
             let parsed: ProguardMapping =
@@ -303,11 +352,11 @@ fn resolve_frames(args: &ResolveArgs) -> Result<Value> {
             if platform == "apple" {
                 let parsed: AppleDsym =
                     read_symbol_data(&data).context("expected a dSYM symbol set")?;
-                verify_native(&parsed.data, &frame, image, selected, true)?
+                verify_native(&parsed.data, &frame, image, selected)?
             } else {
                 let parsed: ElfDebugInfo =
                     read_symbol_data(&data).context("expected an ELF symbol set")?;
-                verify_native(&parsed.data, &frame, image, selected, false)?
+                verify_native(&parsed.data, &frame, image, selected)?
             }
         }
         _ => bail!("unsupported platform: {platform}"),
@@ -494,26 +543,87 @@ mod tests {
             frame_ref(&frame, "node:javascript", None).unwrap(),
             "chunk-1"
         );
-        let result = verify_map(&parsed.sourcemap, &frame, false).unwrap();
+        let result = verify_js_map(&parsed.sourcemap, &parsed.minified_source, &frame).unwrap();
         assert_eq!(result["source"], "src/boom.js");
         assert_eq!(result["line"], 1);
-        assert!(verify_map(&parsed.sourcemap, &json!({"lineno":0,"colno":0}), false).is_err());
+        assert!(verify_js_map(
+            &parsed.sourcemap,
+            &parsed.minified_source,
+            &json!({"lineno":0,"colno":0})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn js_function_name_comes_from_enclosing_scope_not_variable_token() {
+        let minified = "function a(){return b;}";
+        for token_name in [Some("localVariable"), None] {
+            let mut builder = sourcemap::SourceMapBuilder::new(Some("bundle.js"));
+            builder.add(0, 0, 0, 0, Some("src/app.js"), Some("function"), false);
+            builder.add(
+                0,
+                9,
+                0,
+                9,
+                Some("src/app.js"),
+                Some("originalFunction"),
+                false,
+            );
+            builder.add(0, 20, 0, 25, Some("src/app.js"), token_name, false);
+            let mut bytes = Vec::new();
+            builder.into_sourcemap().to_writer(&mut bytes).unwrap();
+            let map = String::from_utf8(bytes).unwrap();
+            let frame = json!({"lineno":1,"colno":20,"function":"a"});
+            let result = verify_js_map(&map, minified, &frame).unwrap();
+            assert_eq!(
+                result["function"], "originalFunction",
+                "token name: {token_name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn hermes_scope_name_is_not_the_token_name() {
+        let map = r#"{"version":3,"sources":["src/app.js"],"names":["localVariable"],"mappings":"AAAAA","x_facebook_sources":[[{"names":["originalFunction"],"mappings":"AAA"}]]}"#;
+        let frame = json!({"colno":0});
+        assert_eq!(
+            verify_hermes_map(map, &frame).unwrap()["function"],
+            "originalFunction"
+        );
     }
 
     #[test]
     fn hermes_map_requires_bytecode_offset_marker() {
         let map = r#"{"version":3,"sources":["src/app.js"],"names":[],"mappings":"AAAA","x_hermes_function_offsets":{}}"#;
         let frame = json!({"platform":"hermes","chunkId":"chunk-1","colno":0});
-        assert_eq!(
-            verify_map(map, &frame, true).unwrap()["source"],
-            "src/app.js"
-        );
-        assert!(verify_map(
+        let result = verify_hermes_map(map, &frame).unwrap();
+        assert_eq!(result["source"], "src/app.js");
+        assert!(result["function"].is_null());
+        assert!(has_hermes_function_offsets(map).unwrap());
+        assert!(has_hermes_function_offsets(&format!(")]}}'\n{map}")).unwrap());
+        assert!(!has_hermes_function_offsets(
+            r#"{"version":3,"sourcesContent":["large payload"]}"#
+        )
+        .unwrap());
+        assert!(verify_hermes_map(
             r#"{"version":3,"sources":["src/app.js"],"names":[],"mappings":"AAAA"}"#,
             &frame,
-            true
         )
         .is_err());
+    }
+
+    #[test]
+    fn native_return_address_and_function_name_match_cymbal() {
+        assert_eq!(lookup_address(0), 0);
+        assert_eq!(lookup_address(0x101), 0x100);
+        assert_eq!(
+            display_name(symbolic::common::Name::from("_ZN3foo3barEv")),
+            "foo::bar"
+        );
+        assert_eq!(
+            display_name(symbolic::common::Name::from("plain_function")),
+            "plain_function"
+        );
     }
 
     #[test]
