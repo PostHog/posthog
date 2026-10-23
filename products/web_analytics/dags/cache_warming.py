@@ -157,12 +157,20 @@ _INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s i
 # kept — those are the reads warming is meant to keep fast.
 EXCLUDED_REQUEST_KIND = "temporal"
 
-# The only request kind counted as demand on the query_log_archive path. The
-# archive has no `trigger` column, so it can't exclude background replays by
-# trigger. They carry a different kind instead: the warmer's own replays run
-# from Dagster with no kind, stale revalidation and warmingV2 run as celery, and
-# batch workflows run as temporal. UI and personal-API-key reads are `request`.
+# What counts as demand on the query_log_archive path. The archive has no
+# `trigger` column, so it can't exclude background replays by trigger. They are
+# told apart by kind and task id instead: the warmer's own replays run from
+# Dagster with no kind, stale revalidation and warmingV2 run as celery under
+# their own task names, and batch workflows run as temporal. UI and
+# personal-API-key reads are `request`. A UI read that executes asynchronously
+# (a dashboard tile, a scene's async load) is also user demand, but the celery
+# prerun tags it kind=celery/id=<task name> and process_query_task lets those
+# tags win over the inherited request tags, so in the archive it is a celery
+# row whose id is the async query task. Keep this in step with
+# _fetch_active_wa_team_ids in eager_web_analytics_precompute.py.
 DEMAND_REQUEST_KIND = "request"
+ASYNC_QUERY_TASK_KIND = "celery"
+ASYNC_QUERY_TASK_ID = "posthog.tasks.tasks.process_query_task"
 
 # Read-bytes ceiling for the demand-selection scan. The 14-day fleet-wide
 # system.query_log scan (the preset-lane path) reads ~40 TiB, over the default
@@ -173,7 +181,8 @@ _SELECTION_MAX_BYTES_TO_READ = 150 * 1024**4
 
 # Demand-selection source fragments. Both sources yield the same row columns
 # (team_id, query_json_raw, web_query_kind, query_type, request_kind, feature,
-# request_id), so one aggregation serves both.
+# request_id) plus the columns its own demand filter reads, so one aggregation
+# serves both.
 #
 # query_log_archive holds one row per query chain, with the log_comment tags in
 # typed lc_* columns. Its sort key starts with the chain's start hour, so the
@@ -194,6 +203,7 @@ _ARCHIVE_ROW_COLUMNS = """
                 JSONExtractString(lc_query, 'kind') AS web_query_kind,
                 lc_query_type AS query_type,
                 lc_kind AS request_kind,
+                lc_id AS request_task_id,
                 lc_feature AS feature,
                 initial_query_id AS request_id"""
 _ARCHIVE_SOURCE = f"""
@@ -204,7 +214,10 @@ _ARCHIVE_SOURCE = f"""
                 AND is_initial_query
                 AND type = 'QueryFinish'
                 AND query_kind = 'Select'"""
-_ARCHIVE_DEMAND_FILTER = "request_kind = %(demand_request_kind)s"
+_ARCHIVE_DEMAND_FILTER = """(
+                request_kind = %(demand_request_kind)s
+                OR (request_kind = %(async_query_task_kind)s AND request_task_id = %(async_query_task_id)s)
+            )"""
 
 # system.query_log keeps the preset_id tag the archive drops, so the preset lane
 # still reads it. Dagster connects to offline nodes, while the user traffic to
@@ -682,7 +695,7 @@ def queries_to_keep_fresh(
     # upstream, so this heavy scan happens on the cache TTL cadence, not every run.
     #
     # Each source excludes background replays its own way (see
-    # DEMAND_REQUEST_KIND and _QUERY_LOG_DEMAND_FILTER). LIKE literals
+    # _ARCHIVE_DEMAND_FILTER and _QUERY_LOG_DEMAND_FILTER). LIKE literals
     # are %%-escaped because clickhouse_driver %-formats the query when params are
     # passed.
     # The preset lane's SQL is spliced in rather than always present, so with the lane off
@@ -825,6 +838,8 @@ def queries_to_keep_fresh(
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
             "excluded_request_kind": EXCLUDED_REQUEST_KIND,
             "demand_request_kind": DEMAND_REQUEST_KIND,
+            "async_query_task_kind": ASYNC_QUERY_TASK_KIND,
+            "async_query_task_id": ASYNC_QUERY_TASK_ID,
         },
         settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )

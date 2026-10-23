@@ -593,11 +593,16 @@ class TestFleetQuerySelection(BaseTest):
 
 
 class TestFleetQuerySelectionFromArchive(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute(f"TRUNCATE TABLE {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}")
+
     def _insert_chain(
         self,
         chain_id: str,
         query: dict,
         lc_kind: str = "request",
+        lc_id: str = "",
         status: str = "QueryFinish",
         query_type: str = "web_overview_query",
     ) -> None:
@@ -605,33 +610,56 @@ class TestFleetQuerySelectionFromArchive(ClickhouseTestMixin, BaseTest):
             f"""
             INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
                 (initial_query_start_time, team_id, initial_query_id, is_initial_query, type,
-                 query_kind_by_root, lc_kind, lc_feature, lc_query_type, lc_query__kind, lc_query)
+                 query_kind_by_root, lc_kind, lc_id, lc_feature, lc_query_type, lc_query__kind, lc_query)
             VALUES (now64(6), %(team_id)s, %(chain_id)s, 1, %(status)s,
-                    (1, 'Select'), %(lc_kind)s, 'query', %(query_type)s, %(kind)s, %(lc_query)s)
+                    (1, 'Select'), %(lc_kind)s, %(lc_id)s, 'query', %(query_type)s, %(kind)s, %(lc_query)s)
             """,
             {
                 "team_id": self.team.pk,
                 "chain_id": chain_id,
                 "status": status,
                 "lc_kind": lc_kind,
+                "lc_id": lc_id,
                 "query_type": query_type,
                 "kind": query["kind"],
                 "lc_query": json.dumps(query),
             },
         )
 
-    def test_counts_user_requests_and_ignores_background_replays(self) -> None:
+    # The archive has no trigger tag, so background replays are told apart from user
+    # reads by kind and celery task id. Any of them leaking in keeps a shape hot forever.
+    @parameterized.expand(
+        [
+            ("dagster_warmer_without_kind", "", ""),
+            (
+                "stale_revalidation_task",
+                "celery",
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute",
+            ),
+            ("insight_cache_warmer_task", "celery", "posthog.caching.warming.warm_insight_cache_task"),
+            ("temporal_workflow", "temporal", ""),
+        ]
+    )
+    def test_counts_user_reads_and_ignores_background_replays(
+        self, _name: str, background_kind: str, background_task_id: str
+    ) -> None:
         user_shape = {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}, "properties": []}
         background_shape = {"kind": "WebStatsTableQuery", "breakdownBy": "Page", "dateRange": {"date_from": "-7d"}}
-        self._insert_chain("user-1", user_shape)
-        self._insert_chain("user-2", {**user_shape, "dateRange": {"date_from": "-30d"}})
+        self._insert_chain("user-sync", user_shape)
+        # A dashboard tile computed asynchronously on a user's behalf lands in the archive as
+        # celery with the async query task's id. Without it the shape misses the demand floor.
+        self._insert_chain(
+            "user-async",
+            {**user_shape, "dateRange": {"date_from": "-30d"}},
+            lc_kind="celery",
+            lc_id="posthog.tasks.tasks.process_query_task",
+        )
         self._insert_chain("failed", user_shape, status="ExceptionWhileProcessing")
         self._insert_chain("bucket-build", user_shape, query_type="web_overview_lazy_insert")
-        # The archive has no trigger tag, so the warmer's own replays (no kind),
-        # stale revalidation (celery) and batch workflows (temporal) are told apart
-        # from user reads by kind alone. Any of them leaking in keeps a shape hot forever.
-        for index, lc_kind in enumerate(["", "", "celery", "celery", "temporal", "temporal"]):
-            self._insert_chain(f"background-{index}", background_shape, lc_kind=lc_kind)
+        for index in range(2):
+            self._insert_chain(
+                f"background-{index}", background_shape, lc_kind=background_kind, lc_id=background_task_id
+            )
 
         result = queries_to_keep_fresh(dagster.build_op_context(), days=1, minimum_query_count=2, max_shapes=100)
 
