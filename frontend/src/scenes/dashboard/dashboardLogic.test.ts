@@ -1095,6 +1095,56 @@ describe('dashboardLogic', () => {
                 expect(logic.values.waitingTileRefresh).toBeNull()
             })
 
+            it('keeps an open group queued during an update refresh, and a cancel stops its reload', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles[0].insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                dashboards[5].tiles[1].insight!.cache_target_age = now().subtract(1, 'hour').toISOString()
+                await mountDashboard()
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setRefreshStatus'])
+
+                await expectLogic(logic, () =>
+                    logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                ).toDispatchActions(['refreshTileGroup'])
+                expect(logic.values.refreshStatus[target]).toMatchObject({ queued: true })
+
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+
+                expect(loads(target)).toHaveLength(2)
+                expect(logic.values.waitingTileRefresh?.tileIds).toContain(dashboards[5].tiles[0].id)
+            })
+
+            it('an update refresh with nothing stale keeps a manual refresh running', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles[1].insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                await mountDashboard()
+                const visible = dashboards[5].tiles[1].insight!.short_id
+                let finishForcedLoad: () => void = () => {}
+                refreshInsight.mockImplementation(
+                    (...args) =>
+                        new Promise((resolve, reject) => {
+                            args[5]?.signal?.addEventListener('abort', () =>
+                                reject(new DOMException('Aborted', 'AbortError'))
+                            )
+                            finishForcedLoad = () => resolve({ ...args[1], result: ['forced'] })
+                        })
+                )
+                logic.actions.triggerDashboardRefresh()
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                    finishForcedLoad()
+                })
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['abortQuery'])
+
+                expect(loads(visible).map((call) => call[4])).toEqual(['force_blocking'])
+                expect(logic.values.insightTiles[1].insight?.result).toEqual(['forced'])
+            })
+
             it.each([
                 { group: 'closed', collapsed: true, counts: false },
                 { group: 'open', collapsed: false, counts: true },
