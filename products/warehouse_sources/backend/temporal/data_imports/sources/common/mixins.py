@@ -476,7 +476,7 @@ def _managed_warehouse_exemption(
     if not _is_managed_warehouse_host(host):
         return None
 
-    from products.managed_warehouse.backend.managed_ingress import get_managed_warehouse_target  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import get_managed_warehouse_target  # noqa: PLC0415
     from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX  # noqa: PLC0415
 
     organization_id = _managed_warehouse_organization_id(team_id)
@@ -523,7 +523,7 @@ def _is_managed_warehouse_host(host: str) -> bool:
 
 def _managed_warehouse_host_suffixes() -> tuple[str, ...]:
     """The `dw` zones this deployment serves managed warehouses under."""
-    from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import managed_warehouse_domain  # noqa: PLC0415
 
     return (f".dw.{managed_warehouse_domain()}",)
 

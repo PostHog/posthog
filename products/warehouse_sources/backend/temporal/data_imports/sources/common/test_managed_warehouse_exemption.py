@@ -20,7 +20,8 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from products.managed_warehouse.backend.managed_ingress import ManagedWarehouseTarget, get_managed_warehouse_target
+from products.managed_warehouse.backend.facade.api import get_managed_warehouse_target
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTarget
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     _is_managed_warehouse_host,
@@ -418,9 +419,9 @@ class TestManagedWarehouseTargetRead(SimpleTestCase):
 
 
 def _response(body: dict):
-    from products.managed_warehouse.backend.presentation.hogtower import TranslatedResponse
-
-    return TranslatedResponse(status_code=200, body=body)
+    # The control-plane read only checks status_code and body, so a small local object stands in
+    # for the translator's response type without importing the presentation layer.
+    return type("Response", (), {"status_code": 200, "body": body})()
 
 
 class TestNoImportOfTheManagedWarehouseProductAtModuleLoad(SimpleTestCase):
@@ -520,20 +521,20 @@ class TestDenialCacheSurvivesSerialization(SimpleTestCase):
     def test_a_denial_is_recognised_after_a_pickle_round_trip(self) -> None:
         import pickle
 
-        from products.managed_warehouse.backend.managed_ingress import _NO_TARGET
+        from products.managed_warehouse.backend.facade.testing import NO_MANAGED_WAREHOUSE_TARGET
 
-        serialized = pickle.dumps(_NO_TARGET)  # nosemgrep
+        serialized = pickle.dumps(NO_MANAGED_WAREHOUSE_TARGET)  # nosemgrep
         restored = pickle.loads(serialized)  # nosemgrep
-        assert restored == _NO_TARGET
+        assert restored == NO_MANAGED_WAREHOUSE_TARGET
 
     def test_a_cached_denial_is_returned_without_a_control_plane_call(self) -> None:
-        from products.managed_warehouse.backend.managed_ingress import _NO_TARGET
+        from products.managed_warehouse.backend.facade.testing import NO_MANAGED_WAREHOUSE_TARGET
 
         with (
             patch(f"{_INGRESS_MODULE}.hogtower") as hogtower,
             patch(f"{_INGRESS_MODULE}.cache") as cache,
         ):
-            cache.get.return_value = _NO_TARGET
+            cache.get.return_value = NO_MANAGED_WAREHOUSE_TARGET
             assert get_managed_warehouse_target("org-1", source_type="postgres") is None
             hogtower.request.assert_not_called()
 
@@ -685,7 +686,7 @@ class TestTheRealDependenciesResolve(SimpleTestCase):
     def test_the_domain_helper_resolves_without_the_presentation_layer(self) -> None:
         # The guard reads the zone from a dependency-free module, so a Temporal worker does not
         # import the DRF views module to learn a DNS suffix.
-        from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain
+        from products.managed_warehouse.backend.facade.api import managed_warehouse_domain
 
         with override_settings(CLOUD_DEPLOYMENT="US"):
             assert managed_warehouse_domain() == "us.postwh.com"
@@ -693,7 +694,7 @@ class TestTheRealDependenciesResolve(SimpleTestCase):
             assert managed_warehouse_domain() == "eu.postwh.com"
 
     def test_the_views_helper_agrees_with_the_dependency_free_one(self) -> None:
-        from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain as dependency_free
+        from products.managed_warehouse.backend.facade.api import managed_warehouse_domain as dependency_free
         from products.managed_warehouse.backend.presentation.views import managed_warehouse_domain
 
         with override_settings(CLOUD_DEPLOYMENT="US"):

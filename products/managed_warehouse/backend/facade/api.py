@@ -44,6 +44,8 @@ __all__ = [
     "get_duckgres_query_server_config",
     "get_managed_warehouse_trino_password",
     "get_org_id_for_team",
+    "get_managed_warehouse_target",
+    "managed_warehouse_domain",
     "get_team_deletion_block_reason",
     "get_stored_bucket_config",
     "get_stored_warehouse_config",
@@ -97,6 +99,29 @@ def is_dev_mode() -> bool:
 
 def default_bucket_region() -> str:
     return common.default_bucket_region()
+
+
+def get_managed_warehouse_target(organization_id: str, *, source_type: str) -> "ManagedWarehouseTarget | None":
+    """The managed warehouse `organization_id` may reach from a `source_type` source, or None.
+
+    The warehouse-source host guard is the only caller. It decides whether a source's host is
+    exempt from the private-address check, so it needs the control plane's own answer for this
+    organization rather than any stored row.
+    """
+    from products.managed_warehouse.backend.managed_ingress import (  # noqa: PLC0415
+        get_managed_warehouse_target as _get,
+    )
+
+    return _get(organization_id, source_type=source_type)
+
+
+def managed_warehouse_domain() -> str:
+    """The zone managed warehouse hostnames are served under in this deployment."""
+    from products.managed_warehouse.backend.managed_ingress import (  # noqa: PLC0415
+        managed_warehouse_domain as _domain,
+    )
+
+    return _domain()
 
 
 def get_org_id_for_team(team_id: int) -> str:

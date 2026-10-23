@@ -24,8 +24,7 @@ from django.core.cache import cache
 import requests as http_requests
 import structlog
 
-from posthog.dataclasses import frozen
-
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTarget  # noqa: F401
 from products.managed_warehouse.backend.presentation import hogtower
 
 logger = structlog.get_logger(__name__)
@@ -80,35 +79,8 @@ _DENIAL_CACHE_TTL_SECONDS = 30
 _CONTROL_PLANE_TIMEOUT_SECONDS = 2
 
 
-@frozen(kw_only=True)
-class ManagedWarehouseTarget:
-    """The endpoint an organization's managed warehouse answers on.
-
-    `host` is the control plane's own host string, so a comparison against it is a comparison
-    against the value the ingress was provisioned for rather than anything derived locally.
-    `ports` is the listener set this organization's sources may reach, which keeps a Postgres
-    source off the gateway listener and a Trino source off the pgwire one.
-    """
-
-    host: str
-    ports: frozenset[int]
-
-    def accepts(self, host: str, port: int | None, addresses: list[str] | None) -> bool:
-        """Whether this target authorizes a dial to `host` on `port` at `addresses`.
-
-        Every condition is required, and a missing one denies. `addresses` must be non-empty
-        because an empty set is a failed lookup, not an approved destination, and it must be a
-        subset of the configured ingress addresses so a record that points elsewhere is refused.
-        """
-        if _normalize_host(host) != _normalize_host(self.host):
-            return False
-        if port is None or port not in self.ports:
-            return False
-        ingress_ips = _ingress_ips()
-        if not addresses or not ingress_ips:
-            return False
-        allowed = {_canonical_ip(ip) for ip in ingress_ips}
-        return all(_canonical_ip(address) in allowed for address in addresses)
+# The canonical definition is the contract, because the product's public interface exposes the
+# facade and not this module. The caching and the control-plane read live here; the type does not.
 
 
 def _normalize_host(host: str) -> str:
