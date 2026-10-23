@@ -758,11 +758,20 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         // The setting is one JSON value on the user, so other UI settings in it must survive the write.
         const updateDisplay = (change: AnalyticsListDisplayConfiguration): void => {
             const current = values.uiConfiguration
-            actions.updateUiConfiguration({
-                ...current,
-                version: current?.version ?? 1,
-                analytics_list: { ...current?.analytics_list, ...change },
-            })
+            actions.updateUiConfiguration(
+                {
+                    ...current,
+                    version: current?.version ?? 1,
+                    analytics_list: { ...current?.analytics_list, ...change },
+                },
+                undefined,
+                () => {
+                    // A failed save puts the old setting back, and the list may never have loaded for it.
+                    if (values.mode === 'feed') {
+                        loadCurrentMode()
+                    }
+                }
+            )
         }
         const loadCurrentMode = (): void => {
             if (values.mode === 'feed') {

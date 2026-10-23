@@ -34,10 +34,12 @@ const entry = (type: string, ref: string, path: string): Record<string, unknown>
 describe('analyticsListLogic', () => {
     let capture: jest.SpyInstance
     let lastViewedAt: string | null
+    let failSave: boolean
 
     beforeEach(() => {
         localStorage.clear()
         lastViewedAt = null
+        failSave = false
         resetAnalyticsFeedSnapshot()
         useMocks({
             get: {
@@ -66,10 +68,10 @@ describe('analyticsListLogic', () => {
                 },
             },
             patch: {
-                '/api/users/@me/': async ({ request }) => ({
-                    ...userLogic.values.user,
-                    ...((await request.json()) as Record<string, unknown>),
-                }),
+                '/api/users/@me/': async ({ request }) =>
+                    failSave
+                        ? [500, { detail: 'Save failed' }]
+                        : { ...userLogic.values.user, ...((await request.json()) as Record<string, unknown>) },
             },
         })
         initKeaTests()
@@ -153,6 +155,22 @@ describe('analyticsListLogic', () => {
         const restored = analyticsListLogic()
         restored.mount()
         expect(restored.values.insightsHidden).toBe(true)
+    })
+
+    it('loads the list again when a hidden-insights save fails and the old setting comes back', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+
+        failSave = true
+        await expectLogic(logic, () => {
+            logic.actions.setInsightsHidden(true)
+            logic.actions.setFilters({ search: 'I' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.insightsHidden).toBe(false)
+        expect(logic.values.currentFeed.initialized).toBe(true)
+        expect(logic.values.items.map((item) => item.type)).toContain('insight')
     })
 
     it('refreshes view times when URL filters restore a cached sorted list', async () => {
