@@ -255,6 +255,7 @@ impl IngestionConsumer {
             },
             settlement: Arc::clone(&self.settlement),
             group_id: self.group_id.clone(),
+            debug_recorder: self.debug_recorder.clone(),
         };
         let poller = ContinuousPolling::new(parts, self.in_flight_limit);
         self.run(poller, outputs).await;
@@ -548,6 +549,7 @@ impl IngestionConsumer {
 
         let message_count = accumulator.message_count();
         let poll_id = make_batch_id();
+        let dispatched_at = std::time::Instant::now();
         emit_poll_stats(
             &stats,
             &partitions,
@@ -573,6 +575,8 @@ impl IngestionConsumer {
         );
 
         Ok(InFlightPoll {
+            poll_id,
+            dispatched_at,
             partitions,
             uncommitted,
         })
