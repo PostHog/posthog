@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import caches
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -22,6 +23,7 @@ from posthog.ingress.github.provider import SPECS, build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -524,10 +526,18 @@ class TestLabelReviewTask(BaseTest):
     @parameterized.expand(
         [
             # A Standard request after a published Deep review is dropped, so the label would do nothing.
-            ("standard_label_after_a_published_deep_review", "posthog-review-standard", "OctoCat", True, "full", False),
-            ("deep_label", "posthog-review-deep", "OctoCat", False, "full", False),
-            ("deep_label_from_outside_the_organization", "posthog-review-deep", "stranger", False, "flash", False),
-            ("deep_label_from_outside_the_project", "posthog-review-deep", "OctoCat", False, "flash", True),
+            ("standard_label_after_a_published_deep_review", "posthog-review-standard", "OctoCat", True, "full", None),
+            ("deep_label", "posthog-review-deep", "OctoCat", False, "full", None),
+            ("deep_label_from_outside_the_organization", "posthog-review-deep", "stranger", False, "flash", None),
+            ("deep_label_from_outside_the_project", "posthog-review-deep", "OctoCat", False, "flash", "project_denied"),
+            (
+                "deep_label_from_an_email_outside_the_verified_domains",
+                "posthog-review-deep",
+                "OctoCat",
+                False,
+                "flash",
+                "unverified_email_domain",
+            ),
         ]
     )
     def test_a_label_picks_the_review_mode(
@@ -537,9 +547,9 @@ class TestLabelReviewTask(BaseTest):
         sender: str,
         deep_published: bool,
         expected_mode: str,
-        project_denied: bool,
+        refusal: str | None,
     ) -> None:
-        if project_denied:
+        if refusal == "project_denied":
             self.organization.available_product_features = [
                 {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
             ]
@@ -547,6 +557,12 @@ class TestLabelReviewTask(BaseTest):
             create_access_control(
                 team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
             )
+        elif refusal == "unverified_email_domain":
+            OrganizationDomain.objects.create(
+                organization=self.organization, domain="verified-example.com", verified_at=timezone.now()
+            )
+            self.organization.enforce_verified_domains = True
+            self.organization.save(update_fields=["enforce_verified_domains"])
         if deep_published:
             ReviewReport.objects.for_team(self.team.id).create(
                 team=self.team,

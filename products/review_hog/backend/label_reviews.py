@@ -23,6 +23,7 @@ from prometheus_client import Counter
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.otel_metrics import OtelInstrumentFactory
@@ -72,8 +73,17 @@ def comment_commands_enabled(team_id: int) -> bool:
 
 def is_project_member(*, team_id: int, user_id: int) -> bool:
     """Whether the user may access the project, as the `@posthog` comment path checks it."""
-    team = Team.objects.select_related("parent_team").get(id=team_id)
-    permissions = UserPermissions(User.objects.get(id=user_id))
+    team = Team.objects.select_related("organization", "parent_team").get(id=team_id)
+    user = User.objects.get(id=user_id)
+    organization = team.organization
+    # The product APIs refuse these organizations and members, so a Deep review must not reach them either.
+    if (
+        organization.is_pending_deletion
+        or not organization.is_active
+        or OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
+    ):
+        return False
+    permissions = UserPermissions(user)
     if permissions.team(team).effective_membership_level is None:
         return False
     # A child environment without its own access rows defaults open while the parent project
