@@ -73,6 +73,24 @@ Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
 It does not retry these requests automatically.
 
+## Project and organization context
+
+Resolve tool targets through `context.stateManager.getProjectId()` or `getOrgID()`. The Hono server snapshots the active selection for each request and stores it per credential and MCP transport session. Separate sessions can use the same credential concurrently in different organizations and projects, with or without URL pins. Unpinned sessions initialize from the user's active selection within the credential's allowed scope; later website changes do not retarget an existing session. Organization switches clear the previous project, and project switches keep the organization consistent with the selected project.
+
+The shared token cache holds credential and entity metadata. Its `orgId` and `projectId` selection keys remain only for requests without a session or conversation identity. Session-aware tools must use the state manager instead of reading those keys directly. Session selections expire after 24 hours without requests.
+
+For sessionless clients, the server scopes selection to the SDK's echoed `conversation_id`, bound to the credential and separated from transport session IDs. The dispatcher restores echoed handles before state resolution. When the SDK mints a handle on the first tool call, the executor resolves state with that handle before running the tool. Switches require a carried session or conversation handle, including when called through `exec`. A switch without one returns an error and a new handle; the client must retry with that handle and echo it on subsequent calls. Calls without either identity start from the connection's pin or default selection. Clients unable to retain handles should pin the project or organization in the connection URL. The SDK remains responsible for generating and normalizing conversation handles and producing analytics.
+
+Sessionless legacy batches resolve each call's handle and state independently before checking whether a switch is allowed. The wrapper's `sessionId` query parameter groups analytics but cannot restore selections; wrapper-only calls still receive SDK-minted conversation handles.
+
+State managers share credential, user, and entity lookups within one HTTP request, including when a new conversation handle requires another resolution. Lookup keys include the credential cache scope and entity ID. Each call retains its own state manager, selection, flags, and API client. Redis TTLs still govern freshness, and rejected lookup promises are removed so later attempts can retry.
+
+Remote flag evaluations share the same request-local cache when the credential, distinct ID, groups, and requested flag keys match. Flag values and payloads stay separate across different evaluation contexts. Request overrides are applied after the shared evaluation, and failed evaluations remain retryable.
+
+Session defaults are saved once with `SET NX` and kept separate from explicit selections. Lazy organization and project resolution updates only the request snapshot, so a delayed read cannot replace a newer switch in the same session.
+
+An org-only default does not freeze a failed project lookup. Project discovery retries within the saved organization and records the first successful result separately with `SET NX`. Organization-scoped discovery establishes project ownership without a second global metadata lookup. Organization switches can retain a selected project using the destination organization's team list when project metadata is unavailable.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface

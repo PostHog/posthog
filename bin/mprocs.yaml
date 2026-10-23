@@ -408,7 +408,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service capture-ai
-        capability: ai_capture
+        capability: event_ingestion
         ready_pattern: 'listening on *'
         groups:
             layer: Ingestion pipeline

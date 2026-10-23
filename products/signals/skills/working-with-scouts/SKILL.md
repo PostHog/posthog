@@ -136,8 +136,9 @@ Which `scopes` value each granted scope writes under:
 | `warehouse_table:write` | `DataQualityCheck`                            |
 | `llm_skill:write`       | `PersonalAPIKey`                              |
 | `canvas:write`          | `Canvas`                                      |
+| `experiment:write`      | `Experiment`, `FeatureFlag`                   |
 
-Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
+Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, `experiment:write` reaches the linked feature flag when a launch or pause turns it on or off, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
 The scope-named objects themselves still log nothing: a skill body edit (including another scout's) and a warehouse table write leave no row, so read the skill's version history instead.
 A canvas publish leaves no activity row either. Read the canvas's version history: each version a scout published records the run's task.
 

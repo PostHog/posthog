@@ -473,8 +473,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                         ),
                         zod.null(),
                     ])
-                    .optional()
-                    .describe('Metric label matchers ANDed into every metrics tile. Other tiles ignore them.'),
+                    .optional(),
                 metricVariables: zod
                     .union([
                         zod.array(
@@ -899,6 +898,18 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         .optional(),
                                 }),
                                 zod.object({
+                                    cohort_deleted: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                        ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                        ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
                                         .literal('id')

@@ -124,8 +124,14 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as ctx:
             await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT argMinState(event, timestamp) FROM events"))
 
-        self.assertEqual(ctx.exception.error_type, "internal")
-        self.assertEqual(ctx.exception.error_code, "unhandled_unknown_type_error")
+        self.assertEqual(ctx.exception.error_type, "validation")
+        self.assertEqual(ctx.exception.error_code, "unknown_type")
+        self.assertEqual(
+            str(ctx.exception),
+            "This query returns a column of type `AggregateFunction(argMin, String, DateTime64(6, 'UTC'))`, which "
+            "PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the matching "
+            "-Merge function, for example `argMinMerge(column)`, to get the final value.",
+        )
 
     @parameterized.expand(
         [

@@ -1,4 +1,5 @@
 import datetime as dt
+import threading
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -6,7 +7,7 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,6 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models import Team
 
 from products.metrics.backend.facade.api import _output_unit, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
@@ -868,6 +870,47 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
     def test_not_yet_supported_features_raise_value_error(self, _name, overrides):
         with self.assertRaises(ValueError):
             run_metric_query(team=self.team, request=self._request(**overrides))
+
+
+class TestRunMetricQueryInParallel(SimpleTestCase):
+    def test_the_clause_queries_and_the_unit_lookup_run_at_the_same_time_and_close_their_connections(self) -> None:
+        # Each query waits until all three run, so a serial run breaks the barrier.
+        barrier = threading.Barrier(3, timeout=5)
+        anchor = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+
+        class _Runner:
+            def run(self) -> list[dict[str, Any]]:
+                barrier.wait()
+                return [{"time": anchor.isoformat(), "value": 1.0, "labels": {}, "series_fingerprints": [1]}]
+
+        def units(_team: Team, _names: set[str]) -> dict[int, str]:
+            barrier.wait()
+            return {1: "ms"}
+
+        with (
+            override_settings(IN_UNIT_TESTING=False),
+            patch("products.metrics.backend.facade.api.build_metric_query_runner", side_effect=lambda **_: _Runner()),
+            patch("products.metrics.backend.facade.api._units_by_fingerprint", side_effect=units),
+            patch("products.metrics.backend.facade.api.connection") as connection,
+        ):
+            series = run_metric_query(
+                team=Team(id=1),
+                request=MetricQueryRequest(
+                    clauses=(
+                        MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                        MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                    ),
+                    date_from=anchor - dt.timedelta(hours=1),
+                    date_to=anchor,
+                ),
+            )
+
+        assert [(item.clause, item.unit, [point.value for point in item.points]) for item in series] == [
+            ("a", "ms", [1.0]),
+            ("b", "ms", [1.0]),
+        ]
+        # Each worker closes the Postgres connection that it opened.
+        assert connection.close.call_count == 3
 
 
 class TestOutputUnit(SimpleTestCase):

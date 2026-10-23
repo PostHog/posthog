@@ -5,10 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import { llmEvaluationsLogic } from '../../../evaluations/llmEvaluationsLogic'
-import { EvaluationConfig, EvaluationRun } from '../../../evaluations/types'
-import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
-import { generationEvaluationRunsLogic } from '../../../generationEvaluationRunsLogic'
+import type { TraceEvaluationResultApi, TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
@@ -31,16 +28,13 @@ export interface traceViewAdapterLogicValues {
     newerTraceId: string | null // aiObservabilityTraceLogic
     olderTimestamp: string | null // aiObservabilityTraceLogic
     olderTraceId: string | null // aiObservabilityTraceLogic
-    generationEvaluationRuns: EvaluationRun[] // generationEvaluationRunsLogic
-    generationEvaluationRunsLoading: boolean // generationEvaluationRunsLogic
-    detectorEvaluationIds: string[] // llmEvaluationsLogic
-    evaluations: EvaluationConfig[] // llmEvaluationsLogic
-    evaluationsSettled: boolean // llmEvaluationsLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
     errorMessage: string // traceViewLogic
+    evaluationResults: TraceEvaluationResultApi[] | null // traceViewLogic
+    evaluationResultsFailed: boolean // traceViewLogic
     nodeIdsByAlias: Record<string, string> // traceViewLogic
     nodes: Record<string, NodeLoad> // traceViewLogic
     personLabel: string | null // traceViewLogic
@@ -144,11 +138,8 @@ export interface traceViewAdapterLogicMeta {
             selectedTreeNode: TraceNodeApi | null,
             selectedNodeLoad: NodeLoad,
             tree: TraceNodeApi[],
-            generationEvaluationRuns: EvaluationRun[],
-            generationEvaluationRunsLoading: boolean,
-            evaluations: EvaluationConfig[],
-            detectorEvaluationIds: string[],
-            evaluationsSettled: boolean,
+            evaluationResults: TraceEvaluationResultApi[] | null,
+            evaluationResultsFailed: boolean,
             currentTeamId: number | null,
             personLabel: string | null,
             createdAt: string | null,
@@ -198,15 +189,13 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 'sessionId',
                 'defaultNodeId',
                 'nodeIdsByAlias',
+                'evaluationResults',
+                'evaluationResultsFailed',
             ],
             aiObservabilityTraceLogic,
             ['eventId', 'initialTab', 'olderTraceId', 'olderTimestamp', 'newerTraceId', 'newerTimestamp'],
-            generationEvaluationRunsLogic({ traceId: props.traceId }),
-            ['generationEvaluationRuns', 'generationEvaluationRunsLoading'],
             teamLogic,
             ['currentTeamId'],
-            llmEvaluationsLogic,
-            ['evaluations', 'detectorEvaluationIds', 'evaluationsSettled'],
             router,
             ['searchParams'],
         ],
@@ -309,11 +298,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 s.selectedTreeNode,
                 s.selectedNodeLoad,
                 s.tree,
-                s.generationEvaluationRuns,
-                s.generationEvaluationRunsLoading,
-                s.evaluations,
-                s.detectorEvaluationIds,
-                s.evaluationsSettled,
+                s.evaluationResults,
+                s.evaluationResultsFailed,
                 s.currentTeamId,
                 s.personLabel,
                 s.createdAt,
@@ -323,11 +309,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 node: TraceNodeApi | null,
                 load: NodeLoad,
                 tree: TraceNodeApi[],
-                evalRuns: EvaluationRun[],
-                evalRunsLoading: boolean,
-                evaluations: EvaluationConfig[],
-                detectorEvaluationIds: string[],
-                evaluationsSettled: boolean,
+                evaluationResults: TraceEvaluationResultApi[] | null,
+                evaluationResultsFailed: boolean,
                 teamId: number | null,
                 person: string | null,
                 createdAt: string | null,
@@ -338,11 +321,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                           node,
                           load,
                           tree,
-                          evalRuns,
-                          evalRunsLoading,
-                          evaluations,
-                          detectorEvaluationIds,
-                          evaluationsSettled,
+                          evaluationResults,
+                          evaluationResultsFailed,
                           teamId,
                           person,
                           trace: { createdAt, sessionId },

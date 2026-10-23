@@ -46,10 +46,10 @@ export const ChannelInstructionsBaseVersionSchema = z
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
 const DashboardTileLayoutSchema = z.object({
-    x: z.number().int().min(0).optional(),
-    y: z.number().int().min(0).optional(),
-    w: z.number().int().min(1).optional(),
-    h: z.number().int().min(1).optional(),
+    x: z.number().int().min(0).optional().describe('Column position in the dashboard grid (0-indexed).'),
+    y: z.number().int().min(0).optional().describe('Row position in the dashboard grid (0-indexed).'),
+    w: z.number().int().min(1).optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+    h: z.number().int().min(1).optional().describe('Height in grid rows.'),
 })
 
 export const DashboardTileCreateSchema = z.object({
@@ -74,8 +74,12 @@ export const DashboardTileCreateSchema = z.object({
         ),
     layouts: z
         .object({
-            sm: DashboardTileLayoutSchema.optional(),
-            xs: DashboardTileLayoutSchema.optional(),
+            sm: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+            ),
+            xs: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the small (mobile) breakpoint. The grid is 1 column wide.'
+            ),
         })
         .optional()
         .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
@@ -548,7 +552,7 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
 )

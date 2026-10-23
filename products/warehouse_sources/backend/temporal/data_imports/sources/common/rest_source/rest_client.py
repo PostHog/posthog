@@ -211,6 +211,20 @@ def _seconds_from_epoch_reset(value: str) -> Optional[float]:
     return reset_epoch - datetime.now(UTC).timestamp()
 
 
+# Dub puts the UNIX epoch in milliseconds at which its window resets into ``Retry-After``, not a
+# delay. Read as seconds that is a wait of decades, so every 429 failed without a retry. A value
+# that, read as epoch seconds or milliseconds, lands this close to now is taken as that instant.
+_RETRY_AFTER_EPOCH_WINDOW_SECONDS = 24 * 60 * 60
+
+
+def _seconds_until_retry_after_epoch(value: float) -> Optional[float]:
+    now = datetime.now(UTC).timestamp()
+    for reset_epoch in (value, value / 1000):
+        if abs(reset_epoch - now) <= _RETRY_AFTER_EPOCH_WINDOW_SECONDS:
+            return reset_epoch - now
+    return None
+
+
 def _seconds_from_rfc3339_reset(value: str) -> Optional[float]:
     try:
         reset_at = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
@@ -267,13 +281,17 @@ def _parse_retry_after(response: Response) -> Optional[float]:
     retry_after_header = response.headers.get("Retry-After")
     if retry_after_header:
         try:
-            return max(0.0, float(retry_after_header))
+            delay = float(retry_after_header)
         except ValueError:
             try:
                 dt = parsedate_to_datetime(retry_after_header)
             except (TypeError, ValueError):
                 return None
             return max(0.0, (dt - datetime.now(UTC)).total_seconds())
+        epoch_wait = _seconds_until_retry_after_epoch(delay)
+        if epoch_wait is not None:
+            return epoch_wait if epoch_wait > 0 else None
+        return max(0.0, delay)
 
     for header, parse in _RATE_LIMIT_RESET_HEADERS:
         value = response.headers.get(header)

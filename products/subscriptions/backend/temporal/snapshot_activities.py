@@ -11,6 +11,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.security.llm_prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -543,17 +544,19 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
                 error=str(annotations_error),
                 exc_info=True,
             )
-        summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
-            previous_states,
-            current_states,
-            subscription_title=subscription.title,
-            prompt_guide=prompt_guide,
-            team=subscription.team,
-            delivery_id=inputs.delivery_id,
-            insight_images=insight_images or None,
-            core_memory_text=core_memory_text,
-            annotations_section=annotations_section,
-        )
+        async with Heartbeater(details=("generating LLM summary",)):
+            summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
+                previous_states,
+                current_states,
+                subscription_title=subscription.title,
+                prompt_guide=prompt_guide,
+                team=subscription.team,
+                delivery_id=inputs.delivery_id,
+                insight_images=insight_images or None,
+                core_memory_text=core_memory_text,
+                annotations_section=annotations_section,
+                slack_formatting=subscription.target_type == Subscription.SubscriptionTarget.SLACK,
+            )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:
         error_msg = str(e)

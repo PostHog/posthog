@@ -234,6 +234,22 @@ class TestSelection(SimpleTestCase):
         else:
             self.client_factory.assert_not_called()
 
+    @parameterized.expand([("pilot@example.com", "shadow"), ("other@example.com", "disabled")])
+    def test_email_targeting_uses_current_actor(self, email: str, expected: str) -> None:
+        self.run_record.task.created_by = User(id=6, email="creator@example.com")
+        self.selector.actor.email = email
+        self.flag.side_effect = lambda *args, **kwargs: (
+            "shadow" if kwargs.get("person_properties", {}).get("email") == "pilot@example.com" else False
+        )
+
+        result = self.selector.prepare(time.monotonic() + 60)
+
+        self.assertEqual(result.mode, expected)
+        self.assertEqual(result.reason, "selected" if expected == "shadow" else "disabled")
+        self.assertEqual(result.context, "")
+        self.assertEqual(bool(self.requests), expected == "shadow")
+        self.assertEqual(self.flag.call_args.args[1], str(self.run_record.task_id))
+
     @parameterized.expand([("shadow", False), ("shadow", None), ("treatment", False), ("treatment", None)])
     def test_ai_consent_required_before_retrieval_and_model_calls(self, mode: str, consent: bool | None) -> None:
         self.flag.return_value = mode
@@ -255,9 +271,9 @@ class TestSelection(SimpleTestCase):
     def test_runtime_eligibility(self, name, runtime, adapter, expected) -> None:
         self.run_record.task.runtime = runtime
         self.run_record.state = {"runtime_adapter": adapter} if adapter else {}
-        self.assertEqual(selection_mode(self.run_record), expected)
+        self.assertEqual(selection_mode(self.run_record, self.selector.actor), expected)
         self.run_record.environment = TaskRun.Environment.LOCAL
-        self.assertEqual(selection_mode(self.run_record), "disabled")
+        self.assertEqual(selection_mode(self.run_record, self.selector.actor), "disabled")
         self.assertEqual(self.selector.actor.is_staff, False)
         if expected == "treatment":
             self.assertEqual(self.flag.call_args.args[1], str(self.run_record.task_id))

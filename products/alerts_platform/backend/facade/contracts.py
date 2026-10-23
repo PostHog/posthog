@@ -265,6 +265,9 @@ class PlatformAlertCheckInput:
     owned_by_platform: bool = False
     instances: tuple[InstanceCheckState, ...] = ()
     grouping: Grouping = field(default_factory=Grouping)
+    # The calendar half of the schedule, so a source can tell when its own cadence has moved.
+    recurrence_unit: str | None = None
+    anchor_time: str | None = None
 
     def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
@@ -378,11 +381,13 @@ class PlatformOwnershipHandover:
 class HandbackRefusal(StrEnum):
     """Why the platform keeps an alert its source asked for back."""
 
-    # Firing episodes are keyed per stack, so a firing alert stays until it resolves.
+    # The platform keys its incidents by episode, which the source's own stack cannot address, so a
+    # firing alert stays until it resolves.
     FIRING = "firing"
     # A platform check may be running and could record or notify after the handback.
     CHECK_DUE = "check_due"
-    # A handback carries one alert on an interval cadence. A calendar schedule or grouped alerts stay.
+    # A handback carries one alert. Grouped alerts stay, and so does a calendar schedule its source
+    # does not run.
     NOT_PORTABLE = "not_portable"
 
 
@@ -394,6 +399,8 @@ class PlatformHandback:
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    # False when the platform switched the copy off, such as for a configuration it cannot run.
+    enabled: bool = True
 
 
 @frozen
@@ -429,6 +436,35 @@ class PlatformAlertHistory:
     last_checked_at: datetime
     # None when the last check in the window succeeded.
     last_error_message: str | None
+
+
+@frozen
+class PlatformLastCheck:
+    """The newest check of an alert the platform owns."""
+
+    checked_at: datetime
+    # None when the check measured nothing.
+    value: float | None
+
+
+@frozen
+class PlatformCheckEntry:
+    """One check of an alert the platform owns, as a source lists its checks."""
+
+    occurred_at: datetime
+    evaluation_key: str
+    state: PlatformAlertState
+    value: float | None
+    # None when the check succeeded.
+    error_message: str | None
+
+
+@frozen
+class PlatformCheckPage:
+    """A page of an alert's checks, newest first, and how many checks the window holds."""
+
+    total: int
+    checks: tuple[PlatformCheckEntry, ...]
 
 
 @frozen
@@ -531,6 +567,9 @@ class GroupOutcome:
     labels: dict[str, str] = field(default_factory=dict)
     # What a mute held back, so history separates a muted fire from a check that said nothing.
     muted_notification: str = ""
+    # What the source's own stack sent beside this verdict, which the platform stores and returns
+    # without reading, so a delivery on the HogFunction path can send what the source sent.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -547,6 +586,8 @@ class CheckFailure:
     notified: bool
     firing_episode: FiringEpisode | None = None
     muted_notification: str = ""
+    # As on `GroupOutcome`: what the source's stack sends beside the failure, stored unread.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -570,6 +611,8 @@ class PlatformAlertOutcome:
     skipped: bool = False
     # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
     overflowed: int = 0
+    # The source cut its results before admission, so `overflowed` counts only the groups it saw.
+    overflow_is_lower_bound: bool = False
     # Resting instances whose slot a new group took. The write deletes them before it creates rows.
     evicted: tuple[str, ...] = ()
     error_message: str | None = None
@@ -608,6 +651,7 @@ class PlatformAlertOutcome:
         disable: bool = False,
         skipped: bool = False,
         schedule_group: str | None = None,
+        source_detail: dict[str, Any] | None = None,
     ) -> PlatformAlertOutcome:
         """A check of a source that does not group: its one verdict on the empty key, or its failure."""
         failure = (
@@ -617,6 +661,7 @@ class PlatformAlertOutcome:
                 notified=notified,
                 firing_episode=firing_episode,
                 muted_notification=muted_notification,
+                source_detail=source_detail or {},
             )
             if failed
             else None
@@ -633,6 +678,7 @@ class PlatformAlertOutcome:
                     firing_episode=firing_episode,
                     value=value,
                     muted_notification=muted_notification,
+                    source_detail=source_detail or {},
                 ),
             )
         )
@@ -705,6 +751,7 @@ class AnnouncedTransition:
     occurred_at: datetime
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -726,6 +773,7 @@ class EvaluationAnnouncement:
     # Groups the configuration had no room for. The first message names them, so a cap never drops
     # a group without anyone being told.
     overflowed: int = 0
+    overflow_is_lower_bound: bool = False
 
 
 @frozen
@@ -768,6 +816,7 @@ class AlertDeliveryRequest:
     source_alert_url: str | None = None
     owned_by_platform: bool = False
     overflowed: int = 0
+    overflow_is_lower_bound: bool = False
     # How many activities the delivery workflow splits an evaluation into, by `MAX_TRANSITIONS_PER_DELIVERY`,
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
@@ -815,6 +864,7 @@ class PlatformAlertSnapshot:
     firing_started_at: datetime | None
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 @frozen
@@ -843,6 +893,8 @@ class PlatformAlertConfigurationView:
     grouping: Grouping
     snooze_until: datetime | None
     check_status: str
+    overflowed_groups: int
+    overflow_is_lower_bound: bool
     owner: str
     created_at: datetime
     updated_at: datetime
@@ -1054,6 +1106,35 @@ class AlertDestinationData(TypedDict):
     in_app_url: NotRequired[str]
 
 
+# The transitions a destination can send about. `CHECK` announces nothing, so no destination hears it.
+DESTINATION_EVENT_KINDS: Final = frozenset(
+    {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
+)
+
+
+@frozen
+class NewAlertDestination:
+    """One destination to add to an alert the platform owns the destinations of."""
+
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool = True
+    legacy_hog_function_ids: tuple[UUID, ...] = ()
+
+
+@frozen
+class StoredAlertDestination:
+    """One `AlertDestination` row, with its configuration decrypted."""
+
+    id: UUID
+    configuration_id: UUID
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+    consecutive_failures: int
+    legacy_hog_function_ids: tuple[UUID, ...]
+
+
 class AlertDestinationValidationError(Exception):
     """A destination payload the platform refuses. Callers at an HTTP boundary translate
     this into their own framework's validation error."""
@@ -1101,11 +1182,17 @@ class AlertDestinationConfig:
 
 @frozen
 class AlertDestinationGroup:
-    """The HogFunctions that together make up one destination a person configured."""
+    """One destination an alert delivers to: the HogFunctions a person configured, or a destination
+    with none, such as an insight alert's subscriber email."""
 
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     fully_enabled: bool
+
+    @property
+    def receives_emitted_events(self) -> bool:
+        """Whether the source's emitted internal events reach it. Only a HogFunction listens to them."""
+        return bool(self.hog_function_ids)
 
 
 @frozen
@@ -1161,6 +1248,12 @@ class MessageLink:
 
 
 @frozen
+class MessageImage:
+    url: str
+    alt_text: str
+
+
+@frozen
 class SourceDescription:
     """What a source says about one transition, in the words its own product uses.
 
@@ -1176,6 +1269,9 @@ class SourceDescription:
     context: tuple[str, ...] = ()
     # Where the data behind the alert is, such as the matching logs.
     data_link: MessageLink | None = None
+    # Slack elements that act on the alert from the message, such as a snooze menu, beside the
+    # buttons. They are Slack's own Block Kit, so every other provider leaves them out.
+    slack_elements: tuple[dict[str, Any], ...] = ()
 
 
 class SourceDescriber(Protocol):
@@ -1186,6 +1282,17 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceImageResolver(Protocol):
+    """The picture a message shows for a transition, such as an insight's chart, or None.
+
+    Runs on the send path like a describer, but it may read storage: a picture's URL can open it
+    without a login, so the source stores the picture by id and mints the URL as the message goes.
+    A provider that cannot show a picture leaves it out.
+    """
+
+    def __call__(self, *, team_id: int, transition: AnnouncedTransition) -> MessageImage | None: ...
 
 
 class LegacyWebhookBody(Protocol):
@@ -1228,6 +1335,10 @@ class LegacyEventEmission:
     # The source emits the incident event for this action too, when it is set.
     incident_action: IncidentAction | None
 
+    @property
+    def event_count(self) -> int:
+        return int(self.sends_message) + int(self.incident_action is not None)
+
 
 class LegacyEventEmitter(Protocol):
     """Emits the internal events a source's own stack emitted, for transitions on the HogFunction path.
@@ -1244,44 +1355,6 @@ class LegacyEventEmitter(Protocol):
         announcement: EvaluationAnnouncement,
         emissions: Sequence[LegacyEventEmission],
     ) -> None: ...
-
-
-# The internal event a workflow subscribes to for an alert's transitions. One name for every source.
-ALERT_TRANSITION_EVENT: Final = "$alert_transition"
-
-
-@frozen
-class TransitionEvent:
-    """One `$alert_transition` event."""
-
-    properties: dict[str, Any]
-    timestamp: datetime
-    # Stable across attempts, so a receiver can drop an event a retry emits again.
-    uuid: str
-
-
-class TransitionEventProducer(Protocol):
-    """Puts `$alert_transition` events on the internal events topic.
-
-    Returns only once the broker has every event, and raises otherwise, so delivery can retry.
-    """
-
-    def __call__(self, *, team_id: int, configuration_id: str, events: Sequence[TransitionEvent]) -> None: ...
-
-
-class SourceFacts(Protocol):
-    """A source's facts about one transition, under the property names its own alert events used.
-
-    A HogFunction ported to a workflow renders these names, so they must match the legacy events.
-    """
-
-    def __call__(
-        self,
-        *,
-        request: AlertDeliveryRequest,
-        announcement: EvaluationAnnouncement,
-        transition: AnnouncedTransition,
-    ) -> dict[str, Any]: ...
 
 
 # Comparison against a source's own stack.

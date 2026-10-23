@@ -93,7 +93,7 @@ class _StubEngine:
         self.calls: list[ExperimentSpec] = []
 
     @classmethod
-    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
         return ()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
