@@ -188,7 +188,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                         stop working until it is updated. The old name becomes available for a new metric.
                         {isApproved && ' Renaming also sets the metric back to proposed, so it needs approving again.'}
                     </div>
-                    <LemonField name="name" label="Name">
+                    <LemonField name="name" label="SQL name">
                         <LemonInput data-attr="data-catalog-metric-rename-input" autoFocus />
                     </LemonField>
                 </div>
