@@ -1,4 +1,5 @@
 import json
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -6,13 +7,14 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from redis.exceptions import RedisError
 
 from posthog.redis import TEST_clear_clients
-from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume
+from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume, refund
 
 from products.error_tracking.backend.facade import summaries as summaries_facade
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
@@ -186,10 +188,17 @@ class TestIssueSummaryGeneration(BaseTest):
 
         assert result.outcome == IssueSummaryOutcome.GENERATED
 
+    @property
+    def _budget_key(self) -> str:
+        return f"{issue_summaries.ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{self.team.id}"
+
     def _drain_budget(self) -> None:
         tiny = Budget(burst=1, per_hour=1)
         self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_BUDGET", tiny))
-        consume(f"{issue_summaries.ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{self.team.id}", tiny)
+        consume(self._budget_key, tiny)
+
+    def _refill_budget(self) -> None:
+        refund(self._budget_key, issue_summaries.ISSUE_SUMMARY_BUDGET)
 
     def _disapprove_ai(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -239,18 +248,26 @@ class TestIssueSummaryGeneration(BaseTest):
                 lambda test: test.build_inputs.configure_mock(
                     side_effect=None, return_value=IssueSummaryOutcome.NO_EXCEPTION
                 ),
+                lambda test: None,
                 IssueSummaryOutcome.NO_EXCEPTION,
                 1,
             ),
-            ("rate_limited", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED, 0),
+            (
+                "rate_limited",
+                lambda test: test._drain_budget(),
+                lambda test: test._refill_budget(),
+                IssueSummaryOutcome.RATE_LIMITED,
+                0,
+            ),
         ]
     )
     def test_outcome_holds_the_issue_past_the_lock(
-        self, _name: str, arrange: Any, expected: IssueSummaryOutcome, input_builds: int
+        self, _name: str, arrange: Any, recover: Any, expected: IssueSummaryOutcome, input_builds: int
     ) -> None:
         arrange(self)
         with time_machine.travel(NOW, tick=False):
             get_or_generate_issue_summary(self.team.id, self.issue.id)
+        recover(self)
 
         with time_machine.travel(NOW + timedelta(minutes=10), tick=False):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
@@ -341,6 +358,24 @@ class TestIssueSummaryGeneration(BaseTest):
         with patch.object(issue_summaries, "get_client", side_effect=RedisError("down")):
             assert self._start() == (True, True)
 
+    def test_start_queues_one_task_until_a_worker_claims_it(self) -> None:
+        assert self._start() == (True, True)
+        assert self._start() == (True, False)
+
+        result = get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert result.outcome == IssueSummaryOutcome.GENERATED
+
+    def test_start_returns_false_when_the_broker_is_down(self) -> None:
+        capture = self.enterContext(patch.object(issue_summaries, "capture_exception"))
+        with patch.object(
+            issue_summaries.generate_error_tracking_issue_summary, "delay", side_effect=OSError("broker down")
+        ):
+            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) is False
+
+        capture.assert_called_once()
+        assert self._start() == (True, True)
+
     @parameterized.expand(
         [
             ("llm_raises", lambda test: test.completions.configure_mock(side_effect=TimeoutError("slow"))),
@@ -350,11 +385,22 @@ class TestIssueSummaryGeneration(BaseTest):
                     side_effect=None, return_value=IssueSummaryOutcome.ISSUE_MISSING
                 ),
             ),
+            (
+                "unexpected_error",
+                lambda test: test.enterContext(
+                    patch.object(issue_summaries.Team.objects, "get", side_effect=OperationalError("db down"))
+                ),
+                OperationalError,
+            ),
         ]
     )
-    def test_failure_stops_start_until_the_lock_expires(self, _name: str, arrange: Any) -> None:
+    def test_failure_stops_start_until_the_lock_expires(
+        self, _name: str, arrange: Any, raises: type[Exception] | None = None
+    ) -> None:
         arrange(self)
-        get_or_generate_issue_summary(self.team.id, self.issue.id)
+        expect_error: AbstractContextManager[Any] = self.assertRaises(raises) if raises else nullcontext()
+        with expect_error:
+            get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert self._start() == (False, False)
         assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= issue_summaries.ISSUE_SUMMARY_LOCK_TTL_SECONDS

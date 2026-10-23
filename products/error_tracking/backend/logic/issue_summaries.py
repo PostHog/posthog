@@ -64,6 +64,7 @@ from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_MAX_OUTPUT_TOKENS,
     ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL,
     ISSUE_SUMMARY_MODEL,
+    ISSUE_SUMMARY_QUEUED_TTL_SECONDS,
     ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS,
     ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS,
 )
@@ -105,6 +106,16 @@ WAIT_POLL_INTERVAL_SECONDS = 0.25
 # Event values must not open or close the <issue> block that fences them in the prompt.
 ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
 LOCK_HELD_FOR_GENERATION = "1"
+LOCK_QUEUED = "queued"
+# Takes the lock when it is free or only marks a queued task. Returns nil on success, else the value that holds it.
+CLAIM_LUA = """
+local held = redis.call('GET', KEYS[1])
+if held == false or held == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    return false
+end
+return held
+"""
 
 
 class IssueSummaryOutcome(StrEnum):
@@ -123,6 +134,7 @@ class IssueSummaryOutcome(StrEnum):
     GATEWAY_UNCONFIGURED = "gateway_unconfigured"
     MODEL_ERROR = "model_error"
     INVALID_OUTPUT = "invalid_output"
+    UNEXPECTED_ERROR = "unexpected_error"
 
 
 # Outcomes that hold the issue past the lock TTL, because each try runs the input queries before it finds them.
@@ -188,14 +200,30 @@ def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
     """
     if generation_blocked(team_id, get_issue_summary(team_id, issue_id)) is not None:
         return False
-    match _held_generation(team_id, issue_id):
-        case None:
-            generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
-            return True
-        case IssueSummaryOutcome.IN_PROGRESS:
-            return True
-        case _:
-            return False
+    try:
+        client = get_client()
+        key = _lock_key(team_id, issue_id)
+        if client.set(key, LOCK_QUEUED, nx=True, ex=ISSUE_SUMMARY_QUEUED_TTL_SECONDS):
+            return _queue_generation(team_id, issue_id)
+        held = client.get(key)
+    except RedisError:
+        logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
+        return _queue_generation(team_id, issue_id)
+    return _lock_outcome(held) == IssueSummaryOutcome.IN_PROGRESS
+
+
+def _queue_generation(team_id: int, issue_id: UUID | str) -> bool:
+    try:
+        generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
+        # Without a task, the queued marker would keep reads waiting until it expires.
+        try:
+            get_client().delete(_lock_key(team_id, issue_id))
+        except RedisError:
+            logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
+        return False
+    return True
 
 
 def wait_for_issue_summary(
@@ -222,7 +250,11 @@ def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSu
 
     Generation runs at most once at a time per issue. A failure keeps the stored summary.
     """
-    result = _get_or_generate(team_id, issue_id)
+    try:
+        result = _get_or_generate(team_id, issue_id)
+    except Exception:
+        ISSUE_SUMMARY_OUTCOMES.labels(outcome=IssueSummaryOutcome.UNEXPECTED_ERROR.value).inc()
+        raise
     ISSUE_SUMMARY_OUTCOMES.labels(outcome=result.outcome.value).inc()
     logger.info(
         "error_tracking_issue_summary",
@@ -241,7 +273,11 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     if (held := _claim_generation(team_id, issue_id)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
-    result = _generate_claimed(team_id, issue_id)
+    try:
+        result = _generate_claimed(team_id, issue_id)
+    except Exception:
+        _settle_claim(team_id, issue_id, IssueSummaryOutcome.UNEXPECTED_ERROR)
+        raise
     _settle_claim(team_id, issue_id, result.outcome)
     return result
 
@@ -329,32 +365,21 @@ def _lock_key(team_id: int, issue_id: UUID | str) -> str:
 def _claim_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
     """None when this worker now holds the issue, else the outcome that holds it."""
     try:
-        client = get_client()
-        key = _lock_key(team_id, issue_id)
-        if client.set(key, LOCK_HELD_FOR_GENERATION, nx=True, ex=ISSUE_SUMMARY_LOCK_TTL_SECONDS):
-            return None
-        held = client.get(key)
+        held = get_client().register_script(CLAIM_LUA)(
+            keys=[_lock_key(team_id, issue_id)],
+            args=[LOCK_QUEUED, LOCK_HELD_FOR_GENERATION, ISSUE_SUMMARY_LOCK_TTL_SECONDS],
+        )
     except RedisError:
         # Fail open, as the budget does: a Redis outage can let two concurrent reads both pay.
-        logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
-        return None
-    return _lock_outcome(held)
-
-
-def _held_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
-    """The outcome that holds the issue, or None when no claim or hold exists. Never takes the claim."""
-    try:
-        held = get_client().get(_lock_key(team_id, issue_id))
-    except RedisError:
         logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
         return None
     return _lock_outcome(held) if held is not None else None
 
 
 def _lock_outcome(held: bytes | str | None) -> IssueSummaryOutcome:
-    """Only a live claim stores `LOCK_HELD_FOR_GENERATION`. Every other value is the outcome that stopped generation."""
+    """A live claim or a queued task means a summary may come. Every other value is the outcome that stopped generation."""
     value = held.decode() if isinstance(held, bytes) else held
-    if value is None or value == LOCK_HELD_FOR_GENERATION:
+    if value is None or value in (LOCK_HELD_FOR_GENERATION, LOCK_QUEUED):
         return IssueSummaryOutcome.IN_PROGRESS
     return IssueSummaryOutcome(value)
 
