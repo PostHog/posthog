@@ -7,6 +7,8 @@ from typing import Any, Literal, NotRequired, TypedDict
 from pydantic import BaseModel, ValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.schema import DashboardFilter
+
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     CANVAS_APP_WIDGET_TYPE,
@@ -86,10 +88,11 @@ class WidgetSpec:
     # Adds-only rollout gate: creating a tile of this type requires this feature flag (resolved via
     # feature_flags.widget_flag_enabled in widget_create). Existing tiles keep rendering when it's off.
     creation_flag: str | None = None
-    # Widgets that chart the same data as an insight tile follow the dashboard's date range and metric label
-    # filters like one. run_widgets then passes `dashboard_id`, the effective `dashboard_filters` and
-    # `force_refresh` (a manual refresh) to `query_fn`.
-    receives_dashboard_filters: bool = False
+    # The DashboardFilter keys this widget follows, like an insight tile follows the dashboard filters. When set,
+    # run_widgets passes `dashboard_id`, `dashboard_filters` (only these keys, saved filters merged with the viewer's
+    # override) and `force_refresh` (a manual refresh) to `query_fn`. The frontend reads the keys from the manifest
+    # and refetches the tile only when one of them changes.
+    dashboard_filter_keys: tuple[str, ...] = ()
     # "shared": every run counts against the shared per-team widget query throttle. "per_viewer": a browser
     # session counts against a per-viewer chart throttle instead, so dashboards full of chart tiles don't use up
     # the team's quota for every other widget. API key and OAuth requests always use the shared throttle.
@@ -98,6 +101,11 @@ class WidgetSpec:
     public_config_exclude: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        unknown_filter_keys = set(self.dashboard_filter_keys) - set(DashboardFilter.model_fields)
+        if unknown_filter_keys:
+            raise ValueError(
+                f"{self.widget_type}: dashboard_filter_keys not on DashboardFilter: {sorted(unknown_filter_keys)}"
+            )
         if self.is_live:
             forbidden = [field for field in _LIVE_FORBIDDEN_CONFIG_FIELDS if field in self.config_model.model_fields]
             if forbidden:
@@ -319,7 +327,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             form_fields=("query",),
             filter_fields=(),
             creation_flag="metrics",
-            receives_dashboard_filters=True,
+            dashboard_filter_keys=("date_from", "date_to", "metricFilters"),
             session_throttle="per_viewer",
             # Shared dashboards show a placeholder for widget tiles, so the query text has no reason to leave.
             public_config_exclude=("query",),

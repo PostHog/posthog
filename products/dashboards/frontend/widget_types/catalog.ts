@@ -38,7 +38,7 @@ import {
     metricsWidgetDefaultConfig,
 } from '../widgets/metrics/metricsWidgetConfig'
 import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
-import { getDashboardWidgetCreationFlag } from './widgetCreationFlags'
+import { getDashboardWidgetCreationFlag } from './widgetManifest'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
 
@@ -198,7 +198,7 @@ export type DashboardWidgetCatalogEntry = {
     pickerPresets?: readonly DashboardWidgetPickerPreset[]
     /** Open the widget settings right after the tile is added, when the default config shows nothing yet. */
     openEditorOnAdd?: boolean
-    /** Dashboard filter controls that reach this widget (see `WidgetSpec.receives_dashboard_filters`). */
+    /** Dashboard filter controls that reach this widget (see `WidgetSpec.dashboard_filter_keys`). */
     dashboardControls?: (config: Record<string, unknown>) => DashboardControl[]
 }
 

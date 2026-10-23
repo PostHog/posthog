@@ -28,6 +28,7 @@ import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { tryGetDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
+import { getDashboardWidgetFilterKeys } from '@posthog/products-dashboards/frontend/widget_types/widgetManifest'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 import {
     applyIssueMetadataToWidgetListResult,
@@ -1078,12 +1079,8 @@ export interface dashboardLogicActions {
     setWidgetEditorTileId: (tileId: number | null) => {
         tileId: number | null
     }
-    setWidgetFiltersKeys: (
-        tileIds: number[],
-        filtersKey: string
-    ) => {
-        filtersKey: string
-        tileIds: number[]
+    setWidgetFiltersKeys: (filtersKeys: Record<number, string>) => {
+        filtersKeys: Record<number, string>
     }
     setWidgetRefreshStatuses: (
         tileIds: number[],
@@ -1566,7 +1563,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
         /** A newly added tile whose widget settings open as soon as it renders. */
         setWidgetEditorTileId: (tileId: number | null) => ({ tileId }),
-        setWidgetFiltersKeys: (tileIds: number[], filtersKey: string) => ({ tileIds, filtersKey }),
+        setWidgetFiltersKeys: (filtersKeys: Record<number, string>) => ({ filtersKeys }),
         cancelWidgetRefresh: (tileIds: number[]) => ({ tileIds }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
@@ -2861,10 +2858,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         widgetFiltersKeys: [
             {} as Record<number, string>,
             {
-                setWidgetFiltersKeys: (state, { tileIds, filtersKey }) => ({
-                    ...state,
-                    ...Object.fromEntries(tileIds.map((tileId) => [tileId, filtersKey])),
-                }),
+                setWidgetFiltersKeys: (state, { filtersKeys }) => ({ ...state, ...filtersKeys }),
             },
         ],
         widgetEditorTileId: [
@@ -4814,25 +4808,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
-            const filtersOverride = widgetDashboardFilters(filters ?? values.effectiveRefreshFilters)
-            const filtersKey = JSON.stringify(filtersOverride)
-            const tilesFollowingDashboardFilters = new Set(
-                values.widgetTiles
-                    .filter(
-                        (tile) =>
-                            !!tile.widget &&
-                            !!tryGetDashboardWidgetCatalogEntry(tile.widget.widget_type)?.dashboardControls
-                    )
-                    .map((tile) => tile.id)
+            const dashboardFilters = filters ?? values.effectiveRefreshFilters
+            const filterKeysByTileId = new Map(
+                values.widgetTiles.map((tile) => [
+                    tile.id,
+                    tile.widget ? getDashboardWidgetFilterKeys(tile.widget.widget_type) : [],
+                ])
+            )
+            // Each tile's key covers only the filters it follows, so a tile refetches only when one of them changes.
+            const filtersKeyByTileId: Record<number, string> = Object.fromEntries(
+                tileIds.map((tileId) => [
+                    tileId,
+                    JSON.stringify(widgetDashboardFilters(dashboardFilters, filterKeysByTileId.get(tileId) ?? [])),
+                ])
             )
             const staleTileIds = tileIds.filter((tileId) => {
                 if (forceRefresh) {
                     return true
                 }
                 if (
-                    tilesFollowingDashboardFilters.has(tileId) &&
                     values.widgetFiltersKeys[tileId] !== undefined &&
-                    values.widgetFiltersKeys[tileId] !== filtersKey
+                    values.widgetFiltersKeys[tileId] !== filtersKeyByTileId[tileId]
                 ) {
                     return true
                 }
@@ -4864,19 +4860,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const dashboardId = props.id
             const signal: AbortSignal | undefined = cache.abortController?.signal
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
+                const chunkFilterKeys = [...new Set(chunk.flatMap((tileId) => filterKeysByTileId.get(tileId) ?? []))]
                 try {
                     const results = await fetchRunWidgets(projectId, dashboardId, chunk, {
                         signal,
-                        filtersOverride: chunk.some((tileId) => tilesFollowingDashboardFilters.has(tileId))
-                            ? filtersOverride
-                            : undefined,
+                        filtersOverride:
+                            chunkFilterKeys.length > 0
+                                ? widgetDashboardFilters(dashboardFilters, chunkFilterKeys)
+                                : undefined,
                         refresh: !!forceRefresh,
                     })
                     const latestResults = results.filter((result) => isLatest(result.tile_id))
                     actions.setWidgetRunResults(
                         Object.fromEntries(latestResults.map((result) => [result.tile_id, result]))
                     )
-                    actions.setWidgetFiltersKeys(chunk.filter(isLatest), filtersKey)
+                    actions.setWidgetFiltersKeys(
+                        Object.fromEntries(chunk.filter(isLatest).map((tileId) => [tileId, filtersKeyByTileId[tileId]]))
+                    )
                     for (const result of latestResults) {
                         actions.setWidgetRefreshStatuses(
                             [result.tile_id],
