@@ -119,6 +119,9 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler.for_run(context, task_run.id)
+        if handler.proactive_notifications_muted():
+            handler.delete_progress()
+            return
         # The buttons lead where the footer's link does.
         task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")

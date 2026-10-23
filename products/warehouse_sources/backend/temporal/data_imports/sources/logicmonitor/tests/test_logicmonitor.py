@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonit
     LogicMonitorResumeConfig,
     portal_url,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.settings import FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.source import LogicmonitorSource
 
 BASE_PATH = "/santaba/rest/device/devices"
@@ -98,6 +99,61 @@ def test_alert_growth_after_a_page_fails_without_replaying() -> None:
     assert isinstance(result.raised, ValueError)
     assert "counts changed" in str(result.raised)
     assert len(result.requests) == 2
+
+
+@pytest.mark.parametrize(
+    "table, child_path",
+    [("device_datasources", "devicedatasources"), ("device_datasource_instances", "instances")],
+)
+@pytest.mark.parametrize("resume", [False, True])
+def test_device_fanout_pages_each_device_and_resumes(table: str, child_path: str, resume: bool) -> None:
+    devices = ScriptedResponse(json={"items": [{"id": 7}, {"id": 9}], "total": 2})
+    first_device = [
+        ScriptedResponse(json={"items": [{"id": i, "deviceId": 7} for i in range(1000)], "total": 1001}),
+        ScriptedResponse(json={"items": [{"id": 1000, "deviceId": 7}], "total": 1001}),
+    ]
+    second_device = ScriptedResponse(json={"items": [{"id": 1, "deviceId": 9}], "total": 1})
+    first_path = f"device/devices/7/{child_path}"
+
+    result = driver().run(
+        table,
+        [devices, second_device] if resume else [devices, *first_device, second_device],
+        resume_state=LogicMonitorResumeConfig(fanout_state={"completed": [first_path], "current": None})
+        if resume
+        else None,
+    )
+
+    assert result.raised is None
+    assert result.response is not None and result.response.primary_keys == ["deviceId", "id"]
+    expected_rows = [(9, 1)] if resume else [*((7, i) for i in range(1001)), (9, 1)]
+    assert [(row["deviceId"], row["id"]) for row in result.rows] == expected_rows
+    child_paths = [f"/santaba/rest/device/devices/9/{child_path}"]
+    if not resume:
+        child_paths = [f"/santaba/rest/{first_path}"] * 2 + child_paths
+    assert result.paths == [BASE_PATH, *child_paths]
+    assert result.params("fields") == ["id"] + [FIELDS[table]] * len(child_paths)
+    assert result.params("offset") == ["0"] + (["0"] if resume else ["0", "1000", "0"])
+    assert result.final_state is not None and result.final_state.fanout_state["completed"] == [
+        first_path,
+        f"device/devices/9/{child_path}",
+    ]
+    assert result.completed_state is None
+
+
+@pytest.mark.parametrize("table", ["device_datasources", "device_datasource_instances"])
+def test_device_fanout_skips_device_deleted_mid_sync(table: str) -> None:
+    result = driver().run(
+        table,
+        [
+            ScriptedResponse(json={"items": [{"id": 7}, {"id": 9}], "total": 2}),
+            ScriptedResponse(status=404, json={"errorCode": 1404, "errorMessage": "fake not found"}),
+            ScriptedResponse(json={"items": [{"id": 1, "deviceId": 9}], "total": 1}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [(row["deviceId"], row["id"]) for row in result.rows] == [(9, 1)]
+    assert len(result.requests) == 3
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])

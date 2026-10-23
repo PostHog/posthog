@@ -6856,7 +6856,7 @@ export interface DashboardFilter {
     filterTestAccounts?: boolean | null
     /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
     compareFilter?: CompareFilter | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    /** @deprecated Ignored. Kept so that dashboards saved with label filters still load. */
     metricFilters?: MetricsQueryFilter[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariable[] | null
