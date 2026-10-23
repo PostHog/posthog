@@ -129,9 +129,16 @@ const width =
         </div>
     )
 
+// Opts the subtree into Quill's tokens, which the walkthrough reads directly as `var(--card)` and the like.
+const quillTokens = (Story: StoryFn): ReactElement => (
+    <div data-quill data-mcp-storybook>
+        <Story />
+    </div>
+)
+
 const meta: Meta = {
     title: 'MCP Apps/Explain Chart',
-    decorators: [McpThemeDecorator],
+    decorators: [quillTokens, McpThemeDecorator],
     parameters: {
         mcpMaxWidth: 'none',
         testOptions: {
