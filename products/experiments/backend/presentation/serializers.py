@@ -9,6 +9,7 @@ ViewSet remains in experiments.py.
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -57,6 +58,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.metric_calculation.results import ExperimentResultConfigurationStatus
 from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
@@ -1561,6 +1563,12 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
 class MetricRecalculationResultSerializer(serializers.Serializer):
     """One metric's recalculated result row, read back from ExperimentMetricResult."""
 
+    configuration_status = serializers.ChoiceField(
+        choices=ExperimentResultConfigurationStatus.choices,
+        read_only=True,
+        help_text="Whether this result uses current settings, earlier settings, or settings that were not recorded.",
+    )
+
     metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
     status = serializers.ChoiceField(
         choices=["pending", "completed", "failed"],
@@ -1577,6 +1585,63 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
     )
+
+
+class ExperimentTimeseriesResultsStatus(models.TextChoices):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
+    """Day-by-day results of one metric under the experiment's current settings."""
+
+    experiment_id = serializers.IntegerField(help_text="Experiment id.")
+    metric_uuid = serializers.CharField(help_text="UUID of the metric the series belongs to.")
+    status = serializers.ChoiceField(
+        choices=ExperimentTimeseriesResultsStatus.choices,
+        help_text=(
+            "'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result "
+            "and some failed, 'pending' when no day was calculated yet."
+        ),
+    )
+    timeseries = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        help_text=(
+            "Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start "
+            "date to the end date or today. Null for a day without a completed result."
+        ),
+    )
+    configuration_by_day = serializers.DictField(
+        child=serializers.ChoiceField(choices=ExperimentResultConfigurationStatus.choices),
+        help_text="Configuration provenance for each stored day: current, previous, or unknown.",
+    )
+    computed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the most recent day's result was computed, or null."
+    )
+    created_at = serializers.DateTimeField(help_text="When the oldest stored day was written.")
+    updated_at = serializers.DateTimeField(help_text="When the newest stored day was last written.")
+    recalculation_status = serializers.CharField(
+        allow_null=True,
+        help_text="'pending' or 'in_progress' while a backfill of this series runs, otherwise null.",
+    )
+    recalculation_created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the running backfill was requested, or null."
+    )
+    formatted_results = serializers.CharField(
+        help_text="The series as a compact text table, one row per day, for language model consumers."
+    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        # A declared `errors` attribute would shadow `Serializer.errors`.
+        fields = super().get_fields()
+        fields["errors"] = serializers.DictField(
+            child=serializers.CharField(),
+            allow_null=True,
+            help_text="Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.",
+        )
+        return fields
 
 
 class RecalculateMetricsRequestSerializer(serializers.Serializer):

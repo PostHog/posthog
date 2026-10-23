@@ -40,6 +40,11 @@ The write looks the row up on `(experiment, metric_uuid, query_to)` and stores t
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
 A failed write is the exception: it leaves a completed row under another fingerprint in place, so a transient failure cannot replace a recalculation result.
 
+The significance notification compares a new daily result with the metric's previous completed point under the same calculation key.
+Without such a point, the latest earlier point under the metric's version 1 key, as fingerprint or display key, stands in.
+That is the point the comparison used before key version 2, so a settings change that version 1 does not cover sends no repeated notification.
+Without any earlier point, every significant variant counts as newly significant, as on the first point of a new experiment.
+
 These workflows used to publish a `timeseries_sync` recalculation row per experiment as well.
 The scheduled recalculation workflow owns that job now, so the publish pass is gated out behind
 `experiment-drop-timeseries-publish-2026-10`.
@@ -183,3 +188,11 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Calculation-key version 2 rollout
+
+Before deploying discovery that emits version 2 keys, pause every `experiment-regular-metrics-hour-*` and `experiment-saved-metrics-hour-*` schedule in both regions. Each family has 24 hourly schedules with 30-minute jitter; there is no globally quiet daily significance window. Drain in-flight discovery and metric-calculation workflows before rolling the workers. Resume schedules only after all workers understand the version 1/display-key significance fallback. Pausing schedules alone does not stop workflows already running.
+
+Drain active timeseries backfills before switching versions too: old workers do not honor the new canceled status or the write fence. Historical result fingerprints stay unchanged, so the first new-worker comparison can use their version 1 keys without sending duplicate significance notifications.
+
+Monitor page-load runs by `heal_latest_run` (a gap in a real terminal run) and `cold_run` (404 or an incomplete timeseries fallback). `experiment_config_change` identifies an experiment edit, not page-load healing. Ended experiments with compatible stored results should not start either page-load run after a project settings change.

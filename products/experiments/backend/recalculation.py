@@ -33,7 +33,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
-from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.results import MetricResultStore, result_configuration_status
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -127,9 +127,9 @@ def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict]
     the same list is also surfaced to the client.
 
     Inherits the fingerprint-divergence hazard from `get_run_results`: `completed_metrics` can silently drop
-    if experiment fields that feed the fingerprint (start_date, exposure_criteria, stats method,
-    only_count_matured_users) change between the workflow's writes and this read. `failed_metrics` is partly
-    immune because discovery-step failures come from `metric_errors` (stored on the row), not from result rows.
+    if settings that feed the calculation key change between the workflow's writes and this read.
+    `failed_metrics` is partly immune because discovery-step failures come from `metric_errors` (stored on the
+    row), not from result rows.
     """
     rows = results if results is not None else get_run_results(recalc)
     completed = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.COMPLETED)
@@ -606,20 +606,19 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
 
     Never returns rows from a previous run or from the timeseries workflow (which uses config fingerprints).
 
-    Divergence hazard: the store finds a run's rows by recomputing each metric's fingerprint from mutable
-    experiment fields (start_date, exposure_criteria, stats method, only_count_matured_users). If any of these
-    change after the run wrote its rows, this can return [] for what is on-disk a successful run, until the
-    experiment fields revert. Symptom: "results disappeared after editing exposure_criteria / start_date / stats
-    config." This is the explicit trade-off of "no FK on ExperimentMetricResult": the snapshot lives in the
-    fingerprint, not in a stored column.
+    Ended experiments retain completed rows with a compatible display key after project settings change.
+    The response reports older or unknown configuration provenance without making those rows reusable.
     """
-    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
+    configs = build_calculation_configs(recalc.experiment)
+    by_uuid = {config.metric_id: config for config in configs}
+    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc, configs=configs)
     return [
         {
             "metric_uuid": row.metric_uuid,
             "status": row.status,
             "result": strip_step_sessions(row.result),
             "error_message": row.error_message,
+            "configuration_status": result_configuration_status(row.fingerprint, by_uuid[row.metric_uuid]),
         }
         for row in rows
     ]
@@ -632,7 +631,8 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     metrics-recalculation run exists yet. Timeseries rows live in ExperimentMetricResult under the metric's
     CONFIG fingerprint (not a per-run recalc fingerprint), so they're found without any recalc row.
 
-    Only points younger than TIMESERIES_FALLBACK_MAX_AGE count. The frontend accepts a fallback that covers every
+    Running experiments only accept points younger than TIMESERIES_FALLBACK_MAX_AGE. Ended experiments keep
+    their latest compatible point from any time since launch, including results under earlier settings. The frontend accepts a fallback that covers every
     metric without starting a run, so an older point must read as a gap or the page would show weeks-old numbers
     as completed. Returns None when no metric has a fresh completed point (caller then keeps the 404). query_to
     and completed_at both pin to the freshest point's date. GET never triggers anything itself.
@@ -646,7 +646,14 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
         for calculation_config in calculation_configs:
             # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
             # query_to that would surface here as a future completion time.
-            row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
+            row = store.latest_daily_point(
+                calculation_config,
+                since=experiment.start_date
+                if experiment.is_stopped and experiment.start_date
+                else now - TIMESERIES_FALLBACK_MAX_AGE,
+                until=now,
+                preserve_history=experiment.is_stopped,
+            )
             if row is None:
                 continue
             results.append(
@@ -655,6 +662,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                     "status": row.status,
                     "result": strip_step_sessions(row.result),
                     "error_message": None,
+                    "configuration_status": result_configuration_status(row.fingerprint, calculation_config),
                 }
             )
             if latest_query_to is None or row.query_to > latest_query_to:

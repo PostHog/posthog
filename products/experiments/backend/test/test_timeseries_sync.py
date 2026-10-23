@@ -70,17 +70,19 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         exp.save()
         return exp
 
-    def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
+    def _config_fp(self, exp: Experiment, metric_uuid: str, *, legacy: bool = False) -> str:
         calculation_config = get_metric_calculation_config(exp, metric_uuid)
         assert calculation_config is not None
-        return calculation_config.calculation_key()
+        return calculation_config.legacy_key() if legacy else calculation_config.calculation_key()
 
-    def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict) -> None:
+    def _timeseries_point(
+        self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict, *, legacy: bool = False
+    ) -> None:
         assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=self._config_fp(exp, metric_uuid),
+            fingerprint=self._config_fp(exp, metric_uuid, legacy=legacy),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",
@@ -99,10 +101,11 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         saved = ExperimentSavedMetric.objects.create(team=self.team, name=metric_uuid, query=_mean_metric(metric_uuid))
         ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
 
-    def test_creates_a_completed_run_from_the_points_of_this_daily_run(self):
-        exp = self._experiment("sync-full", [_mean_metric("m1"), _mean_metric("m2")])
+    @parameterized.expand([("version_2_points", False), ("a_point_from_before_the_conversion", True)])
+    def test_creates_a_completed_run_from_the_points_of_this_daily_run(self, _name: str, m2_version_1: bool):
+        exp = self._experiment(f"sync-full-{_name}", [_mean_metric("m1"), _mean_metric("m2")])
         self._timeseries_point(exp, "m1", IN_RUN, {"m": 1})
-        self._timeseries_point(exp, "m2", LATER_IN_RUN, {"m": 2})
+        self._timeseries_point(exp, "m2", LATER_IN_RUN, {"m": 2}, legacy=m2_version_1)
 
         recalculation_id = self._sync(exp)
 
@@ -122,7 +125,7 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         copies = ExperimentMetricResult.objects.filter(experiment=exp, query_to=recalc.query_to)
         assert {row.fingerprint for row in copies} == {
             _recalc_fingerprint(self._config_fp(exp, "m1")),
-            _recalc_fingerprint(self._config_fp(exp, "m2")),
+            _recalc_fingerprint(self._config_fp(exp, "m2", legacy=m2_version_1)),
         }
         # The timeseries rows keep their config fingerprint.
         assert ExperimentMetricResult.objects.filter(experiment=exp, fingerprint=self._config_fp(exp, "m1")).exists()

@@ -1155,7 +1155,10 @@ class TestCalculateActivity(BaseTest):
         assert len(recalc.metric_errors) == 2
         assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
 
-    def test_skips_query_when_completed_result_already_exists_for_this_fingerprint(self):
+    @parameterized.expand([("version_2_key", False), ("version_1_key_is_display_only", True)])
+    def test_skips_query_when_completed_result_already_exists_for_this_fingerprint(
+        self, _name: str, version_1: bool
+    ) -> None:
         # Speed optimization: if a COMPLETED row already exists at this (experiment, metric_uuid, query_to)
         # under THIS run's recalc fingerprint, the metric is unchanged and already computed for this window, so
         # the activity returns success without re-running the ClickHouse query. The fingerprint is the
@@ -1163,7 +1166,11 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-skip-existing", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
+        calculation_config = get_metric_calculation_config(exp, "m1")
+        assert calculation_config is not None
+        recalc_fp = _recalc_fingerprint(
+            calculation_config.legacy_key() if version_1 else calculation_config.calculation_key()
+        )
         existing = ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1180,9 +1187,13 @@ class TestCalculateActivity(BaseTest):
         recalc.save(update_fields=["metric_retries"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {"fresh": True}
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-        mock_runner.assert_not_called()
+        if version_1:
+            mock_runner.assert_called_once()
+        else:
+            mock_runner.assert_not_called()
         assert result.success is True
         recalc.refresh_from_db()
         assert recalc.metric_retries == {}
@@ -1191,7 +1202,8 @@ class TestCalculateActivity(BaseTest):
         assert rows.count() == 1
         row = rows.get()
         assert row.id == existing.id
-        assert row.result == {"already": "computed"}
+        assert row.result == ({"fresh": True} if version_1 else {"already": "computed"})
+        assert row.fingerprint == _recalc_fingerprint(calculation_config.calculation_key())
 
     def test_recomputes_when_existing_result_has_a_different_fingerprint(self):
         # A config change yields a different recalc fingerprint, so the existing row does not match and the
@@ -1216,25 +1228,32 @@ class TestCalculateActivity(BaseTest):
 
         mock_runner.assert_called_once()
 
-    def test_excluded_variants_change_recomputes(self):
-        # A cached row computed before a variant was excluded must not satisfy the skip check: the exclusion
-        # set feeds the fingerprint, so the stale row's fingerprint no longer matches and the query re-runs.
-        metric = _mean_metric("m1")
-        exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
+    @parameterized.expand(
+        [
+            ("excluded_variants", {"excluded_variants": ["test"]}),
+            ("credible_interval", {"stats_config": {"bayesian": {"ci_level": 0.9}}}),
+            ("baseline", {"stats_config": {"baseline_variant_key": "test"}}),
+            ("cuped", {"stats_config": {"cuped": {"enabled": True}}}),
+        ]
+    )
+    def test_a_cached_row_that_may_come_from_other_settings_recomputes(self, _name: str, changes: dict) -> None:
+        # The run reuses the previous window, which is what a metric config change does. The skip check must not
+        # take the cached row as this run's result whatever the trigger, so the query re-runs.
+        exp = self._experiment(flag_key=f"calc-stale-{_name}", metrics=[_mean_metric("m1")])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
-            fingerprint=recalc_fp,
+            fingerprint=_recalc_fingerprint(_calculation_key(exp, "m1")),
             query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
             result={"stale": True},
         )
-        exp.excluded_variants = ["test"]
-        exp.save(update_fields=["excluded_variants"])
+        Experiment.objects.filter(pk=exp.pk).update(**changes)
         recalc = self._recalc(exp, metric_uuids=["m1"])
+        recalc.trigger = ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE
+        recalc.save(update_fields=["trigger"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}

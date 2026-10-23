@@ -269,6 +269,7 @@ export interface experimentMetricsLogicValues {
     currentProjectId: number | null // projectLogic
     backendEnforcesRefreshWindow: boolean
     currentRecalculation: RecalculationPayload | null
+    resultConfigurationNotice: 'previous' | 'unknown' | null
     isManualRefreshBlocked: boolean
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
@@ -366,6 +367,7 @@ export interface experimentMetricsLogicMeta {
         recalculationRejectionMessage: (currentRecalculation: RecalculationPayload | null) => string | null
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
+        resultConfigurationNotice: (recalc: RecalculationPayload | null) => 'previous' | 'unknown' | null
         isManualRefreshBlocked: (
             nextAllowedManualRefresh: string | null,
             refreshEligibilityTick: number,
@@ -507,6 +509,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
     }),
     selectors({
+        resultConfigurationNotice: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): 'previous' | 'unknown' | null => {
+                const statuses = (recalc?.results ?? [])
+                    .filter((result) => result.status === 'completed')
+                    .map((result) => result.configuration_status)
+                return statuses.includes('previous') ? 'previous' : statuses.includes('unknown') ? 'unknown' : null
+            },
+        ],
         // True while a recalculation is being fetched or is still running.
         isRecalculating: [
             (s) => [s.recalculationLoading, s.currentRecalculation, s.recalculationAbandoned],
