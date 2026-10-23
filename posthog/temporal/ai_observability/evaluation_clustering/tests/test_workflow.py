@@ -195,7 +195,7 @@ class TestSamplerWorkflowWindowMath:
         assert activity_inputs.event_filters == filters
 
 
-sampler_child_windows: list[tuple[str | None, str | None]] = []
+sampler_child_windows: list[tuple[str, str]] = []
 sampler_discovery_inputs: list[TeamDiscoveryInput | None] = []
 
 
@@ -204,7 +204,7 @@ class FakeEvaluationSamplerWorkflow:
     @workflow.run
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
         if not workflow.unsafe.is_replaying():
-            sampler_child_windows.append((inputs.window_start, inputs.window_end))
+            sampler_child_windows.append((inputs.window_start or "", inputs.window_end or ""))
         return SamplerWorkflowResult(
             team_id=inputs.team_id,
             job_id=inputs.job_id,
