@@ -26,6 +26,7 @@ import {
   isSkillBundleArtifactMetadata,
   type McpServerConnection,
   type McpToolPolicy,
+  mcpToolKey,
   mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
@@ -86,6 +87,7 @@ import {
 } from "../adapters/acp-connection";
 import {
   type McpToolApprovals,
+  sanitizeMcpServerName,
   setAlwaysAskMcpServers,
 } from "../adapters/claude/mcp/tool-metadata";
 import type { InitializationPhase } from "../adapters/claude/session/initialization";
@@ -251,6 +253,22 @@ const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
+// The backend permission broker auto-answers every prompt on these runs.
+const SLACK_ORIGIN_PRODUCT = "slack";
+
+function mcpToolApprovalCancel(
+  policy: McpToolPolicy,
+  reason: string,
+): RequestPermissionResponse {
+  return {
+    outcome: { outcome: "cancelled" },
+    _meta: {
+      message:
+        `The ${policy.toolName} tool on ${policy.serverName} needs approval, and ${reason}. ` +
+        "Do NOT retry; tell the user to approve it in PostHog under the MCP server's tool settings.",
+    },
+  };
+}
 
 export function systemPromptAppendText(
   prompt: ClaudeCodeConfig["systemPrompt"],
@@ -526,7 +544,7 @@ export class AgentServer {
   private session: ActiveSession | null = null;
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
-  // Keyed by `mcp__<server>__<tool>`, the name the adapters report in permission requests.
+  // Keyed by the sanitized `mcp__<server>__<tool>` name the SDK reports in permission requests.
   private mcpToolPolicies = new Map<string, McpToolPolicy>();
   private contextSelectionAPI: PostHogAPIClient;
   private contextSelectionApiKey: string;
@@ -650,7 +668,10 @@ export class AgentServer {
     );
     this.mcpToolPolicies = new Map(
       policies.map((policy) => [
-        `mcp__${policy.serverName}__${policy.toolName}`,
+        mcpToolKey({
+          server: sanitizeMcpServerName(policy.serverName),
+          tool: sanitizeMcpServerName(policy.toolName),
+        }),
         policy,
       ]),
     );
@@ -667,9 +688,7 @@ export class AgentServer {
   ): McpToolPolicy | undefined {
     const descriptor = this.readPermissionMcpDescriptor(params);
     if (!descriptor) return undefined;
-    const policy = this.mcpToolPolicies.get(
-      `mcp__${descriptor.server}__${descriptor.tool}`,
-    );
+    const policy = this.mcpToolPolicies.get(mcpToolKey(descriptor));
     return policy?.approvalState === "needs_approval" ? policy : undefined;
   }
 
@@ -2173,14 +2192,14 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
-    const [preTaskRun, preTask] = await this.measureInitialization(
-      "context_fetch",
-      () =>
+    const [preTaskRun, preTask, mcpToolApprovals] =
+      await this.measureInitialization("context_fetch", () =>
         Promise.all([
           this.fetchTaskRunForSessionContext(payload.task_id, payload.run_id),
           this.fetchTaskForSessionContext(payload.task_id),
+          this.loadMcpToolApprovals(),
         ]),
-    );
+      );
     const launchSources = {
       payload,
       task: preTask,
@@ -2452,7 +2471,6 @@ export class AgentServer {
     // a multi-repository workspace already has its repos on disk.
     const channelMode =
       !this.config.repositoryPath && this.taskRepositories.length === 0;
-    const mcpToolApprovals = await this.loadMcpToolApprovals();
     const sessionMeta = {
       sessionId: payload.run_id,
       taskRunId: payload.run_id,
@@ -5164,18 +5182,17 @@ export class AgentServer {
         // in PostHog, so auto-approving here would only produce a failed call.
         const gatedMcpTool = this.needsApprovalMcpTool(params);
         if (gatedMcpTool) {
-          if (mode !== "background" && this.hasReachableClient()) {
+          if (
+            mode !== "background" &&
+            this.productLaunch.originProduct !== SLACK_ORIGIN_PRODUCT &&
+            this.hasReachableClient()
+          ) {
             return this.relayMcpToolApproval(params, gatedMcpTool);
           }
-          return {
-            outcome: { outcome: "cancelled" as const },
-            _meta: {
-              message:
-                `The ${gatedMcpTool.toolName} tool on ${gatedMcpTool.serverName} needs approval, ` +
-                "and no user is available to approve it. Do NOT retry; tell the user to " +
-                "approve it in PostHog under the MCP server's tool settings.",
-            },
-          };
+          return mcpToolApprovalCancel(
+            gatedMcpTool,
+            "no user is available to approve it",
+          );
         }
 
         const posthogExecSubTool =
@@ -5868,11 +5885,14 @@ export class AgentServer {
     params: RequestPermissionRequest,
     policy: McpToolPolicy,
   ): Promise<RequestPermissionResponse> {
-    const response = await this.relayPermissionToClient(params);
+    const response = await this.relayPermissionToClient({
+      ...params,
+      options: params.options.filter((option) => option.kind !== "allow_once"),
+    });
     const selected = params.options.find(
       (option) => option.optionId === response.outcome.optionId,
     );
-    if (selected?.kind !== "allow_once" && selected?.kind !== "allow_always") {
+    if (selected?.kind !== "allow_always") {
       return response;
     }
     try {
@@ -5880,14 +5900,18 @@ export class AgentServer {
         policy.installationId,
         policy.toolName,
       );
-      policy.approvalState = "approved";
     } catch (error) {
       this.logger.warn("Failed to record MCP tool approval", {
         installationId: policy.installationId,
         toolName: policy.toolName,
         error: getErrorMessage(error),
       });
+      return mcpToolApprovalCancel(
+        policy,
+        "the approval could not be saved (on a shared connection, only its owner can approve tools)",
+      );
     }
+    policy.approvalState = "approved";
     return response;
   }
 

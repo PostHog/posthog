@@ -160,6 +160,14 @@ export function setMcpToolApprovalStates(approvals: McpToolApprovals): void {
   }
 }
 
+export function getMcpToolApprovalStates(): McpToolApprovals {
+  return Object.fromEntries(
+    [...mcpToolMetadataCache].flatMap(([toolKey, metadata]) =>
+      metadata.approvalState ? [[toolKey, metadata.approvalState]] : [],
+    ),
+  );
+}
+
 export function clearMcpToolMetadataCache(): void {
   mcpToolMetadataCache.clear();
 }

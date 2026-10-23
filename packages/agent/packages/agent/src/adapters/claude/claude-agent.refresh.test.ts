@@ -75,12 +75,22 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 const fetchMcpToolMetadataMock = vi.fn().mockResolvedValue(undefined);
 const clearMcpToolMetadataCacheMock = vi.fn();
-vi.mock("./mcp/tool-metadata", () => ({
-  fetchMcpToolMetadata: fetchMcpToolMetadataMock,
-  getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
-  getCachedMcpTools: vi.fn().mockReturnValue([]),
-  clearMcpToolMetadataCache: clearMcpToolMetadataCacheMock,
-}));
+vi.mock("./mcp/tool-metadata", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./mcp/tool-metadata")>();
+  clearMcpToolMetadataCacheMock.mockImplementation(
+    actual.clearMcpToolMetadataCache,
+  );
+  return {
+    ...actual,
+    fetchMcpToolMetadata: fetchMcpToolMetadataMock,
+    getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
+    getCachedMcpTools: vi.fn().mockReturnValue([]),
+    clearMcpToolMetadataCache: clearMcpToolMetadataCacheMock,
+  };
+});
+const { getMcpToolApprovalState, setMcpToolApprovalStates } = await import(
+  "./mcp/tool-metadata"
+);
 
 // Import after the mocks so ClaudeAcpAgent resolves the mocked SDK
 const { ClaudeAcpAgent } = await import("./claude-agent");
@@ -744,15 +754,19 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     expect(servers["posthog-code-tools"].instance).toEqual({ fresh: 1 });
   });
 
-  it("clears the MCP tool metadata cache on refresh", async () => {
+  it("clears the MCP tool metadata cache on refresh but keeps approval states", async () => {
     const { agent } = makeAgent();
     installFakeSession(agent, "s-cache");
+    setMcpToolApprovalStates({ mcp__metrics__get_stats: "needs_approval" });
 
     await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
       mcpServers: freshMcpServers,
     });
 
     expect(clearMcpToolMetadataCacheMock).toHaveBeenCalledTimes(1);
+    expect(getMcpToolApprovalState("mcp__metrics__get_stats")).toBe(
+      "needs_approval",
+    );
   });
 });
 

@@ -530,18 +530,19 @@ describe("createPreToolUseHook", () => {
   });
 
   test.each([
-    { approvalState: "needs_approval", decision: "ask" },
-    { approvalState: "approved", decision: "allow" },
+    { approvalState: "needs_approval", rule: "allow", decision: "ask" },
+    { approvalState: "approved", rule: "allow", decision: "allow" },
+    { approvalState: "needs_approval", rule: "deny", decision: "deny" },
   ] as const)(
-    "returns $decision for an MCP tool in $approvalState under an allow rule",
-    async ({ approvalState, decision }) => {
-      const toolName = `mcp__metrics__${approvalState}_tool`;
+    "returns $decision for an MCP tool in $approvalState under a $rule rule",
+    async ({ approvalState, rule, decision }) => {
+      const toolName = `mcp__metrics__${approvalState}_${rule}_tool`;
       setMcpToolApprovalStates({ [toolName]: approvalState });
       const hook = createPreToolUseHook(
         buildSettingsManagerStub({
-          decision: "allow",
+          decision: rule,
           rule: toolName,
-          source: "allow",
+          source: rule,
         }),
         logger,
       );

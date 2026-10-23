@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearMcpToolMetadataCache,
   fetchMcpToolMetadata,
+  getMcpToolApprovalState,
+  setAlwaysAskMcpServers,
   setMcpToolApprovalStates,
 } from "../mcp/tool-metadata";
 import { canUseTool } from "./permission-handlers";
@@ -77,6 +79,7 @@ function createContext(
 describe("canUseTool MCP approval enforcement", () => {
   beforeEach(() => {
     clearMcpToolMetadataCache();
+    setAlwaysAskMcpServers([]);
   });
 
   it("denies do_not_use MCP tools with correct message", async () => {
@@ -111,6 +114,44 @@ describe("canUseTool MCP approval enforcement", () => {
       }),
     );
   });
+
+  it("denies a needs_approval MCP tool with the message a cancelled outcome carries", async () => {
+    setMcpToolApprovalStates({ mcp__metrics__get_stats: "needs_approval" });
+    const context = createContext("mcp__metrics__get_stats", {
+      client: createClient({
+        outcome: { outcome: "cancelled" },
+        _meta: { message: "Approve it in PostHog." },
+      }),
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result).toEqual({
+      behavior: "deny",
+      message: "Approve it in PostHog.",
+    });
+  });
+
+  it.each([
+    {
+      label: "a stored needs_approval tool",
+      relayed: false,
+      after: "approved",
+    },
+    { label: "a relayed server tool", relayed: true, after: "needs_approval" },
+  ])(
+    "marks $label as $after after the user allows it",
+    async ({ relayed, after }) => {
+      setAlwaysAskMcpServers(relayed ? ["metrics"] : []);
+      if (!relayed) {
+        setMcpToolApprovalStates({ mcp__metrics__get_stats: "needs_approval" });
+      }
+
+      await canUseTool(createContext("mcp__metrics__get_stats"));
+
+      expect(getMcpToolApprovalState("mcp__metrics__get_stats")).toBe(after);
+    },
+  );
 
   it("allows approved MCP tools through normal flow", async () => {
     setMcpToolApprovalStates({

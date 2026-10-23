@@ -3194,23 +3194,82 @@ describe("AgentServer HTTP Mode", () => {
       return approveMcpTool;
     }
 
-    it("records the approval before a relayed needs_approval MCP tool runs", async () => {
+    function approvalRequestFor(mcpToolName: string) {
+      return {
+        ...permissionRequestFor(mcpToolName),
+        options: [
+          { optionId: "allow", kind: "allow_once" },
+          { optionId: "allow_always", kind: "allow_always" },
+          { optionId: "reject", kind: "reject_once" },
+        ],
+      };
+    }
+
+    it("keys loaded approvals by the sanitized names the SDK reports", async () => {
+      const testServer = createServer() as unknown as {
+        posthogAPI: { getMcpRuntimeConfiguration: unknown };
+        loadMcpToolApprovals: () => Promise<Record<string, string>>;
+      };
+      testServer.posthogAPI.getMcpRuntimeConfiguration = vi.fn(async () => ({
+        servers: [],
+        policies: [
+          {
+            serverName: "Datadog (EU)",
+            toolName: "get.metrics",
+            installationId: "installation-1",
+            approvalState: "needs_approval",
+          },
+        ],
+      }));
+
+      expect(await testServer.loadMcpToolApprovals()).toEqual({
+        mcp__Datadog__EU___get_metrics: "needs_approval",
+      });
+    });
+
+    it.each([
+      { optionId: "allow_always", saved: true },
+      { optionId: "reject", saved: false },
+    ])(
+      "relays without allow_once and saves the approval only for $optionId",
+      async ({ optionId, saved }) => {
+        const testServer = exposeCloudClient(createServer());
+        const approveMcpTool = withNeedsApprovalTool(
+          testServer as unknown as AgentServer,
+        );
+        testServer.session = { hasDesktopConnected: true };
+        const relaySpy = vi
+          .spyOn(testServer, "relayPermissionToClient")
+          .mockResolvedValue({ outcome: { outcome: "selected", optionId } });
+
+        const { requestPermission } = testServer.createCloudClient(basePayload);
+        await requestPermission(approvalRequestFor("mcp__metrics__get_stats"));
+
+        expect({
+          relayedKinds: (
+            relaySpy.mock.calls[0][0] as { options: Array<{ kind: string }> }
+          ).options.map((option) => option.kind),
+          saved: approveMcpTool.mock.calls.length > 0,
+        }).toEqual({ relayedKinds: ["allow_always", "reject_once"], saved });
+      },
+    );
+
+    it("cancels instead of allowing when saving the approval fails", async () => {
       const testServer = exposeCloudClient(createServer());
-      const approveMcpTool = withNeedsApprovalTool(
+      withNeedsApprovalTool(
         testServer as unknown as AgentServer,
-      );
+      ).mockRejectedValue(new Error("403"));
       testServer.session = { hasDesktopConnected: true };
       vi.spyOn(testServer, "relayPermissionToClient").mockResolvedValue({
-        outcome: { outcome: "selected", optionId: "allow_once" },
+        outcome: { outcome: "selected", optionId: "allow_always" },
       });
 
       const { requestPermission } = testServer.createCloudClient(basePayload);
-      await requestPermission(permissionRequestFor("mcp__metrics__get_stats"));
-
-      expect(approveMcpTool).toHaveBeenCalledWith(
-        "installation-1",
-        "get_stats",
+      const result = await requestPermission(
+        approvalRequestFor("mcp__metrics__get_stats"),
       );
+
+      expect(result.outcome).toEqual({ outcome: "cancelled" });
     });
 
     it.each([
@@ -3218,29 +3277,45 @@ describe("AgentServer HTTP Mode", () => {
         label: "a background run",
         mode: "background" as const,
         connected: true,
+        originProduct: undefined,
       },
       {
         label: "an interactive run with no client",
         mode: "interactive" as const,
         connected: false,
+        originProduct: undefined,
+      },
+      {
+        label: "a Slack run whose prompts are auto-answered",
+        mode: "interactive" as const,
+        connected: true,
+        originProduct: "slack",
       },
     ])(
-      "cancels a needs_approval MCP tool in $label instead of auto-approving",
-      async ({ mode, connected }) => {
+      "cancels a needs_approval MCP tool in $label instead of relaying it",
+      async ({ mode, connected, originProduct }) => {
         const testServer = exposeCloudClient(createServer());
         withNeedsApprovalTool(testServer as unknown as AgentServer);
         testServer.session = { hasDesktopConnected: connected };
         testServer.eventStreamSender = null;
+        const exposed = testServer as unknown as {
+          productLaunch: { originProduct?: string };
+        };
+        exposed.productLaunch = { ...exposed.productLaunch, originProduct };
+        const relaySpy = vi.spyOn(testServer, "relayPermissionToClient");
 
         const { requestPermission } = testServer.createCloudClient({
           ...basePayload,
           mode,
         });
         const result = await requestPermission(
-          permissionRequestFor("mcp__metrics__get_stats"),
+          approvalRequestFor("mcp__metrics__get_stats"),
         );
 
-        expect(result.outcome).toEqual({ outcome: "cancelled" });
+        expect({
+          outcome: result.outcome,
+          relayed: relaySpy.mock.calls.length,
+        }).toEqual({ outcome: { outcome: "cancelled" }, relayed: 0 });
       },
     );
 
