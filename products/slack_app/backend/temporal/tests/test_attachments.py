@@ -19,9 +19,7 @@ from products.slack_app.backend.temporal.attachments import (
     prepare_slack_thread_file_artifacts,
 )
 
-_TYPE_SKIP_SUFFIX = (
-    "was skipped because only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported."
-)
+_TYPE_SKIP_SUFFIX = "was skipped because programs, installers, and Office files with macros are not supported."
 
 
 def _slack_file(**overrides: Any) -> SlackFileRef:
@@ -45,15 +43,19 @@ def _message_with(ts: str, *files: SlackFileRef) -> SlackThreadMessage:
 class TestSlackAttachments(SimpleTestCase):
     @parameterized.expand(
         [
-            ("declared_mimetype", "text/plain", "text", "text/plain"),
+            ("debug.log", "text/plain", "text", "text/plain"),
             # Slack falls back to octet-stream for safe uploads; it must stay neutral.
-            ("octet_stream_fallback", "application/octet-stream", "", "application/octet-stream"),
+            ("debug.log", "application/octet-stream", "", "application/octet-stream"),
+            ("page.html", "text/html", "html", "text/html"),
+            ("standup.mp3", "audio/mpeg", "mp3", "audio/mpeg"),
+            ("deploy.sh", "text/x-sh", "shell", "text/x-sh"),
+            ("diagram.svg", "image/svg+xml", "svg", "image/svg+xml"),
         ]
     )
     def test_prepares_safe_slack_file_as_user_attachment(
-        self, _name: str, mimetype: str, filetype: str, expected_content_type: str
+        self, name: str, mimetype: str, filetype: str, expected_content_type: str
     ) -> None:
-        file = _slack_file(mimetype=mimetype, filetype=filetype)
+        file = _slack_file(name=name, mimetype=mimetype, filetype=filetype)
         with patch(
             "products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"hello"
         ) as download:
@@ -65,7 +67,7 @@ class TestSlackAttachments(SimpleTestCase):
         assert prepared.skipped_messages == []
         assert len(prepared.artifacts) == 1
         artifact = prepared.artifacts[0]
-        assert artifact["name"] == "debug.log"
+        assert artifact["name"] == name
         assert artifact["type"] == "user_attachment"
         assert artifact["source"] == "slack_user_attachment"
         assert artifact["content_type"] == expected_content_type
@@ -77,14 +79,11 @@ class TestSlackAttachments(SimpleTestCase):
     @parameterized.expand(
         [
             ("installer.exe", "application/x-msdownload", ""),
-            ("deploy.sh", "text/plain", "shell"),
-            # Shebang-less macOS script: extension is the only dangerous signal.
-            ("run.command", "text/plain", ""),
             ("report.docm", "application/vnd.ms-word.document.macroEnabled.12", ""),
-            ("page.html", "text/html", "html"),
-            ("diagram.svg", "image/svg+xml", ""),
-            # Contradiction: allowed extension, disallowed mimetype — fail closed.
-            ("notes.txt", "application/x-sh", ""),
+            ("budget.xlsx", "application/vnd.ms-excel.sheet.macroEnabled.12", ""),
+            # A harmless extension does not hide a blocked mimetype or Slack filetype.
+            ("photo.png", "application/x-msdownload", ""),
+            ("notes.txt", "text/plain", "exe"),
         ]
     )
     def test_rejects_disallowed_attachment_metadata_without_downloading(
@@ -100,30 +99,66 @@ class TestSlackAttachments(SimpleTestCase):
         assert prepared.artifacts == []
         assert prepared.skipped_messages == [f"{name} {_TYPE_SKIP_SUFFIX}"]
 
-    def test_blocks_script_payload_after_download(self) -> None:
+    def test_blocks_executable_payload_after_download(self) -> None:
         with patch(
             "products.slack_app.backend.temporal.attachments._download_slack_file",
-            return_value=b"#!/bin/sh\necho unsafe\n",
+            return_value=b"\x7fELF\x02\x01\x01",
         ):
             prepared = prepare_slack_file_artifacts([_slack_file(name="notes.txt")], "xoxb-token")
 
         assert prepared.artifacts == []
-        assert prepared.skipped_messages == [
-            "notes.txt was skipped because its content looks like an executable or script."
-        ]
+        assert prepared.skipped_messages == ["notes.txt was skipped because its content looks like a program."]
 
-    def test_rejects_html_interstitial_response(self) -> None:
-        # Slack serves an HTTP 200 HTML login page when the token can't read the
-        # file; the body must not be forwarded as the attachment's content.
+    @parameterized.expand(
+        [
+            # Slack serves an HTTP 200 HTML login page when the token can't read the
+            # file; the body must not be forwarded as the attachment's content.
+            ("login_page_for_a_log_file", "debug.log", "text/plain", "text", 18, False),
+            ("login_page_for_an_html_file", "page.html", "text/html", "html", 4096, False),
+            ("html_file_size_unknown", "page.html", "text/html", "html", None, False),
+            ("html_file", "page.html", "text/html", "html", 18, True),
+        ]
+    )
+    def test_html_response_is_forwarded_only_for_an_html_file_of_the_reported_size(
+        self, _case: str, name: str, mimetype: str, filetype: str, size: int | None, accepted: bool
+    ) -> None:
+        body = b"<html>hello</html>"
         response = MagicMock()
         response.is_redirect = False
         response.status_code = 200
         response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        response.iter_content.return_value = [body]
+        file = _slack_file(name=name, mimetype=mimetype, filetype=filetype, size=size)
         with patch("products.slack_app.backend.temporal.attachments.slack_request", return_value=response):
-            prepared = prepare_slack_file_artifacts([_slack_file()], "xoxb-token")
+            prepared = prepare_slack_file_artifacts([file], "xoxb-token")
 
-        assert prepared.artifacts == []
-        assert prepared.skipped_messages == ["debug.log was skipped because it could not be downloaded from Slack."]
+        if accepted:
+            assert prepared.skipped_messages == []
+            assert [artifact["content_bytes"] for artifact in prepared.artifacts] == [body]
+        else:
+            assert prepared.artifacts == []
+            assert prepared.skipped_messages == [f"{name} was skipped because it could not be downloaded from Slack."]
+
+    @parameterized.expand(
+        [
+            ("standup.mp3", "audio/mpeg", 30 * 1024 * 1024 + 1, "30 MB"),
+            ("spec.pdf", "application/pdf", 10 * 1024 * 1024 + 1, "10 MB"),
+        ]
+    )
+    def test_skips_file_larger_than_the_task_attachment_limit_without_downloading(
+        self, name: str, mimetype: str, size: int, limit: str
+    ) -> None:
+        with patch("products.slack_app.backend.temporal.attachments._download_slack_file") as download:
+            prepared = prepare_slack_file_artifacts(
+                [_slack_file(name=name, mimetype=mimetype, filetype="", size=size)],
+                "xoxb-token",
+                budget=SlackAttachmentBudget(max_total_bytes=100 * 1024 * 1024),
+            )
+
+        download.assert_not_called()
+        assert prepared.skipped_messages == [
+            f"{name} was skipped because it is larger than the {limit} attachment limit."
+        ]
 
     def test_rejects_non_slack_download_url(self) -> None:
         with patch("products.slack_app.backend.temporal.attachments._download_slack_file") as download:

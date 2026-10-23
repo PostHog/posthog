@@ -20,12 +20,11 @@ MAX_SLACK_ATTACHMENTS_PER_MESSAGE = 15
 # agent's workspace. The oldest survive the cap: the file being discussed is usually
 # the one the thread opened with.
 MAX_SLACK_ATTACHMENTS_PER_THREAD = 15
-MAX_SLACK_ATTACHMENT_BYTES = 10 * 1024 * 1024
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 15
 MAX_SLACK_DOWNLOAD_REDIRECTS = 5
 
 # What one turn may spend fetching attachments, across the triggering message and the
-# rest of the thread together. The per-file caps above bound a single download, but the
+# rest of the thread together. The per-file caps bound a single download, but the
 # file counts multiply them: without these two budgets a turn could hold every payload
 # in memory at once, and could stay in the download loop past the activity's
 # `start_to_close` deadline, which fails the turn and repeats the whole batch on retry.
@@ -38,69 +37,59 @@ _MAX_ATTACHMENT_NAME_CHARS = 120
 
 _ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
-# Allowlist, not denylist: a wrongly blocked file produces a visible "skipped
-# because…" note the user can act on, while a wrongly allowed file is silent.
-# The realistic Slack-attachment set is small — images, PDFs, and plain-text
-# data formats. Anything executable, scripted, or macro-capable stays out.
-_ALLOWED_EXTENSIONS = frozenset(
+# A Slack attachment accepts the same file types as an attachment from PostHog
+# Desktop or PostHog AI, so a file that works on one surface works on all three.
+# The agent reads attachments and does not run them. But a Slack thread can carry
+# files from anybody in the channel, so compiled programs, installers, and Office
+# files with macros stay out. Text scripts are accepted, because the other
+# surfaces accept them and the agent reads them as text.
+_BLOCKED_EXTENSIONS = frozenset(
     {
-        ".bmp",
-        ".csv",
-        ".gif",
-        ".jpeg",
-        ".jpg",
-        ".json",
-        ".log",
-        ".markdown",
-        ".md",
-        ".pdf",
-        ".png",
-        ".tsv",
-        ".txt",
-        ".webp",
-        ".yaml",
-        ".yml",
+        ".apk",
+        ".app",
+        ".com",
+        ".cpl",
+        ".deb",
+        ".dll",
+        ".dmg",
+        ".docm",
+        ".dotm",
+        ".dylib",
+        ".exe",
+        ".jar",
+        ".msi",
+        ".pkg",
+        ".potm",
+        ".ppam",
+        ".ppsm",
+        ".pptm",
+        ".rpm",
+        ".scr",
+        ".so",
+        ".xlam",
+        ".xlsm",
+        ".xltm",
     }
 )
-_ALLOWED_MIME_TYPES = frozenset(
+_BLOCKED_MIME_TYPES = frozenset(
     {
-        "application/json",
-        "application/pdf",
-        "application/x-yaml",
-        "application/yaml",
-        "image/bmp",
-        "image/gif",
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-        "text/csv",
-        "text/markdown",
-        "text/plain",
-        "text/tab-separated-values",
-        "text/yaml",
+        "application/java-archive",
+        "application/vnd.android.package-archive",
+        "application/vnd.microsoft.portable-executable",
+        "application/x-apple-diskimage",
+        "application/x-dosexec",
+        "application/x-executable",
+        "application/x-mach-binary",
+        "application/x-msdos-program",
+        "application/x-msdownload",
+        "application/x-msi",
+        "application/x-sharedlib",
     }
 )
-_ALLOWED_SLACK_FILETYPES = frozenset(
-    {
-        "bmp",
-        "csv",
-        "gif",
-        "jpeg",
-        "jpg",
-        "json",
-        "markdown",
-        "pdf",
-        "png",
-        "text",
-        "tsv",
-        "webp",
-        "yaml",
-    }
-)
+_HTML_EXTENSIONS = frozenset({".htm", ".html", ".xhtml"})
+_HTML_MIME_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 
-_ATTACHMENT_TYPE_SKIP_REASON = (
-    "only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported"
-)
+_ATTACHMENT_TYPE_SKIP_REASON = "programs, installers, and Office files with macros are not supported"
 
 _SLOW_BATCH_SKIP_MESSAGE = (
     "Some Slack attachment(s) were skipped because they took too long to fetch. "
@@ -209,32 +198,24 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
 
-def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: str) -> bool:
-    """Every signal present must be allowed, and at least one positive signal must exist.
-
-    Fails closed on contradiction (a ``.png`` name with a script mimetype) and on
-    files with no recognizable signal. ``application/octet-stream`` is treated as
-    "no mimetype" — Slack falls back to it for perfectly safe uploads, so it neither
-    allows nor blocks on its own.
-    """
+def _is_blocked_metadata(filename: str, content_type: str, slack_filetype: str) -> bool:
+    """Any one blocked signal blocks the file, so a ``.png`` name does not hide an executable mimetype."""
     extension = os.path.splitext(filename.lower())[1]
     filetype = slack_filetype.lower()
-    extension_allowed = extension in _ALLOWED_EXTENSIONS
-    mime_allowed = content_type in _ALLOWED_MIME_TYPES
-    filetype_allowed = filetype in _ALLOWED_SLACK_FILETYPES
-    if extension and not extension_allowed:
-        return False
-    if content_type and content_type != "application/octet-stream" and not mime_allowed:
-        return False
-    if filetype and not filetype_allowed:
-        return False
-    return extension_allowed or mime_allowed or filetype_allowed
+    return (
+        extension in _BLOCKED_EXTENSIONS
+        or content_type in _BLOCKED_MIME_TYPES
+        or "macroenabled" in content_type
+        or (bool(filetype) and f".{filetype}" in _BLOCKED_EXTENSIONS)
+    )
 
 
-def _is_dangerous_payload(payload: bytes) -> bool:
-    stripped = payload.lstrip()
-    if stripped.startswith(b"#!"):
-        return True
+def _is_declared_html(filename: str, content_type: str, slack_filetype: str) -> bool:
+    extension = os.path.splitext(filename.lower())[1]
+    return extension in _HTML_EXTENSIONS or content_type in _HTML_MIME_TYPES or slack_filetype.lower() == "html"
+
+
+def _is_executable_payload(payload: bytes) -> bool:
     return any(payload.startswith(prefix) for prefix in _EXECUTABLE_MAGIC_PREFIXES)
 
 
@@ -242,9 +223,21 @@ def _source_url(file: SlackFileRef) -> str:
     return file.url_private_download or file.url_private
 
 
-def _download_slack_file(url: str, bot_token: str, budget: SlackAttachmentBudget) -> bytes | None:
+def _download_slack_file(
+    url: str,
+    bot_token: str,
+    budget: SlackAttachmentBudget,
+    *,
+    max_file_bytes: int,
+    html_file_size: int | None = None,
+) -> bytes | None:
+    """Download one Slack file, or return ``None`` when it is not safe to forward.
+
+    ``html_file_size`` is the size Slack reports for a file that is itself HTML. Leave it
+    ``None`` for every other file, and for an HTML file whose size Slack did not report.
+    """
     next_url = url
-    max_bytes = min(MAX_SLACK_ATTACHMENT_BYTES, budget.remaining_bytes)
+    max_bytes = min(max_file_bytes, budget.remaining_bytes)
     for _ in range(MAX_SLACK_DOWNLOAD_REDIRECTS + 1):
         if budget.is_expired():
             logger.warning("slack_attachment_download_deadline_reached")
@@ -283,11 +276,14 @@ def _download_slack_file(url: str, bot_token: str, budget: SlackAttachmentBudget
                 return None
 
             # Slack answers HTTP 200 with an HTML login/interstitial page when the
-            # token lacks files:read or the file is access-restricted. HTML is never
-            # an allowed attachment type, so an HTML body is always the interstitial
-            # — forwarding it would silently hand the agent a login page as the file.
+            # token lacks files:read or the file is access-restricted. Forwarding that
+            # page would silently hand the agent a login page as the file. An HTML body
+            # is therefore accepted only for a file that is itself HTML, and only when
+            # its length is the size Slack reported for that file. The login page has
+            # a different length, so it is still refused.
             response_content_type = _normalize_content_type(response.headers.get("Content-Type"))
-            if response_content_type in ("text/html", "application/xhtml+xml"):
+            is_html_response = response_content_type in _HTML_MIME_TYPES
+            if is_html_response and html_file_size is None:
                 logger.warning("slack_attachment_download_html_interstitial", content_type=response_content_type)
                 return None
 
@@ -313,6 +309,9 @@ def _download_slack_file(url: str, bot_token: str, budget: SlackAttachmentBudget
                     logger.warning("slack_attachment_download_rejected_body_size", total=total)
                     return None
                 chunks.append(chunk)
+            if is_html_response and total != html_file_size:
+                logger.warning("slack_attachment_download_html_interstitial", content_type=response_content_type)
+                return None
             return b"".join(chunks)
         finally:
             response.close()
@@ -409,6 +408,8 @@ def _prepare_files(
     over_limit_message: str,
     budget: SlackAttachmentBudget,
 ) -> PreparedSlackAttachments:
+    from products.tasks.backend.facade import api as tasks_facade
+
     if not files:
         return PreparedSlackAttachments(artifacts=[], skipped_messages=[], requested_count=0)
 
@@ -436,12 +437,15 @@ def _prepare_files(
 
         filename = attachment_display_name(file)
         content_type = _normalize_content_type(file.mimetype) or "application/octet-stream"
-        if not _is_allowed_metadata(filename, content_type, file.filetype):
+        if _is_blocked_metadata(filename, content_type, file.filetype):
             skipped_messages.append(f"{filename} was skipped because {_ATTACHMENT_TYPE_SKIP_REASON}.")
             continue
 
-        if file.size is not None and file.size > MAX_SLACK_ATTACHMENT_BYTES:
-            skipped_messages.append(f"{filename} was skipped because it exceeds the 10 MB Slack attachment limit.")
+        max_file_bytes = tasks_facade.get_user_attachment_max_size_bytes(filename, content_type)
+        if file.size is not None and file.size > max_file_bytes:
+            skipped_messages.append(
+                f"{filename} was skipped because it is larger than the {max_file_bytes // (1024 * 1024)} MB attachment limit."
+            )
             continue
         # Slack reports the size on nearly every upload, so stopping here reports the real
         # reason rather than starting a download the byte ceiling would abort part-way.
@@ -458,7 +462,13 @@ def _prepare_files(
             continue
 
         try:
-            payload = _download_slack_file(url, bot_token, budget)
+            payload = _download_slack_file(
+                url,
+                bot_token,
+                budget,
+                max_file_bytes=max_file_bytes,
+                html_file_size=file.size if _is_declared_html(filename, content_type, file.filetype) else None,
+            )
         except Exception:
             logger.exception("slack_attachment_download_exception", file_id=file.id)
             payload = None
@@ -467,8 +477,8 @@ def _prepare_files(
             skipped_messages.append(f"{filename} was skipped because it could not be downloaded from Slack.")
             continue
         budget.spend_bytes(len(payload))
-        if _is_dangerous_payload(payload):
-            skipped_messages.append(f"{filename} was skipped because its content looks like an executable or script.")
+        if _is_executable_payload(payload):
+            skipped_messages.append(f"{filename} was skipped because its content looks like a program.")
             continue
 
         artifact: dict[str, Any] = {
