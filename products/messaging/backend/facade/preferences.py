@@ -1,6 +1,6 @@
 """Recipient opt-outs: who opted out of which message category, and changes to that list."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -165,14 +165,18 @@ def recipient_preferences(team_id: int, identifier: str) -> dict[str, Any] | Non
     return None if row is None else row.preferences
 
 
-def set_preferences_column(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    """Overwrite an existing recipient's preferences. Writes only that column, so updated_at stays."""
-    preferences_service.set_preferences_column(team_id, identifier, preferences)
+def transition_preferences(
+    team_id: int,
+    identifier: str,
+    build: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    touch_updated_at: bool,
+) -> dict[str, Any]:
+    """Replace the recipient's preferences with `build(stored)` under a row lock, creating the row when it is missing.
 
-
-def replace_preferences(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    """Overwrite the recipient's preferences with one full save, creating the row when it is missing."""
-    preferences_service.replace_preferences(team_id, identifier, preferences)
+    Returns the stored preferences it replaced. `touch_updated_at=False` writes only the preferences column.
+    """
+    return preferences_service.transition_preferences(team_id, identifier, build, touch_updated_at=touch_updated_at)
 
 
 def sync_to_customerio(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:

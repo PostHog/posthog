@@ -202,6 +202,7 @@ class TestMessagePreferencesViews(BaseTest):
             ("preferences_opt_in", "opt_in", {}, False),
             ("page_view", "view", {}, False),
             ("unknown_category_only", "junk_opt_out", {}, False),
+            ("unknown_category_alone", "junk_alone", {}, False),
         ]
     )
     @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
@@ -231,6 +232,7 @@ class TestMessagePreferencesViews(BaseTest):
                 "opt_out": [f"{self.category.id}:false"],
                 "opt_in": [f"{self.category.id}:true"],
                 "junk_opt_out": [f"{self.category.id}:true", "not-a-real-category:false"],
+                "junk_alone": ["not-a-real-category:false"],
             }[action]
             response = self.client.post(
                 reverse("message_preferences_update"), {"token": self.token, "preferences[]": prefs}
