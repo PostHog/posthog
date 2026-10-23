@@ -1,5 +1,5 @@
 import uuid
-from time import time_ns
+from datetime import datetime
 
 import pytest
 from posthog.test.base import (
@@ -227,7 +227,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results or [], [(0, 0, 0)])
 
     def test_counts(self):
-        s1 = str(uuid7())
+        s1 = str(uuid7("2023-12-02T00:00:00+00:00"))
         d1 = "d1"
         _create_event(
             event="$pageview",
@@ -261,7 +261,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results or [], [(1, 2, 3)])
 
     def test_idempotent_event_counts(self):
-        s1 = str(uuid7())
+        s1 = str(uuid7("2023-12-02T00:00:00+00:00"))
         d1 = "d1"
         pageview_uuid = str(uuid.uuid4())
         autocapture_uuid = str(uuid.uuid4())
@@ -303,7 +303,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results or [], [(1, 1, 1)])
 
     def test_page_screen_autocapture_count_up_to(self):
-        time = time_ns() // (10**6)
+        time = int(datetime.fromisoformat("2023-12-02T00:00:00+00:00").timestamp() * 1000)
 
         # two pageviews
         s1 = str(uuid7(time))
@@ -407,7 +407,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         assert results == [(2, False), (1, True), (1, False), (2, False), (1, False), (0, True)]
 
     def test_bounce_rate(self):
-        time = time_ns() // (10**6)
+        time = int(datetime.fromisoformat("2023-12-02T00:00:00+00:00").timestamp() * 1000)
         # ensure the sessions ids are sortable by giving them different time components
         s1a = str(uuid7(time))
         s1b = str(uuid7(time + 1))
@@ -517,7 +517,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_custom_bounce_rate_duration(self):
-        time = time_ns() // (10**6)
+        time = int(datetime.fromisoformat("2023-12-11T00:00:00+00:00").timestamp() * 1000)
         # ensure the sessions ids are sortable by giving them different time components
         s = str(uuid7(time))
 

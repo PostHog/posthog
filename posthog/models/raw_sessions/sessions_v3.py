@@ -385,14 +385,15 @@ SELECT
     initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) as entry_fbclid,
 
     -- has gclid/fbclid for reading fewer bytes when calculating channel type
-    initializeAggregation('argMinState', _gclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
-    initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
+    -- clients send "gclid": "" and that is not a click id, so an empty value must not count as present
+    initializeAggregation('argMinState', nullIf(_gclid, '') IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
+    initializeAggregation('argMinState', nullIf(_fbclid, '') IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
 
     -- other ad ids
     initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
 
     -- channel type
-    initializeAggregation('argMinState', tuple(_utm_source, _utm_medium, _utm_campaign, _referring_domain, _gclid IS NOT NULL, _fbclid IS NOT NULL, _gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
+    initializeAggregation('argMinState', tuple(_utm_source, _utm_medium, _utm_campaign, _referring_domain, nullIf(_gclid, '') IS NOT NULL, nullIf(_fbclid, '') IS NOT NULL, _gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
 
 
     -- counts
@@ -419,6 +420,11 @@ SELECT
     false as has_replay_events
 FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+-- Clients can send a UUIDv7 session id with a garbage timestamp (1970, year 6339). Each one puts its session in its
+-- own monthly partition, and its events stretch the session duration across months. Keep only events within 31 days
+-- of the session id's timestamp. The bound is symmetric because the client mints the session id with its own clock
+-- while the server corrects event timestamps, so a client clock that runs days ahead is still a real session.
+AND fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) BETWEEN timestamp - INTERVAL 31 DAY AND timestamp + INTERVAL 31 DAY
 AND {where}
     """.format(
         source_table=source_table,
@@ -634,6 +640,9 @@ SELECT
     true as has_replay_events
 FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+-- same session timestamp guard as the events SELECT. accurateCastOrNull because accurateCast throws on a malformed
+-- session_id, and ClickHouse can evaluate this condition before the uuidv7 check above filters those rows out
+AND fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) BETWEEN min_first_timestamp - INTERVAL 31 DAY AND min_first_timestamp + INTERVAL 31 DAY
 AND {where}
     """.format(
         source_table=source_table,
