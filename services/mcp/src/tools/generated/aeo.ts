@@ -98,6 +98,7 @@ const AeoPromptsUpdateSchema = () => {
         .extend(AeoPromptsPartialUpdateBody.shape)
         .extend({
             id: AeoPromptsPartialUpdateParams.shape['id'].describe('The prompt id (a UUID), from `aeo-prompts-list`.'),
+            active: AeoPromptsPartialUpdateBody.shape['active'].nonoptional(),
         })
 }
 
