@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     EmailDomainStatusApi,
+    EmailDomainVerificationApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
@@ -420,7 +421,7 @@ export const getIntegrationsEmailStatusRetrieveUrl = (
 }
 
 /**
- * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until verified is true. Marks the domain's senders as verified once SES verifies the domain, when the caller uses a token of a project admin with integration:write. A browser session records the verification with email/verify.
+ * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until status is verified, then call email/verify once so the sender can send.
  * @summary Get email sending domain status
  */
 export const integrationsEmailStatusRetrieve = async (
@@ -439,17 +440,18 @@ export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: numbe
     return `/api/projects/${projectId}/integrations/${id}/email/verify/`
 }
 
+/**
+ * Ask SES to check the domain's DNS records again. When SES has verified the domain, mark the domain's senders as verified so they can send. Call it once email/status reports status verified.
+ * @summary Verify an email sending domain
+ */
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
+): Promise<EmailDomainVerificationApi> => {
+    return apiMutator<EmailDomainVerificationApi>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
     })
 }
 

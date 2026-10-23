@@ -502,7 +502,7 @@ export interface EmailDomainStatusApi {
      * * `temporary_failure` - Temporary failure
      * * `failed` - Failed */
     status: EmailDomainSetupStatusEnumApi
-    /** Whether the sender can send email. Set once SES verifies the domain. */
+    /** Whether the sender can send email. Set by email/verify once SES verifies the domain. */
     verified: boolean
     /** When SES and DNS were read. Responses are cached for 10 seconds unless refresh is set. */
     checked_at: string
@@ -510,6 +510,46 @@ export interface EmailDomainStatusApi {
     steps: EmailDomainStatusStepApi[]
     /** DNS records to publish at the domain's DNS host, with the status of each. Empty when status is not_started. */
     records: EmailDomainStatusRecordApi[]
+}
+
+/**
+ * * `success` - Success
+ * * `pending` - Pending
+ * * `failed` - Failed
+ */
+export type EmailDomainVerificationStatusEnumApi =
+    (typeof EmailDomainVerificationStatusEnumApi)[keyof typeof EmailDomainVerificationStatusEnumApi]
+
+export const EmailDomainVerificationStatusEnumApi = {
+    Success: 'success',
+    Pending: 'pending',
+    Failed: 'failed',
+} as const
+
+export interface EmailDomainVerificationRecordApi {
+    /** What the record does: verification, dkim, mail_from or dmarc. */
+    type: string
+    /** DNS record type: TXT, CNAME or MX. */
+    recordType: string
+    /** DNS name to create the record at. */
+    recordHostname: string
+    /** Value to publish. */
+    recordValue: string
+    /** success once SES or DNS confirms the record, else pending. */
+    status: string
+    /** MX priority. Only set on MX records. */
+    priority?: number
+}
+
+export interface EmailDomainVerificationApi {
+    /** success when SES verified the domain and its senders are now marked verified.
+     *
+     * * `success` - Success
+     * * `pending` - Pending
+     * * `failed` - Failed */
+    status: EmailDomainVerificationStatusEnumApi
+    /** DNS records the domain needs. */
+    dnsRecords: EmailDomainVerificationRecordApi[]
 }
 
 export interface IntegrationAssigneeApi {

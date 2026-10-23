@@ -1,3 +1,5 @@
+from django.db import models
+
 from rest_framework import serializers
 
 from products.workflows.backend.facade.enums import (
@@ -56,7 +58,7 @@ class EmailDomainStatusSerializer(serializers.Serializer):
         "have not spread yet. failed means SES gave up after 72 hours; start verification again.",
     )
     verified = serializers.BooleanField(
-        help_text="Whether the sender can send email. Set once SES verifies the domain."
+        help_text="Whether the sender can send email. Set by email/verify once SES verifies the domain."
     )
     checked_at = serializers.DateTimeField(
         help_text="When SES and DNS were read. Responses are cached for 10 seconds unless refresh is set."
@@ -70,3 +72,26 @@ class EmailDomainStatusSerializer(serializers.Serializer):
         help_text="DNS records to publish at the domain's DNS host, with the status of each. Empty when "
         "status is not_started.",
     )
+
+
+class EmailDomainVerificationStatus(models.TextChoices):
+    SUCCESS = "success"
+    PENDING = "pending"
+    FAILED = "failed"
+
+
+class EmailDomainVerificationRecordSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="What the record does: verification, dkim, mail_from or dmarc.")
+    recordType = serializers.CharField(help_text="DNS record type: TXT, CNAME or MX.")
+    recordHostname = serializers.CharField(help_text="DNS name to create the record at.")
+    recordValue = serializers.CharField(help_text="Value to publish.")
+    status = serializers.CharField(help_text="success once SES or DNS confirms the record, else pending.")
+    priority = serializers.IntegerField(required=False, help_text="MX priority. Only set on MX records.")
+
+
+class EmailDomainVerificationSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=EmailDomainVerificationStatus.choices,
+        help_text="success when SES verified the domain and its senders are now marked verified.",
+    )
+    dnsRecords = EmailDomainVerificationRecordSerializer(many=True, help_text="DNS records the domain needs.")

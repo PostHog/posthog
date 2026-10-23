@@ -65,7 +65,7 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
 
         self.world.ses.identities[DOMAIN].checks_paused = False
         body = self.status_body(sender)
-        assert (body["status"], body["verified"], step_states(body)) == ("verified", True, ["done", "done", "done"])
+        assert (body["status"], body["verified"], step_states(body)) == ("verified", False, ["done", "done", "done"])
         assert record_statuses(body) == {
             "verification": ["verified"],
             "dkim": ["verified"] * 3,
@@ -74,16 +74,20 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
             "mail_from_spf": ["verified"],
             "dmarc": ["verified"],
         }
+        assert not self.is_verified(sender)
+
+        assert self.verify(sender).status_code == status.HTTP_200_OK
+        assert self.status_body(sender)["verified"] is True
         assert self.is_verified(sender) and self.is_verified(sibling)
         assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
         assert self.verified_events() == [
             ((ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}), {"team": ANY})
         ]
         self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
-        assert self.world.ses.writes.count("verify_domain_identity") == 2
+        assert self.world.ses.writes.count("verify_domain_identity") == 3
 
         late_sender = self.create_sender(f"billing@{DOMAIN}")
-        assert self.status_body(late_sender)["verified"] is True
+        assert self.verify(late_sender).status_code == status.HTTP_200_OK
         assert self.is_verified(late_sender)
         assert len(self.verified_events()) == 1
 
@@ -119,12 +123,12 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
 
     @parameterized.expand(
         [
-            ("write_scope_records_it", ["integration:write"], True, ["agent"]),
-            ("read_scope_only_reads_it", ["integration:read"], False, []),
+            ("write_scope_records_it", ["integration:write"], status.HTTP_200_OK, True, ["agent"]),
+            ("read_scope_cannot_record_it", ["integration:read"], status.HTTP_403_FORBIDDEN, False, []),
         ]
     )
-    def test_verification_through_a_personal_api_key(
-        self, _name: str, scopes: list[str], verified: bool, event_methods: list[str]
+    def test_only_email_verify_records_the_verification_for_a_personal_api_key(
+        self, _name: str, scopes: list[str], verify_status: int, verified: bool, event_methods: list[str]
     ) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         self.publish(self.records_to_publish(sender), *ALL_KINDS)
@@ -134,10 +138,11 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION="Bearer agent_key")
 
-        body = self.status_body(sender)
+        body = self.client.get(f"/api/projects/{self.team.id}/integrations/{sender}/email/status?refresh=true").json()
+        assert (body["status"], body["verified"], self.is_verified(sender)) == ("verified", False, False)
 
-        assert (body["status"], body["verified"]) == ("verified", verified)
-        assert Integration.objects.get(id=sender).config.get("verified", False) is verified
+        assert self.verify(sender, key="agent_key").status_code == verify_status
+        assert self.is_verified(sender) is verified
         assert self.verified_event_methods() == event_methods
 
     def test_a_cache_outage_still_answers_from_a_live_check(self) -> None:
@@ -150,7 +155,7 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         ):
             report = EmailIntegration(Integration.objects.get(id=sender)).status(refresh=False)
 
-        assert (report.check.status, report.verified) == ("verified", True)
+        assert (report.check.status, report.verified) == ("verified", False)
 
     def test_a_browser_session_poll_reports_but_only_email_verify_records_the_verification(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
@@ -174,7 +179,7 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         self.reload_workers.side_effect = ConnectionError("Redis is down")
 
         with patch("posthog.models.integration.email.capture_exception") as capture_exception:
-            assert self.status_body(sender)["verified"] is True
+            assert self.verify(sender).status_code == status.HTTP_200_OK
         capture_exception.assert_called_once()
 
         self.reload_workers.side_effect = None
@@ -285,7 +290,7 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         other_teams_sender = self.create_sender(f"hello@{DOMAIN}", team=other_team)
         self.publish(self.records_to_publish(sender), *ALL_KINDS)
 
-        assert self.status_body(sender)["verified"] is True
+        assert self.verify(sender).status_code == status.HTTP_200_OK
 
         assert self.is_verified(sender)
         assert not self.is_verified(other_teams_sender)
@@ -398,8 +403,7 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
         assert self.capture_exception.called is (fault != AwsFault.THROTTLING)
 
         self.world.faults.clear()
-        assert self.status_body(self.sender, refresh=False)["verified"] is True
-        assert self.verified_event_methods() == ["agent"]
+        assert self.status_body(self.sender, refresh=False)["status"] == "verified"
 
     @parameterized.expand(
         product(
@@ -430,4 +434,3 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
         self.world.faults.clear()
         body = self.status_body(self.sender, refresh=False)
         assert (body["status"], record_statuses(body)[kind][0]) == ("verified", status_once_answered)
-        assert self.verified_event_methods() == ["agent"]

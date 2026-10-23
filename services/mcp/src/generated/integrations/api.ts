@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -146,7 +146,7 @@ export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until verified is true. Marks the domain's senders as verified once SES verifies the domain, when the caller uses a token of a project admin with integration:write. A browser session records the verification with email/verify.
+ * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until status is verified, then call email/verify once so the sender can send.
  * @summary Get email sending domain status
  */
 export const IntegrationsEmailStatusRetrieveParams = () => zod.object({
@@ -165,6 +165,19 @@ export const IntegrationsEmailStatusRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(integrationsEmailStatusRetrieveQueryRefreshDefault)
         .describe('Skip the 10 second status cache and read SES and DNS again. Use it after changing DNS records.'),
+})
+
+/**
+ * Ask SES to check the domain's DNS records again. When SES has verified the domain, mark the domain's senders as verified so they can send. Call it once email/status reports status verified.
+ * @summary Verify an email sending domain
+ */
+export const IntegrationsEmailVerifyCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 export const IntegrationsGithubReposRetrieveParams = () => zod.object({
