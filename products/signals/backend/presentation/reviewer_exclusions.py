@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from django.db import transaction
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import mixins, serializers, status, viewsets
@@ -23,6 +25,7 @@ from posthog.models import User
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import SignalReviewerExclusion
+from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.reviewer_exclusions import create_exclusion, revise_exclusion, revoke_exclusion
 from products.signals.backend.reviewer_rules import ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.views import remove_suggested_reviewer
@@ -68,6 +71,17 @@ class ReviewerExclusionAreaSerializer(serializers.Serializer):
         max_length=500,
         help_text="Path inside the repository, such as `src/billing`. Needs a repository.",
     )
+
+    def validate_repository(self, value: str) -> str:
+        # Matching compares the stored value to a report's `owner/name` exactly, so a URL never matches.
+        if value and sanitized_repository(value) is None:
+            raise serializers.ValidationError("Use the `owner/name` form, such as `posthog/posthog`.")
+        return value
+
+    def validate_path_prefix(self, value: str) -> str:
+        if value.startswith(("/", "./")) or value.endswith("/"):
+            raise serializers.ValidationError("Use a relative path with no leading or trailing slash.")
+        return value
 
 
 class ReviewerExclusionCreateSerializer(ReviewerExclusionAreaSerializer):
@@ -223,11 +237,18 @@ class SignalReviewerExclusionViewSet(
         payload = ReviewerExclusionUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
-        repository = data.get("repository", exclusion.repository).strip()
-        path_prefix = data.get("path_prefix", exclusion.path_prefix).strip()
-        if path_prefix and not repository:
-            return Response({"detail": "Give a repository for a path."}, status=status.HTTP_400_BAD_REQUEST)
-        try:
+        with transaction.atomic():
+            # Check the merged area against the locked row, so a concurrent amend cannot break the constraint.
+            locked = (
+                SignalReviewerExclusion.objects.for_team(self.team_id)
+                .select_for_update()
+                .filter(id=exclusion.id, status=SignalReviewerExclusion.Status.ACTIVE)
+                .first()
+            )
+            if locked is None:
+                return Response({"detail": "A revoked instruction cannot change."}, status=status.HTTP_400_BAD_REQUEST)
+            if data.get("path_prefix", locked.path_prefix) and not data.get("repository", locked.repository):
+                return Response({"detail": "Give a repository for a path."}, status=status.HTTP_400_BAD_REQUEST)
             revised = revise_exclusion(
                 team_id=self.team_id,
                 exclusion_id=exclusion.id,
@@ -236,8 +257,6 @@ class SignalReviewerExclusionViewSet(
                 repository=data.get("repository"),
                 path_prefix=data.get("path_prefix"),
             )
-        except SignalReviewerExclusion.DoesNotExist:
-            return Response({"detail": "A revoked instruction cannot change."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ReviewerExclusionSerializer(revised).data)
 
     @extend_schema(

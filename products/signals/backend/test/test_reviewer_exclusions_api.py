@@ -14,6 +14,7 @@ from products.signals.backend.models import (
     SignalReviewerExclusion,
     SignalReviewerExclusionRevision,
 )
+from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
 from products.signals.backend.reviewer_exclusions import create_exclusion
 
 
@@ -125,13 +126,40 @@ class TestReviewerExclusionAPI(APIBaseTest):
             .values_list("action", flat=True)
         ) == ["created", "revised", "revoked"]
 
-    @parameterized.expand([("create", "post"), ("amend", "patch")])
-    def test_path_without_repository_is_rejected(self, _name: str, method: str) -> None:
+    @parameterized.expand(
+        [
+            (f"{method}_{name}", method, area)
+            for method in ("post", "patch")
+            for name, area in [
+                ("path_without_repository", {"path_prefix": "src"}),
+                ("repository_url", {"repository": "https://github.com/org/app"}),
+                ("repository_trailing_slash", {"repository": "org/app/"}),
+                ("path_leading_slash", {"repository": "org/app", "path_prefix": "/src"}),
+            ]
+        ]
+    )
+    def test_area_that_can_never_match_is_rejected(self, _name: str, method: str, area: dict[str, str]) -> None:
         url = self.url
         if method == "patch":
             created = self.client.post(self.url, {"instruction": "Off."}, format="json").json()["exclusion"]
             url = f"{self.url}{created['id']}/"
 
-        response = getattr(self.client, method)(url, {"instruction": "Off.", "path_prefix": "src"}, format="json")
+        response = getattr(self.client, method)(url, {"instruction": "Off.", **area}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_amend_validates_the_area_against_a_concurrent_change(self) -> None:
+        created = self.client.post(self.url, {"instruction": "Off.", "repository": "org/app"}, format="json").json()
+        exclusion_id = created["exclusion"]["id"]
+        load = SignalReviewerExclusionViewSet.get_object
+
+        def load_then_clear_repository(view: SignalReviewerExclusionViewSet) -> SignalReviewerExclusion:
+            stale = load(view)
+            SignalReviewerExclusion.objects.for_team(self.team.id).filter(id=exclusion_id).update(repository="")
+            return stale
+
+        with patch.object(SignalReviewerExclusionViewSet, "get_object", load_then_clear_repository):
+            response = self.client.patch(f"{self.url}{exclusion_id}/", {"path_prefix": "src/billing"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReviewerExclusion.objects.for_team(self.team.id).get(id=exclusion_id).path_prefix == ""
