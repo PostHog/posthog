@@ -122,6 +122,8 @@ const ROOTS = [
             'src/layout/today/TodayContextPanelFloating.tsx',
             'src/layout/today/TodaySidePanel.tsx',
             'src/layout/today/TodayTopBar.tsx',
+            // The rail's pane actions pull in the new-analytics menu and the canvas block library.
+            'src/layout/today/todayRailItems.tsx',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
