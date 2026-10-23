@@ -142,6 +142,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         if group_index is not None:
             expected.append(("another-company-member",))
         self.assertEqual(result.results, sorted(expected))
+        assert result.hogql is not None
+        replayed = execute_hogql_query(result.hogql, self.team)
+        self.assertEqual(replayed.results, result.results)
 
     @parameterized.expand(
         [

@@ -5242,6 +5242,12 @@ class TestPrinter(BaseTest):
         # the subquery; GLOBAL IN builds the set once and ships it.
         printed = self._select(select)
         assert expected in printed, f"expected {expected} in:\n{printed}"
+        hogql, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "hogql",
+        )
+        assert expected in self._select(hogql)
 
     @parameterized.expand(
         [
