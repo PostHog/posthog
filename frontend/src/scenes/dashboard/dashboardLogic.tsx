@@ -320,6 +320,9 @@ export interface TilePlacement {
 
 const NO_SAVED_PLACEMENT: TilePlacement = { layouts: undefined, group_key: null }
 
+const savedTilePlacement = (placements: Record<number, TilePlacement>, tileId: number): TilePlacement =>
+    placements[tileId] ?? NO_SAVED_PLACEMENT
+
 const tilePlacement = (tile: DashboardTile): TilePlacement => ({
     layouts: tile.layouts,
     group_key: tile.group_key ?? null,
@@ -389,6 +392,21 @@ function enqueueTileSave<T>(
     })
     return result
 }
+
+function enqueueEditSave<T>(cache: Record<string, any>, save: () => Promise<T>): Promise<T> {
+    let markApplied = (): void => {}
+    const applied = new Promise<void>((resolve) => {
+        markApplied = resolve
+    })
+    const start = (): Promise<T> => {
+        cache.resolveEditSaveApplied = markApplied
+        return save()
+    }
+    return enqueueTileSave(cache, start, applied)
+}
+
+const groupKeyUpdate = (tile: DashboardTile, saved: TilePlacement | undefined): { group_key?: string | null } =>
+    tileGroupChanged(tile, saved) ? { group_key: tile.group_key ?? null } : {}
 
 function calculateDraftLayouts(
     tiles: DashboardTile[],
@@ -1610,7 +1628,23 @@ interface TileMove {
     message: string
 }
 
-/** Where a tile goes when it moves to a band, or out of its group when `sectionKey` is null. */
+const sectionGroupKey = (section: DashboardSection | null): string | null =>
+    section?.kind === 'group' ? section.groupKey : null
+
+const tileMoveMessage = (target: DashboardSection | null): string =>
+    target?.kind === 'group'
+        ? // The target gains this tile, and an untitled group is named by its tile count.
+          `Moved to the "${getTileGroupLabel(target.group, target.tiles.length + 1)}" group`
+        : 'Tile taken out of its group'
+
+function placementAfterMove(
+    move: TileMove,
+    tileId: number
+): { sm: Layout[number] | undefined; placement: TilePlacement } {
+    const sm = move.layout.find((item) => item.i === tileId.toString())
+    return { sm, placement: { layouts: sm ? ({ sm } as DashboardTile['layouts']) : {}, group_key: move.groupKey } }
+}
+
 function planTileMove(
     values: dashboardLogicValues,
     tileId: number,
@@ -1634,13 +1668,9 @@ function planTileMove(
     })
     return {
         layout,
-        sourceGroupKey: source.kind === 'group' ? source.groupKey : null,
-        groupKey: target?.kind === 'group' ? target.groupKey : null,
-        // The target gains this tile, and an untitled group is named by its tile count.
-        message:
-            target?.kind === 'group'
-                ? `Moved to the "${getTileGroupLabel(target.group, target.tiles.length + 1)}" group`
-                : 'Tile taken out of its group',
+        sourceGroupKey: sectionGroupKey(source),
+        groupKey: sectionGroupKey(target),
+        message: tileMoveMessage(target),
     }
 }
 
@@ -2049,138 +2079,124 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return preserveTiles ? values.dashboard : null
                 },
-                saveEditModeChanges: async ({ scope }) => {
-                    let markApplied = (): void => {}
-                    const applied = new Promise<void>((resolve) => {
-                        markApplied = resolve
-                    })
-                    return enqueueTileSave(
-                        cache,
-                        async () => {
-                            // Saves run one at a time, so the success or failure listener marks this one.
-                            cache.resolveEditSaveApplied = markApplied
-                            cache.dashboardChangesPersisted = false
-                            cache.draftLayoutsAtSave = values.draftLayouts
-                            try {
-                                // Only persist sm layouts; xs layouts are derived on the fly.
-                                const draftByTile = values.draftLayouts ? layoutsByTile(values.layouts) : null
-                                const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => {
-                                    const sm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
-                                    return {
-                                        id: tile.id,
-                                        layouts: sm ? { sm } : {},
-                                        ...(tileGroupChanged(tile, values.savedTilePlacements[tile.id])
-                                            ? { group_key: tile.group_key ?? null }
-                                            : {}),
-                                    }
-                                })
-
-                                const currentDashboard = values.dashboard
-                                if (!currentDashboard) {
-                                    return null
+                saveEditModeChanges: ({ scope }) =>
+                    enqueueEditSave(cache, async () => {
+                        cache.dashboardChangesPersisted = false
+                        cache.draftLayoutsAtSave = values.draftLayouts
+                        try {
+                            // Only persist sm layouts; xs layouts are derived on the fly
+                            const draftByTile = values.draftLayouts ? layoutsByTile(values.layouts) : null
+                            const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => {
+                                const sm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
+                                return {
+                                    id: tile.id,
+                                    layouts: sm ? { sm } : {},
+                                    ...groupKeyUpdate(tile, values.savedTilePlacements[tile.id]),
                                 }
+                            })
 
-                                const persistedBreakdownColors = currentDashboard.breakdown_colors || []
-                                const persistedThemeId = currentDashboard.data_color_theme_id ?? null
-
-                                // While tiles are still loading, or an errored/aborted tile is missing its
-                                // results, the visible breakdown values are incomplete, so fresh auto
-                                // assignments and stale-entry pruning would both act on partial data.
-                                // Persist only the saved colors with unsaved edits merged over them, and
-                                // leave materializing auto entries to a save with every tile's values known.
-                                const breakdownColorsToSave = values.breakdownValuesIncomplete
-                                    ? mergeBreakdownColorConfigs(
-                                          values.temporaryBreakdownColors,
-                                          persistedBreakdownColors
-                                      ).filter((config) => !!config.colorToken)
-                                    : values.effectiveBreakdownColors
-                                const breakdownColorsChanged = !equal(persistedBreakdownColors, breakdownColorsToSave)
-                                const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
-
-                                const layoutsChanged = layoutsToUpdate.some(
-                                    (update) =>
-                                        'group_key' in update ||
-                                        !equal(
-                                            values.savedTilePlacements[update.id]?.layouts?.sm || {},
-                                            update.layouts.sm || {}
-                                        )
-                                )
-
-                                const colorsChanged = breakdownColorsChanged || themeChanged
-                                const hasChanges = scope === 'colors' ? colorsChanged : layoutsChanged
-                                if (!hasChanges) {
-                                    return currentDashboard
-                                }
-
-                                const payload =
-                                    scope === 'colors'
-                                        ? {
-                                              breakdown_colors: breakdownColorsToSave,
-                                              data_color_theme_id: values.dataColorThemeId,
-                                          }
-                                        : {
-                                              tiles: layoutsToUpdate,
-                                          }
-                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
-                                const persistedDashboard: DashboardType = await api.update(
-                                    `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
-                                    payload
-                                )
-                                const latestDashboard = values.dashboard ?? currentDashboard
-                                const updatedDashboard =
-                                    scope === 'colors'
-                                        ? { ...persistedDashboard, tiles: latestDashboard.tiles }
-                                        : {
-                                              ...persistedDashboard,
-                                              breakdown_colors: latestDashboard.breakdown_colors,
-                                              data_color_theme_id: latestDashboard.data_color_theme_id,
-                                          }
-                                updatedDashboard.persisted_filters = latestDashboard.persisted_filters
-                                updatedDashboard.persisted_variables = latestDashboard.persisted_variables
-                                if (scope === 'colors') {
-                                    dashboardsModel.actions.updateDashboardSuccess(
-                                        {
-                                            ...persistedDashboard,
-                                            persisted_filters: latestDashboard.persisted_filters,
-                                            persisted_variables: latestDashboard.persisted_variables,
-                                        },
-                                        { layoutsPersisted: true }
-                                    )
-                                }
-                                if (scope === 'colors' && breakdownColorsChanged) {
-                                    const autoCount = breakdownColorsToSave.filter(
-                                        (color) => color.source === 'auto'
-                                    ).length
-                                    posthog.capture('dashboard breakdown colors saved', {
-                                        dashboard_id: values.dashboard?.id,
-                                        dashboard: sanitizeDashboard(values.dashboard),
-                                        manual_count: breakdownColorsToSave.length - autoCount,
-                                        auto_count: autoCount,
-                                        breakdown_types: Array.from(
-                                            new Set(breakdownColorsToSave.map((c) => String(c.breakdownType)))
-                                        ),
-                                    })
-                                }
-                                if (scope === 'colors' && themeChanged) {
-                                    posthog.capture('dashboard color theme set', {
-                                        dashboard_id: values.dashboard?.id,
-                                        dashboard: sanitizeDashboard(values.dashboard),
-                                        theme_id: values.dataColorThemeId,
-                                    })
-                                }
-                                cache.dashboardChangesPersisted = true
-                                if (scope === 'layout') {
-                                    actions.tilePlacementsSaved(tilePlacementsFromDashboard(updatedDashboard))
-                                }
-                                return updatedDashboard
-                            } catch (e) {
-                                lemonToast.error('Could not update dashboard: ' + String(e))
-                                return values.dashboard
+                            const currentDashboard = values.dashboard
+                            if (!currentDashboard) {
+                                return null
                             }
-                        },
-                        applied
-                    )
-                },
+
+                            const persistedBreakdownColors = currentDashboard.breakdown_colors || []
+                            const persistedThemeId = currentDashboard.data_color_theme_id ?? null
+
+                            // While tiles are still loading, or an errored/aborted tile is missing its
+                            // results, the visible breakdown values are incomplete, so fresh auto
+                            // assignments and stale-entry pruning would both act on partial data.
+                            // Persist only the saved colors with unsaved edits merged over them, and
+                            // leave materializing auto entries to a save with every tile's values known.
+                            const breakdownColorsToSave = values.breakdownValuesIncomplete
+                                ? mergeBreakdownColorConfigs(
+                                      values.temporaryBreakdownColors,
+                                      persistedBreakdownColors
+                                  ).filter((config) => !!config.colorToken)
+                                : values.effectiveBreakdownColors
+                            const breakdownColorsChanged = !equal(persistedBreakdownColors, breakdownColorsToSave)
+                            const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
+
+                            const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
+                                const originalLayouts = values.savedTilePlacements[tile.id]?.layouts?.sm
+                                const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
+                                return (
+                                    !equal(originalLayouts || {}, updatedLayouts || {}) ||
+                                    tileGroupChanged(tile, values.savedTilePlacements[tile.id])
+                                )
+                            })
+
+                            const colorsChanged = breakdownColorsChanged || themeChanged
+                            const hasChanges = scope === 'colors' ? colorsChanged : layoutsChanged
+                            if (!hasChanges) {
+                                return currentDashboard
+                            }
+
+                            const payload =
+                                scope === 'colors'
+                                    ? {
+                                          breakdown_colors: breakdownColorsToSave,
+                                          data_color_theme_id: values.dataColorThemeId,
+                                      }
+                                    : {
+                                          tiles: layoutsToUpdate,
+                                      }
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                            const persistedDashboard: DashboardType = await api.update(
+                                `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                                payload
+                            )
+                            const latestDashboard = values.dashboard ?? currentDashboard
+                            const updatedDashboard =
+                                scope === 'colors'
+                                    ? { ...persistedDashboard, tiles: latestDashboard.tiles }
+                                    : {
+                                          ...persistedDashboard,
+                                          breakdown_colors: latestDashboard.breakdown_colors,
+                                          data_color_theme_id: latestDashboard.data_color_theme_id,
+                                      }
+                            updatedDashboard.persisted_filters = latestDashboard.persisted_filters
+                            updatedDashboard.persisted_variables = latestDashboard.persisted_variables
+                            if (scope === 'colors') {
+                                dashboardsModel.actions.updateDashboardSuccess(
+                                    {
+                                        ...persistedDashboard,
+                                        persisted_filters: latestDashboard.persisted_filters,
+                                        persisted_variables: latestDashboard.persisted_variables,
+                                    },
+                                    { layoutsPersisted: true }
+                                )
+                            } else {
+                                actions.tilePlacementsSaved(tilePlacementsFromDashboard(updatedDashboard))
+                            }
+                            if (scope === 'colors' && breakdownColorsChanged) {
+                                const autoCount = breakdownColorsToSave.filter(
+                                    (color) => color.source === 'auto'
+                                ).length
+                                posthog.capture('dashboard breakdown colors saved', {
+                                    dashboard_id: values.dashboard?.id,
+                                    dashboard: sanitizeDashboard(values.dashboard),
+                                    manual_count: breakdownColorsToSave.length - autoCount,
+                                    auto_count: autoCount,
+                                    breakdown_types: Array.from(
+                                        new Set(breakdownColorsToSave.map((c) => String(c.breakdownType)))
+                                    ),
+                                })
+                            }
+                            if (scope === 'colors' && themeChanged) {
+                                posthog.capture('dashboard color theme set', {
+                                    dashboard_id: values.dashboard?.id,
+                                    dashboard: sanitizeDashboard(values.dashboard),
+                                    theme_id: values.dataColorThemeId,
+                                })
+                            }
+                            cache.dashboardChangesPersisted = true
+                            return updatedDashboard
+                        } catch (e) {
+                            lemonToast.error('Could not update dashboard: ' + String(e))
+                            return values.dashboard
+                        }
+                    }),
                 removeTile: async ({ tile }) => {
                     // The reducer drops the tile optimistically; here we only persist and roll back on failure.
                     try {
@@ -2488,7 +2504,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Not saveEditModeChangesSuccess, because a failed save also fires it and the moves must stay unsaved.
                 tilePlacementsSaved: (state, { placements }) => ({ ...state, ...placements }),
                 receiveTileFromStream: (state, { tile }) => ({ ...state, [tile.id]: tilePlacement(tile) }),
-                // A copy is saved when it appears. The other tiles keep their saved placement.
                 duplicateTileSuccess: (state, { dashboard }) =>
                     dashboard ? { ...tilePlacementsFromDashboard(dashboard), ...state } : state,
             },
@@ -4144,7 +4159,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setTileProperty(tileId, { group_key: move.groupKey })
                 capture(move)
                 if (move.groupKey && values.collapsedTileGroupKeys.includes(move.groupKey)) {
-                    // The tile is out of sight in a closed group, so say where it went.
                     lemonToast.info(move.message)
                 }
                 return
@@ -4154,12 +4168,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (!move) {
                     return
                 }
-                const sm = move.layout.find((item) => item.i === tileId.toString())
-                const placement: TilePlacement = {
-                    layouts: sm ? ({ sm } as DashboardTile['layouts']) : {},
-                    group_key: move.groupKey,
-                }
-                const savedBefore = values.savedTilePlacements[tileId] ?? NO_SAVED_PLACEMENT
+                const { sm, placement } = placementAfterMove(move, tileId)
+                const savedBefore = savedTilePlacement(values.savedTilePlacements, tileId)
                 actions.setTileProperty(tileId, placement)
                 const currentPlacement = (): TilePlacement | null => {
                     const tile = values.tiles.find((candidate) => candidate.id === tileId)
@@ -4181,7 +4191,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.error('Could not move the tile, so it is back where it was. Try again.')
                     // A move of this tile in edit mode is newer than this one, so it stays.
                     if (equal(currentPlacement(), placement)) {
-                        const saved = values.savedTilePlacements[tileId] ?? NO_SAVED_PLACEMENT
+                        const saved = savedTilePlacement(values.savedTilePlacements, tileId)
                         actions.setTileProperty(tileId, saved)
                         // A layout staged in edit mode since the move holds the moved cell, so it goes back too.
                         const draft = values.draftLayouts
@@ -4216,7 +4226,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                       )
                   )
                 : null
-            // With persisted layouts the server placement is saved. Otherwise only a new tile takes it.
             const savedPlacements = Object.fromEntries(
                 dashboard.tiles.map((tile) => [
                     tile.id,
@@ -4235,13 +4244,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 const draftSm = previousTile.layouts?.sm
                 const originalSm = originalLayouts?.[tile.id]?.sm
-                const layoutMoved =
-                    !!draftSm &&
-                    !!originalSm &&
-                    (draftSm.x !== originalSm.x ||
-                        draftSm.y !== originalSm.y ||
-                        draftSm.w !== originalSm.w ||
-                        draftSm.h !== originalSm.h)
+                const layoutMoved = !!draftSm && !!originalSm && !sameGridCell(draftSm, originalSm)
                 const groupMoved = tileGroupChanged(previousTile, savedBefore[tile.id])
                 return withTilePlacement(tile, {
                     layouts: layoutMoved ? previousTile.layouts : tile.layouts,

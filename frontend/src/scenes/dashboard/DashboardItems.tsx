@@ -15,7 +15,6 @@ import { ApiError } from 'lib/api'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -42,7 +41,8 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType }
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
-import { DashboardTileGroup } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroup'
+import { DashboardTileSectionBand } from 'products/dashboards/frontend/components/DashboardTileSectionBand'
+import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import type { DashboardSection } from 'products/dashboards/frontend/dashboardTileSections'
@@ -297,18 +297,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [tiles, groupTitlesByTileId]
     )
     const showDecorationSpace = hasTileDecorations({ tiles: tiles || [], groupTitlesByTileId, widgetTilesShown })
-    const tileDragEnabled = canEditDashboard && layoutEditMode && !isMobileView && showBands
-    const { draggingTileId, dropTargetKey, frozenSourceGrid, startTileDrag, trackTileDrag, finishTileDrag } =
-        useTileGroupDrag({
-            enabled: tileDragEnabled,
-            rowHeight,
-            margin,
-            layout: layouts.sm ?? [],
-            moveTileToSection: (tileId, sectionKey, cell) => moveTileToSection(tileId, sectionKey, cell, 'drag'),
-            restoreLayout: (layout) => stageLayouts({ sm: layout }),
-        })
-    // A stable object, so the grid items do not re-render for a new strategy on every render.
-    const boundedStrategy = useMemo(() => sidewaysBoundedStrategy(gridWidth), [gridWidth])
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -322,12 +310,28 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             enabled: canEditDashboard && layoutEditMode && !isMobileView,
             handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
-            // A tile in a band must leave its grid to reach another band. The band grid's position strategy
-            // still keeps it inside the grid's sides.
             bounded: !showBands,
         }),
         [canEditDashboard, layoutEditMode, isMobileView, showBands]
     )
+    const {
+        draggingTileId,
+        dropTargetKey,
+        frozenSourceGrid,
+        showTakeOutDropZone,
+        startTileDrag,
+        trackTileDrag,
+        finishTileDrag,
+    } = useTileGroupDrag({
+        enabled: dragConfig.enabled && showBands,
+        sections: tileGroupSections,
+        rowHeight,
+        margin,
+        layout: layouts.sm,
+        moveTileToSection: (tileId, sectionKey, cell) => moveTileToSection(tileId, sectionKey, cell, 'drag'),
+        restoreLayout: (layout) => stageLayouts({ sm: layout }),
+    })
+    const boundedStrategy = useMemo(() => sidewaysBoundedStrategy(gridWidth), [gridWidth])
 
     const resizeConfig = useMemo(
         () => ({
@@ -757,7 +761,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         onDragStop: handleDragStop,
     }
 
-    const showTakeOutDropZone = tileDragEnabled && tileGroupSections.at(-1)?.kind === 'group'
     const renderSection = (section: DashboardSection, index: number): JSX.Element => {
         const sectionLayouts = tileGroupSectionLayouts[index]
         const isLastSection = index === tileGroupSections.length - 1 && !showTakeOutDropZone
@@ -801,28 +804,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         )
 
         return (
-            <div
+            <DashboardTileSectionBand
                 key={section.key}
-                data-dashboard-section={section.key}
-                className={clsx('rounded-lg', dropTargetKey === section.key && 'ring-2 ring-accent')}
+                section={section}
+                isFirst={index === 0}
+                isDropTarget={dropTargetKey === section.key}
+                collapsedTileGroupKeys={collapsedTileGroupKeys}
+                onToggleTileGroup={toggleTileGroup}
             >
-                {section.kind === 'tiles' ? (
-                    <>
-                        {/* Without a line, viewers read loose tiles under a closed group as part of that group. */}
-                        {index > 0 && <LemonDivider className="mb-4" />}
-                        {grid}
-                    </>
-                ) : (
-                    <DashboardTileGroup
-                        group={section.group}
-                        tileCount={section.tiles.length}
-                        collapsed={collapsedTileGroupKeys.includes(section.groupKey)}
-                        onToggle={() => toggleTileGroup(section.groupKey)}
-                    >
-                        {grid}
-                    </DashboardTileGroup>
-                )}
-            </div>
+                {grid}
+            </DashboardTileSectionBand>
         )
     }
 
@@ -838,15 +829,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 <div className={clsx('flex flex-col gap-4', showDecorationSpace && 'mt-10', !layoutEditMode && 'mb-8')}>
                     {tileGroupSections.map(renderSection)}
                     {showTakeOutDropZone && (
-                        <div
-                            data-dashboard-section={TAKE_OUT_DROP_ZONE_KEY}
-                            className={clsx(
-                                'mb-[40vh] flex h-24 items-center justify-center rounded-lg border border-dashed text-secondary',
-                                dropTargetKey === TAKE_OUT_DROP_ZONE_KEY && 'ring-2 ring-accent'
-                            )}
-                        >
-                            Drag a tile here to take it out of its group
-                        </div>
+                        <TileGroupTakeOutDropZone isDropTarget={dropTargetKey === TAKE_OUT_DROP_ZONE_KEY} />
                     )}
                 </div>
             )}

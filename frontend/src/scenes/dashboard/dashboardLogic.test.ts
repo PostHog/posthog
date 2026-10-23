@@ -544,7 +544,6 @@ describe('dashboardLogic', () => {
                 await mountDashboard()
             })
 
-            // A spy keeps its implementation across tests, and later tests need the real request.
             afterEach(() => {
                 ;(api.update as jest.Mock).mockRestore()
             })

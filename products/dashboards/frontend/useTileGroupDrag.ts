@@ -3,16 +3,16 @@ import type { Layout, LayoutItem } from 'react-grid-layout'
 
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getDropCell, isTileGroupSectionKey } from './dashboardTileSections'
+import { type DashboardSection, getDropCell, isTileGroupSectionKey } from './dashboardTileSections'
 
-/** Drop zone after the last group, for taking a tile out of its group. */
 export const TAKE_OUT_DROP_ZONE_KEY = 'take-out-of-group'
 
 interface TileGroupDragProps {
     enabled: boolean
+    sections: DashboardSection[]
     rowHeight: number
     margin: [number, number]
-    layout: Layout
+    layout: Layout | undefined
     moveTileToSection: (tileId: number, sectionKey: string | null, cell: { x: number; y: number } | null) => void
     restoreLayout: (layout: Layout) => void
 }
@@ -21,6 +21,7 @@ interface TileGroupDrag {
     draggingTileId: string | null
     dropTargetKey: string | null
     frozenSourceGrid: { key: string; height: number } | null
+    showTakeOutDropZone: boolean
     startTileDrag: (item: LayoutItem, element: HTMLElement | null) => void
     trackTileDrag: (event: Event) => void
     finishTileDrag: (item: LayoutItem | null, element: HTMLElement | null, event: Event) => void
@@ -49,7 +50,6 @@ function sectionKeyUnderPointer(event: Event, dashboardRoot: Element): string | 
     return elements.some((element) => dashboardRoot.contains(element)) ? undefined : null
 }
 
-/** Like `sectionKeyUnderPointer`, but a tile with no group to leave treats the drop zone as outside the dashboard. */
 function dropKeyUnderPointer(
     event: Event,
     { dashboardRoot, sourceKey }: { dashboardRoot: Element; sourceKey: string }
@@ -58,7 +58,6 @@ function dropKeyUnderPointer(
     return key === TAKE_OUT_DROP_ZONE_KEY && !isTileGroupSectionKey(sourceKey) ? null : key
 }
 
-/** Finds the band and grid cell under a dragged tile, so the logic can move the tile there on drop. */
 export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
     const latest = useRef(props)
     latest.current = props
@@ -98,7 +97,7 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
             sourceKey,
             keyUnderPointer: sourceKey,
             dashboardRoot,
-            layoutAtStart: latest.current.layout,
+            layoutAtStart: latest.current.layout ?? [],
         }
         const sourceGrid = section.querySelector<HTMLElement>('[data-dashboard-section-grid]')
         setFrozenSourceGrid(sourceGrid ? { key: sourceKey, height: sourceGrid.offsetHeight } : null)
@@ -157,5 +156,13 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
         [stopTracking]
     )
 
-    return { draggingTileId, dropTargetKey, frozenSourceGrid, startTileDrag, trackTileDrag, finishTileDrag }
+    return {
+        draggingTileId,
+        dropTargetKey,
+        frozenSourceGrid,
+        showTakeOutDropZone: props.enabled && props.sections.at(-1)?.kind === 'group',
+        startTileDrag,
+        trackTileDrag,
+        finishTileDrag,
+    }
 }

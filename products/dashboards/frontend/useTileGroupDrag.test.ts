@@ -5,7 +5,6 @@ import { TAKE_OUT_DROP_ZONE_KEY, useTileGroupDrag } from './useTileGroupDrag'
 
 const box = (id: number, y: number): LayoutItem => ({ i: String(id), x: 0, y, w: 6, h: 2 })
 
-// Mirrors DashboardItems: a band holds a grid unless it is a closed group or the drop zone.
 const band = (key: string, withGrid = true): HTMLElement => {
     const element = document.createElement('div')
     element.setAttribute('data-dashboard-section', key)
@@ -82,6 +81,7 @@ describe('useTileGroupDrag', () => {
             ({ enabled }: { enabled: boolean }) =>
                 useTileGroupDrag({
                     enabled,
+                    sections: [],
                     rowHeight: 80,
                     margin: [0, 0],
                     layout,

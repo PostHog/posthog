@@ -24,7 +24,6 @@ interface DashboardWidgetPlacementMenuProps {
     label?: string
     /** When there are no destinations, the trigger stays visible but disabled (avoids hiding the action). */
     emptyDisabledReason?: string
-    /** Sections above the dashboards, which the dashboard search does not filter. */
     leadingSections?: LemonMenuSection[]
 }
 

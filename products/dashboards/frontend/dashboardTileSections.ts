@@ -22,7 +22,6 @@ export interface TileGroupMoveOptions {
     canTakeOut: boolean
 }
 
-/** The name a group's band header shows. */
 export function getTileGroupLabel(group: DashboardTileGroupApi, tileCount: number): string {
     return group.title || pluralize(tileCount, 'tile')
 }
@@ -185,7 +184,6 @@ export function getCollapsedTileGroupKeys({
     })
 }
 
-/** For each tile, the groups it can move to, which leaves out its own group. */
 export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<number, TileGroupMoveOptions> {
     const targets = sections.flatMap((section) =>
         section.kind === 'group'
@@ -203,7 +201,6 @@ export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<nu
     )
 }
 
-/** The grid cell nearest to a dragged tile's top-left corner, kept so the whole tile fits in the grid. */
 export function getDropCell({
     tileRect,
     gridRect,

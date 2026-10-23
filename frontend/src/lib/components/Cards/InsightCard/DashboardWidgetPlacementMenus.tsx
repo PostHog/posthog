@@ -14,7 +14,6 @@ export interface DashboardWidgetPlacementMenusProps {
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (dashboard: DashboardBasicType) => void
     tileGroupMoveOptions?: TileGroupMoveOptions
-    /** A null section key takes the tile out of its group. */
     onMoveToTileGroup?: (sectionKey: string | null) => void
 }
 
