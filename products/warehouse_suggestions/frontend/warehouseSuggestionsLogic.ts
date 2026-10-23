@@ -73,7 +73,7 @@ const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => 
     deprecate: ({ payload, created_asset }) =>
         created_asset?.stopped_materialization === true
             ? `Marked ${payload.subject_name} as deprecated and stopped its refreshes.`
-            : `Marked ${payload.subject_name} as deprecated. It keeps refreshing.`,
+            : `Marked ${payload.subject_name} as deprecated.`,
 }
 const ACCEPT_OPTION_FIELDS = new Set([
     'refresh_interval_seconds',

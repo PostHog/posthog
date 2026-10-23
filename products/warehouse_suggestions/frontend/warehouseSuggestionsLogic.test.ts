@@ -483,8 +483,8 @@ describe('warehouseSuggestionsLogic', () => {
     )
 
     it.each<[string, boolean, Record<string, unknown> | undefined, string]>([
-        ['stops refreshing by default', false, undefined, 'and stopped its refreshes'],
-        ['keeps refreshing when asked', true, { keep_materialized: true }, 'It keeps refreshing'],
+        ['stops refreshing by default', false, undefined, 'Marked old_rollup as deprecated and stopped its refreshes.'],
+        ['keeps refreshing when asked', true, { keep_materialized: true }, 'Marked old_rollup as deprecated.'],
     ])('deprecating a materialized view %s', async (_name, keep, body, toast) => {
         mockList.mockResolvedValue(page([DEPRECATE]))
         mockAccept.mockResolvedValue({
@@ -500,7 +500,7 @@ describe('warehouseSuggestionsLogic', () => {
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
         expect(mockAccept).toHaveBeenCalledWith(expect.any(String), DEPRECATE.id, body)
-        expect((lemonToast.success as jest.Mock).mock.calls[0][0]).toContain(toast)
+        expect((lemonToast.success as jest.Mock).mock.calls[0][0]).toEqual(toast)
         expect(logic.values.acceptConfirmSuggestion).toBeNull()
     })
 

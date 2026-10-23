@@ -14,7 +14,7 @@ const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
         value: 'stop',
         label: 'Stop refreshing it',
         description:
-            'Deletes its stored table and stops its refreshes. Each read computes the view from its query. You can materialize it again later.',
+            'Deletes its stored table and stops its refreshes, if it still has them. PostHog keeps them when another view or a sync reads it. You can materialize it again later.',
         'data-attr': 'warehouse-suggestions-deprecate-stop-refreshing',
     },
     {

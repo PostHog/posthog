@@ -40,6 +40,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
     const inFlight = !!actionsInFlight[suggestion.id]
     const blockedReason = !suggestion.can_act ? EDIT_ACCESS_REASON : leaving ? 'Working' : undefined
     const deprecating = isDeprecatePayload(payload)
+    const confirmsFirst = deprecating && !isTable
 
     return (
         <SuggestionRow
@@ -87,7 +88,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                         loading={inFlight}
                         disabledReason={blockedReason}
                         onClick={() =>
-                            deprecating ? openAcceptConfirm(suggestion.id) : acceptSuggestion(suggestion.id)
+                            confirmsFirst ? openAcceptConfirm(suggestion.id) : acceptSuggestion(suggestion.id)
                         }
                         data-attr={`warehouse-suggestions-${suggestion.kind}`}
                     >
