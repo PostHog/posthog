@@ -11,18 +11,9 @@ from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from products.workflows.backend.facade.activity import log_workflow_activity
-from products.workflows.backend.facade.contracts import WorkflowActor
-from products.workflows.backend.facade.enums import HogFlowState
-from products.workflows.backend.facade.workflow_imports import (
-    CampaignSource,
-    ImportNote,
-    ImportOptions,
-    NoteLevel,
-    is_draft,
-    previous_draft,
-    record_import,
-    translate_campaign,
-)
+from products.workflows.backend.facade.contracts import CampaignSource, ImportNote, ImportOptions, WorkflowActor
+from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportNoteLevel
+from products.workflows.backend.facade.workflow_imports import previous_import, record_import, translate_campaign
 from products.workflows.backend.facade.writes import create_workflow, update_workflow
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
@@ -56,20 +47,20 @@ def import_campaign(
     if dry_run:
         return {**result, "status": "preview"}
 
-    record, existing = previous_draft(team, translated.source_id)
-    if existing is not None and not is_draft(existing):
+    previous = previous_import(team, translated.source_id)
+    if previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
         # Someone enabled the earlier import, so a re-import must not change what is running.
         skipped = ImportNote(
-            level=NoteLevel.APPROXIMATED,
+            level=WorkflowImportNoteLevel.APPROXIMATED,
             message="This automation was imported before and that workflow is no longer a draft, so it was left "
             "unchanged.",
         )
-        return {**result, "status": "skipped", "workflow_id": str(existing.id), "notes": [asdict(skipped)]}
-    if existing is not None:
+        return {**result, "status": "skipped", "workflow_id": str(previous.hog_flow_id), "notes": [asdict(skipped)]}
+    if previous.hog_flow_id is not None:
         update_workflow(
             team_id=team.id,
             user_id=user.id,
-            hog_flow_id=existing.id,
+            hog_flow_id=previous.hog_flow_id,
             validated_data=validated,
             route_to_draft=False,
             base_updated_at=None,
@@ -77,7 +68,7 @@ def import_campaign(
             includes_staged_draft=False,
             validated_status=HogFlowState.DRAFT.value,
         )
-        workflow_id, status = existing.id, "updated"
+        workflow_id, status = previous.hog_flow_id, "updated"
     else:
         created = create_workflow(team_id=team.id, user_id=user.id, validated_data=validated)
         workflow_id, status = cast(UUID, created.current["id"]), "created"
@@ -93,7 +84,7 @@ def import_campaign(
     record_import(
         team=team,
         user=user,
-        record=record,
+        record_id=previous.record_id,
         source_id=translated.source_id,
         name=translated.name,
         hog_flow_id=workflow_id,

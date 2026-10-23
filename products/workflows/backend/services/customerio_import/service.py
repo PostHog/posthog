@@ -5,40 +5,42 @@ from uuid import UUID
 
 from posthog.models import Team, User
 
+from products.workflows.backend.facade.contracts import ImportNote, PreviousImport, WorkflowImportRecord
 from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.workflow_import import WorkflowImport
-from products.workflows.backend.services.customerio_import.report import ImportNote
 
 
-def previous_draft(team: Team, source_id: str) -> tuple[WorkflowImport | None, HogFlow | None]:
-    """The earlier import of this automation and its workflow, if both still exist."""
+def previous_import(team: Team, source_id: str) -> PreviousImport:
     record = (
         WorkflowImport.objects.for_team(team.id)
         .filter(source=WorkflowImportSource.CUSTOMERIO.value, source_id=source_id)
         .first()
     )
-    if record is None or record.hog_flow_id is None:
-        return record, None
-    return record, HogFlow.objects.filter(team_id=team.id, pk=record.hog_flow_id).first()
-
-
-def is_draft(flow: HogFlow) -> bool:
-    return flow.status == HogFlowState.DRAFT.value
+    flow = (
+        HogFlow.objects.filter(team_id=team.id, pk=record.hog_flow_id).only("id", "status").first()
+        if record is not None and record.hog_flow_id
+        else None
+    )
+    return PreviousImport(
+        record_id=record.id if record else None,
+        hog_flow_id=flow.id if flow else None,
+        hog_flow_is_draft=flow is not None and flow.status == HogFlowState.DRAFT.value,
+    )
 
 
 def record_import(
     *,
     team: Team,
     user: User,
-    record: WorkflowImport | None,
+    record_id: UUID | None,
     source_id: str,
     name: str,
     hog_flow_id: UUID,
     notes: tuple[ImportNote, ...],
 ) -> None:
     stored_notes = [{**asdict(note), "level": note.level.value} for note in notes]
-    if record is None:
+    if record_id is None:
         WorkflowImport.objects.create(
             team=team,
             source=WorkflowImportSource.CUSTOMERIO.value,
@@ -49,11 +51,23 @@ def record_import(
             created_by=user,
         )
         return
+    record = WorkflowImport.objects.for_team(team.id).get(pk=record_id)
     record.hog_flow_id = hog_flow_id
     record.source_name = name[:400]
     record.notes = stored_notes
     record.save(update_fields=["hog_flow", "source_name", "notes", "updated_at"])
 
 
-def import_for_workflow(team: Team, hog_flow_id: UUID) -> WorkflowImport | None:
-    return WorkflowImport.objects.for_team(team.id).filter(hog_flow_id=hog_flow_id).order_by("-updated_at").first()
+def import_for_workflow(team: Team, hog_flow_id: UUID) -> WorkflowImportRecord | None:
+    record = WorkflowImport.objects.for_team(team.id).filter(hog_flow_id=hog_flow_id).order_by("-updated_at").first()
+    if record is None:
+        return None
+    return WorkflowImportRecord(
+        id=record.id,
+        source=record.source,
+        source_id=record.source_id,
+        source_name=record.source_name,
+        hog_flow_id=record.hog_flow_id,
+        notes=tuple(record.notes or []),
+        updated_at=record.updated_at,
+    )

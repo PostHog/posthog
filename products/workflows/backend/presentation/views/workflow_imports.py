@@ -14,8 +14,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
+from products.workflows.backend.facade.contracts import ImportOptions
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel, WorkflowImportSource, WorkflowImportStatus
-from products.workflows.backend.facade.workflow_imports import ImportOptions, import_for_workflow
+from products.workflows.backend.facade.workflow_imports import import_for_workflow
 from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaign
 
 MAX_CAMPAIGNS_PER_IMPORT = 50

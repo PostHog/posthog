@@ -11,8 +11,9 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import CampaignSource, ImportNote, ImportOptions, TranslatedWorkflow
+from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.services.customerio_import import conditions, liquid
-from products.workflows.backend.services.customerio_import.report import ImportNote, NoteLevel, TranslatedWorkflow
 
 TRIGGER_ID = "trigger_node"
 _EXIT_ID = "exit_node"
@@ -41,21 +42,6 @@ _CHANNEL_NAMES = {
     "urban_airship_action": "push notification",
     "slack_action": "Slack message",
 }
-
-
-@frozen
-class CampaignSource:
-    campaign: dict[str, Any]
-    actions: list[dict[str, Any]]
-    templates: dict[str, dict[str, Any]]
-
-
-@frozen
-class ImportOptions:
-    # Customer.io snippet name to its content, inlined wherever a message includes the snippet.
-    snippets: dict[str, str]
-    # Customer.io segment id to the PostHog cohort that stands in for it.
-    segment_cohorts: dict[str, int]
 
 
 class _Builder:

@@ -13,15 +13,12 @@ from posthog.event_usage import EventSource
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.workflows.backend.facade.contracts import CampaignSource, ImportOptions
+from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.customerio_import import conditions, liquid
-from products.workflows.backend.services.customerio_import.report import NoteLevel
-from products.workflows.backend.services.customerio_import.translator import (
-    CampaignSource,
-    ImportOptions,
-    translate_campaign,
-)
+from products.workflows.backend.services.customerio_import.translator import translate_campaign
 
 
 def _encode(condition: list[dict[str, Any]]) -> str:
