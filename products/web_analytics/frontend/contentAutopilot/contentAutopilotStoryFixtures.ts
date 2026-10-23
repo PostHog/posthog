@@ -3,6 +3,7 @@ import type {
     AEOPromptCheckApi,
     AEOPromptStatsApi,
     AEOPromptTopicApi,
+    AEOPromptVersionApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalListApi,
@@ -247,6 +248,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     external_visibility: 40,
     created_at: '2026-09-01T12:00:00Z',
     updated_at: '2026-09-01T12:00:00Z',
+    archived_at: null,
+    current_version: 1,
+    version_count: 1,
     latest_checks: [
         { engine: 'claude-web-search', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
         { engine: 'openai-web-search', cited: false, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
@@ -255,7 +259,7 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
 }
 
 export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
-    EXAMPLE_PROMPT,
+    { ...EXAMPLE_PROMPT, current_version: 2, version_count: 2, updated_at: '2026-09-15T12:00:00Z' },
     {
         ...EXAMPLE_PROMPT,
         id: '00000000-0000-4000-8000-000000000302',
@@ -286,6 +290,37 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         ],
         last_checked_at: '2026-09-27T09:00:00Z',
     },
+    {
+        ...EXAMPLE_PROMPT,
+        id: '00000000-0000-4000-8000-000000000305',
+        prompt: 'What is the cheapest way to run A/B tests on a static site?',
+        topic: 'Experiments',
+        active: false,
+        archived_at: '2026-09-20T12:00:00Z',
+        latest_checks: [
+            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-19T09:00:00Z' },
+        ],
+        last_checked_at: '2026-09-19T09:00:00Z',
+    },
+]
+
+export const EXAMPLE_PROMPT_VERSIONS: AEOPromptVersionApi[] = [
+    {
+        version: 2,
+        text: EXAMPLE_PROMPT.prompt,
+        version_description: 'Name the audience so answers compare tools for startups',
+        created_by: { email: 'jane@example.com', name: 'Jane' },
+        created_at: '2026-09-15T12:00:00Z',
+        is_current: true,
+    },
+    {
+        version: 1,
+        text: 'What is the best open source product analytics tool?',
+        version_description: '',
+        created_by: null,
+        created_at: '2026-09-01T12:00:00Z',
+        is_current: false,
+    },
 ]
 
 export const EXAMPLE_PROMPT_TOPICS: AEOPromptTopicApi[] = [
@@ -312,6 +347,7 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     target_best_position: 2,
     top_cited_domains: ['analytics-review.example.com', 'example.com', 'community.example.org'],
     search_queries: ['best open source product analytics', 'self-hosted product analytics for startups'],
+    prompt_version: 2,
     answer_text:
         'For a small startup, a few open source product analytics tools stand out.\n\n' +
         '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
@@ -340,6 +376,7 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         created_at: '2026-09-28T09:00:00Z',
         cited: false,
         check_failed: true,
+        prompt_version: 1,
         error: 'The engine timed out.',
         cited_urls: [],
         target_urls: [],

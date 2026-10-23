@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
-import { engineLabel } from './utils'
+import { checkPromptVersion, engineLabel } from './utils'
 
 // Engine output is third-party text: only plain http(s) URLs become links.
 const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url)
@@ -49,6 +49,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             {selectedCheck ? 'Older answer' : 'Latest answer'} from {engineLabel(shownCheck.engine)},{' '}
                             <TZLabel time={shownCheck.created_at} />
                         </span>
+                        <span>Version {checkPromptVersion(shownCheck)}</span>
                         <span className="truncate">Model: {shownCheck.model}</span>
                     </div>
 

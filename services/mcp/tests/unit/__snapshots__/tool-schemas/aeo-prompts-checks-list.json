@@ -18,6 +18,11 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "version": {
+            "description": "Only list checks that ran this version of the prompt.",
+            "minimum": 1,
+            "type": "number"
         }
     },
     "required": ["id"],

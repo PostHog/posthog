@@ -20,6 +20,7 @@ import {
     contentAutopilotLogic,
 } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
@@ -29,6 +30,7 @@ import {
     EXAMPLE_PROMPT_CHECKS,
     EXAMPLE_PROMPT_STATS,
     EXAMPLE_PROMPT_TOPICS,
+    EXAMPLE_PROMPT_VERSIONS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROPOSAL,
     EXAMPLE_PROPOSAL_LIST,
@@ -71,10 +73,13 @@ const workspaceHandlers = ({
                 200,
                 { count: opportunities.length, next: null, previous: null, results: opportunities },
             ],
-            '/api/projects/:team_id/aeo_prompts/': () => [
-                200,
-                { count: prompts.length, next: null, previous: null, results: prompts },
-            ],
+            '/api/projects/:team_id/aeo_prompts/': ({ request }) => {
+                const results =
+                    new URL(request.url).searchParams.get('include_archived') === 'true'
+                        ? prompts
+                        : prompts.filter((prompt) => !prompt.archived_at)
+                return [200, { count: results.length, next: null, previous: null, results }]
+            },
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, prompts.length ? EXAMPLE_PROMPT_TOPICS : []],
             '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
             '/api/projects/:team_id/aeo_prompts/:id/checks/': ({ request }) => {
@@ -84,6 +89,7 @@ const workspaceHandlers = ({
                     : EXAMPLE_PROMPT_CHECKS
                 return [200, { count: checks.length, next: null, previous: null, results: checks }]
             },
+            '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],
             '/api/projects/:team_id/aeo_prompts/:id/': ({ params }) => [
                 200,
                 prompts.find((prompt) => prompt.id === params.id) ?? prompts[0],
@@ -262,6 +268,26 @@ PromptsTab.decorators = [
         prompts: EXAMPLE_PROMPTS,
     }),
 ]
+
+const PromptsShowingArchivedStory = (): JSX.Element => {
+    const { profileDataLoaded } = useValues(contentAutopilotLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { setShowArchived } = useActions(contentAutopilotPromptsLogic)
+    useEffect(() => {
+        if (profileDataLoaded) {
+            setWorkspaceTab('prompts')
+            setShowArchived(true)
+        }
+    }, [profileDataLoaded, setWorkspaceTab, setShowArchived])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const PromptsTabShowingArchived: StoryFn<typeof ContentAutopilot> = () => <PromptsShowingArchivedStory />
+PromptsTabShowingArchived.decorators = PromptsTab.decorators
 
 const PromptDetailStory = (): JSX.Element => {
     const { profileDataLoaded } = useValues(contentAutopilotLogic)
