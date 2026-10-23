@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -74,6 +74,34 @@ class TestSlackAttachments(SimpleTestCase):
         # Retried preparation must produce the same artifact id so uploads upsert.
         assert artifact["id"]
         assert prepared_again.artifacts == prepared.artifacts
+
+    @parameterized.expand(
+        [
+            # Slack serves an HTTP 200 HTML login page when the bot can't read the file.
+            ("login_page_for_a_log_file", "debug.log", "text/plain", "text", False),
+            ("login_page_for_an_image", "chart.png", "image/png", "png", False),
+            ("html_file", "page.html", "text/html", "html", True),
+        ]
+    )
+    def test_html_response_is_forwarded_only_for_an_html_file(
+        self, _case: str, name: str, mimetype: str, filetype: str, accepted: bool
+    ) -> None:
+        body = b"<html>hello</html>"
+        response = MagicMock()
+        response.is_redirect = False
+        response.status_code = 200
+        response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        response.iter_content.return_value = [body]
+        file = _slack_file(name=name, mimetype=mimetype, filetype=filetype)
+        with patch("products.slack_app.backend.temporal.attachments.slack_request", return_value=response):
+            prepared = prepare_slack_file_artifacts([file], "xoxb-token", can_read_files=True)
+
+        if accepted:
+            assert prepared.skipped_messages == []
+            assert [artifact["content_bytes"] for artifact in prepared.artifacts] == [body]
+        else:
+            assert prepared.artifacts == []
+            assert prepared.skipped_messages == [f"{name} was skipped because it could not be downloaded from Slack."]
 
     def test_skips_every_file_without_downloading_when_the_install_cannot_read_files(self) -> None:
         with patch("products.slack_app.backend.temporal.attachments._download_slack_file") as download:

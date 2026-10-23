@@ -45,6 +45,8 @@ _ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files
 # user may attach, so Slack, PostHog Desktop, and PostHog AI accept the same files.
 
 SLACK_FILE_READ_SCOPE = "files:read"
+_HTML_MIME_TYPES = frozenset({"application/xhtml+xml", "text/html"})
+_HTML_EXTENSIONS = frozenset({".htm", ".html", ".xhtml"})
 
 _SLOW_BATCH_SKIP_MESSAGE = (
     "Some Slack attachment(s) were skipped because they took too long to fetch. "
@@ -147,6 +149,11 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
 
+def _is_html_file(filename: str, content_type: str, slack_filetype: str) -> bool:
+    extension = os.path.splitext(filename.lower())[1]
+    return extension in _HTML_EXTENSIONS or content_type in _HTML_MIME_TYPES or slack_filetype.lower() == "html"
+
+
 def _source_url(file: SlackFileRef) -> str:
     return file.url_private_download or file.url_private
 
@@ -157,6 +164,7 @@ def _download_slack_file(
     budget: SlackAttachmentBudget,
     *,
     max_file_bytes: int,
+    expects_html: bool,
 ) -> bytes | None:
     next_url = url
     max_bytes = min(max_file_bytes, budget.remaining_bytes)
@@ -195,6 +203,15 @@ def _download_slack_file(
 
             if response.status_code != 200:
                 logger.warning("slack_attachment_download_failed_status", status_code=response.status_code)
+                return None
+
+            # Slack answers HTTP 200 with its HTML login page when the bot cannot read a
+            # file, for example a file with access restrictions. An HTML body for a file
+            # that is not HTML is that page, and forwarding it would give the agent a
+            # login page in place of the file.
+            response_content_type = _normalize_content_type(response.headers.get("Content-Type"))
+            if response_content_type in _HTML_MIME_TYPES and not expects_html:
+                logger.warning("slack_attachment_download_html_interstitial", content_type=response_content_type)
                 return None
 
             content_length = response.headers.get("Content-Length")
@@ -387,6 +404,7 @@ def _prepare_files(
                 bot_token,
                 budget,
                 max_file_bytes=max_file_bytes,
+                expects_html=_is_html_file(filename, content_type, file.filetype),
             )
         except Exception:
             logger.exception("slack_attachment_download_exception", file_id=file.id)
