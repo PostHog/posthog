@@ -16903,6 +16903,22 @@
             "readOnlyHint": false
         }
     },
+    "workflows-reputation-get": {
+        "description": "The project's workflow email health over the last 30 days and its sending allowance: tier, hourly and daily email caps, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell the user when the audience or volume would go over a cap. The caps apply only while sending_allowance.enforced is true; while it is false they are measured but not applied. Pass fields=['sending_allowance'] when that is all you need. Tiers rise on their own with a clean sending record. To get more sooner, the user can request a higher allowance in Workflows > Messaging > Reputation; the link shows while the caps are enforced, to accounts that can open a support ticket. Also returns bounce and complaint rates (project-wide and per workflow, worst first), the AWS SES verdict, per-mailbox-provider health, and any suspension. sending_allowance, aws and reputation are null for a user without project-wide workflow access.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get email reputation and sending allowance",
+        "title": "Get email reputation and sending allowance",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/hog_flows/reputation/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-sending-tier-requests"
+    },
     "workflows-restore-revision": {
         "description": "Roll a workflow back (or forward) by copying a revision's content into its staged draft — the live config is untouched until you publish. Then run the normal cycle: test with workflows-test-run (use_draft=true), preview with workflows-publish, confirm. The preview shows exactly what the rollback does to people in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their positions.",
         "category": "Workflows",

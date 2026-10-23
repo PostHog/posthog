@@ -467,6 +467,35 @@ tools:
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish.
+    workflows-reputation-get:
+        operation: hog_flows_reputation_retrieve
+        enabled: true
+        title: Get email reputation and sending allowance
+        description: >
+            The project's workflow email health over the last 30 days and its sending allowance: tier, hourly and daily
+            email caps, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell
+            the user when the audience or volume would go over a cap. The caps apply only while
+            sending_allowance.enforced is true; while it is false they are measured but not applied. Pass
+            fields=['sending_allowance'] when that is all you need. Tiers rise on their own with a clean sending record.
+            To get more sooner, the user can request a higher allowance in Workflows > Messaging > Reputation; the link
+            shows while the caps are enforced, to accounts that can open a support ticket. Also returns bounce and
+            complaint rates (project-wide and per workflow, worst first), the AWS SES verdict, per-mailbox-provider
+            health, and any suspension. sending_allowance, aws and reputation are null for a user without project-wide
+            workflow access.
+        response:
+            include:
+                - sending_allowance
+                - reputation
+                - workflows
+                - aws
+                - isps
+                - isp_shared_domains
+                - isp_withheld_domains
+                - email_sending_suspended
+                - email_sending_suspended_at
+                - email_sending_suspension_reason
+            selectable: true
+        feature_flag: workflows-sending-tier-requests
     workflows-restore-revision:
         operation: hog_flows_revisions_restore_create
         enabled: true
