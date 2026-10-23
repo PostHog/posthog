@@ -139,6 +139,7 @@ PRODUCTS_APPS = [
     "products.groups.backend.apps.GroupsConfig",
     "products.subscriptions.backend.apps.SubscriptionsConfig",
     "products.uptime_monitoring.backend.apps.UptimeMonitoringConfig",
+    "products.authorization.backend.apps.AuthorizationConfig",
 ]
 
 INSTALLED_APPS = [
