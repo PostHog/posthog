@@ -62,6 +62,7 @@ class TestSendEmailFields(SimpleTestCase):
             ("tag_name_posthog_uses", {"tags": [{"name": "ph_id", "value": "a"}]}, "tags"),
             ("tag_twice", {"tags": [{"name": "plan", "value": "a"}, {"name": "plan", "value": "b"}]}, "tags"),
             ("tags_over_the_limit", {"tags": [{"name": f"tag{i}", "value": "a"} for i in range(11)]}, "tags"),
+            ("tag_with_an_unknown_key", {"tags": [{"name": "plan", "value": "pro", "colour": "red"}]}, "tags"),
             ("reply_to_quoted_with_a_comma", {"reply_to": ['"a,b"@example.com']}, "reply_to"),
         ]
     )

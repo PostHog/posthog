@@ -1,6 +1,7 @@
 """The copies, headers and tags a code send sets on its own email, with the limits the email provider holds them to."""
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from rest_framework import serializers
@@ -53,11 +54,23 @@ class PlainAddressField(serializers.EmailField):
         self.validators.append(plain_address)
 
 
+UNKNOWN_FIELD = "PostHog doesn't take this field on this route."
+
+
+class RefusesUnknownFieldsSerializer(serializers.Serializer):
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, Mapping):
+            unknown = [field for field in data if field not in self.fields]
+            if unknown:
+                raise serializers.ValidationError({unknown[0]: UNKNOWN_FIELD})
+        return super().to_internal_value(data)
+
+
 def copies_field(*, help_text: str) -> serializers.ListField:
     return serializers.ListField(child=PlainAddressField(), required=False, max_length=MAX_COPIES, help_text=help_text)
 
 
-class EmailTagSerializer(serializers.Serializer):
+class EmailTagSerializer(RefusesUnknownFieldsSerializer):
     name = serializers.CharField(
         max_length=MAX_TAG_LENGTH,
         help_text="Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's.",

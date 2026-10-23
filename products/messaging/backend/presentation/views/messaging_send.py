@@ -38,8 +38,10 @@ from products.messaging.backend.presentation.views.send_email_fields import (
     MAX_HEADER_VALUE_LENGTH,
     MAX_HEADERS,
     MAX_TAGS,
+    UNKNOWN_FIELD,
     EmailTagSerializer,
     PlainAddressField,
+    RefusesUnknownFieldsSerializer,
     copies_field,
     validate_headers,
     validate_tags,
@@ -57,17 +59,6 @@ from products.messaging.backend.presentation.views.transactional_email_api impor
     invalid_request,
     invalid_template_key,
 )
-
-UNKNOWN_FIELD = "PostHog doesn't take this field on this route."
-
-
-class RefusesUnknownFieldsSerializer(serializers.Serializer):
-    def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, Mapping):
-            unknown = [field for field in data if field not in self.fields]
-            if unknown:
-                raise serializers.ValidationError({unknown[0]: UNKNOWN_FIELD})
-        return super().to_internal_value(data)
 
 
 class TemplateReferenceSerializer(RefusesUnknownFieldsSerializer):
