@@ -1465,7 +1465,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     and isinstance(schema.get("name"), str)
                     and history_column_collisions(
                         [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                        schema["enabled_columns"] if isinstance(schema.get("enabled_columns"), list) else None,
+                        [column for column in schema["enabled_columns"] if isinstance(column, str)]
+                        if isinstance(schema.get("enabled_columns"), list)
+                        else None,
                         pk_columns_by_table.get(schema["name"]),
                     )
                 }

@@ -4974,13 +4974,14 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated"),
+            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated", None),
             (
                 "reserved_column",
                 [("id", "uuid", False), ("_ph_cdc_seq", "bigint", True)],
                 {"tracking_link": ["id"]},
                 "_ph_cdc_seq",
                 "consolidated",
+                None,
             ),
             (
                 "validity_column_with_a_history_table",
@@ -4988,6 +4989,15 @@ class TestExternalDataSource(APIBaseTest):
                 {"tracking_link": ["id"]},
                 "valid_to",
                 "cdc_only",
+                None,
+            ),
+            (
+                "validity_column_in_enabled_columns_that_hold_a_non_string",
+                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                {"tracking_link": ["id"]},
+                "valid_to",
+                "cdc_only",
+                ["id", "valid_to", {}],
             ),
         ]
     )
@@ -5011,6 +5021,7 @@ class TestExternalDataSource(APIBaseTest):
         primary_keys,
         expected_in_message,
         cdc_table_mode,
+        enabled_columns,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -5073,6 +5084,7 @@ class TestExternalDataSource(APIBaseTest):
                             "should_sync": True,
                             "sync_type": "cdc",
                             "cdc_table_mode": cdc_table_mode,
+                            **({"enabled_columns": enabled_columns} if enabled_columns is not None else {}),
                         },
                     ],
                 },
