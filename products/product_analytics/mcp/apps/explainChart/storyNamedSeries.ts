@@ -1,10 +1,11 @@
 import { markedNames, storyTextParts } from './storyMarks'
 
 // A breakdown series is labelled `event - value`, with `::` between the values of several breakdowns.
+// A value can hold ` - ` itself, so every part after one counts as a name.
 function namesOf(label: string): string[] {
-    const at = label.lastIndexOf(' - ')
-    const value = at === -1 ? label : label.slice(at + 3)
-    return [label, value, ...value.split('::')].map((name) => name.trim()).filter(Boolean)
+    const parts = label.split(' - ')
+    const values = parts.map((_, index) => parts.slice(index).join(' - '))
+    return [...values, ...values.flatMap((value) => value.split('::'))].map((name) => name.trim()).filter(Boolean)
 }
 
 function escapeRegExp(text: string): string {

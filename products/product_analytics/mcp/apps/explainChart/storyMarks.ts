@@ -18,10 +18,10 @@ export function mark(kind: StoryMarkKind, text: string): string {
 
 // The model only says that a stretch matters, so what it is comes from how it reads.
 function kindOf(text: string): StoryMarkKind {
-    if (MONTH.test(text)) {
+    if (MONTH.test(text) && /\d/.test(text)) {
         return 'date'
     }
-    return /\d/.test(text) ? 'value' : 'name'
+    return /^[^\p{L}]*\d/u.test(text) ? 'value' : 'name'
 }
 
 export function storyTextParts(text: string): StoryTextPart[] {

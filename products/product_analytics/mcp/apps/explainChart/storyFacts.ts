@@ -176,7 +176,7 @@ function pointFacts(data: number[], days: string[], index: number, options: Stor
     const when = `${options.interval === 'day' ? 'on' : unit === 'minute' || unit === 'hour' ? 'at' : 'in'} ${mark('date', label)}`
     const value = mark('value', options.formatValue(data[index]!))
     if (options.lastPointInProgress && index === data.length - 1) {
-        return `${value} so far ${when}. This ${unit} is not over yet, so the number will still grow.`
+        return `${value} so far ${when}. This ${unit} is not over yet, so the number can still change.`
     }
     const base = baselineAround(data, [index, index], options)
     const typicalUnit = `a typical ${base?.sparse ? 'active ' : ''}${unit}`

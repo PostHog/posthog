@@ -171,6 +171,13 @@ describe('explain chart walkthrough', () => {
         ['a name written out without marks', 'United Kingdom', 'United States and United Kingdom held steady.', true],
         ['one value of a multi-breakdown series', 'signed_up - Germany::Chrome', 'Most of it came from Chrome.', true],
         ['a referrer with a symbol', '$direct', '$direct went from 80 to 160.', true],
+        ['a marked name with a number, in another case', 'Windows 11', 'Sign-ups from **windows 11** rose.', true],
+        [
+            'a marked value that holds the label separator',
+            'signup - US - East',
+            'Most of it came from **us - east**.',
+            true,
+        ],
         ['a short value inside an ordinary word', 'US', 'Let us look at the step up.', false],
         ['a value in another case that is not marked', 'Other', 'Every other country stayed flat.', false],
         ['a value inside a longer name', 'India', 'Indiana stayed flat.', false],
