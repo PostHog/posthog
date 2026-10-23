@@ -518,8 +518,8 @@ impl Config {
         Duration::from_secs(self.lifecycle_op_retention_hours * 3600)
     }
 
-    pub fn ingestion_warnings_settings(&self) -> crate::warnings::WarningsSettings {
-        crate::warnings::WarningsSettings {
+    pub fn ingestion_warnings_settings(&self) -> common_ingestion_warnings::RowWarningsSettings {
+        common_ingestion_warnings::RowWarningsSettings {
             enabled: self.ingestion_warnings_enabled,
             kafka_hosts: self.ingestion_warnings_kafka_hosts.clone(),
             kafka_tls: self.ingestion_warnings_kafka_tls,
