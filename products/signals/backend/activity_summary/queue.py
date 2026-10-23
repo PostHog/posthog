@@ -177,32 +177,51 @@ def _in_rollout(config: ActivitySummaryConfig, organization_id: uuid.UUID) -> bo
     return organization_rollout_bucket(organization_id) < threshold
 
 
-def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
+@frozen
+class Enrollment:
+    team_ids: list[int]
+    organization_ids: list[uuid.UUID]
+    # The organizations that a 100 percent rollout enrolls, with or without manual enrollment.
+    qualifying_organization_ids: list[uuid.UUID]
+
+
+def enrollment(config: ActivitySummaryConfig) -> Enrollment:
     """The teams that `is_team_enrolled_for_generation` enrolls, in a fixed number of queries."""
     if not config.enabled:
-        return []
+        return Enrollment(team_ids=[], organization_ids=[], qualifying_organization_ids=[])
+    from products.signals.backend.facade.api import (
+        team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`
+    )
+
     listed = _parse_organization_ids(config.organization_ids)
     teams = (
         Team.objects.filter(organization__is_ai_data_processing_approved=True)
         .exclude(id__in=config.skip_team_ids)
         .exclude(organization_id__in=_parse_organization_ids(config.deny_organization_ids))
     )
+    # The teams with an enabled source come first, because they are far fewer than the approved teams.
+    with_source: dict[int, uuid.UUID] = dict(
+        teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
+    )
+    enrolled: dict[int, uuid.UUID]
     if config.enroll_all_approved:
-        return sorted(teams.values_list("id", flat=True))
-    team_ids = set(teams.filter(organization_id__in=listed).values_list("id", flat=True)) if listed else set()
-    if config.self_driving_organization_percentage > 0:
-        from products.signals.backend.facade.api import (
-            team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`
-        )
-
-        # The teams with an enabled source come first, because they are far fewer than the approved teams.
-        candidates = teams.filter(id__in=team_ids_with_enabled_source()).exclude(organization_id__in=listed)
-        team_ids |= {
-            team_id
-            for team_id, organization_id in candidates.values_list("id", "organization_id")
+        enrolled = dict(teams.values_list("id", "organization_id"))
+    else:
+        enrolled = dict(teams.filter(organization_id__in=listed).values_list("id", "organization_id")) if listed else {}
+        enrolled |= {
+            team_id: organization_id
+            for team_id, organization_id in with_source.items()
             if _in_rollout(config, organization_id)
         }
-    return sorted(team_ids)
+    return Enrollment(
+        team_ids=sorted(enrolled),
+        organization_ids=sorted(set(enrolled.values())),
+        qualifying_organization_ids=sorted(set(with_source.values())),
+    )
+
+
+def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
+    return enrollment(config).team_ids
 
 
 def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:
@@ -401,6 +420,7 @@ def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: 
     """Move each source cursor forward and add the rows it passes to the queue state. Returns the pairs fed.
 
     A source with no cursor starts at the current end, so the backfill command seeds the earlier rows.
+    `team_ids` defaults to the enrolled teams.
     """
     if team_ids is None:
         team_ids = enrolled_team_ids(config)
@@ -600,7 +620,7 @@ def select_pairs(
     Stale pairs take at most `rebuild_budget_share` of `limit`, paying pairs first, so a version change
     does not stop the other updates. The first pass ranks the paying pairs and the free pairs with at
     least `max_overdue_factor` staleness, for `paying_budget_share` of `limit`. The second pass ranks the
-    other free pairs for the budget that is left.
+    other free pairs for the budget that is left. `team_ids` defaults to the enrolled teams.
     """
     if team_ids is None:
         team_ids = enrolled_team_ids(config)
