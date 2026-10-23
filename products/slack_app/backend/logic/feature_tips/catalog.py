@@ -208,9 +208,10 @@ class McpToolTip(TipFeature):
     feature = SlackFeature.MCP_TOOL
     rank = 40
     emoji = "🔌"
-    title = "Use your other tools"
+    title = "Connect MCP servers"
     text = (
-        "I can also use tools such as Linear or Notion. Connect them in PostHog, and I use them with your own access."
+        "I can also use MCP servers, such as Linear or Notion. "
+        "Connect them in PostHog, and I use them with your own access."
     )
     choice_criteria = (
         "Connecting other work tools such as Linear, Jira, Notion or Google Drive. Fits a message that mentions "
@@ -226,7 +227,7 @@ class McpToolTip(TipFeature):
         return bool(get_active_installations(ctx.team_id, ctx.posthog_user_id))
 
     def cta(self, ctx: TipContext) -> TipCta | None:
-        return TipCta(label="Connect a tool", url=f"{project_web_url(ctx.team_id)}/mcp-servers")
+        return TipCta(label="Connect an MCP server", url=f"{project_web_url(ctx.team_id)}/mcp-servers")
 
 
 class DirectMessageTip(TipFeature):
