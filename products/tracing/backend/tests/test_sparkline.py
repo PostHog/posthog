@@ -66,6 +66,17 @@ class TestTraceSpansSparkline(_TraceSpansTestBase):
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()["results"]
 
+    def test_window_that_ends_before_it_starts_is_empty_not_an_error(self):
+        stale_date_to = (dt.datetime.now(dt.UTC) - dt.timedelta(hours=3)).isoformat()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/sparkline/",
+            {"query": {"dateRange": {"date_from": "-1h", "date_to": stale_date_to}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(sum(row["count"] for row in response.json()["results"]), 0)
+
     def test_returns_zero_filled_time_series_of_span_counts(self):
         rows = self._sparkline()
         self.assertEqual({"time", "service", "count"}, set(rows[0].keys()))

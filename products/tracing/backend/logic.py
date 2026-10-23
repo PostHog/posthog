@@ -367,7 +367,13 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
             now=dt.datetime.now(),
         )
 
-        _step = (qdr.date_to() - qdr.date_from()) / 50
+        date_range = self.query.dateRange
+        date_from, date_to = qdr.date_from(), qdr.date_to()
+        if date_to < date_from:
+            date_range = DateRange(date_from=date_from.isoformat(), date_to=date_from.isoformat())
+            date_to = date_from
+
+        _step = (date_to - date_from) / 50
         interval_type = IntervalType.SECOND
 
         def find_closest(target: float, arr: list[int]) -> int:
@@ -390,7 +396,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
             interval_count //= 60
 
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=date_range,
             team=self.team,
             interval=interval_type,
             interval_count=int(interval_count),
