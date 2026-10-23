@@ -1,11 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { FieldLabel, Switch, Text } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { QuillDisplayOptionInfo } from '~/queries/nodes/InsightViz/QuillDisplayOptionInfo'
+import { QuillDisplayOptionNumberInput } from '~/queries/nodes/InsightViz/QuillDisplayOptionNumberInput'
+import { QuillDisplayOptionRow } from '~/queries/nodes/InsightViz/QuillDisplayOptionRow'
+
 import { insightLogic } from '../insightLogic'
+
+const BEGIN_AT_ZERO_INFO =
+    'When off, the axis starts just below your lowest value instead of at zero, so small changes are easier to see.'
 
 export function YAxisRangeFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -14,6 +23,8 @@ export function YAxisRangeFilter(): JSX.Element {
 
     const [minDraft, setMinDraft] = useState(trendsFilter?.yAxisMin)
     const [maxDraft, setMaxDraft] = useState(trendsFilter?.yAxisMax)
+    const beginAtZeroId = useId()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         setMinDraft(trendsFilter?.yAxisMin)
@@ -48,17 +59,65 @@ export function YAxisRangeFilter(): JSX.Element {
         typeof value === 'number' && isFinite(value) ? value : undefined
     const commitMin = (): void => updateInsightFilter({ yAxisMin: asBound(minDraft) })
     const commitMax = (): void => updateInsightFilter({ yAxisMax: asBound(maxDraft) })
+    const onBeginsAtZeroChange = (checked: boolean): void =>
+        updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <QuillDisplayOptionRow disabledReason={rangeDisabledReason}>
+                    <FieldLabel htmlFor={beginAtZeroId} className="items-center gap-1 font-normal">
+                        Begin at zero
+                        <QuillDisplayOptionInfo info={BEGIN_AT_ZERO_INFO} />
+                    </FieldLabel>
+                    <Switch
+                        id={beginAtZeroId}
+                        size="sm"
+                        data-attr="trends-y-axis-start-at-zero"
+                        checked={beginsAtZero}
+                        disabled={!!rangeDisabledReason}
+                        onCheckedChange={onBeginsAtZeroChange}
+                    />
+                </QuillDisplayOptionRow>
+                {!beginsAtZero && (
+                    <QuillDisplayOptionNumberInput
+                        label="Minimum"
+                        data-attr="trends-y-axis-min-input"
+                        value={minDraft}
+                        placeholder="Auto"
+                        disabledReason={rangeDisabledReason}
+                        onChange={setMinDraft}
+                        onCommit={commitMin}
+                    />
+                )}
+                <QuillDisplayOptionNumberInput
+                    label="Maximum"
+                    data-attr="trends-y-axis-max-input"
+                    value={maxDraft}
+                    placeholder="Auto"
+                    disabledReason={rangeDisabledReason}
+                    onChange={setMaxDraft}
+                    onCommit={commitMax}
+                />
+                {invalidRange && (
+                    <Text size="xs" variant="destructive">
+                        Maximum must be greater than minimum.
+                    </Text>
+                )}
+            </div>
+        )
+    }
 
     return (
         <div className="p-1 px-2 flex flex-col gap-2">
             <LemonSwitch
                 className="flex-1 w-full"
                 label="Begin at zero"
-                tooltip="When off, the axis starts just below your lowest value instead of at zero, so small changes are easier to see."
+                tooltip={BEGIN_AT_ZERO_INFO}
                 data-attr="trends-y-axis-start-at-zero"
                 checked={beginsAtZero}
                 disabledReason={rangeDisabledReason}
-                onChange={(checked) => updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })}
+                onChange={onBeginsAtZeroChange}
             />
             {!beginsAtZero && (
                 <label className="flex items-center gap-2">

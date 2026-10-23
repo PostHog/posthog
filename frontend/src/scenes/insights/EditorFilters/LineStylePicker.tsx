@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { DisplayOptionToggleGroup } from '~/queries/nodes/InsightViz/DisplayOptionToggleGroup'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -18,8 +17,7 @@ export function LineStylePicker(): JSX.Element {
     const chartStyle = (insightFilter as TrendsFilter | undefined)?.chartStyle
 
     return (
-        <LemonSegmentedButton
-            className="pb-2 px-2"
+        <DisplayOptionToggleGroup
             onChange={(value) =>
                 updateInsightFilter({
                     chartStyle: { ...chartStyle, curve: value as 'smooth' | 'linear' },
@@ -31,8 +29,6 @@ export function LineStylePicker(): JSX.Element {
                 { value: 'smooth', label: 'Smooth' },
                 { value: 'linear', label: 'Straight' },
             ]}
-            size="small"
-            fullWidth
         />
     )
 }

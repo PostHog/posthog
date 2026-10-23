@@ -4,10 +4,11 @@ import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { AnnotationsPicker } from 'scenes/insights/EditorFilters/AnnotationsPicker'
 import { AxisLabelFilter } from 'scenes/insights/EditorFilters/AxisLabelFilter'
@@ -48,7 +49,9 @@ import { ConfidenceLevelInput } from 'products/product_analytics/frontend/insigh
 import { MovingAverageIntervalsInput } from 'products/product_analytics/frontend/insights/trends/filters/MovingAverageIntervalsInput'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
+import { DisplayOptionCheckbox } from './DisplayOptionCheckbox'
 import { displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
+import { QuillDisplayOptionNumberInput } from './QuillDisplayOptionNumberInput'
 
 function useLineGraphState(): { isLineGraph: boolean; isLinearScale: boolean } {
     const { insightProps } = useValues(insightLogic)
@@ -62,6 +65,12 @@ function useLineGraphState(): { isLineGraph: boolean; isLinearScale: boolean } {
 }
 
 function Smoothing(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <SmoothingFilter />
+    }
+
     return (
         <div className="px-2 pb-1.5 w-full">
             <SmoothingFilter />
@@ -75,17 +84,9 @@ function ExcludeOutliers(): JSX.Element {
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <LemonCheckbox
-            label={
-                <span className="font-normal">
-                    Exclude outliers{' '}
-                    <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
-                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                    </Tooltip>
-                </span>
-            }
-            className="p-1 px-2"
-            size="small"
+        <DisplayOptionCheckbox
+            label="Exclude outliers"
+            info="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values."
             checked={trendsFilter?.excludeBoxPlotOutliers !== false}
             onChange={(checked) => {
                 if (isTrendsQuery(querySource)) {
@@ -106,10 +107,8 @@ function ConfidenceInterval(): JSX.Element {
     const { isLineGraph, isLinearScale } = useLineGraphState()
 
     return (
-        <LemonCheckbox
-            label={<span className="font-normal">Show confidence intervals</span>}
-            className="p-1 px-2"
-            size="small"
+        <DisplayOptionCheckbox
+            label="Show confidence intervals"
             checked={showConfidenceIntervals}
             disabledReason={
                 !isLineGraph
@@ -137,10 +136,8 @@ function MovingAverage(): JSX.Element {
     const { isLineGraph, isLinearScale } = useLineGraphState()
 
     return (
-        <LemonCheckbox
-            label={<span className="font-normal">Show moving average</span>}
-            className="p-1 px-2"
-            size="small"
+        <DisplayOptionCheckbox
+            label="Show moving average"
             checked={showMovingAverage}
             disabledReason={
                 !isLineGraph
@@ -165,11 +162,30 @@ function DecimalPrecision(): JSX.Element {
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const reportChange = useDebouncedCallback(() => {
         posthog.capture('decimal places changed', {
             decimal_places: trendsFilter?.decimalPlaces,
         })
     }, 500)
+    const onDecimalPlacesChange = (value: number | undefined): void => {
+        updateInsightFilter({ decimalPlaces: value })
+        reportChange()
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillDisplayOptionNumberInput
+                label="Decimal places"
+                hideLabel
+                value={trendsFilter?.decimalPlaces ?? DEFAULT_DECIMAL_PLACES}
+                onChange={onDecimalPlacesChange}
+                min={0}
+                max={9}
+            />
+        )
+    }
 
     return (
         <LemonInput
@@ -180,10 +196,7 @@ function DecimalPrecision(): JSX.Element {
             max={9}
             defaultValue={DEFAULT_DECIMAL_PLACES}
             value={trendsFilter?.decimalPlaces}
-            onChange={(value) => {
-                updateInsightFilter({ decimalPlaces: value })
-                reportChange()
-            }}
+            onChange={onDecimalPlacesChange}
             className="mx-2 mb-1.5"
         />
     )

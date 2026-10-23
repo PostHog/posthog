@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -14,6 +15,7 @@ import {
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { QuillUnitPicker } from './QuillUnitPicker'
 import { unitPickerModalLogic } from './unitPickerModalLogic'
 
 export interface HandleUnitChange {
@@ -30,6 +32,7 @@ export function UnitPicker(): JSX.Element {
     const { showCustomUnitModal } = useActions(unitPickerModalLogic)
 
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(trendsFilter?.aggregationAxisFormat || undefined)
@@ -96,6 +99,20 @@ export function UnitPicker(): JSX.Element {
             currentValue: trendsFilter?.aggregationAxisPostfix || '',
             callback: (value: string) => handleChange({ postfix: value }),
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillUnitPicker
+                displayValue={displayValue}
+                format={effectiveAxisFormat}
+                prefix={trendsFilter?.aggregationAxisPrefix}
+                postfix={trendsFilter?.aggregationAxisPostfix}
+                onFormatChange={(format) => handleChange({ format })}
+                onCustomPrefix={handleCustomPrefix}
+                onCustomPostfix={handleCustomPostfix}
+            />
+        )
     }
 
     return (
