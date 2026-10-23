@@ -1,3 +1,4 @@
+from contextlib import AbstractContextManager, nullcontext
 from types import SimpleNamespace
 
 from unittest import TestCase as UnitTestCase
@@ -32,6 +33,7 @@ from products.slack_app.backend.temporal import (
 )
 from products.slack_app.backend.temporal.activities.task_creation import _build_terminal_recovery_prompt
 from products.slack_app.backend.temporal.helpers import safe_react
+from products.tasks.backend.facade import ai_run_defaults
 
 
 def _make_inputs(
@@ -101,7 +103,9 @@ class TestSlackThreadTaskMapping(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
         self.task = self.Task.objects.create(
             team=self.team,
             title="Test task",
@@ -197,7 +201,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com", distinct_id="user-1")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
         # The mock SlackIntegration doesn't stub `auth_test`, so `get_cached_bot_user_id`
         # would return None and the bot-mention fast-path strip wouldn't kick in. Force
         # it to return the literal "BOT" so `<@BOT>` in test inputs is stripped from
@@ -208,6 +214,49 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
         bot_id_patcher.start()
         self.addCleanup(bot_id_patcher.stop)
+
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_a_codex_model_from_the_saved_default_bills_the_mentioners_plan(
+        self, mock_slack_cls, mock_execute_workflow
+    ):
+        # Slack leaves the triple empty when a saved default exists, so the runtime is only
+        # known once `create_run` applies that default.
+        ai_run_defaults.update_user_ai_run_preferences(
+            self.team.id, self.user.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/t",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        with (
+            patch(
+                "products.tasks.backend.facade.api.unattended_model_access_state",
+                side_effect=lambda user, runtime_adapter: (
+                    {"codex_model_access": "own-subscription"} if runtime_adapter == "codex" else {}
+                ),
+            ),
+            patch("products.slack_app.backend.feature_flags.is_slack_app_byos_enabled", return_value=True),
+        ):
+            create_posthog_code_task_for_repo_activity(
+                inputs,
+                "C123",
+                "1234.5678",
+                "U_ALICE",
+                self.user.id,
+                inputs.event,
+                [SlackThreadMessage(user="U_ALICE", text="fix the tests")],
+                None,
+            )
+
+        state = self.Task.objects.get(team=self.team).latest_run.state
+        assert state["runtime_adapter"] == "codex"
+        assert state["codex_model_access"] == "own-subscription"
+        assert state["codex_subscription_user_id"] == self.user.id
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -815,7 +864,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
         # See note in TestCreatePostHogCodeTaskForRepoActivity.setUp: force the
         # bot-id lookup so `<@BOT>` mentions in test inputs strip the way they
         # do in production.
@@ -932,6 +983,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_instance.client.token = "xoxb-test"
+        mock_slack_instance.integration = self.integration
         mock_slack_cls.return_value = mock_slack_instance
 
         event = {
@@ -1234,6 +1286,68 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert ({"channel": "C123", "timestamp": "1234.5679", "name": "eyes"} in removed) is not delivered
         if prompted:
             assert mock_prompt.call_args.kwargs["opens_thread"] is (mode in (None, ThreadJoinMode.ASK_PER_THREAD))
+        if delivered:
+            # A run on the creator's plan takes the joiner's turn on that plan.
+            assert mock_signal.call_args.kwargs["plan_owner_consented"] is True
+
+    @parameterized.expand(
+        [
+            ("model_pinned_in_the_reply", True),
+            # Slack leaves the triple empty when a saved default exists, so the runtime is only
+            # known once `create_run` applies that default.
+            ("model_from_the_saved_default", False),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_a_joiner_resumes_the_task_on_the_thread_creators_plan(
+        self, _name, pinned, mock_slack_cls, mock_resolve, mock_execute_workflow
+    ):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_cls.return_value = MagicMock()
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+        preference_patch: AbstractContextManager[object]
+        if pinned:
+            preference_patch = patch(
+                "products.slack_app.backend.temporal.activities.task_creation._run_preference_state",
+                return_value={"runtime_adapter": "codex", "model": "gpt-5.5", "provider": "openai"},
+            )
+        else:
+            ai_run_defaults.update_user_ai_run_preferences(
+                self.team.id, bob.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None
+            )
+            preference_patch = nullcontext()
+
+        with (
+            preference_patch,
+            patch(
+                "products.tasks.backend.facade.api.unattended_model_access_state",
+                side_effect=lambda user, runtime_adapter: (
+                    {"codex_model_access": "own-subscription"}
+                    if user == self.user and runtime_adapter == "codex"
+                    else {}
+                ),
+            ),
+            patch("products.slack_app.backend.feature_flags.is_slack_app_byos_enabled", return_value=True),
+        ):
+            forward_posthog_code_followup_activity(
+                inputs=_make_inputs(self.integration.id, self.user.id),
+                channel="C123",
+                thread_ts="1234.5678",
+                slack_user_id="U_BOB",
+                event_text="<@BOT> fix the tests",
+                user_message_ts="1234.5679",
+            )
+
+        new_run = self.TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+        assert new_run.state["runtime_adapter"] == "codex"
+        assert new_run.state["codex_model_access"] == "own-subscription"
+        assert new_run.state["codex_subscription_user_id"] == self.user.id
+        assert new_run.state["slack_actor_user_id"] == bob.id
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1525,13 +1639,15 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         if terminal:
             self.task_run.status = self.TaskRun.Status.COMPLETED
             self.task_run.save()
+        self.integration.config = {}
+        self.integration.save()
         self._create_mapping()
         event = {
             "channel": "C123",
             "ts": "1234.5679",
             "user": "U_ALICE",
             "text": "",
-            "files": [_make_slack_file(name="installer.exe", mimetype="application/x-msdownload", filetype="binary")],
+            "files": [_make_slack_file(name="debug.log")],
         }
         inputs = PostHogCodeSlackMentionWorkflowInputs(
             event=event,
@@ -1548,6 +1664,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         ):
             mock_slack_instance = MagicMock()
             mock_slack_instance.client.token = "xoxb-test"
+            mock_slack_instance.integration = self.integration
             mock_slack_cls.return_value = mock_slack_instance
 
             result = forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
@@ -1559,7 +1676,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert self.TaskRun.objects.count() == 1
         notice = mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
         assert "no attachment was accepted" in notice
-        assert "installer.exe" in notice
+        assert "`files:read`" in notice
+        assert "reconnect Slack" in notice
 
     @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1592,7 +1710,9 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={"scope": "files:read"}
+        )
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)

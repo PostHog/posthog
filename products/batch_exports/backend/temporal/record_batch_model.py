@@ -92,7 +92,7 @@ class RecordBatchModel(abc.ABC):
             # A bit of a hack: the query references neither half of this, but both are required:
             # - we need to call `get_log_comment` in order to tag the queries
             # - we need to pass non-empty `values` to `ClickHouseClient.prepare_query` to avoid it returning
-            # early and not resolving the `{{_partition_id}}` and `%%` escapes in the s3 function
+            # early and not resolving the `%%` escapes in the s3 function
             # call.
             values={"log_comment": self.get_log_comment()},
         )
@@ -338,7 +338,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
             stack=[],
         )
 
-        query_settings = "max_execution_time={max_execution_time_seconds}, log_comment={log_comment}"
+        query_settings = "max_execution_time=%(max_execution_time_seconds)s, log_comment=%(log_comment)s"
         if "settings" not in printed.lower():
             printed += f" SETTINGS {query_settings}"
         else:

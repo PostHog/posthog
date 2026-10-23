@@ -1814,6 +1814,20 @@ from = [
 ]
 
 [[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ai_gateway",
+]
+
+[[modules]]
 path = "products.uptime_monitoring"
 depends_on = ["posthog"]
 layer = "modules"

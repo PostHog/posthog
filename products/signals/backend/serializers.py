@@ -1360,6 +1360,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "above the `Ask AI` box; clicking one fills the box with it."
         ),
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. "
+            "Empty when the report has no tags."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -1512,6 +1520,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "charts",
             "metrics",
             "suggested_prompts",
+            "tags",
             "source_suggestion",
             "priority",
             "actionability",
