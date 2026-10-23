@@ -73,10 +73,9 @@ def prepare_version(force=False):
         if name.text not in UNVERSIONED_FUNCTIONS:
             name.text = augment_function_name(name.text)
             command = function.find("command")
-            if command.text.startswith("aggregate_funnel "):
-                command.text = command.text.replace(
-                    "aggregate_funnel ", f"aggregate_funnel --udf-version={VERSION_STR} ", 1
-                )
+            if command.text.startswith(("aggregate_funnel ", "json_drop_keys_udf ")):
+                executable, _, arguments = command.text.partition(" ")
+                command.text = f"{executable} --udf-version={VERSION_STR} {arguments}"
             elif not command.text.endswith(".py"):
                 command.text = f"{VERSION_STR}/{command.text}"
         last_version_root.append(function)

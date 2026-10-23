@@ -15,9 +15,9 @@ It downloads `posthog/user_scripts/latest_user_defined_function.xml` and deploys
 
 For revertible cloud deploys:
 
-New versioned funnel functions use the existing `aggregate_funnel` launcher with `--udf-version=vXX`.
+New versioned funnel functions and `JSONDropKeys` use their existing launchers with `--udf-version=vXX`.
 The launcher copies the binary from that version directory and makes the temporary copy executable.
-The versioned funnel binaries need read permission only. Other functions that execute a versioned wrapper require execute permission on that wrapper.
+The versioned files need read permission only.
 Deploy the launcher helper before the new function definitions.
 The Python debug functions use the existing scripts, which echo their input and do not depend on the funnel binary.
 
