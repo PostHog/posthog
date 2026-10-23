@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -275,6 +276,36 @@ describe('watchFeedLogic', () => {
         expect(logic.values.feedMoreFailed).toBe(false)
         expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o2'])
         expect(logic.values.feedHasMore).toBe(true)
+    })
+
+    it('appends a next page once when it is requested again while in flight', async () => {
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o1', 'embedding_pick')], has_more: true, as_of: 'T0' },
+        ])
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+
+        const pending: (() => void)[] = []
+        feedSpy.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    pending.push(() =>
+                        resolve([200, { results: [item('o2', 'recent')], has_more: false, as_of: 'T0' }])
+                    )
+                })
+        )
+        logic.actions.loadMoreFeed()
+        logic.actions.loadMoreFeed()
+        await expectLogic(logic).toMatchValues({ feedItemsLoading: true })
+        await waitFor(() => expect(pending).toHaveLength(2))
+        // The newer request lands first, then the older one would append the same page again.
+        pending[1]()
+        await expectLogic(logic).toDispatchActions(['loadMoreFeedSuccess'])
+        pending[0]()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o1', 'o2'])
     })
 
     it('flags a failed load and clears the flag on retry', async () => {
