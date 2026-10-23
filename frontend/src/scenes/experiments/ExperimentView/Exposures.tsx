@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -19,9 +20,10 @@ import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/q
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import {
-    SAMPLE_RATIO_MISMATCH_DESCRIPTION,
+    SampleRatioLine,
     getTotalExposures,
     hasSampleRatioMismatch,
+    sampleRatioLine,
 } from 'products/experiments/frontend/health/exposureHealth'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
@@ -35,6 +37,12 @@ import { VariantTag } from './VariantTag'
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
 const SLOW_LOAD_THRESHOLD_SECONDS = 20
+
+const SAMPLE_RATIO_TONE_CLASS: Record<SampleRatioLine['tone'], string> = {
+    warning: 'text-warning',
+    info: 'text-secondary',
+    success: 'text-success',
+}
 
 /** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
 function useElapsedSeconds(active: boolean): number {
@@ -135,6 +143,7 @@ export function Exposures(): JSX.Element {
         experiment,
         excludedVariants,
         resolvedExposureEvent,
+        healthUi,
     } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { refreshExperimentResults } = useActions(experimentLogic)
@@ -167,6 +176,7 @@ export function Exposures(): JSX.Element {
 
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = hasSampleRatioMismatch(exposures)
+    const srmLine = sampleRatioLine(exposures, healthUi === 'panel')
 
     // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
     // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
@@ -243,9 +253,13 @@ export function Exposures(): JSX.Element {
                                         ))}
                                     </div>
                                 )}
-                                {hasSRM && (
-                                    <Tooltip title={SAMPLE_RATIO_MISMATCH_DESCRIPTION}>
-                                        <IconWarning className="text-warning text-lg" />
+                                {srmLine && srmLine.tone !== 'success' && (
+                                    <Tooltip title={srmLine.tooltip}>
+                                        {srmLine.tone === 'warning' ? (
+                                            <IconWarning className="text-warning text-lg" />
+                                        ) : (
+                                            <IconInfo className="text-secondary text-lg" />
+                                        )}
                                     </Tooltip>
                                 )}
                                 {excludedVariants.length > 0 && (
@@ -478,36 +492,37 @@ export function Exposures(): JSX.Element {
                                             },
                                         ]}
                                     />
-                                    {exposures?.sample_ratio_mismatch != null && (
+                                    {srmLine && exposures?.sample_ratio_mismatch != null && (
                                         <div className="flex items-center gap-1 text-xs mt-2">
-                                            {hasSRM ? (
-                                                <>
-                                                    <Tooltip title={SAMPLE_RATIO_MISMATCH_DESCRIPTION}>
-                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                            <IconWarning className="text-sm" />
-                                                            <span className="font-semibold">
-                                                                Sample ratio mismatch detected
-                                                            </span>
-                                                        </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
+                                            <Tooltip title={srmLine.tooltip}>
+                                                <span
+                                                    className={clsx(
+                                                        'flex items-center gap-1 cursor-pointer',
+                                                        SAMPLE_RATIO_TONE_CLASS[srmLine.tone]
+                                                    )}
+                                                >
+                                                    {srmLine.tone === 'warning' ? (
+                                                        <IconWarning className="text-sm" />
+                                                    ) : srmLine.tone === 'info' ? (
+                                                        <IconInfo className="text-sm" />
+                                                    ) : (
+                                                        <IconCheckCircle className="text-sm" />
+                                                    )}
+                                                    <span
+                                                        className={clsx(srmLine.tone === 'warning' && 'font-semibold')}
+                                                    >
+                                                        {srmLine.label}
                                                     </span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
-                                                        <span className="flex items-center gap-1 text-success cursor-pointer">
-                                                            <IconCheckCircle className="text-sm" />
-                                                            <span>
-                                                                Exposure distribution matches rollout percentages
-                                                            </span>
-                                                        </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
-                                                    </span>
-                                                </>
+                                                </span>
+                                            </Tooltip>
+                                            {srmLine.showsPValue && (
+                                                <span className="text-muted">
+                                                    (p ={' '}
+                                                    {srmLine.tone === 'success'
+                                                        ? exposures.sample_ratio_mismatch.p_value.toFixed(3)
+                                                        : exposures.sample_ratio_mismatch.p_value.toExponential(2)}
+                                                    )
+                                                </span>
                                             )}
                                         </div>
                                     )}

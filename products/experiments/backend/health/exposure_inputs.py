@@ -1,8 +1,12 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import CachedExperimentExposureQueryResponse, ExperimentExposureHealthFinding
+from posthog.schema import (
+    CachedExperimentExposureQueryResponse,
+    ExperimentExposureHealthFinding,
+    ExperimentExposureTimeSeries,
+)
 
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, get_query_status
 from posthog.dataclasses import frozen
@@ -88,6 +92,8 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
                 query.exposure_criteria, experiment.team, experiment.start_date
             ).multiple_variant_handling,
             sample_ratio_mismatch_p_value=srm.p_value if srm else None,
+            sample_ratio_expected=srm.expected if srm else {},
+            daily_exposures=_daily_exposures(response.timeseries),
             # The checks read the hours at computation, not now.
             hours_since_launch=(computed_at - experiment.start_date).total_seconds() / 3600 if computed_at else None,
             counts_groups=aggregates_by_group(runner.group_type_index),
@@ -95,6 +101,17 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
         findings=tuple(response.health_findings or ()),
         error=calculation_error,
     )
+
+
+def _daily_exposures(timeseries: list[ExperimentExposureTimeSeries]) -> dict[str, dict[date, int]]:
+    # The answer carries a running total per day.
+    daily: dict[str, dict[date, int]] = {}
+    for series in timeseries:
+        totals = [int(count) for count in series.exposure_counts]
+        daily[series.variant] = {
+            date.fromisoformat(day): total - previous for day, total, previous in zip(series.days, totals, [0, *totals])
+        }
+    return daily
 
 
 def _background_calculation_error(runner: ExperimentExposuresQueryRunner) -> str | None:

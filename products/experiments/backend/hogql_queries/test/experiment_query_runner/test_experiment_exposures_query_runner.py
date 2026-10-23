@@ -1504,12 +1504,13 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self, _name: str, as_user: bool, subcode: str | None
     ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
+        # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
         journeys_for(
             {
-                f"user_{variant}_{i}": [
+                f"user_{day}_{variant}_{i}": [
                     {
                         "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02",
+                        "timestamp": day,
                         "properties": {
                             "$feature_flag_response": variant,
                             ff_property: variant,
@@ -1517,7 +1518,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                         },
                     }
                 ]
-                for variant, count in (("control", 90), ("test", 10))
+                for day, counts in (
+                    ("2024-01-02", (("control", 90), ("test", 10))),
+                    ("2024-01-04", (("control", 60), ("test", 60))),
+                )
+                for variant, count in counts
                 for i in range(count)
             },
             self.team,
@@ -1568,13 +1573,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         def cache_key(user: User | None) -> str:
             return ExperimentExposuresQueryRunner(team=self.team, query=query, user=user).get_cache_key()
 
-        shared_key = cache_key(reader)
+        visible_key = cache_key(reader)
         AccessControl.objects.create(
             team=self.team, resource="feature_flag", resource_id=str(self.feature_flag.id), access_level="none"
         )
+        hidden_key = cache_key(reader)
 
-        self.assertNotEqual(cache_key(reader), shared_key)
-        self.assertEqual(cache_key(None), shared_key)
+        self.assertNotEqual(hidden_key, visible_key)
+        self.assertEqual(cache_key(None), hidden_key)
 
     @parameterized.expand(
         [
