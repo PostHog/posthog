@@ -47,8 +47,7 @@ export class HogFlowFunctionsService {
     async buildHogFunction(
         hogFlow: HogFlow,
         configuration: Action['config'],
-        actionName?: string,
-        send?: AcceptedSend
+        actionName?: string
     ): Promise<HogFunctionType> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
 
@@ -83,7 +82,6 @@ export class HogFlowFunctionsService {
                 email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
                 email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
                 email_sending_paused_by: hogFlow.email_sending_paused_by ?? null,
-                capture_engagement: send?.tracking.captureEngagement ?? null,
             },
         }
 
@@ -122,7 +120,8 @@ export class HogFlowFunctionsService {
         return values
     }
 
-    // `send` is laid over the inputs only when they are first rendered, so continuations reuse it.
+    // `send` is laid over the inputs only when they are first rendered, so continuations reuse it. Its
+    // capture choice goes on every build, because the email service reads it from the function's metadata.
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
@@ -150,7 +149,10 @@ export class HogFlowFunctionsService {
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
-            hogFunction,
+            hogFunction: {
+                ...hogFunction,
+                metadata: { ...hogFunction.metadata, capture_engagement: send?.tracking.captureEngagement ?? null },
+            },
             state: invocation.state.currentAction?.hogFunctionState ?? {
                 globals: await this.buildInputsWithGlobals(hogFunction, globalsWithSource, send),
                 timings: [],
