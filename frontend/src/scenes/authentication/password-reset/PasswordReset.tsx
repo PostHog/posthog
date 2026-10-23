@@ -14,6 +14,7 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
@@ -42,9 +43,16 @@ export function PasswordReset(): JSX.Element {
 
     const isThrottled = requestPasswordResetManualErrors?.code === 'throttled'
     const emailUnavailable = !preflightLoading && !preflight?.email_service_available
+    const notes = emailUnavailable
+        ? AUTH_NOTES.passwordReset.emailUnavailable
+        : isThrottled
+          ? AUTH_NOTES.passwordReset.throttled
+          : requestPasswordResetSucceeded
+            ? AUTH_NOTES.passwordReset.sent
+            : AUTH_NOTES.passwordReset.request
 
     return (
-        <AuthScene notes={['// it happens', '// to the best of us']}>
+        <AuthScene notes={notes}>
             <AuthSceneCard footer={<SupportModalButton />}>
                 {isThrottled ? (
                     <div className="text-center mb-3">

@@ -10,6 +10,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
@@ -21,13 +22,6 @@ import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 const HedgehogExplorer = pngHoggie(explorerPng)
 const HedgehogJackDawson = pngHoggie(jackDawsonPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
-
-const NOTES: Record<string, string[]> = {
-    pending: ['// one email away', '// we just hit send'],
-    send_failed: ['// the email did not go', '// give it another send'],
-    success: ['// verified', '// go explore'],
-    invalid: ['// nothing to verify', "// let's start again"],
-}
 
 const CHECKLIST = [
     'Wait 5 minutes, some email providers take a beat',
@@ -227,8 +221,12 @@ export function VerifyEmailForm(): JSX.Element {
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const { openSupportForm } = useActions(supportLogic)
 
-    const noteKey = view === 'pending' && !verificationEmailSent ? 'send_failed' : (view ?? 'pending')
-    const notes = NOTES[noteKey] ?? NOTES.pending
+    const notes =
+        view === 'success' || view === 'invalid'
+            ? AUTH_NOTES.verifyEmail[view]
+            : view === 'pending' && !verificationEmailSent
+              ? AUTH_NOTES.verifyEmail.sendFailed
+              : AUTH_NOTES.verifyEmail.pending
 
     if (view === 'success') {
         return (

@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -29,7 +30,7 @@ export function Login2FA(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <AuthScene notes={['// one more step', '// 500,000+ teams ship here']}>
+        <AuthScene notes={AUTH_NOTES.login2fa.default}>
             <AuthSceneCard>
                 <AuthCardTitle
                     title="Two-factor authentication"

@@ -12,6 +12,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,7 +29,11 @@ export function PasswordResetComplete(): JSX.Element {
     const { validatedResetToken, validatedResetTokenLoading } = useValues(passwordResetLogic)
     const invalidLink = !validatedResetTokenLoading && !validatedResetToken?.success
     return (
-        <AuthScene notes={['// almost there', '// pick a good one']}>
+        <AuthScene
+            notes={
+                invalidLink ? AUTH_NOTES.passwordResetComplete.invalid : AUTH_NOTES.passwordResetComplete.newPassword
+            }
+        >
             <AuthSceneCard>
                 {invalidLink && (
                     <div className="text-center mb-3">

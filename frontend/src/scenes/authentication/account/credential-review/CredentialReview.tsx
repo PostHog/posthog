@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -23,7 +24,7 @@ export function CredentialReview(): JSX.Element {
     const { continueDisabledReason, isCompleting } = useValues(credentialReviewLogic)
 
     return (
-        <AuthScene notes={['// welcome to posthog', '// quick security check']} wide>
+        <AuthScene notes={AUTH_NOTES.credentialReview.default} wide>
             <AuthSceneCard>
                 <div className="max-w-40 mx-auto mb-4">
                     <HedgehogHeart className="w-full h-full" />

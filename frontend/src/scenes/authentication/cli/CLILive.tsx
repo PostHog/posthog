@@ -6,6 +6,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -16,9 +17,19 @@ export const scene: SceneExport = {
     logic: cliLiveLogic,
 }
 
-function CLILiveCard({ title, sub, children }: { title: string; sub?: string; children?: ReactNode }): JSX.Element {
+function CLILiveCard({
+    title,
+    sub,
+    notes = AUTH_NOTES.cliLive.default,
+    children,
+}: {
+    title: string
+    sub?: string
+    notes?: AuthNotes
+    children?: ReactNode
+}): JSX.Element {
     return (
-        <AuthScene notes={['// posthog live', '// events, in your terminal']}>
+        <AuthScene notes={notes}>
             <AuthSceneCard>
                 <AuthCardTitle title={title} sub={sub} />
                 {children}
@@ -33,7 +44,7 @@ export function CLILive(): JSX.Element {
 
     if (!port) {
         return (
-            <CLILiveCard title="Missing port parameter">
+            <CLILiveCard title="Missing port parameter" notes={AUTH_NOTES.cliLive.error}>
                 <AuthBanner variant="danger">
                     This page should be opened from the PostHog Live TUI. Please run <code>posthog-live</code> in your
                     terminal.
@@ -44,7 +55,7 @@ export function CLILive(): JSX.Element {
 
     if (redirected) {
         return (
-            <CLILiveCard title="Authorization complete">
+            <CLILiveCard title="Authorization complete" notes={AUTH_NOTES.cliLive.authorized}>
                 <AuthBanner variant="success">You can close this tab and return to your terminal.</AuthBanner>
             </CLILiveCard>
         )
@@ -52,7 +63,7 @@ export function CLILive(): JSX.Element {
 
     if (error) {
         return (
-            <CLILiveCard title="Authorization failed">
+            <CLILiveCard title="Authorization failed" notes={AUTH_NOTES.cliLive.error}>
                 <AuthBanner variant="danger">{error}</AuthBanner>
             </CLILiveCard>
         )

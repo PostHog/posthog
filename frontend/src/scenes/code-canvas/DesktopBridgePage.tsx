@@ -3,6 +3,7 @@ import { IconLaptop } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 
 import { desktopBridgeDescription, openInDesktop } from './desktopBridge'
@@ -23,7 +24,7 @@ export interface DesktopBridgePageProps {
  */
 export function DesktopBridgePage({ subject, deepLink, webUrl }: DesktopBridgePageProps): JSX.Element {
     return (
-        <AuthScene notes={['// posthog desktop', '// opening the app']}>
+        <AuthScene notes={AUTH_NOTES.desktopBridge.default}>
             <AuthSceneCard>
                 <div className="flex justify-center mb-3">
                     <IconLaptop className="text-5xl" />

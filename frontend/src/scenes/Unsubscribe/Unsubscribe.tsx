@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -14,8 +15,14 @@ export const scene: SceneExport = {
 
 export function Unsubscribe(): JSX.Element {
     const { unsubscriptionLoading, unsubscription } = useValues(unsubscribeLogic)
+    const notes = unsubscriptionLoading
+        ? AUTH_NOTES.unsubscribe.loading
+        : unsubscription
+          ? AUTH_NOTES.unsubscribe.done
+          : AUTH_NOTES.unsubscribe.failed
+
     return (
-        <AuthScene notes={['// inbox zero', '// one email lighter']}>
+        <AuthScene notes={notes}>
             <AuthSceneCard>
                 {unsubscriptionLoading ? (
                     <div className="flex justify-center">

@@ -11,6 +11,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { OtherRegionNotice } from 'scenes/authentication/auth/components/OtherRegionNotice'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -54,7 +55,7 @@ export function ConfirmOrganization(): JSX.Element {
     )
 
     return (
-        <AuthScene notes={['// almost there', '// name your organization']}>
+        <AuthScene notes={AUTH_NOTES.confirmOrganization.default}>
             <AuthSceneCard footer={footer}>
                 <AuthCardTitle title="Create a new organization" sub="Your own corner of PostHog." />
                 {email && <OtherRegionNotice email={email} reason="no_account" />}

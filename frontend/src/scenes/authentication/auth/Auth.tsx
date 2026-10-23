@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene } from 'scenes/authentication/shared/authScene/AuthScene'
 import { AuthEntry } from 'scenes/authentication/shared/authStepViewed'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
@@ -26,25 +27,21 @@ export const scene: SceneExport = {
     logic: authLogic,
 }
 
-const WELCOME_BACK_NOTES = ['// welcome back', '// 500,000+ teams ship here']
-const FIRST_VISIT_NOTES = ['// hey, good to see you', '// 500,000+ teams ship here']
-const CREATE_ACCOUNT_NOTES = ['// create an account', '// 1M events free, every month']
-
-function authNotes(step: AuthPageStep, entry: AuthEntry, isReturning: boolean): string[] {
+function authNotes(step: AuthPageStep, entry: AuthEntry, isReturning: boolean): AuthNotes {
     switch (step) {
         case 'login':
         case 'login_code':
-            return WELCOME_BACK_NOTES
+            return AUTH_NOTES.auth.welcomeBack
         case 'signup_credentials':
         case 'signup_pending_invite':
-            return CREATE_ACCOUNT_NOTES
+            return AUTH_NOTES.auth.createAccount
         case 'signup_profile':
-            return ['// almost there', '// last step']
+            return AUTH_NOTES.auth.signupProfile
         default:
             if (entry === 'signup') {
-                return CREATE_ACCOUNT_NOTES
+                return AUTH_NOTES.auth.createAccount
             }
-            return isReturning ? WELCOME_BACK_NOTES : FIRST_VISIT_NOTES
+            return isReturning ? AUTH_NOTES.auth.welcomeBack : AUTH_NOTES.auth.firstVisit
     }
 }
 

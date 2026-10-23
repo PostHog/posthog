@@ -6,8 +6,10 @@ import { type ReactNode } from 'react'
 
 import { Logo } from 'lib/brand'
 import { OAuthConnectionLogos } from 'lib/components/OAuthConnectionLogos/OAuthConnectionLogos'
+import { inStorybook } from 'lib/utils/dom'
 
 import { pendingOAuthConnectionLogic } from '../pendingOAuthConnectionLogic'
+import { type AuthNotes } from './authNotes'
 import { AuthSceneBackdrop } from './AuthSceneBackdrop'
 import { DevLoginPanel } from './DevLoginPanel'
 import { Typewriter } from './Typewriter'
@@ -17,7 +19,8 @@ export function AuthScene({
     wide = false,
     children,
 }: {
-    notes: string[]
+    /** An entry from `AUTH_NOTES`. */
+    notes: AuthNotes
     /** For a card that holds tables, such as the credential review. */
     wide?: boolean
     children: ReactNode
@@ -37,7 +40,8 @@ export function AuthScene({
                     {children}
                 </div>
             </div>
-            <DevLoginPanel />
+            {/* The dev login panel is a local tool, so stories and their snapshots leave it out */}
+            {!inStorybook() && <DevLoginPanel />}
         </AuthSceneBackdrop>
     )
 }
