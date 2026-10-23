@@ -1,4 +1,8 @@
+import math
 import time
+from enum import StrEnum
+
+from django.utils.crypto import constant_time_compare
 
 import structlog
 from rest_framework import exceptions
@@ -21,6 +25,20 @@ VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
 
 EMAIL_CODE_STATE_REDIS_KEY_PREFIX = "email_verification_code_state"
 EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX = "email_verification_code_attempts"
+EMAIL_CODE_REPLACED_REDIS_KEY_PREFIX = "email_verification_code_replaced"
+
+# Users who resend several times often type a code from an older email. Keep enough replaced
+# codes to recognize them and point the user to the newest email.
+REPLACED_CODES_KEPT = 5
+
+
+class EmailVerificationFailure(StrEnum):
+    """Why a verification code check failed. Each value is also the API error code."""
+
+    INVALID_CODE = "invalid_code"
+    CODE_REPLACED = "code_replaced"
+    CODE_EXPIRED = "code_expired"
+    TOO_MANY_ATTEMPTS = "too_many_attempts"
 
 
 def is_email_verification_disabled(user: User) -> bool:
@@ -73,6 +91,27 @@ class EmailVerificationCodeVerifier:
     def _attempts_key(user_id: int) -> str:
         return f"{EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX}:{user_id}"
 
+    @staticmethod
+    def _replaced_key(user_id: int) -> str:
+        return f"{EMAIL_CODE_REPLACED_REDIS_KEY_PREFIX}:{user_id}"
+
+    def _remember_replaced_code(self, user_id: int) -> None:
+        """Keep the state of the code that a new code replaces. A replaced code never verifies.
+        It only lets a failed check tell the user to use the newest email."""
+        try:
+            client = get_client()
+            previous = client.get(self._state_key(user_id))
+            if not previous:
+                return
+            key = self._replaced_key(user_id)
+            pipe = client.pipeline()
+            pipe.lpush(key, previous)
+            pipe.ltrim(key, 0, REPLACED_CODES_KEPT - 1)
+            pipe.expire(key, CODE_TTL_SECONDS)
+            pipe.execute()
+        except Exception:
+            logger.exception("Failed to remember replaced email verification code", user_id=user_id)
+
     def send_code(self, user: User, target_email: str | None = None) -> None:
         """Issue a fresh code and email it to the address it authorizes.
 
@@ -91,6 +130,7 @@ class EmailVerificationCodeVerifier:
             # same second derive the same code. A code sent to an address the user owns could then
             # verify a different staged address.
             code = code_based_verification_token_generator.make_code(user, issued_at, target or "")
+            self._remember_replaced_code(user.pk)
             # Write the state before the send, so a delivered code can always verify.
             get_client().set(self._state_key(user.pk), f"{issued_at}:{target or ''}", ex=CODE_TTL_SECONDS)
             send_email_verification_code(user.pk, code, target)
@@ -101,18 +141,29 @@ class EmailVerificationCodeVerifier:
                 detail="Could not send the verification code. Please try again by logging in with your email and password."
             )
 
+    @staticmethod
+    def _parse_state(raw: bytes | str) -> tuple[int, str]:
+        text = raw.decode() if isinstance(raw, bytes) else raw
+        issued_at_raw, _, target = text.partition(":")
+        return int(issued_at_raw), target
+
     def _get_state(self, user: User) -> tuple[int, str] | None:
         """Return (issued_at, target_email) for the pending code. target_email is '' for signup."""
         try:
             raw = get_client().get(self._state_key(user.pk))
             if not raw:
                 return None
-            text = raw.decode() if isinstance(raw, bytes) else raw
-            issued_at_raw, _, target = text.partition(":")
-            return int(issued_at_raw), target
+            return self._parse_state(raw)
         except Exception:
             logger.exception("Failed to read email verification code state", user_id=user.pk)
             return None
+
+    def _get_replaced_states(self, user: User) -> list[tuple[int, str]]:
+        try:
+            return [self._parse_state(raw) for raw in get_client().lrange(self._replaced_key(user.pk), 0, -1)]
+        except Exception:
+            logger.exception("Failed to read replaced email verification codes", user_id=user.pk)
+            return []
 
     def reserve_attempt(self, user: User) -> int:
         """Count one verification attempt atomically.
@@ -130,27 +181,50 @@ class EmailVerificationCodeVerifier:
             logger.exception("Failed to reserve email verification code attempt", user_id=user.pk)
             return 0
 
-    def check_code(self, user: User, code: str) -> bool:
+    def check_code(self, user: User, code: str) -> EmailVerificationFailure | None:
+        """Return None when the code verifies, or the reason it does not."""
         state = self._get_state(user)
         if not state:
-            return False
+            # The state key expires with the code, so a missing state means an expired code.
+            return EmailVerificationFailure.CODE_EXPIRED
         issued_at, target = state
         # A code verifies only the address it was issued for. Signup codes store '' as the target.
         # None counts as verified here, like in send_code, or a legacy account's change code
         # (bound to the staged address) could never match and the change could never complete.
         expected_target = (user.pending_email or "") if user.is_email_verified is not False else ""
         if target != expected_target:
-            return False
-        return code_based_verification_token_generator.check_code(user, code, issued_at, target)
+            return EmailVerificationFailure.INVALID_CODE
+        if code_based_verification_token_generator.check_code(user, code, issued_at, target):
+            return None
+        if int(time.time()) - issued_at > CODE_TTL_SECONDS:
+            return EmailVerificationFailure.CODE_EXPIRED
+        if self._matches_replaced_code(user, code):
+            return EmailVerificationFailure.CODE_REPLACED
+        return EmailVerificationFailure.INVALID_CODE
+
+    def _matches_replaced_code(self, user: User, code: str) -> bool:
+        return any(
+            constant_time_compare(code_based_verification_token_generator.make_code(user, issued_at, target), code)
+            for issued_at, target in self._get_replaced_states(user)
+        )
 
     def invalidate(self, user: User) -> None:
         try:
-            get_client().delete(self._state_key(user.pk), self._attempts_key(user.pk))
+            get_client().delete(self._state_key(user.pk), self._attempts_key(user.pk), self._replaced_key(user.pk))
         except Exception:
             logger.exception("Failed to invalidate email verification code", user_id=user.pk)
 
     def attempts_exceeded(self, attempts: int) -> bool:
         return attempts > CODE_MAX_ATTEMPTS
+
+    def lockout_minutes_left(self, user: User) -> int | None:
+        """Whole minutes until the attempt budget expires, rounded up. None when unknown."""
+        try:
+            seconds = int(get_client().ttl(self._attempts_key(user.pk)))
+        except Exception:
+            logger.exception("Failed to read email verification attempt window", user_id=user.pk)
+            return None
+        return math.ceil(seconds / 60) if seconds > 0 else None
 
     def _clear_attempts_for_test(self, user: User) -> None:
         get_client().delete(self._attempts_key(user.pk))
