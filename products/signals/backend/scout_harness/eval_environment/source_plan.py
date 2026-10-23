@@ -55,6 +55,7 @@ class SourceSlicePlan(EnvironmentModel):
     time_strings: list[str] = Field(default_factory=list)
     text_time_policy_reviewed: bool = False
     string_replacements: dict[str, str] = Field(default_factory=dict)
+    source_project_url: str | None = None
 
     @model_validator(mode="after")
     def validate_scope(self) -> Self:

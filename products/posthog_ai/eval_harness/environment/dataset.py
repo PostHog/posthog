@@ -111,6 +111,7 @@ class EnvironmentDataset:
             record_ids=[metric.id for metric in metrics],
             time_strings=manifest.time_strings,
             string_replacements=manifest.string_replacements,
+            source_project_url=manifest.source_project_url,
         )
 
     @classmethod
@@ -158,6 +159,7 @@ class EnvironmentDataset:
         timezone: str = "UTC",
         time_strings: Sequence[str] = (),
         string_replacements: Mapping[str, str] | None = None,
+        source_project_url: str | None = None,
     ) -> EnvironmentDataset:
         manifest = EnvironmentManifest(
             environment_id=environment_id,
@@ -166,6 +168,7 @@ class EnvironmentDataset:
             timezone=timezone,
             time_strings=list(time_strings),
             string_replacements=dict(string_replacements or {}),
+            source_project_url=source_project_url,
             event_count=0,
             metric_count=0,
         )

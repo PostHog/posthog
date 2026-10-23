@@ -32,6 +32,13 @@ state remain linked after IDs are remapped.
 Each claim must belong to the artefact's report. Task channels and external
 connections still require separate restore support.
 
+Declare `source_project_url` in the case and bundle text policy to keep copied
+project links inside the restored instance. Preparation binds the exact source
+project prefix to the new project and pins its configured site URL in the receipt;
+other projects and external links remain unchanged. Legacy assignments and report
+task links can retain report ownership and pull-request projections without
+copying task credentials or the complete execution environment.
+
 Real-data cases use `prompt_mode="native"`: leave `SCOUT_EVAL_ENVIRONMENT_FILE`
 unset so the runner builds its ordinary prompt from restored context. Freeze
 still binds the case and harness version; the native `runtime-prompt.json` is a

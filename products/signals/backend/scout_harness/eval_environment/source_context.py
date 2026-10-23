@@ -320,6 +320,10 @@ class SourceContext:
         return found
 
     def read(self) -> SourceSnapshot:
+        if self.plan.source_project_url is not None and self.plan.source_project_url != (
+            self.api.origin + "/project/" + str(self.plan.project_id)
+        ):
+            raise SourceExportError("The source project URL must match the selected source project.")
         if not self.plan.text_time_policy_reviewed:
             raise SourceExportError(
                 "Review source text dates and provide the explicit time_strings policy before exporting Scout context."
@@ -500,6 +504,7 @@ class SourceContext:
             prompt_mode="native",
             time_strings=self.plan.time_strings,
             string_replacements=self.plan.string_replacements,
+            source_project_url=self.plan.source_project_url,
             users=sorted(self.users.values(), key=lambda user: user.id),
             state=ScoutEnvironmentStartingState(
                 profile=profile_record,

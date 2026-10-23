@@ -206,6 +206,38 @@ class TestEnvironmentDataset(TestCase):
 
 
 class TestEnvironmentTransform(TestCase):
+    @parameterized.expand([7, 81])
+    def test_project_links_bind_to_each_restore_without_changing_other_projects(self, project_id: int) -> None:
+        source = "https://example.com/project/42"
+        target = f"http://localhost:8010/project/{project_id}"
+        transform = EnvironmentTransform(
+            source_cutoff=SOURCE,
+            target_cutoff=SOURCE,
+            record_ids=[],
+            source_project_url=source,
+            target_project_url=target,
+        )
+        self.assertEqual(
+            transform.value(
+                {
+                    "link": source + "/inbox/item?view=all#notes",
+                    "root": f"[{source}]({source})",
+                    "serialized": json.dumps({"nested": json.dumps({"root": source})}),
+                    "punctuation": f"{source}, {source}. `{source}`",
+                    "other_project": source + "0/inbox/item",
+                    "other_origin": "https://other.example.com/project/42/inbox/item",
+                }
+            ),
+            {
+                "link": target + "/inbox/item?view=all#notes",
+                "root": f"[{target}]({target})",
+                "serialized": json.dumps({"nested": json.dumps({"root": target})}),
+                "punctuation": f"{target}, {target}. `{target}`",
+                "other_project": source + "0/inbox/item",
+                "other_origin": "https://other.example.com/project/42/inbox/item",
+            },
+        )
+
     def test_rejects_colliding_nested_keys_without_changing_source(self) -> None:
         transform = EnvironmentTransform(
             source_cutoff=SOURCE,

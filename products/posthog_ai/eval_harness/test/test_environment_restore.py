@@ -46,6 +46,7 @@ def make_environment(
     events: Sequence[EnvironmentEvent] = (),
     metrics: Sequence[EnvironmentMetric] = (),
     timezone: str = "UTC",
+    source_project_url: str | None = None,
 ) -> EnvironmentDataset:
     directory.mkdir(parents=True, exist_ok=True)
     event_path = directory / "source-events.parquet"
@@ -59,6 +60,7 @@ def make_environment(
         metrics_path=metric_path,
         source_cutoff=SOURCE,
         timezone=timezone,
+        source_project_url=source_project_url,
     )
 
 
@@ -256,13 +258,21 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             person_id=person_id,
             timestamp=source_time,
             created_at=SOURCE - timedelta(minutes=1),
-            properties={"attempts": 2, "ok": False, "nested": {"value": None}, "empty": "", "mixed": [0, "0"]},
+            properties={
+                "attempts": 2,
+                "ok": False,
+                "nested": {"value": None},
+                "empty": "",
+                "mixed": [0, "0"],
+                "source_link": "https://example.com/project/42/inbox/item",
+                "other_link": "https://example.com/project/420/inbox/item",
+            },
         )
         metric = EnvironmentMetric(
             id=metric_id,
             created_at=source_time,
             name="delivery_total",
-            description="Count invented delivery events.",
+            description="Count invented delivery events. https://example.com/project/42/inbox/item",
             definition={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
             referenced_table_names=["events"],
             status="approved",
@@ -277,11 +287,21 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
         events = [event, *(event.model_copy(update={"uuid": uuid4()}) for _ in range(5_000))]
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            dataset = make_environment(root / "source", events=events, metrics=[metric], timezone="Asia/Kolkata")
+            dataset = make_environment(
+                root / "source",
+                events=events,
+                metrics=[metric],
+                timezone="Asia/Kolkata",
+                source_project_url="https://example.com/project/42",
+            )
             workspace = root / "import"
-            with patch("posthog.models.event.util.bulk_create_events", side_effect=AssertionError("test writer used")):
+            with (
+                override_settings(SITE_URL="http://localhost:8010"),
+                patch("posthog.models.event.util.bulk_create_events", side_effect=AssertionError("test writer used")),
+            ):
                 result = PreparedEnvironment.restore(dataset, workspace, target_cutoff=target, user_id=self.user.id)
-                again = PreparedEnvironment.restore(dataset, workspace)
+                with override_settings(SITE_URL="http://localhost:8999"):
+                    again = PreparedEnvironment.restore(dataset, workspace)
             self.assertEqual(result.event_count, len(events))
             self.assertEqual(result.metric_count, 1)
             self.assertFalse(result.reused)
@@ -294,6 +314,8 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             receipt = PreparedEnvironment.read_receipt(workspace)
             assert receipt is not None and receipt.event_ingestion is not None
             protection = receipt.event_ingestion
+            expected_project_url = f"http://localhost:8010/project/{result.team_id}"
+            self.assertEqual(receipt.target_project_url, expected_project_url)
             filter_bytecode = protection.filters["bytecode"]
             assert isinstance(filter_bytecode, list)
             self.assertTrue(execute_bytecode(filter_bytecode).result)
@@ -316,6 +338,9 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
             self.assertFalse(organization.is_ai_data_processing_approved)
             self.assertFalse(organization.is_ai_training_opted_in)
             restored_metric = Metric.objects.for_team(team.id).get()
+            self.assertEqual(
+                restored_metric.description, f"Count invented delivery events. {expected_project_url}/inbox/item"
+            )
             self.assertEqual(restored_metric.owner_id, self.user.id)
             self.assertEqual(restored_metric.approved_by_id, self.user.id)
             self.assertEqual(restored_metric.created_by_id, self.user.id)
@@ -342,7 +367,10 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
                 "SELECT properties FROM events WHERE team_id = %(team_id)s AND uuid = %(uuid)s",
                 {"team_id": team.id, "uuid": str(event.uuid)},
             )[0][0]
-            self.assertEqual(json.loads(stored_properties), event.properties)
+            self.assertEqual(
+                json.loads(stored_properties),
+                {**event.properties, "source_link": expected_project_url + "/inbox/item"},
+            )
             for cutoff, user_id in ((target + timedelta(days=1), self.user.id), (target, self.user.id + 100000)):
                 with self.assertRaisesRegex(ValueError, "different import inputs"):
                     PreparedEnvironment.restore(dataset, workspace, target_cutoff=cutoff, user_id=user_id)

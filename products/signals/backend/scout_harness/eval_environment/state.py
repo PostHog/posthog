@@ -19,7 +19,9 @@ from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
     SignalReportArtefact,
+    SignalReportAssignment,
     SignalReportPullRequest,
+    SignalReportTask,
     SignalScoutConfig,
     SignalScoutNote,
     SignalScoutRun,
@@ -54,8 +56,10 @@ class ScoutEnvironmentState:
             SignalScoutRun: {record.id for record in case.state.runs},
             SignalReport: {record.id for record in case.state.reports},
             SignalReportArtefact: {record.id for record in case.state.report_artefacts},
+            SignalReportAssignment: {record.id for record in case.state.report_assignments},
             SignalReportPullRequest: {record.id for record in case.state.pull_requests},
             Task: {record.id for record in case.state.tasks},
+            TaskRun: {record.id for record in case.state.task_runs},
         }
         identifiers = [
             case.skill.id,
@@ -77,6 +81,8 @@ class ScoutEnvironmentState:
             record_ids=list(dict.fromkeys(identifiers)),
             time_strings=case.time_strings,
             string_replacements=case.string_replacements,
+            source_project_url=case.source_project_url,
+            target_project_url=receipt.target_project_url,
         )
 
     @property
@@ -115,7 +121,14 @@ class ScoutEnvironmentState:
             elif isinstance(field, models.ForeignKey) and value is not None:
                 source_id = UUID(str(value))
                 related_model = field.related_model
-                if not isinstance(related_model, type) or source_id not in self.references.get(related_model, set()):
+                legacy_claim_reference = (
+                    model is SignalReportArtefact
+                    and name == "claim_id"
+                    and source_id in self.references[SignalReportAssignment]
+                )
+                if not isinstance(related_model, type) or (
+                    source_id not in self.references.get(related_model, set()) and not legacy_claim_reference
+                ):
                     raise ValueError("Starting-state relationships must refer to supplied local records.")
                 result[name] = self.transform.identity(source_id)
             else:
@@ -155,7 +168,10 @@ class ScoutEnvironmentState:
             (SignalReport, case.state.reports, ScoutEnvironmentSupport.REPORT_FIELDS),
             (SignalReportArtefact, case.state.report_artefacts, ScoutEnvironmentSupport.ARTEFACT_FIELDS),
             (Task, case.state.tasks, ScoutEnvironmentSupport.TASK_FIELDS),
+            (TaskRun, case.state.task_runs, ScoutEnvironmentSupport.TASK_RUN_FIELDS),
             (SignalReportPullRequest, case.state.pull_requests, ScoutEnvironmentSupport.PULL_REQUEST_FIELDS),
+            (SignalReportAssignment, case.state.report_assignments, ScoutEnvironmentSupport.REPORT_ASSIGNMENT_FIELDS),
+            (SignalReportTask, case.state.report_tasks, ScoutEnvironmentSupport.REPORT_TASK_FIELDS),
             (SignalScoutNote, case.state.notes, ScoutEnvironmentSupport.NOTE_FIELDS),
             (SignalScratchpad, case.state.memory, ScoutEnvironmentSupport.MEMORY_FIELDS),
             (
@@ -427,8 +443,14 @@ class ScoutEnvironmentState:
             self._insert(Task, record, ScoutEnvironmentSupport.TASK_FIELDS)
         for record in self.case.state.runs:
             self._seed_run(record, config)
+        for record in self.case.state.task_runs:
+            self._insert(TaskRun, record, ScoutEnvironmentSupport.TASK_RUN_FIELDS)
         for record in self.case.state.reports:
             self._insert(SignalReport, record, self._REPORT_FIELDS)
+        for record in self.case.state.report_assignments:
+            self._insert(SignalReportAssignment, record, ScoutEnvironmentSupport.REPORT_ASSIGNMENT_FIELDS)
+        for record in self.case.state.report_tasks:
+            self._insert(SignalReportTask, record, ScoutEnvironmentSupport.REPORT_TASK_FIELDS)
         for record in self.case.state.pull_requests:
             self._insert(SignalReportPullRequest, record, ScoutEnvironmentSupport.PULL_REQUEST_FIELDS)
         reviewer_report_ids: set[str] = set()
@@ -518,6 +540,17 @@ class ScoutEnvironmentState:
                 values["updated_at"] = (record.updated_at or record.created_at) + self.transform.delta
             self._assert_values(rows.get(id=self.transform.identity(record.id)), values)
 
+    def _verify_task_run_set(self) -> None:
+        task_ids = {self.transform.identity(identifier) for identifier in self.references[Task]}
+        expected = {self.transform.identity(record.id) for record in self.case.state.task_runs}
+        expected.update(
+            self.transform.identity(UUID(str(record.fields.get("task_run_id") or uuid5(record.id, "task-run"))))
+            for record in self.case.state.runs
+        )
+        actual = set(TaskRun.objects.filter(team_id=self.team_id, task_id__in=task_ids).values_list("id", flat=True))
+        if actual != expected:
+            raise ValueError("The prepared TaskRun record set changed.")
+
     def _verify(self, seed: ScoutEnvironmentSeed) -> None:
         identity = PreparedEnvironment.assert_local()
         if (
@@ -581,6 +614,14 @@ class ScoutEnvironmentState:
         )
         self._verify_records(SignalReport, self.case.state.reports, self._REPORT_FIELDS)
         self._verify_records(Task, self.case.state.tasks, ScoutEnvironmentSupport.TASK_FIELDS, allow_extra=True)
+        self._verify_records(
+            TaskRun, self.case.state.task_runs, ScoutEnvironmentSupport.TASK_RUN_FIELDS, allow_extra=True
+        )
+        self._verify_task_run_set()
+        self._verify_records(
+            SignalReportAssignment, self.case.state.report_assignments, ScoutEnvironmentSupport.REPORT_ASSIGNMENT_FIELDS
+        )
+        self._verify_records(SignalReportTask, self.case.state.report_tasks, ScoutEnvironmentSupport.REPORT_TASK_FIELDS)
         self._verify_records(
             SignalReportPullRequest, self.case.state.pull_requests, ScoutEnvironmentSupport.PULL_REQUEST_FIELDS
         )

@@ -513,6 +513,7 @@ def pack(args: argparse.Namespace) -> None:
             timezone=args.timezone,
             time_strings=policy.time_strings,
             string_replacements=policy.string_replacements,
+            source_project_url=policy.source_project_url,
         )
         expected_files = {dataset.path}
         expected_files.update(reference.resolve(folder) for reference in dataset.manifest.events)

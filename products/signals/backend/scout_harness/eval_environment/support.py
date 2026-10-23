@@ -113,6 +113,36 @@ class ScoutEnvironmentSupport:
     PULL_REQUEST_FIELDS = frozenset(
         {"repository", "number", "url", "state", "review_decision", "merged_at", "checked_at"}
     )
+    TASK_RUN_FIELDS = frozenset(
+        {
+            "task_id",
+            "origin_product",
+            "branch",
+            "environment",
+            "stage",
+            "status",
+            "error_message",
+            "completed_at",
+            "output",
+            "state",
+        }
+    )
+    REPORT_ASSIGNMENT_FIELDS = frozenset(
+        {
+            "report_id",
+            "actor_kind",
+            "actor_user_id",
+            "actor_task_id",
+            "actor_agent",
+            "claimed_at",
+            "pr_url",
+            "repository",
+            "pr_number",
+            "pr_state",
+            "pr_merged",
+        }
+    )
+    REPORT_TASK_FIELDS = frozenset({"report_id", "task_id", "relationship"})
     DATE_FIELDS = frozenset(
         {
             "created_at",
@@ -129,6 +159,7 @@ class ScoutEnvironmentSupport:
             "checked_at",
             "archived_at",
             "last_activity_at",
+            "claimed_at",
         }
     )
 
@@ -179,13 +210,22 @@ class ScoutEnvironmentSupport:
             for record in case.state.report_artefacts
             if record.fields.get("type") == "work_claim"
         }
+        claims.update({record.id: record.fields.get("report_id") for record in case.state.report_assignments})
         pull_requests = {record.id for record in case.state.pull_requests}
+        scout_task_run_ids = {
+            UUID(str(record.fields.get("task_run_id") or uuid5(record.id, "task-run"))) for record in case.state.runs
+        }
+        if scout_task_run_ids & {record.id for record in case.state.task_runs}:
+            raise ValueError("Task run state must not duplicate Scout history.")
         groups = (
             (case.state.runs, cls.RUN_FIELDS | cls.RUN_CONTEXT_FIELDS),
             (case.state.reports, cls.REPORT_FIELDS),
             (case.state.report_artefacts, cls.ARTEFACT_FIELDS),
             (case.state.tasks, cls.TASK_FIELDS),
+            (case.state.task_runs, cls.TASK_RUN_FIELDS),
             (case.state.pull_requests, cls.PULL_REQUEST_FIELDS),
+            (case.state.report_assignments, cls.REPORT_ASSIGNMENT_FIELDS),
+            (case.state.report_tasks, cls.REPORT_TASK_FIELDS),
             (case.state.notes, cls.NOTE_FIELDS),
             (case.state.memory, cls.MEMORY_FIELDS),
             ([case.state.profile] if case.state.profile else [], cls.PROFILE_FIELDS),
@@ -197,13 +237,13 @@ class ScoutEnvironmentSupport:
                 for name, value in record.fields.items():
                     if value is None:
                         continue
-                    if name == "created_by_id" and str(value) not in users:
+                    if name in {"created_by_id", "actor_user_id"} and str(value) not in users:
                         raise ValueError("Starting-state user references must resolve inside the bundle.")
                     if name == "created_by_run_id" and UUID(str(value)) not in runs:
                         raise ValueError("Starting-state memory requires its source run in the bundle.")
                     if name == "report_id" and UUID(str(value)) not in reports:
                         raise ValueError("Starting-state artefacts require their report in the bundle.")
-                    if name == "task_id" and UUID(str(value)) not in tasks:
+                    if name in {"task_id", "actor_task_id"} and UUID(str(value)) not in tasks:
                         raise ValueError("Starting-state task references must resolve inside the bundle.")
                     if name == "claim_id" and UUID(str(value)) not in claims:
                         raise ValueError("Starting-state claims must refer to supplied work-claim artefacts.")
@@ -214,4 +254,12 @@ class ScoutEnvironmentSupport:
                     if name in {"task_id", "task_run_id"}:
                         UUID(str(value))
                 cls._validate_dates(record.fields, case)
+        for record in case.state.task_runs:
+            for name, allowed_keys in (
+                ("output", {"pr_url", "pr_urls", "pr_state", "pr_merged"}),
+                ("state", {"ai_stage"}),
+            ):
+                value = record.fields.get(name)
+                if value is not None and (not isinstance(value, dict) or set(value) - allowed_keys):
+                    raise ValueError("Historical task runs support only their pull-request projection.")
         cls._validate_dates(case.config, case)

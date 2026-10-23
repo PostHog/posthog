@@ -54,6 +54,7 @@ class ScoutEnvironmentBundle:
             or case.timezone != manifest.timezone
             or case.time_strings != manifest.time_strings
             or case.string_replacements != manifest.string_replacements
+            or case.source_project_url != manifest.source_project_url
         ):
             raise ValueError("The scout attachment and data must share identity, cutoff, timezone and text policy.")
 

@@ -27,6 +27,8 @@ class EnvironmentTransform:
         namespace: UUID | None = None,
         time_strings: Sequence[str] = (),
         string_replacements: Mapping[str, str] | None = None,
+        source_project_url: str | None = None,
+        target_project_url: str | None = None,
     ) -> None:
         for cutoff in (source_cutoff, target_cutoff):
             if cutoff.tzinfo is None or cutoff.utcoffset() is None:
@@ -34,7 +36,9 @@ class EnvironmentTransform:
         if len(record_ids) != len(set(record_ids)):
             raise ValueError("Environment record IDs must be unique.")
         policy = EnvironmentTextPolicy(
-            time_strings=list(time_strings), string_replacements=dict(string_replacements or {})
+            time_strings=list(time_strings),
+            string_replacements=dict(string_replacements or {}),
+            source_project_url=source_project_url,
         )
         self.namespace = namespace or uuid4()
         self.delta = target_cutoff.astimezone(UTC) - source_cutoff.astimezone(UTC)
@@ -42,6 +46,17 @@ class EnvironmentTransform:
         self.replacements = self._time_replacements(policy.time_strings)
         self.replacements.update(policy.string_replacements)
         self._text_pattern = self._replacement_pattern(self.replacements, set(policy.time_strings))
+        if target_project_url is not None:
+            EnvironmentTextPolicy(source_project_url=target_project_url)
+        self.source_project_url = source_project_url
+        self.target_project_url = target_project_url
+
+    @staticmethod
+    def bind_project_url(value: str, source: str | None, target: str | None) -> str:
+        if source is None or target is None:
+            return value
+        pattern = re.escape(source) + r"(?=$|[/#?\s)\]}>\"'`,.;!]|\\+[\"'])"
+        return re.sub(pattern, lambda match: target, value)
 
     def _time_replacements(self, time_strings: Sequence[str]) -> dict[str, str]:
         replacements: dict[str, str] = {}
@@ -97,7 +112,7 @@ class EnvironmentTransform:
         value = _UUID_TEXT.sub(lambda match: str(self.ids.get(UUID(match.group(0)), match.group(0))), value)
         if self._text_pattern:
             value = self._text_pattern.sub(lambda match: self.replacements[match.group(0)], value)
-        return value
+        return self.bind_project_url(value, self.source_project_url, self.target_project_url)
 
     def value(self, value: object) -> object:
         if isinstance(value, UUID):

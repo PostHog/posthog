@@ -72,7 +72,10 @@ class ScoutEnvironmentStartingState(EnvironmentModel):
     reports: list[ScoutEnvironmentRecord] = Field(default_factory=list)
     report_artefacts: list[ScoutEnvironmentRecord] = Field(default_factory=list)
     tasks: list[ScoutEnvironmentRecord] = Field(default_factory=list)
+    task_runs: list[ScoutEnvironmentRecord] = Field(default_factory=list)
     pull_requests: list[ScoutEnvironmentRecord] = Field(default_factory=list)
+    report_assignments: list[ScoutEnvironmentRecord] = Field(default_factory=list)
+    report_tasks: list[ScoutEnvironmentRecord] = Field(default_factory=list)
 
     def records(self) -> list[ScoutEnvironmentRecord]:
         return [
@@ -83,7 +86,10 @@ class ScoutEnvironmentStartingState(EnvironmentModel):
             *self.reports,
             *self.report_artefacts,
             *self.tasks,
+            *self.task_runs,
             *self.pull_requests,
+            *self.report_assignments,
+            *self.report_tasks,
         ]
 
 

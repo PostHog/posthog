@@ -392,7 +392,7 @@ class TestEnvironmentApp(TestCase):
 class TestEnvironmentCLI(TestCase):
     def test_s3_cli_restores_validated_archive_and_preserves_external_source_pin(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             content = bundle(root).read_bytes()
             digest = hashlib.sha256(content).hexdigest()
             workspace = root / "state"
@@ -723,7 +723,7 @@ class TestEnvironmentPack(TestCase):
         self, scout: bool
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             events, metrics = write_inputs(root)
             originals = {path: path.read_bytes() for path in (events, metrics)}
             scout_path = write_scout(root) if scout else None

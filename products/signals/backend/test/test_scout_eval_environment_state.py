@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from posthog.models import User
 
@@ -25,6 +25,7 @@ from products.signals.backend.scout_harness.eval_environment.schema import (
 )
 from products.signals.backend.scout_harness.eval_environment.state import ScoutEnvironmentState
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.models import TaskRun
 
 
 class TestScoutEnvironmentState(BaseTest):
@@ -215,7 +216,8 @@ class TestScoutEnvironmentState(BaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.first_name, original_name)
 
-    def test_restores_report_claims_and_pull_requests_with_backing_tasks(self) -> None:
+    @parameterized.expand([("artefact",), ("legacy_assignment",), ("legacy_task",)])
+    def test_restores_report_claims_and_pull_requests_with_backing_tasks(self, source: str) -> None:
         task_id, report_id, claim_id, pr_id = (uuid4() for _ in range(4))
         created_at = self.checkpoint - timedelta(hours=1)
         state = self.case.state.model_copy(
@@ -281,6 +283,75 @@ class TestScoutEnvironmentState(BaseTest):
                 ],
             }
         )
+        if source != "artefact":
+            assignment_fields: dict[str, JsonValue] = {
+                "report_id": str(report_id),
+                "actor_kind": "task",
+                "actor_task_id": str(task_id),
+                "claimed_at": created_at.isoformat(),
+            }
+            if source == "legacy_assignment":
+                assignment_fields.update(
+                    pr_url="https://github.com/example/project/pull/1",
+                    repository="example/project",
+                    pr_number=1,
+                    pr_state="open",
+                    pr_merged=False,
+                )
+            state = state.model_copy(
+                update={
+                    "pull_requests": [],
+                    "report_artefacts": [
+                        ScoutEnvironmentRecord(
+                            id=uuid4(),
+                            created_at=created_at,
+                            fields={
+                                "report_id": str(report_id),
+                                "type": "note",
+                                "content": '{"note":"Example work update."}',
+                                "actor_kind": "task",
+                                "task_id": str(task_id),
+                                "claim_id": str(claim_id),
+                            },
+                        )
+                    ],
+                    "report_assignments": [
+                        ScoutEnvironmentRecord(id=claim_id, created_at=created_at, fields=assignment_fields)
+                    ],
+                }
+            )
+            if source == "legacy_task":
+                state = state.model_copy(
+                    update={
+                        "report_tasks": [
+                            ScoutEnvironmentRecord(
+                                id=uuid4(),
+                                created_at=created_at,
+                                fields={
+                                    "report_id": str(report_id),
+                                    "task_id": str(task_id),
+                                    "relationship": "implementation",
+                                },
+                            )
+                        ],
+                        "task_runs": [
+                            ScoutEnvironmentRecord(
+                                id=uuid4(),
+                                created_at=created_at,
+                                fields={
+                                    "task_id": str(task_id),
+                                    "status": "completed",
+                                    "environment": "local",
+                                    "output": {
+                                        "pr_url": "https://github.com/example/project/pull/1",
+                                        "pr_state": "open",
+                                    },
+                                    "state": {"ai_stage": "implementation"},
+                                },
+                            )
+                        ],
+                    }
+                )
         case = self.case.model_copy(update={"state": state})
         with patch(
             "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
@@ -296,7 +367,25 @@ class TestScoutEnvironmentState(BaseTest):
         self.assertEqual(str(claim.claim_id), result.identity_map[str(claim_id)])
         prs = fetch_implementation_prs_for_reports([local_report], team_id=self.team.id)[local_report]
         self.assertEqual([(pr.url, pr.state) for pr in prs], [("https://github.com/example/project/pull/1", "open")])
-        self.assertEqual(prs[0].claim_id, result.identity_map[str(claim_id)])
+        self.assertEqual(prs[0].claim_id, result.identity_map[str(claim_id)] if source == "artefact" else None)
+        if source == "legacy_task":
+            TaskRun.objects.bulk_create(
+                [
+                    TaskRun(
+                        task_id=result.identity_map[str(task_id)],
+                        team_id=self.team.id,
+                        status="completed",
+                        environment="local",
+                        output={"pr_url": "https://github.com/example/project/pull/2"},
+                    )
+                ]
+            )
+            with patch(
+                "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
+                return_value=self.receipt.databases,
+            ):
+                with self.assertRaisesRegex(ValueError, "TaskRun record set changed"):
+                    ScoutEnvironmentState.verify(case, self.receipt, result)
 
     def test_source_emails_use_normal_account_storage_and_verify_without_changing_the_case(self) -> None:
         case = self.case.model_copy(

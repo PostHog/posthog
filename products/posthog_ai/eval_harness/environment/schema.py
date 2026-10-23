@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import re
 import json
 import hashlib
 from pathlib import Path, PurePosixPath
 from typing import Literal, Self
+from urllib.parse import urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -82,9 +84,22 @@ class EnvironmentMetric(EnvironmentRow):
 class EnvironmentTextPolicy(EnvironmentModel):
     time_strings: list[str] = Field(default_factory=list)
     string_replacements: dict[str, str] = Field(default_factory=dict)
+    source_project_url: str | None = None
 
     @model_validator(mode="after")
     def validate_policy(self) -> Self:
+        if self.source_project_url is not None:
+            parsed = urlsplit(self.source_project_url)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or not re.fullmatch(r"/project/[1-9][0-9]*", parsed.path)
+            ):
+                raise ValueError("The source project URL must name one project without credentials, query or fragment.")
         if "" in self.string_replacements:
             raise ValueError("String replacement keys cannot be empty.")
         if len(self.time_strings) != len(set(self.time_strings)):

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 
 from pydantic import AwareDatetime, Field, JsonValue
@@ -65,6 +66,7 @@ class EnvironmentReceipt(EnvironmentModel):
     failure_type: str | None = None
     event_ingestion: EnvironmentIngestion | None = None
     scout_seed_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    target_project_url: str | None = None
 
 
 @frozen
@@ -166,7 +168,10 @@ class PreparedEnvironment:
 
     @staticmethod
     def _transform(
-        dataset: EnvironmentDataset, cutoff: datetime, namespace: UUID | None = None
+        dataset: EnvironmentDataset,
+        cutoff: datetime,
+        namespace: UUID | None = None,
+        target_project_url: str | None = None,
     ) -> EnvironmentTransform:
         return EnvironmentTransform(
             source_cutoff=dataset.manifest.source_cutoff,
@@ -175,6 +180,8 @@ class PreparedEnvironment:
             namespace=namespace,
             time_strings=dataset.manifest.time_strings,
             string_replacements=dataset.manifest.string_replacements,
+            source_project_url=dataset.manifest.source_project_url,
+            target_project_url=target_project_url,
         )
 
     @staticmethod
@@ -211,7 +218,11 @@ class PreparedEnvironment:
         if receipt.event_ingestion is None:
             raise ValueError("The import receipt has no event-ingestion protection; restore into a fresh workspace.")
         receipt.event_ingestion.verify(team)
-        transformer = cls._transform(dataset, receipt.target_cutoff, receipt.identity_namespace)
+        if dataset.manifest.source_project_url and not receipt.target_project_url:
+            raise ValueError("The completed receipt is missing its bound project URL.")
+        transformer = cls._transform(
+            dataset, receipt.target_cutoff, receipt.identity_namespace, receipt.target_project_url
+        )
         expected_metric_ids = {transformer.identity(metric.id) for metric in dataset.metrics}
         if (
             set(receipt.metric_ids) != expected_metric_ids
@@ -312,6 +323,12 @@ class PreparedEnvironment:
             with transaction.atomic():
                 owner = cls._create_project(selected_user, workspace, dataset.manifest.timezone)
                 EnvironmentEvents.preflight(owner.team.id)
+                target_project_url = (
+                    settings.SITE_URL.rstrip("/") + "/project/" + str(owner.team.id)
+                    if dataset.manifest.source_project_url
+                    else None
+                )
+                transformer = cls._transform(dataset, cutoff, receipt.identity_namespace, target_project_url)
                 cls._install_metrics(dataset, transformer, owner)
                 event_ingestion = EnvironmentIngestion.install(owner.team, owner.user)
             receipt = receipt.model_copy(
@@ -323,6 +340,7 @@ class PreparedEnvironment:
                     "created_login": owner.created_login,
                     "metric_ids": [transformer.identity(metric.id) for metric in dataset.metrics],
                     "event_ingestion": event_ingestion,
+                    "target_project_url": target_project_url,
                 }
             )
             cls._write_private(receipt_path, receipt.model_dump_json(indent=2) + "\n")

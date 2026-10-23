@@ -158,6 +158,8 @@ class ScoutEnvironmentCommand:
             record_ids=[],
             time_strings=case.time_strings,
             string_replacements=case.string_replacements,
+            source_project_url=case.source_project_url,
+            target_project_url=receipt.target_project_url,
         )
         replacements = {**seed.identity_map, **case.string_replacements}
         for value in case.time_strings:
@@ -178,6 +180,8 @@ class ScoutEnvironmentCommand:
             time_strings=case.time_strings,
             frozen_inputs=frozen_inputs,
             frozen_manifest=str(self.workspace / "frozen.json"),
+            source_project_url=case.source_project_url,
+            target_project_url=receipt.target_project_url,
         )
 
     def trials(self, case_path: Path) -> ScoutEvaluationTrials:

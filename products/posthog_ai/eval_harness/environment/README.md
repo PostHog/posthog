@@ -142,13 +142,18 @@ Dates inside SQL, descriptions, or JSON strings shift only when explicitly liste
 ```json
 {
   "time_strings": ["2030-06-04T12:00:00Z"],
-  "string_replacements": {}
+  "string_replacements": {},
+  "source_project_url": "https://example.com/project/42"
 }
 ```
 
 Declared time strings retain their written precision. A date-only or seconds-only string cannot represent a finer cutoff shift: choose an aligned target cutoff when exact textual query boundaries matter. `string_replacements` applies literal substitutions to restored property and metric text; it is an explicit preparation rule, not an anonymizer. A value cannot be both a declared time string and a `string_replacements` key.
 
 Version 1 restores events and data-catalog metrics only. Version 2 additionally supports the Scout attachment above, including selected task/run and report context. Neither format restores arbitrary people, groups, dashboards, insights, warehouse tables or external integrations. Metrics may reference only `events`; source insight references are unsupported. Event UUIDs, distinct IDs, and source event identity values remain in the saved data, while restored metric IDs and their references receive a project-local namespace. Ensure the chosen data and supported context are sufficient for the task you plan to run.
+
+An optional `source_project_url` names the captured project whose links should follow the restore. The importer binds that exact project prefix to the new project's ID and configured site URL, then pins the target in the receipt. Events, metrics and Scout context use the same binding; links to other projects or origins stay unchanged. Include the field in both the Scout case and text policy. A source selection plan can declare it too.
+
+Scout attachments can also retain legacy report assignments, report/task links and the TaskRun fields needed to reproduce pull-request projections. They do not restore a task's complete execution environment or credentials.
 
 ## Private data
 

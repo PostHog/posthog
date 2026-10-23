@@ -39,6 +39,8 @@ class RecordedScoutPrompt(ScoutRuntimeContext):
     prompt_transformations: list[ScoutPromptTransformation] = Field(default_factory=list)
     replacements: dict[str, str] = Field(default_factory=dict)
     time_strings: list[str] = Field(default_factory=list)
+    source_project_url: str | None = None
+    target_project_url: str | None = None
 
     def transformed_instructions(self) -> str:
         prompt = self.recorded_prompt
@@ -61,6 +63,7 @@ class RecordedScoutPrompt(ScoutRuntimeContext):
             replacement_pattern = EnvironmentTransform._replacement_pattern(self.replacements, set(self.time_strings))
             if replacement_pattern:
                 prompt = replacement_pattern.sub(lambda match: self.replacements[match[0]], prompt)
+        prompt = EnvironmentTransform.bind_project_url(prompt, self.source_project_url, self.target_project_url)
         for field, value in (
             ("team_id", str(self.team_id)),
             ("run_id", run_id),
