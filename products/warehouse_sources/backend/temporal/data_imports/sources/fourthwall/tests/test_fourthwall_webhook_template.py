@@ -5,7 +5,7 @@ import hashlib
 
 from parameterized import parameterized
 
-from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.webhook_template import template
 
 SOURCE_ID = "source_test_123"
@@ -13,7 +13,7 @@ SIGNING_SECRET = "e3f93c7c-c92b-4b8f-a9b1-5b70e0891abc"
 SCHEMA_MAPPING = {"order": "schema_orders", "donation": "schema_donations", "member": "schema_members"}
 
 
-class TestFourthwallWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
+class TestFourthwallWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
     template = template
 
     def createHogGlobals(self, globals=None) -> dict:
