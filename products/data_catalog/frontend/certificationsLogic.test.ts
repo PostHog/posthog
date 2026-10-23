@@ -178,6 +178,7 @@ describe('certificationsLogic', () => {
         logic.actions.setFilters({ status: 'proposed', search: 'stripe' })
         router.actions.replace(router.values.location.pathname, {
             [`${CERTIFICATIONS_TABLE_ID}_order`]: '-target_name',
+            table: 'stripe',
         })
 
         logic.actions.highlightCertification('cert-25')
@@ -189,6 +190,7 @@ describe('certificationsLogic', () => {
         expect(logic.values.highlightedCertificationId).toEqual('cert-25')
         expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_page`]).toEqual(2)
         expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_order`]).toBeUndefined()
+        expect(router.values.searchParams.table).toBeUndefined()
     })
 
     it('removes the row when revoking', async () => {

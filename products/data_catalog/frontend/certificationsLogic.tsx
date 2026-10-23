@@ -301,6 +301,7 @@ export const certificationsLogic = kea<certificationsLogicType>([
                     ...searchParams,
                     [`${CERTIFICATIONS_TABLE_ID}_page`]: Math.floor(index / CERTIFICATIONS_PAGE_SIZE) + 1,
                     [`${CERTIFICATIONS_TABLE_ID}_order`]: undefined,
+                    table: undefined,
                 },
                 hashParams
             )
