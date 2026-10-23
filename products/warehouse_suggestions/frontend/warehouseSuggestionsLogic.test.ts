@@ -187,9 +187,9 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.stripState).toEqual(expected)
     })
 
-    it('stays hidden when the backend says the feature is off for this organization', async () => {
+    it('stays hidden when the backend says the feature is off, even if the other request fails differently', async () => {
         mockStatus.mockRejectedValue(new ApiError('forbidden', 403, undefined, { detail: 'not enabled' }))
-        mockList.mockRejectedValue(new ApiError('forbidden', 403, undefined, { detail: 'not enabled' }))
+        mockList.mockRejectedValue(new ApiError('server error', 500, undefined, { detail: 'boom' }))
         logic = warehouseSuggestionsLogic({ surface: 'models' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSuggestionsFailure', 'loadStatusFailure'])
