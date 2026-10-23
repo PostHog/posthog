@@ -26,8 +26,9 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
@@ -154,6 +155,7 @@ def _live_vectors(since: datetime.datetime, rendering: str) -> dict[str, tuple[i
             },
             settings=CANDIDATE_VECTORS_QUERY_SETTINGS,
             workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.SIGNALS,
         )
         or [],
     )

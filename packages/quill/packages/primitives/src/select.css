@@ -195,6 +195,11 @@
         top: var(--spacing);
     }
 
+    /* The selection check. An app whose row icons draw thinner lines sets the variable to match them. */
+    .quill-select__indicator-icon {
+        stroke-width: var(--quill-indicator-stroke-width, 2);
+    }
+
     @media (prefers-reduced-motion: reduce) {
         .quill-select__content,
         .quill-select__content[data-starting-style],

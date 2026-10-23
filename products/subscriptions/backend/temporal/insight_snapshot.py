@@ -24,12 +24,12 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_cache_key, calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 from posthog.models import Team, User
+from posthog.models.utils import strip_null_bytes
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
-from products.subscriptions.backend.temporal.delivery_common import strip_null_bytes
+from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.temporal.types import MISSING_QUERY_ERROR_TYPE, safe_error_message
 
 logger = structlog.get_logger(__name__)
@@ -100,7 +100,7 @@ def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
     #   over-trigger on literal escape text in the data, which is harmless — the walk then finds none.
     #
     # The AI-report path scrubs unconditionally instead, since those payloads are small (see
-    # delivery_common.strip_null_bytes callers).
+    # the strip_null_bytes calls in ai_subscription/activities.py).
     if b"\\u0000" in dumped:
         parsed = strip_null_bytes(parsed)
     return parsed

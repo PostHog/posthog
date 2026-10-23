@@ -11,25 +11,16 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { GoalSpendMode, goalSpendChoice, replayScannerLogic } from '../replayScannerLogic'
-import { ScannerTemplate, defaultScannerTemplates } from '../scannerTemplates'
+import { GoalDraftRequest, GoalSpendMode, goalSpendChoice, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerGoalExperimentStarter } from './ScannerGoalExperimentStarter'
+import { SCANNER_GOAL_STARTERS, ScannerGoalStarter } from './scannerGoalStarters'
 import { ScannerResumeDraftBanner } from './ScannerResumeDraftBanner'
-import { SCANNER_TEMPLATE_ICONS } from './scannerTemplateIcons'
-import { startScannerFromTemplate } from './startScannerFromTemplate'
+import { startScannerFromScratch } from './startScannerFromScratch'
 
 // Credits, not recordings: the agent picks the model, so a fixed recording count no longer maps to
 // a fixed cost. The budget is what the user actually controls, and matches how we bill.
 const MIN_SCAN_BUDGET = 1
 const MAX_SCAN_BUDGET = 100000000
-
-interface PendingDraft {
-    goal: string
-    templateKey?: string
-    budget: number | undefined
-    freeOnly: boolean
-    experimentId?: number
-}
 
 /** The goal-based creation flow: a typed goal and a monthly budget on the left, one-click starting
  * points on the right. Both draft a full scanner through the agent and land the user on the overview
@@ -42,12 +33,12 @@ export function ScannerGoalFlow(): JSX.Element {
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { freeCreditsLeft } = useValues(visionQuotaLogic)
     // The spend choice is captured with the goal, so a quota that loads while consent is open cannot change it.
-    const [pendingDraft, setPendingDraft] = useState<PendingDraft | null>(null)
+    const [pendingDraft, setPendingDraft] = useState<GoalDraftRequest | null>(null)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
-    const spend = goalSpendChoice(goalSpendMode, goalBudgetInput, freeCreditsLeft)
-    const spendMode = spend.mode
+    const spendChoice = goalSpendChoice(goalSpendMode, goalBudgetInput, freeCreditsLeft)
+    const spendMode = spendChoice.mode
     const budgetValid =
         spendMode === 'free' ||
         (goalBudgetInput != null && goalBudgetInput >= MIN_SCAN_BUDGET && goalBudgetInput <= MAX_SCAN_BUDGET)
@@ -59,24 +50,24 @@ export function ScannerGoalFlow(): JSX.Element {
         startDisabledReason ?? (!goalDraftInput.trim() ? 'Describe what you want to find out' : null)
 
     const start = (goal: string, templateKey?: string, experimentId?: number): void => {
-        const request = { goal, templateKey, budget: spend.budget, freeOnly: spendMode === 'free', experimentId }
+        if (!spendChoice.spend) {
+            return
+        }
+        const request: GoalDraftRequest = { goal, spend: spendChoice.spend, templateKey, experimentId }
         // Drafting calls an AI endpoint the backend rejects without org consent; interpose the
         // popover instead of letting the request 400.
         if (!dataProcessingAccepted) {
             setPendingDraft(request)
             return
         }
-        draft(request)
-    }
-    const draft = ({ goal, templateKey, budget, freeOnly, experimentId }: PendingDraft): void => {
-        draftScannerFromGoal(goal, budget, templateKey, freeOnly, experimentId)
+        draftScannerFromGoal(request)
     }
     const startFromTypedGoal = (): void => {
         if (!typedGoalDisabledReason) {
             start(goalDraftInput.trim())
         }
     }
-    const startFromStarter = (starter: ScannerTemplate): void => {
+    const startFromStarter = (starter: ScannerGoalStarter): void => {
         if (!startDisabledReason) {
             start(starter.goal, starter.key)
         }
@@ -93,7 +84,7 @@ export function ScannerGoalFlow(): JSX.Element {
                 hidden={pendingDraft === null}
                 onApprove={() => {
                     if (pendingDraft) {
-                        draft(pendingDraft)
+                        draftScannerFromGoal(pendingDraft)
                     }
                     setPendingDraft(null)
                 }}
@@ -140,7 +131,7 @@ export function ScannerGoalFlow(): JSX.Element {
                                         {
                                             value: 'free',
                                             label: 'Free',
-                                            disabledReason: spend.freeDisabledReason ?? undefined,
+                                            disabledReason: spendChoice.freeDisabledReason ?? undefined,
                                             'data-attr': 'vision-goal-flow-spend-free',
                                         },
                                         {
@@ -211,18 +202,18 @@ export function ScannerGoalFlow(): JSX.Element {
                         <span className="text-sm font-semibold">Common starting points</span>
                         <span className="text-xs text-muted">One click drafts a scanner fitted to your project.</span>
                         <div className="flex flex-col gap-1">
-                            {defaultScannerTemplates.map((template) => (
+                            {SCANNER_GOAL_STARTERS.map((starter) => (
                                 <LemonButton
-                                    key={template.key}
+                                    key={starter.key}
                                     fullWidth
-                                    icon={SCANNER_TEMPLATE_ICONS[template.icon]}
+                                    icon={starter.icon}
                                     sideIcon={<IconChevronRight />}
-                                    tooltip={template.goal}
+                                    tooltip={starter.goal}
                                     disabledReason={startDisabledReason}
-                                    onClick={() => startFromStarter(template)}
-                                    data-attr={`vision-goal-starter-${template.key}`}
+                                    onClick={() => startFromStarter(starter)}
+                                    data-attr={`vision-goal-starter-${starter.key}`}
                                 >
-                                    {template.goal_question}
+                                    {starter.question}
                                 </LemonButton>
                             ))}
                             {/* Inside the consent popover's reference, which would give its buttons dropdown arrows. */}
@@ -247,7 +238,7 @@ export function ScannerGoalFlow(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     icon={<IconPlus />}
-                    onClick={() => startScannerFromTemplate(null)}
+                    onClick={startScannerFromScratch}
                     data-attr="vision-template-blank"
                 >
                     Create from scratch

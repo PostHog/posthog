@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
@@ -17,6 +17,7 @@ export interface taskDefaultsLogicValues {
     currentProjectId: number | null // projectLogic
     myConfig: TasksUserConfigResponseApi | null // taskRunDefaultsLogic
     myConfigLoading: boolean // taskRunDefaultsLogic
+    defaultCloudTargetSaving: boolean
     lastTaskDefaults: TasksTaskDefaultsApi | null
     taskDefaults: TasksTaskDefaultsApi | null
     taskDefaultsSaving: boolean
@@ -32,6 +33,16 @@ export interface taskDefaultsLogicActions {
         myConfig: TasksUserConfigResponseApi | null
         payload?: any
     } // taskRunDefaultsLogic
+    saveDefaultCloudTarget: (
+        cloudTarget: string | null,
+        previous: string | null
+    ) => {
+        cloudTarget: string | null
+        previous: string | null
+    }
+    saveDefaultCloudTargetDone: (cloudTarget: string | null) => {
+        cloudTarget: string | null
+    }
     saveTaskDefaults: (changes: TasksTaskDefaultsUpdateApi) => {
         changes: TasksTaskDefaultsUpdateApi
     }
@@ -70,6 +81,8 @@ export const taskDefaultsLogic = kea<taskDefaultsLogicType>([
     actions({
         saveTaskDefaults: (changes: TasksTaskDefaultsUpdateApi) => ({ changes }),
         saveTaskDefaultsDone: (saved: TasksTaskDefaultsApi | null) => ({ saved }),
+        saveDefaultCloudTarget: (cloudTarget: string | null, previous: string | null) => ({ cloudTarget, previous }),
+        saveDefaultCloudTargetDone: (cloudTarget: string | null) => ({ cloudTarget }),
     }),
     reducers({
         // A failed reload clears myConfig, so keep the last values the server returned.
@@ -78,6 +91,17 @@ export const taskDefaultsLogic = kea<taskDefaultsLogicType>([
             {
                 loadMyConfigSuccess: (state, { myConfig }) => myConfig?.task_defaults ?? state,
                 saveTaskDefaultsDone: (state, { saved }) => saved ?? state,
+                saveDefaultCloudTarget: (state, { cloudTarget }) =>
+                    state ? { ...state, default_cloud_target: cloudTarget } : state,
+                saveDefaultCloudTargetDone: (state, { cloudTarget }) =>
+                    state ? { ...state, default_cloud_target: cloudTarget } : state,
+            },
+        ],
+        defaultCloudTargetSaving: [
+            false,
+            {
+                saveDefaultCloudTarget: () => true,
+                saveDefaultCloudTargetDone: () => false,
             },
         ],
         taskDefaultsSaving: [
@@ -112,5 +136,25 @@ export const taskDefaultsLogic = kea<taskDefaultsLogicType>([
                 actions.saveTaskDefaultsDone(null)
             }
         },
+        saveDefaultCloudTarget: async ({ cloudTarget, previous }) => {
+            if (values.currentProjectId == null) {
+                actions.saveDefaultCloudTargetDone(previous)
+                return
+            }
+            try {
+                const saved = await tasksMeConfigTaskDefaultsCreate(String(values.currentProjectId), {
+                    default_cloud_target: cloudTarget,
+                })
+                actions.saveDefaultCloudTargetDone(saved.default_cloud_target)
+            } catch {
+                lemonToast.error('Your default environment did not save. Try again.')
+                actions.saveDefaultCloudTargetDone(previous)
+            }
+        },
     })),
+    afterMount(({ actions, values }) => {
+        if (!values.lastTaskDefaults && values.myConfig?.task_defaults) {
+            actions.saveTaskDefaultsDone(values.myConfig.task_defaults)
+        }
+    }),
 ])

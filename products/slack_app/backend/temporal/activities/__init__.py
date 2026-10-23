@@ -47,6 +47,10 @@ from products.slack_app.backend.temporal.activities.unfurl_charts import (
     post_slack_unfurl_charts_activity,
     prepare_slack_unfurl_charts_activity,
 )
+from products.slack_app.backend.temporal.activities.untagged_question import (
+    classify_untagged_question_activity,
+    request_untagged_question_confirmation_activity,
+)
 from products.slack_app.backend.temporal.activities.user_resolution import (
     resolve_posthog_code_slack_command_user_activity,
 )
@@ -64,7 +68,9 @@ __all__ = [
     "classify_slack_app_project_route",
     "classify_slack_app_project_route_activity",
     "classify_task_needs_repo",
+    "classify_untagged_question_activity",
     "classify_untagged_followup_activity",
+    "request_untagged_question_confirmation_activity",
     "collect_posthog_code_thread_messages_activity",
     "create_posthog_code_routing_rule_activity",
     "create_posthog_code_task_for_repo_activity",

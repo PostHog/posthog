@@ -199,6 +199,7 @@ def fetch_app_metric_totals(
     instance_id: Optional[str] = None,
     name: Optional[list[str]] = None,
     kind: Optional[list[str]] = None,
+    before_exclusive: bool = False,
 ) -> AppMetricsTotalsResponse:
     """
     Calculate the totals for the app metrics over the given period.
@@ -220,6 +221,8 @@ def fetch_app_metric_totals(
         "kind": kind,
     }
 
+    before_operator = "<" if before_exclusive else "<="
+
     clickhouse_query = f"""
         SELECT
             metric_{breakdown_by} as breakdown,
@@ -229,7 +232,7 @@ def fetch_app_metric_totals(
         AND app_source = %(app_source)s
         AND app_source_id = %(app_source_id)s
         {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
-        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {f"AND timestamp {before_operator} toDateTime64(%(before)s, 6)" if before else ""}
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}

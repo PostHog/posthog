@@ -15,23 +15,20 @@ export type SessionState = {
     uuid: string
 }
 
-// Per-MCP-session context, keyed on the protocol session id (not the token).
-// `activeOrgId`/`activeProjectId` record an in-session switch-organization /
-// switch-project; `appliedPin*` record the request pin the session last saw so
-// the resolver can tell a resent pin from a genuinely changed one. See
-// RequestStateResolver.resolvePinnedContext.
+// Null clears a selection without restoring the pin; undefined means no override was saved.
 export type SessionScopedState = {
-    activeProjectId: string | undefined
-    activeOrgId: string | undefined
+    // Defaults are separate from explicit switches so delayed initialization cannot undo a switch.
+    defaultContext: { organizationId?: string; projectId?: number } | undefined
+    defaultProjectId: number | undefined
+    activeProjectId: string | null | undefined
+    activeOrgId: string | null | undefined
     appliedPinProjectId: string | undefined
     appliedPinOrgId: string | undefined
 }
 
 /**
- * The org and project a pinned request runs against. The resolver builds it once
- * per request from the pin and the session's recorded switch, and `StateManager`
- * reads it before the token cache. The token cache is shared by every session on
- * the same credential, so the pin never goes there.
+ * The resolver snapshots the session selection and optional pin per request.
+ * The token cache is shared across sessions, so it cannot hold their selections.
  */
 export type PinnedActiveContext = {
     /** The org and project ids that the request params, or the session's saved pin, pinned. */
@@ -44,7 +41,7 @@ export type PinnedActiveContext = {
 }
 
 export type CachedUser = ApiUser
-export type CachedOrg = Schemas.OrganizationBasic
+export type CachedOrg = Schemas.Organization
 export type CachedProject = Schemas.ProjectBackwardCompat
 
 export type State = {
@@ -73,7 +70,9 @@ export type State = {
     Record<PrefixedString<'integrationKinds'>, string[] | undefined> &
     Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
-    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -144,13 +143,6 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
-    /**
-     * Record an in-session context switch so a pinned connection's resent pin
-     * doesn't revert it (see RequestStateResolver.resolvePinnedContext). Absent
-     * when the request carries no MCP session id — there is no cross-request
-     * session state to record for.
-     */
-    setSessionActiveContext?: (updates: { orgId?: string; projectId?: string }) => Promise<void>
     /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.

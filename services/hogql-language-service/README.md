@@ -214,7 +214,7 @@ docker run --rm \
   hogql-lang-service:local
 ```
 
-The production binary is compiled with Go 1.27.1 and `go build -trimpath`. The runtime image contains only the static
+The production binary is compiled with Go 1.27.3 and `go build -trimpath`. The runtime image contains only the static
 service binary, the commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow
 native `linux/amd64` and `linux/arm64` builds.
 

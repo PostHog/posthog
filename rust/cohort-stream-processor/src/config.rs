@@ -1,6 +1,6 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU16, NonZeroUsize};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
@@ -13,6 +13,7 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
+use crate::partitions::{PartitionOwnership, SplitClaim};
 use crate::store::durability::stage::staging_path;
 use crate::store::durability::{CheckpointLineage, DurabilityConfig, NotAnOrdinalPod, PodOrdinal};
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
@@ -91,7 +92,7 @@ pub struct Config {
     /// the slots it takes at the start of a seed turn and the dispatcher refills them while the
     /// turn runs, which is wanted — the next turn is already full when this one ends.
     ///
-    /// Additive with the event cap, so a revoke or shutdown drain now covers up to this many seeds
+    /// Additive with the event cap, so a shutdown drain covers up to this many seeds
     /// **plus** `PARTITION_INTAKE_MAX_EVENTS` events per partition. At the default that is about
     /// four quanta of seeds, seconds of drain at the rates the apply path sustains.
     #[envconfig(from = "PARTITION_INTAKE_MAX_SEEDS", default = "1024")]
@@ -116,17 +117,8 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-processor")]
     pub kafka_consumer_group: String,
 
-    /// Start at the tail, not the topic's retention.
-    #[envconfig(default = "latest")]
-    pub kafka_consumer_offset_reset: String,
-
-    /// How long the broker waits for heartbeats before declaring this consumer dead. With static
-    /// membership, a restart within this window reclaims partitions with no rebalance.
-    #[envconfig(default = "60000")]
-    pub kafka_session_timeout_ms: u64,
-
-    /// `queued.max.messages.kbytes` (KB). For a `subscribe()` consumer this is an *aggregate* cap
-    /// across all partitions — the ceiling on librdkafka's fetch buffer. 128 MB.
+    /// `queued.max.messages.kbytes` (KB). For the events consumer this is an *aggregate* cap
+    /// across all its partitions — the ceiling on librdkafka's fetch buffer. 128 MB.
     #[envconfig(from = "COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", default = "131072")]
     pub kafka_queued_max_messages_kbytes: u32,
 
@@ -329,10 +321,22 @@ pub struct Config {
     #[envconfig(from = "COHORT_SEED_DISK_RESUME_PCT", default = "55")]
     pub cohort_seed_disk_resume_pct: f64,
 
-    /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
-    /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
+    /// The StatefulSet pod name. Its ordinal suffix picks the partitions this pod owns and its
+    /// checkpoint lineage, and it names the Kafka clients. Absent outside Kubernetes.
     #[envconfig(from = "POD_NAME")]
     pub pod_name: Option<String>,
+
+    /// How many processor pods split the partitions. The pod with ordinal `i` owns every partition
+    /// `p` with `p mod COHORT_POD_COUNT = i`, on every input. It must divide
+    /// `COHORT_PARTITION_COUNT`. Set it with the StatefulSet's replica count.
+    #[envconfig(from = "COHORT_POD_COUNT", default = "1")]
+    pub cohort_pod_count: NonZeroU16,
+
+    /// The pod count before a reshard, which must divide `COHORT_POD_COUNT`. While it is set, each
+    /// pod whose ordinal is below it keeps its store, and every other pod takes its partitions over
+    /// from the pod that owned them. Remove it once the reshard is done.
+    #[envconfig(from = "COHORT_RESHARD_FROM_POD_COUNT")]
+    pub cohort_reshard_from_pod_count: Option<NonZeroU16>,
 
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
@@ -457,6 +461,14 @@ pub struct Config {
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
 
+    /// Size at which RocksDB rolls its info `LOG` file.
+    #[envconfig(from = "COHORT_MAX_LOG_FILE_SIZE_BYTES", default = "268435456")]
+    pub cohort_max_log_file_size_bytes: NonZeroUsize,
+
+    /// Number of info `LOG` files RocksDB keeps.
+    #[envconfig(from = "COHORT_KEEP_LOG_FILE_NUM", default = "10")]
+    pub cohort_keep_log_file_num: NonZeroUsize,
+
     /// TTL in days for `cf_person_records`: a compaction filter drops a person record whose
     /// `last_seen_ms` is older than this. `0` (the default) disables it — no filter is installed, so a
     /// persisted record never ages out. Attached to `cf_person_records` only; `cf_behavioral` eviction
@@ -491,19 +503,9 @@ pub struct Config {
 
     /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
     /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
-    /// `AppliedOffsets`). Refused alongside `cohort_cascade_enabled` — merge column families are not
-    /// restored yet. See [`Self::effective_wipe_on_start`].
+    /// `AppliedOffsets`). See [`Self::effective_wipe_on_start`].
     #[envconfig(from = "DURABLE_RESTORE_ENABLED", default = "false")]
     pub durable_restore_enabled: bool,
-
-    /// Operator assertion that this is a single-pod, static-membership shadow deploy. Default off.
-    ///
-    /// Required to run `DURABLE_RESTORE_ENABLED` together with `COHORT_CASCADE_ENABLED`: a single pod
-    /// with static membership reclaims its own partitions on a restart and never triggers a live
-    /// rebalance. `pod_identity()` cannot gate this because it is set on every k8s pod (single or
-    /// multi), so the single-vs-multi assertion needs its own flag.
-    #[envconfig(from = "DURABLE_RESTORE_SINGLE_POD", default = "false")]
-    pub durable_restore_single_pod: bool,
 
     /// Master gate for the whole-DB checkpoint + S3 backup/restore layer. Default off.
     #[envconfig(from = "CHECKPOINT_ENABLED", default = "false")]
@@ -588,7 +590,8 @@ pub struct Config {
     /// Hours prior to now the S3 importer searches for checkpoint attempts in a PVC-lost recovery.
     /// Keep it below the `cohort_stream_events` retention by more than a restore's catch-up time: a
     /// restore resumes about this far back, and a consumer that falls below the low watermark while
-    /// it catches up resets to `latest` without a trace.
+    /// it catches up resets to `earliest` without a trace, so the events that retention deleted are
+    /// lost.
     #[envconfig(default = "20")]
     pub checkpoint_import_window_hours: u32,
 
@@ -839,8 +842,6 @@ impl Config {
     ///   on open, silently discarding the restore. It also requires a bucket, non-zero knobs, an
     ///   absolute checkpoint directory apart from the store, and a pod name with an ordinal, so a
     ///   misconfigured pod fails at start instead of running without checkpoints.
-    /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
-    ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
     pub fn validate_startup(&self) -> anyhow::Result<()> {
         ensure!(
             self.cohort_seed_reconcile_scan_page > 0,
@@ -930,27 +931,6 @@ impl Config {
         );
         if self.checkpoint_enabled {
             self.validate_checkpoints()?;
-        }
-
-        if self.durable_restore_enabled && self.cohort_cascade_enabled {
-            let single_pod_static =
-                self.durable_restore_single_pod && self.pod_identity().is_some();
-            ensure!(
-                single_pod_static,
-                "DURABLE_RESTORE_ENABLED=true is unsafe with COHORT_CASCADE_ENABLED=true: merge \
-                 column families are not restored yet. Disable one of them, or set \
-                 DURABLE_RESTORE_SINGLE_POD=true on a single-pod static-membership (POD_NAME/HOSTNAME \
-                 set) shadow deploy.",
-            );
-            warn!(
-                durable_restore_single_pod = self.durable_restore_single_pod,
-                pod_identity = self.pod_identity().unwrap_or("<none>"),
-                "DURABLE_RESTORE_ENABLED + COHORT_CASCADE_ENABLED allowed on a single-pod \
-                 static-membership shadow. RESIDUALS deferred to Slice 3: multi-pod rebalance \
-                 F3-on-revoke and the post-join↔delete REVOKE race are NOT covered (single-pod \
-                 membership sidesteps them); merge column-family *content* resume after an S3 restore \
-                 is validated only on this shadow, NOT production multi-pod merge durability.",
-            );
         }
 
         // Not a refusal (dev runs with durability off), but a crash then loses applied tiles
@@ -1058,15 +1038,69 @@ impl Config {
         Ok(())
     }
 
-    /// The checkpoint lineage of this pod, from the ordinal at the end of `POD_NAME`. A process
-    /// without `POD_NAME` (a local run or a test) uses the single pod's lineage. `HOSTNAME` is not
-    /// consulted: outside Kubernetes it names the machine, not a StatefulSet pod.
+    /// The ordinal at the end of `POD_NAME`, or `None` for a process without `POD_NAME` (a local
+    /// run or a test). `HOSTNAME` is not consulted: outside Kubernetes it names the machine, not a
+    /// StatefulSet pod.
+    fn pod_ordinal(&self) -> Result<Option<PodOrdinal>, NotAnOrdinalPod> {
+        self.pod_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .map(PodOrdinal::from_pod_name)
+            .transpose()
+    }
+
+    /// The checkpoint lineage of this pod, from its ordinal. A process without `POD_NAME` uses the
+    /// single pod's lineage.
     pub fn checkpoint_lineage(&self) -> Result<CheckpointLineage, NotAnOrdinalPod> {
-        let ordinal = match self.pod_name.as_deref().filter(|name| !name.is_empty()) {
-            Some(name) => PodOrdinal::from_pod_name(name)?,
-            None => PodOrdinal::STANDALONE,
+        Ok(CheckpointLineage::new(
+            self.pod_ordinal()?.unwrap_or(PodOrdinal::STANDALONE),
+        ))
+    }
+
+    /// This pod's split and its place in a reshard: pod `ordinal` of `COHORT_POD_COUNT`, over
+    /// `COHORT_PARTITION_COUNT` partitions, resharded from `COHORT_RESHARD_FROM_POD_COUNT` pods
+    /// when that is set.
+    pub fn split_claim(&self) -> anyhow::Result<SplitClaim> {
+        ensure!(
+            self.cohort_reshard_from_pod_count.is_none()
+                || self.checkpoint_enabled
+                || !self.durable_restore_enabled,
+            "COHORT_RESHARD_FROM_POD_COUNT with DURABLE_RESTORE_ENABLED requires CHECKPOINT_ENABLED: \
+             without checkpoints each child starts empty while its parent deletes the partitions it \
+             gave away",
+        );
+        SplitClaim::new(
+            self.partition_ownership()?,
+            self.cohort_reshard_from_pod_count,
+        )
+        .context("COHORT_RESHARD_FROM_POD_COUNT must divide COHORT_POD_COUNT and be below it")
+    }
+
+    /// The partitions this pod owns. Only a single pod may run without `POD_NAME`: every pod
+    /// without it would take ordinal 0, and they would all own the same partitions.
+    fn partition_ownership(&self) -> anyhow::Result<PartitionOwnership> {
+        let ordinal = match self
+            .pod_ordinal()
+            .context("POD_NAME must end in a StatefulSet ordinal, or be unset outside Kubernetes")?
+        {
+            Some(ordinal) => ordinal,
+            None => {
+                ensure!(
+                    self.cohort_pod_count == NonZeroU16::MIN,
+                    "COHORT_POD_COUNT={} requires POD_NAME, so that each pod owns its own partitions",
+                    self.cohort_pod_count,
+                );
+                PodOrdinal::STANDALONE
+            }
         };
-        Ok(CheckpointLineage::new(ordinal))
+        PartitionOwnership::new(self.cohort_pod_count, ordinal, self.partition_count())
+            .with_context(|| {
+                format!(
+                    "COHORT_POD_COUNT={} must divide COHORT_PARTITION_COUNT={}, and the ordinal of \
+                     POD_NAME must be below it",
+                    self.cohort_pod_count, self.cohort_partition_count,
+                )
+            })
     }
 
     /// `COHORT_PARTITION_COUNT` as a slice id range. A count past `u16::MAX` fails the topic checks
@@ -1083,7 +1117,7 @@ impl Config {
         self.wipe_store_on_start && !(self.durable_restore_enabled && db_dir_exists)
     }
 
-    pub fn store_config(&self) -> StoreConfig {
+    pub fn store_config(&self, ownership: PartitionOwnership) -> StoreConfig {
         if self.person_record_ttl_below_safe_floor() {
             warn!(
                 cohort_person_record_ttl_days = self.cohort_person_record_ttl_days,
@@ -1104,8 +1138,10 @@ impl Config {
             compact_on_deletion: self.cohort_compact_on_deletion_enabled,
             periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
             max_background_jobs: self.cohort_max_background_jobs,
+            max_log_file_size_bytes: self.cohort_max_log_file_size_bytes,
+            keep_log_file_num: self.cohort_keep_log_file_num,
             person_record_ttl_days: self.cohort_person_record_ttl_days,
-            partition_count: self.partition_count(),
+            ownership,
             ..StoreConfig::default()
         }
     }
@@ -1127,8 +1163,7 @@ impl Config {
         }
     }
 
-    /// Stable per-pod identity for static group membership, `POD_NAME` preferred over `HOSTNAME`.
-    /// `None` leaves static membership off.
+    /// Stable per-pod name for the Kafka `client.id`, `POD_NAME` preferred over `HOSTNAME`.
     pub fn pod_identity(&self) -> Option<&str> {
         [self.pod_name.as_deref(), self.pod_hostname.as_deref()]
             .into_iter()
@@ -1136,28 +1171,10 @@ impl Config {
             .find(|id| !id.is_empty())
     }
 
-    /// Build the `rdkafka` client config for the `cohort_stream_events` group consumer.
-    ///
-    /// Auto-commit and auto-offset-store are off: the consume loop marks offsets only after a
-    /// sub-batch is routed and produced. `cooperative-sticky` + static membership ensure a
-    /// membership change revokes only the partitions that move.
+    /// Build the `rdkafka` client config for the `cohort_stream_events` consumer: the follower
+    /// config on the events group, with a bounded fetch buffer.
     pub fn consumer_client_config(&self) -> ClientConfig {
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", &self.kafka_hosts)
-            .set("group.id", &self.kafka_consumer_group)
-            .set("enable.auto.commit", "false")
-            .set("enable.auto.offset.store", "false")
-            .set("auto.offset.reset", &self.kafka_consumer_offset_reset)
-            .set("partition.assignment.strategy", "cooperative-sticky")
-            .set("socket.timeout.ms", "10000")
-            .set(
-                "session.timeout.ms",
-                self.kafka_session_timeout_ms.to_string(),
-            )
-            .set("heartbeat.interval.ms", "5000")
-            .set("max.poll.interval.ms", "300000");
-
+        let mut config = self.follower_client_config(&self.kafka_consumer_group);
         // Bound librdkafka's fetch buffer: an aggregate byte ceiling plus a per-partition prefetch floor.
         let fetch = self.fetch_queue_config();
         config
@@ -1166,33 +1183,19 @@ impl Config {
                 fetch.queued_max_messages_kbytes.to_string(),
             )
             .set("queued.min.messages", fetch.queued_min_messages.to_string());
-
-        // Static membership; an explicit `kafka_client_id` overrides `client.id` below.
-        if let Some(id) = self.pod_identity() {
-            config.set("group.instance.id", id).set("client.id", id);
-        }
-        if !self.kafka_client_id.is_empty() {
-            config.set("client.id", &self.kafka_client_id);
-        }
-        if !self.kafka_client_rack.is_empty() {
-            config.set("client.rack", &self.kafka_client_rack);
-        }
-        if self.kafka_tls {
-            config
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", "false");
-        }
         config
     }
 
-    /// Build the `rdkafka` client config for a merge-protocol follower consumer.
+    /// Build the `rdkafka` client config for a consumer of `group`: the events consumer or a
+    /// follower.
     ///
-    /// Followers never `subscribe()` — the events group's rebalance mirrors assignments onto them —
-    /// so there is no assignment strategy and no static membership; `group.id` exists only so
-    /// commits land on an observable group. `auto.offset.reset` is hard-coded to `earliest`: a
-    /// never-subscribing group is `Empty` to the broker, so its committed offsets are pruned after
-    /// `offsets.retention.minutes`, and a tail reset after pruning would silently skip the merge
-    /// backlog.
+    /// Auto-commit and auto-offset-store are off: a consume loop marks offsets only after its
+    /// messages are processed. Every consumer assigns itself the partitions this pod owns and never
+    /// joins its group, so `group.id` only names where its commits land. `auto.offset.reset` is
+    /// hard-coded to `earliest`: a group without members is `Empty` to the broker, which can expire
+    /// its committed offsets, and a tail reset would then silently skip the messages in between. It
+    /// sets no `group.instance.id`: librdkafka sends that id with every offset commit, and a broker
+    /// can refuse a commit that names a static member from a client outside the group.
     pub fn follower_client_config(&self, group: &str) -> ClientConfig {
         let mut config = ClientConfig::new();
         config
@@ -1203,7 +1206,6 @@ impl Config {
             .set("auto.offset.reset", "earliest")
             .set("socket.timeout.ms", "10000");
 
-        // `client.id` for observability only; no `group.instance.id` (no membership to make static).
         if let Some(id) = self.pod_identity() {
             config.set("client.id", id);
         }
@@ -1295,7 +1297,6 @@ mod tests {
             kafka_client_rack: String::new(),
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
-            kafka_consumer_offset_reset: "latest".to_string(),
             kafka_queued_max_messages_kbytes: 131_072,
             kafka_queued_min_messages: 2000,
             person_merge_events_topic: "person_merge_events".to_string(),
@@ -1317,8 +1318,9 @@ mod tests {
             cohort_cascade_enabled: false,
             cohort_cascade_events_topic: "cohort_cascade_events".to_string(),
             kafka_cascade_consumer_group: "cohort-stream-cascade".to_string(),
-            kafka_session_timeout_ms: 60000,
             pod_name: None,
+            cohort_pod_count: NonZeroU16::MIN,
+            cohort_reshard_from_pod_count: None,
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
@@ -1344,12 +1346,13 @@ mod tests {
             cohort_compact_on_deletion_enabled: true,
             cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
+            cohort_max_log_file_size_bytes: NonZeroUsize::new(268_435_456).unwrap(),
+            cohort_keep_log_file_num: NonZeroUsize::new(10).unwrap(),
             cohort_person_record_ttl_days: 0,
             cohort_store_offload_mode: OffloadMode::All,
             cohort_store_event_read_permits: 16,
             cohort_store_maintenance_permits: 6,
             durable_restore_enabled: false,
-            durable_restore_single_pod: false,
             checkpoint_enabled: false,
             checkpoint_interval_ms: 300_000,
             checkpoint_s3_upload_interval_ms: 900_000,
@@ -1644,20 +1647,8 @@ mod tests {
         assert_eq!(client.get("enable.auto.commit"), Some("false"));
         assert_eq!(client.get("enable.auto.offset.store"), Some("false"));
         assert_eq!(client.get("group.id"), Some("cohort-stream-processor"));
-        assert_eq!(client.get("auto.offset.reset"), Some("latest"));
+        assert_eq!(client.get("auto.offset.reset"), Some("earliest"));
         assert_eq!(client.get("bootstrap.servers"), Some("localhost:9092"));
-    }
-
-    #[test]
-    fn consumer_config_uses_cooperative_sticky_and_the_configured_session_timeout() {
-        let mut config = test_config();
-        config.kafka_session_timeout_ms = 45000;
-        let client = config.consumer_client_config();
-        assert_eq!(
-            client.get("partition.assignment.strategy"),
-            Some("cooperative-sticky"),
-        );
-        assert_eq!(client.get("session.timeout.ms"), Some("45000"));
     }
 
     #[test]
@@ -1706,20 +1697,87 @@ mod tests {
     }
 
     #[test]
-    fn consumer_config_sets_static_membership_only_when_pod_identity_is_present() {
+    fn consumer_config_names_the_client_after_the_pod_without_a_static_member_id() {
         let mut config = test_config();
-        assert_eq!(
-            config.consumer_client_config().get("group.instance.id"),
-            None,
-        );
-
-        config.pod_hostname = Some("cohort-stream-processor-2".to_string());
+        config.pod_name = Some("cohort-stream-processor-2".to_string());
         let client = config.consumer_client_config();
-        assert_eq!(
-            client.get("group.instance.id"),
-            Some("cohort-stream-processor-2"),
-        );
+        assert_eq!(client.get("group.instance.id"), None);
         assert_eq!(client.get("client.id"), Some("cohort-stream-processor-2"));
+    }
+
+    #[test]
+    fn the_split_claim_comes_from_the_pod_count_the_pod_name_ordinal_and_the_reshard_marker() {
+        type Env = &'static [(&'static str, &'static str)];
+        let cases: [(Env, Result<&str, &str>); 9] = [
+            (&[], Ok("pod 0 of 1 over 64 partitions")),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Ok("pod 1 of 2 over 64 partitions"),
+            ),
+            (&[("COHORT_POD_COUNT", "4")], Err("requires POD_NAME")),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "3"),
+                    ("POD_NAME", "cohort-stream-processor-0"),
+                ],
+                Err("evenly"),
+            ),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("POD_NAME", "cohort-stream-processor-2"),
+                ],
+                Err("not below"),
+            ),
+            (&[("POD_NAME", "cohort-stream-processor")], Err("POD_NAME")),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "1"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Ok("pod 1 of 2 over 64 partitions, resharded from pod 0 of 1 over 64 partitions"),
+            ),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "1"),
+                    ("DURABLE_RESTORE_ENABLED", "true"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Err("requires CHECKPOINT_ENABLED"),
+            ),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "4"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Err("must raise the pod count"),
+            ),
+        ];
+        for (env, expected) in cases {
+            let env = env
+                .iter()
+                .map(|&(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+            let claim = Config::init_from_hashmap(&env)
+                .unwrap()
+                .split_claim()
+                .map(|claim| claim.to_string())
+                .map_err(|err| format!("{err:#}"));
+            match (claim, expected) {
+                (Ok(claim), Ok(expected)) => assert_eq!(claim, expected, "{env:?}"),
+                (Err(err), Err(expected)) => assert!(err.contains(expected), "{env:?}: {err}"),
+                (actual, expected) => panic!("{env:?}: got {actual:?}, expected {expected:?}"),
+            }
+        }
+
+        let zero = [("COHORT_POD_COUNT".to_string(), "0".to_string())].into();
+        assert!(Config::init_from_hashmap(&zero).is_err());
     }
 
     #[test]
@@ -1742,18 +1800,17 @@ mod tests {
         config.pod_hostname = Some("hostname".to_string());
         config.kafka_client_id = "explicit-client".to_string();
         let client = config.consumer_client_config();
-        // Static membership still keyed on the pod identity, but client.id is the explicit override.
-        assert_eq!(client.get("group.instance.id"), Some("hostname"));
         assert_eq!(client.get("client.id"), Some("explicit-client"));
     }
 
     #[test]
     fn store_config_threads_the_wipe_on_start_flag() {
         let mut config = test_config();
+        let ownership = PartitionOwnership::single(64);
         config.wipe_store_on_start = true;
-        assert!(config.store_config().wipe_on_start);
+        assert!(config.store_config(ownership).wipe_on_start);
         config.wipe_store_on_start = false;
-        assert!(!config.store_config().wipe_on_start);
+        assert!(!config.store_config(ownership).wipe_on_start);
     }
 
     #[test]
@@ -1779,14 +1836,22 @@ mod tests {
             !defaults.cohort_wipe_on_schema_mismatch,
             "a schema mismatch must fail fast unless the operator opts in",
         );
-        assert!(!defaults.store_config().wipe_on_schema_mismatch);
+        assert!(
+            !defaults
+                .store_config(PartitionOwnership::single(64))
+                .wipe_on_schema_mismatch
+        );
 
         let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
             "COHORT_WIPE_ON_SCHEMA_MISMATCH".to_owned(),
             "true".to_owned(),
         )]))
         .unwrap();
-        assert!(enabled.store_config().wipe_on_schema_mismatch);
+        assert!(
+            enabled
+                .store_config(PartitionOwnership::single(64))
+                .wipe_on_schema_mismatch
+        );
     }
 
     #[test]
@@ -1796,7 +1861,12 @@ mod tests {
             defaults.cohort_person_record_ttl_days, 0,
             "the person-record TTL defaults off (no compaction filter)",
         );
-        assert_eq!(defaults.store_config().person_record_ttl_days, 0);
+        assert_eq!(
+            defaults
+                .store_config(PartitionOwnership::single(64))
+                .person_record_ttl_days,
+            0
+        );
 
         let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
             "COHORT_PERSON_RECORD_TTL_DAYS".to_owned(),
@@ -1805,7 +1875,9 @@ mod tests {
         .unwrap();
         assert_eq!(enabled.cohort_person_record_ttl_days, 30);
         assert_eq!(
-            enabled.store_config().person_record_ttl_days,
+            enabled
+                .store_config(PartitionOwnership::single(64))
+                .person_record_ttl_days,
             30,
             "the TTL reaches StoreConfig",
         );
@@ -1836,10 +1908,19 @@ mod tests {
     fn stats_knobs_default_on_and_thread_into_store_config() {
         let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert!(defaults.store_statistics_enabled);
-        assert!(defaults.store_config().statistics_enabled);
+        assert!(
+            defaults
+                .store_config(PartitionOwnership::single(64))
+                .statistics_enabled
+        );
         assert_eq!(defaults.stats_publish_interval(), Duration::from_secs(15));
         assert_eq!(defaults.store_read_sample_ratio, 64);
-        assert_eq!(defaults.store_config().read_sample_ratio, 64);
+        assert_eq!(
+            defaults
+                .store_config(PartitionOwnership::single(64))
+                .read_sample_ratio,
+            64
+        );
 
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_STORE_STATISTICS_ENABLED", "false"),
@@ -1852,13 +1933,17 @@ mod tests {
         let config = Config::init_from_hashmap(&env).unwrap();
         assert!(!config.store_statistics_enabled);
         assert!(
-            !config.store_config().statistics_enabled,
+            !config
+                .store_config(PartitionOwnership::single(64))
+                .statistics_enabled,
             "the flag reaches StoreConfig",
         );
         assert_eq!(config.stats_publish_interval(), Duration::from_secs(30));
         assert_eq!(config.store_read_sample_ratio, 8);
         assert_eq!(
-            config.store_config().read_sample_ratio,
+            config
+                .store_config(PartitionOwnership::single(64))
+                .read_sample_ratio,
             8,
             "the sample ratio reaches StoreConfig",
         );
@@ -1976,74 +2061,16 @@ mod tests {
     }
 
     #[test]
-    fn durable_restore_single_pod_defaults_off_and_overrides_from_env() {
-        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
-        assert!(
-            !defaults.durable_restore_single_pod,
-            "the single-pod assertion defaults off (inert)",
-        );
-
-        let env: std::collections::HashMap<String, String> =
-            [("DURABLE_RESTORE_SINGLE_POD", "true")]
-                .into_iter()
-                .map(|(key, value)| (key.to_string(), value.to_string()))
-                .collect();
-        let config = Config::init_from_hashmap(&env).unwrap();
-        assert!(config.durable_restore_single_pod);
-    }
-
-    #[test]
     fn durability_startup_guard_passes_for_the_default_config() {
         assert!(test_config().validate_startup().is_ok());
     }
 
     #[test]
-    fn durability_startup_guard_passes_for_a_plain_durable_restore() {
+    fn durability_startup_guard_passes_for_durable_restore_with_cascades() {
         let mut config = test_config();
         config.durable_restore_enabled = true;
+        config.cohort_cascade_enabled = true;
         assert!(config.validate_startup().is_ok());
-    }
-
-    #[test]
-    fn durability_startup_guard_refuses_durable_plus_cascade_without_the_opt_in() {
-        let mut config = test_config();
-        config.durable_restore_enabled = true;
-        config.cohort_cascade_enabled = true;
-        config.pod_name = Some("pod-0".to_string());
-        let err = config
-            .validate_startup()
-            .expect_err("durable + cascade without the opt-in must be refused");
-        assert!(
-            err.to_string().contains("DURABLE_RESTORE_SINGLE_POD"),
-            "the refusal points the operator at the single-pod opt-in: {err}",
-        );
-    }
-
-    #[test]
-    fn durability_startup_guard_refuses_durable_plus_cascade_with_opt_in_but_no_pod_identity() {
-        let mut config = test_config();
-        config.durable_restore_enabled = true;
-        config.cohort_cascade_enabled = true;
-        config.durable_restore_single_pod = true;
-        config.pod_name = None;
-        config.pod_hostname = None;
-        assert!(
-            config.validate_startup().is_err(),
-            "single-pod opt-in without a pod identity must still refuse the combo",
-        );
-    }
-
-    #[test]
-    fn durability_startup_guard_allows_durable_plus_cascade_with_opt_in_and_pod_identity() {
-        let mut config = test_config();
-        config.durable_restore_enabled = true;
-        config.cohort_cascade_enabled = true;
-        config.durable_restore_single_pod = true;
-        config.pod_name = Some("cohort-stream-processor-0".to_string());
-        assert!(
-            config.validate_startup().is_ok(),
-            "durable + cascade is allowed on a single-pod static-membership deploy",
-        );
     }
 
     #[test]
@@ -2304,7 +2331,9 @@ mod tests {
             };
             assert_eq!(config.effective_wipe_on_start(), expected, "{why}");
             assert_eq!(
-                config.store_config().wipe_on_start,
+                config
+                    .store_config(PartitionOwnership::single(64))
+                    .wipe_on_start,
                 expected,
                 "store_config must thread the effective wipe: {why}",
             );
@@ -2316,7 +2345,7 @@ mod tests {
         let mut config = test_config();
         config.store_path = "/var/lib/cohort/state".to_string();
         assert_eq!(
-            config.store_config().path,
+            config.store_config(PartitionOwnership::single(64)).path,
             std::path::PathBuf::from("/var/lib/cohort/state"),
         );
     }
@@ -2536,9 +2565,8 @@ mod tests {
     }
 
     #[test]
-    fn follower_config_hard_codes_earliest_regardless_of_the_events_reset() {
-        let mut config = test_config();
-        config.kafka_consumer_offset_reset = "latest".to_string();
+    fn follower_config_hard_codes_earliest() {
+        let config = test_config();
         let client = config.follower_client_config("cohort-stream-merges");
         assert_eq!(client.get("auto.offset.reset"), Some("earliest"));
         assert_eq!(client.get("group.id"), Some("cohort-stream-merges"));
@@ -2595,6 +2623,8 @@ mod tests {
         assert!(defaults.cohort_compact_on_deletion_enabled);
         assert_eq!(defaults.cohort_periodic_compaction_seconds, 0);
         assert_eq!(defaults.cohort_max_background_jobs, 0);
+        assert_eq!(defaults.cohort_max_log_file_size_bytes.get(), 268_435_456);
+        assert_eq!(defaults.cohort_keep_log_file_num.get(), 10);
         assert_eq!(defaults.partition_channel_buffer, 128);
 
         let env: std::collections::HashMap<String, String> = [
@@ -2603,6 +2633,8 @@ mod tests {
             ("COHORT_COMPACT_ON_DELETION_ENABLED", "false"),
             ("COHORT_PERIODIC_COMPACTION_SECONDS", "3600"),
             ("COHORT_MAX_BACKGROUND_JOBS", "2"),
+            ("COHORT_MAX_LOG_FILE_SIZE_BYTES", "1048576"),
+            ("COHORT_KEEP_LOG_FILE_NUM", "3"),
             ("PARTITION_CHANNEL_BUFFER", "256"),
         ]
         .into_iter()
@@ -2614,6 +2646,8 @@ mod tests {
         assert!(!config.cohort_compact_on_deletion_enabled);
         assert_eq!(config.cohort_periodic_compaction_seconds, 3600);
         assert_eq!(config.cohort_max_background_jobs, 2);
+        assert_eq!(config.cohort_max_log_file_size_bytes.get(), 1_048_576);
+        assert_eq!(config.cohort_keep_log_file_num.get(), 3);
         assert_eq!(config.partition_channel_buffer, 256);
     }
 
@@ -2625,13 +2659,17 @@ mod tests {
         config.cohort_compact_on_deletion_enabled = false;
         config.cohort_periodic_compaction_seconds = 3600;
         config.cohort_max_background_jobs = 2;
+        config.cohort_max_log_file_size_bytes = NonZeroUsize::new(1_048_576).unwrap();
+        config.cohort_keep_log_file_num = NonZeroUsize::new(3).unwrap();
 
-        let store = config.store_config();
+        let store = config.store_config(PartitionOwnership::single(64));
         assert_eq!(store.block_cache_bytes, 3_221_225_472);
         assert!(!store.tuned_block_options);
         assert!(!store.compact_on_deletion);
         assert_eq!(store.periodic_compaction_seconds, 3600);
         assert_eq!(store.max_background_jobs, 2);
+        assert_eq!(store.max_log_file_size_bytes.get(), 1_048_576);
+        assert_eq!(store.keep_log_file_num.get(), 3);
     }
 
     #[test]

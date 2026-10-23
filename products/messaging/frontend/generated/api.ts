@@ -730,7 +730,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (
@@ -752,7 +752,7 @@ export const getMessagingTemplatesSendCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps.
+ * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
 export const messagingTemplatesSendCreate = async (

@@ -40,7 +40,12 @@ from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
-from products.review_hog.backend.label_reviews import comment_commands_enabled, draft_review_notice, label_commands_hint
+from products.review_hog.backend.label_reviews import (
+    comment_commands_enabled,
+    draft_review_notice,
+    first_review_note,
+    label_commands_hint,
+)
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -72,7 +77,7 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
-from products.review_hog.backend.reviewer.finding_budget import FindingBudget, budget_arm
+from products.review_hog.backend.reviewer.finding_budget import FindingBudget, ReviewRound, budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -2074,16 +2079,22 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    commands_on = comment_commands_enabled(input.team_id)
     footer = ""
-    if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
+    if input.trigger_source == TRIGGER_LABEL and commands_on:
         footer = label_commands_hint(input.review_mode)
     # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
     # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
-        comment_commands_on = comment_commands_enabled(input.team_id)
+        comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
+    # The label footer already names the Deep command.
+    intro_note = first_review_note(
+        report_deep_link(input.team_id, input.report_id),
+        deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH and not footer,
+    )
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2099,6 +2110,7 @@ def _publish(input: PublishInput) -> PublishResult:
         capped_lens_parts=input.capped_lens_parts,
         footer=footer,
         draft_notice=draft_notice,
+        first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
         comment_commands_on=comment_commands_on,
     )
@@ -2492,6 +2504,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "pr_draft": _pr_draft(snapshot),
             # Split by this to measure the finding budget against pull requests that keep posting.
             "finding_budget_arm": budget_arm(report.repository, report.pr_number),
+            "review_round": ReviewRound.for_turn(report, run_index=input.run_index).number,
             "duration_seconds": duration_seconds,
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,

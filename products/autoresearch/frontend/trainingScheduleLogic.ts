@@ -1,4 +1,5 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
@@ -6,8 +7,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoresearchPipelineLogicProps, autoresearchPipelineLogic } from './autoresearchPipelineLogic'
-import { autoresearchPartialUpdate } from './generated/api'
-import type { AutoresearchPipelineApi, ResearchIntervalDaysEnumApi } from './generated/api.schemas'
+import { autoresearchAgentModelsRetrieve, autoresearchPartialUpdate } from './generated/api'
+import type {
+    AgentModelOptionsApi,
+    AgentReasoningEffortOptionApi,
+    AutoresearchPipelineApi,
+    ResearchIntervalDaysEnumApi,
+} from './generated/api.schemas'
 
 export const MIN_ITERATIONS_PER_RUN = 1
 export const MAX_ITERATIONS_PER_RUN = 50
@@ -15,6 +21,9 @@ export const MAX_ITERATIONS_PER_RUN = 50
 export interface TrainingScheduleDraft {
     research_interval_days: ResearchIntervalDaysEnumApi | null
     iterations_per_run: number | undefined
+    // Null means the autoresearch default.
+    agent_model: string | null
+    agent_reasoning_effort: string | null
 }
 
 /** One line on what training does next, from the saved schedule. */
@@ -39,6 +48,9 @@ export interface trainingScheduleLogicValues {
     savingSchedule: boolean
     schedule: TrainingScheduleDraft | null
     saveDisabledReason: string | undefined
+    agentModelOptions: AgentModelOptionsApi | null
+    agentModelOptionsLoading: boolean
+    effortOptions: AgentReasoningEffortOptionApi[]
 }
 
 export interface trainingScheduleLogicActions {
@@ -50,6 +62,14 @@ export interface trainingScheduleLogicActions {
         days: ResearchIntervalDaysEnumApi | null
     }
     setIterationsPerRun: (iterations: number | undefined) => { iterations: number | undefined }
+    setAgentModel: (model: string | null) => { model: string | null }
+    setAgentReasoningEffort: (effort: string | null) => { effort: string | null }
+    loadAgentModelOptions: () => { value: true }
+    loadAgentModelOptionsSuccess: (agentModelOptions: AgentModelOptionsApi | null) => {
+        agentModelOptions: AgentModelOptionsApi | null
+        payload?: any
+    }
+    loadAgentModelOptionsFailure: (error: string) => { error: string }
     resetDraft: () => { value: true }
     saveSchedule: () => { value: true }
     saveScheduleFinished: () => { value: true }
@@ -72,6 +92,8 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
     actions({
         setResearchIntervalDays: (days: ResearchIntervalDaysEnumApi | null) => ({ days }),
         setIterationsPerRun: (iterations: number | undefined) => ({ iterations }),
+        setAgentModel: (model: string | null) => ({ model }),
+        setAgentReasoningEffort: (effort: string | null) => ({ effort }),
         resetDraft: true,
         saveSchedule: true,
         saveScheduleFinished: true,
@@ -83,6 +105,9 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
             {
                 setResearchIntervalDays: (state, { days }) => ({ ...state, research_interval_days: days }),
                 setIterationsPerRun: (state, { iterations }) => ({ ...state, iterations_per_run: iterations }),
+                // Efforts differ per model, so a new model starts from its default effort.
+                setAgentModel: (state, { model }) => ({ ...state, agent_model: model, agent_reasoning_effort: null }),
+                setAgentReasoningEffort: (state, { effort }) => ({ ...state, agent_reasoning_effort: effort }),
                 resetDraft: () => ({}),
             },
         ],
@@ -94,6 +119,19 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        agentModelOptions: [
+            null as AgentModelOptionsApi | null,
+            {
+                loadAgentModelOptions: async () => {
+                    if (!values.currentTeamId) {
+                        return null
+                    }
+                    return autoresearchAgentModelsRetrieve(String(values.currentTeamId))
+                },
+            },
+        ],
+    })),
     selectors({
         schedule: [
             (s) => [s.pipeline, s.draft],
@@ -125,11 +163,26 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
                 const saved = pickSchedule(pipeline)
                 if (
                     saved.iterations_per_run === iterations &&
-                    saved.research_interval_days === schedule.research_interval_days
+                    saved.research_interval_days === schedule.research_interval_days &&
+                    saved.agent_model === schedule.agent_model &&
+                    saved.agent_reasoning_effort === schedule.agent_reasoning_effort
                 ) {
                     return 'Change a setting to save'
                 }
                 return undefined
+            },
+        ],
+        effortOptions: [
+            (s) => [s.agentModelOptions, s.schedule],
+            (
+                agentModelOptions: AgentModelOptionsApi | null,
+                schedule: TrainingScheduleDraft | null
+            ): AgentReasoningEffortOptionApi[] => {
+                if (!agentModelOptions) {
+                    return []
+                }
+                const model = schedule?.agent_model ?? agentModelOptions.default_model
+                return agentModelOptions.models.find((option) => option.model === model)?.supported_efforts ?? []
             },
         ],
     }),
@@ -140,31 +193,61 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
                 actions.saveScheduleFinished()
                 return
             }
-            const changes = {
+            const scheduleChanges = {
                 research_interval_days: schedule.research_interval_days,
                 iterations_per_run: schedule.iterations_per_run,
             }
+            const modelChanges = {
+                agent_model: schedule.agent_model,
+                agent_reasoning_effort: schedule.agent_reasoning_effort,
+            }
+            const saved = values.pipeline ? pickSchedule(values.pipeline) : null
+            const scheduleChanged =
+                saved?.research_interval_days !== scheduleChanges.research_interval_days ||
+                saved?.iterations_per_run !== scheduleChanges.iterations_per_run
+            const modelChanged =
+                saved?.agent_model !== modelChanges.agent_model ||
+                saved?.agent_reasoning_effort !== modelChanges.agent_reasoning_effort
             try {
-                actions.loadPipelineSuccess(await autoresearchPartialUpdate(String(currentTeamId), props.id, changes))
+                actions.loadPipelineSuccess(
+                    await autoresearchPartialUpdate(String(currentTeamId), props.id, {
+                        ...scheduleChanges,
+                        ...modelChanges,
+                    })
+                )
                 actions.resetDraft()
-                posthog.capture('autoresearch training schedule changed', { pipeline_id: props.id, ...changes })
-                lemonToast.success('Training schedule saved.')
+                // pinned: analytics event names. Renaming breaks insights built on them.
+                if (scheduleChanged) {
+                    posthog.capture('autoresearch training schedule changed', {
+                        pipeline_id: props.id,
+                        ...scheduleChanges,
+                    })
+                }
+                if (modelChanged) {
+                    posthog.capture('autoresearch research model changed', { pipeline_id: props.id, ...modelChanges })
+                }
+                lemonToast.success('Training settings saved.')
             } catch {
                 posthog.capture('autoresearch model action failed', {
                     action: 'training_schedule',
                     pipeline_id: props.id,
                 })
-                lemonToast.error("Couldn't save the training schedule. Try again.")
+                lemonToast.error("Couldn't save the training settings. Try again.")
             } finally {
                 actions.saveScheduleFinished()
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadAgentModelOptions()
+    }),
 ])
 
 function pickSchedule(pipeline: AutoresearchPipelineApi): TrainingScheduleDraft {
     return {
         research_interval_days: pipeline.research_interval_days,
         iterations_per_run: pipeline.iterations_per_run,
+        agent_model: pipeline.agent_model,
+        agent_reasoning_effort: pipeline.agent_reasoning_effort,
     }
 }

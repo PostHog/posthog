@@ -203,6 +203,50 @@ def test_signed_json_request(
             {},
             {"AutoMLJobName": "example"},
         ),
+        (
+            "transform_jobs",
+            "ListTransformJobs",
+            "TransformJobSummaries",
+            "DescribeTransformJob",
+            "TransformJobName",
+            "TransformJobArn",
+            "transform_job_arn",
+            {},
+            {"TransformJobName": "example"},
+        ),
+        (
+            "experiments",
+            "ListExperiments",
+            "ExperimentSummaries",
+            "DescribeExperiment",
+            "ExperimentName",
+            "ExperimentArn",
+            "experiment_arn",
+            {},
+            {"ExperimentName": "example"},
+        ),
+        (
+            "trials",
+            "ListTrials",
+            "TrialSummaries",
+            "DescribeTrial",
+            "TrialName",
+            "TrialArn",
+            "trial_arn",
+            {},
+            {"TrialName": "example"},
+        ),
+        (
+            "trial_components",
+            "ListTrialComponents",
+            "TrialComponentSummaries",
+            "DescribeTrialComponent",
+            "TrialComponentName",
+            "TrialComponentArn",
+            "trial_component_arn",
+            {},
+            {"TrialComponentName": "example"},
+        ),
     ],
 )
 def test_pagination_describes_rows_and_stages_only_complete_pages(
@@ -263,6 +307,131 @@ def test_pagination_describes_rows_and_stages_only_complete_pages(
     ]
     assert resume.safe_point.call_count == 3
     transport.close.assert_called_once()
+
+
+def execution(arn: str) -> ScriptedResponse:
+    return ScriptedResponse(json={"PipelineExecutionArn": arn, "CreationTime": 1704067200})
+
+
+@pytest.mark.parametrize(
+    "resume_state,script,expected_targets,expected_rows,expected_states",
+    [
+        (
+            None,
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "zeta"}], "NextToken": "p2"}),
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "alpha"}]}),
+                ScriptedResponse(
+                    json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-a1"}], "NextToken": "a2"}
+                ),
+                execution("arn-a1"),
+                ScriptedResponse(json={"PipelineExecutionSummaries": []}),
+                ScriptedResponse(json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-z1"}]}),
+                execution("arn-z1"),
+            ],
+            [
+                ("ListPipelines", {"MaxResults": 100, "SortBy": "Name", "SortOrder": "Ascending"}),
+                ("ListPipelines", {"NextToken": "p2"}),
+                ("ListPipelineExecutions", {"PipelineName": "alpha"}),
+                ("DescribePipelineExecution", {"PipelineExecutionArn": "arn-a1"}),
+                ("ListPipelineExecutions", {"PipelineName": "alpha", "NextToken": "a2"}),
+                ("ListPipelineExecutions", {"PipelineName": "zeta"}),
+                ("DescribePipelineExecution", {"PipelineExecutionArn": "arn-z1"}),
+            ],
+            ["arn-a1", "arn-z1"],
+            [
+                AwsSagemakerResumeConfig(next_token="a2", parent_name="alpha"),
+                AwsSagemakerResumeConfig(parent_name="zeta"),
+                AwsSagemakerResumeConfig(complete=True),
+            ],
+        ),
+        (
+            AwsSagemakerResumeConfig(next_token="m2", parent_name="middle"),
+            [
+                ScriptedResponse(
+                    json={"PipelineSummaries": [{"PipelineName": "zeta"}, {"PipelineName": "alpha"}]},
+                ),
+                ScriptedResponse(json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-z1"}]}),
+                execution("arn-z1"),
+            ],
+            [
+                ("ListPipelines", {}),
+                ("ListPipelineExecutions", {"PipelineName": "zeta"}),
+                ("DescribePipelineExecution", {"PipelineExecutionArn": "arn-z1"}),
+            ],
+            ["arn-z1"],
+            [AwsSagemakerResumeConfig(complete=True)],
+        ),
+        (
+            None,
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "zeta"}, {"PipelineName": "alpha"}]}),
+                ScriptedResponse(status=400, json={"__type": "ResourceNotFound"}),
+                ScriptedResponse(json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-z1"}]}),
+                execution("arn-z1"),
+            ],
+            [
+                ("ListPipelines", {}),
+                ("ListPipelineExecutions", {"PipelineName": "alpha"}),
+                ("ListPipelineExecutions", {"PipelineName": "zeta"}),
+                ("DescribePipelineExecution", {"PipelineExecutionArn": "arn-z1"}),
+            ],
+            ["arn-z1"],
+            [AwsSagemakerResumeConfig(parent_name="zeta"), AwsSagemakerResumeConfig(complete=True)],
+        ),
+    ],
+)
+def test_pipeline_executions_walk_every_pipeline_and_resume_from_the_saved_one(
+    config: AwsSagemakerSourceConfig,
+    resume_state: AwsSagemakerResumeConfig | None,
+    script: list[ScriptedResponse],
+    expected_targets: list[tuple[str, dict[str, object]]],
+    expected_rows: list[str],
+    expected_states: list[AwsSagemakerResumeConfig],
+) -> None:
+    result = driver(config).run("pipeline_executions", script, resume_state=resume_state)
+    assert result.raised is None
+    assert [row["pipeline_execution_arn"] for row in result.rows] == expected_rows
+    assert len(result.requests) == len(expected_targets)
+    for sent, (operation, payload) in zip(result.requests, expected_targets):
+        assert sent.headers["x-amz-target"] == f"SageMaker.{operation}"
+        assert payload.items() <= sent.json().items()
+    assert result.saved_states == expected_states
+
+
+def test_monitoring_executions_use_list_summaries_as_rows(config: AwsSagemakerSourceConfig) -> None:
+    summary = {
+        "MonitoringScheduleName": "schedule",
+        "ScheduledTime": 1704067200,
+        "CreationTime": 1704067260,
+        "LastModifiedTime": 1704067320,
+        "MonitoringExecutionStatus": "Failed",
+        "FailureReason": "Baseline missing",
+    }
+    result = driver(config).run(
+        "monitoring_executions",
+        [ScriptedResponse(json={"MonitoringExecutionSummaries": [summary, {**summary, "ScheduledTime": None}]})],
+    )
+    assert isinstance(result.raised, ValueError)
+    assert result.saved_states == []
+
+    result = driver(config).run(
+        "monitoring_executions", [ScriptedResponse(json={"MonitoringExecutionSummaries": [summary]})]
+    )
+    assert result.raised is None
+    assert len(result.requests) == 1
+    assert result.requests[0].headers["x-amz-target"] == "SageMaker.ListMonitoringExecutions"
+    assert result.rows == [
+        {
+            "monitoring_schedule_name": "schedule",
+            "scheduled_time": dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            "creation_time": dt.datetime(2024, 1, 1, 0, 1, tzinfo=dt.UTC),
+            "last_modified_time": dt.datetime(2024, 1, 1, 0, 2, tzinfo=dt.UTC),
+            "monitoring_execution_status": "Failed",
+            "failure_reason": "Baseline missing",
+        }
+    ]
+    assert result.response and result.response.primary_keys == ["monitoring_schedule_name", "scheduled_time"]
 
 
 @pytest.mark.parametrize("incremental", [True, False])
@@ -399,6 +568,47 @@ def test_validation_probes_describe_only_for_selected_table(
 
 
 @pytest.mark.parametrize(
+    "schema_name,script,expected_targets",
+    [
+        (
+            "pipeline_executions",
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "pipeline"}]}),
+                ScriptedResponse(json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-1"}]}),
+                ScriptedResponse(json={"PipelineExecutionArn": "arn-1"}),
+            ],
+            [
+                ("ListPipelines", {"MaxResults": 1}),
+                ("ListPipelineExecutions", {"MaxResults": 1, "PipelineName": "pipeline"}),
+                ("DescribePipelineExecution", {"PipelineExecutionArn": "arn-1"}),
+            ],
+        ),
+        (
+            "pipeline_executions",
+            [ScriptedResponse(json={"PipelineSummaries": []})],
+            [("ListPipelines", {"MaxResults": 1})],
+        ),
+        (
+            "monitoring_executions",
+            [ScriptedResponse(json={"MonitoringExecutionSummaries": [{"MonitoringScheduleName": "schedule"}]})],
+            [("ListMonitoringExecutions", {"MaxResults": 1})],
+        ),
+    ],
+)
+def test_validation_probes_parent_and_skips_missing_describe(
+    config: AwsSagemakerSourceConfig,
+    schema_name: str,
+    script: list[ScriptedResponse],
+    expected_targets: list[tuple[str, dict[str, object]]],
+) -> None:
+    with scripted_network(script) as network:
+        assert validate_credentials(config, schema_name, "2017-07-24") == (True, None)
+    assert [(sent.headers["x-amz-target"], sent.json()) for sent in network.requests_log] == [
+        (f"SageMaker.{operation}", payload) for operation, payload in expected_targets
+    ]
+
+
+@pytest.mark.parametrize(
     "field,value,message",
     [
         ("region", "us-east-1.example.com/", "Enter an AWS region"),
@@ -426,10 +636,14 @@ def test_unknown_table_and_version_are_rejected(config: AwsSagemakerSourceConfig
     assert result.requests == []
 
 
-def test_transient_validation_error_propagates(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
+def test_transient_validation_error_reports_an_unreachable_vendor(
+    config: AwsSagemakerSourceConfig, transport: MagicMock
+) -> None:
     transport.post.return_value = response({"__type": "ServiceUnavailable"}, 503)
-    with pytest.raises(AwsSagemakerError, match="ServiceUnavailable"):
-        validate_credentials(config, "models", "2017-07-24")
+    assert validate_credentials(config, "models", "2017-07-24") == (
+        False,
+        "Couldn't reach AWS SageMaker to check your credentials. Try again in a few minutes.",
+    )
     transport.close.assert_called_once()
 
 

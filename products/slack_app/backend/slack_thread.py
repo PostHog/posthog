@@ -15,10 +15,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_forking_enabled,
-    is_slack_app_reply_suggestions_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
     SuggestedReply,
@@ -1003,8 +1000,6 @@ class SlackThreadHandler:
 
     def _suggestions_block(self, answer_markdown: str) -> tuple[list[SuggestedReply], dict[str, Any]] | None:
         integration = self._get_integration()
-        if not is_slack_app_reply_suggestions_enabled(integration):
-            return None
         posthog_user = self._actor_posthog_user
         attribution = ReplySuggestionAttribution(
             trace_id=self.turn_trace_id,

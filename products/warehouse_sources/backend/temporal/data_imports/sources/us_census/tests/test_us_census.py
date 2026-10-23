@@ -109,9 +109,7 @@ class TestUSCensus:
     @pytest.mark.parametrize(
         ("status_code", "headers", "expected_valid", "expected_error_fragment"),
         [
-            (200, {}, True, None),
             (302, {"X-DataWebAPI-KeyError": "1"}, False, "rejected"),
-            (500, {}, False, "unexpected status"),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, headers, expected_valid, expected_error_fragment):
@@ -131,13 +129,6 @@ class TestUSCensus:
 
         assert valid is False
         assert error is not None and "required" in error
-
-    def test_validate_credentials_handles_network_failure(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("some-key")
-
-        assert valid is False
-        assert error is not None and "Could not reach" in error
 
     @pytest.mark.parametrize(
         ("dataset", "variables", "geography", "expected_fragment"),

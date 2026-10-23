@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { PostHogApiError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
-import type { State } from '@/tools/types'
+import type { PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -34,6 +35,112 @@ describe('StateManager', () => {
         stateManager = new StateManager(cache, {} as ApiClient)
     })
 
+    it.each([
+        {
+            lookup: 'organization',
+            context: { pin: { projectId: '456' }, projectId: '456' },
+            resolve: (manager: StateManager) => manager.getOrgID(),
+            expected: 'org-1',
+        },
+        {
+            lookup: 'project',
+            context: { pin: { organizationId: 'org-1' }, orgId: 'org-1' },
+            resolve: (manager: StateManager) => manager.getProjectId(),
+            expected: '456',
+        },
+        {
+            lookup: 'default',
+            context: { pin: {} },
+            resolve: (manager: StateManager) => manager.setDefaultOrganizationAndProject(),
+            expected: { organizationId: 'org-1', projectId: 456 },
+        },
+        {
+            lookup: 'initialization',
+            context: { pin: {} },
+            resolve: (manager: StateManager) => manager.setDefaultOrganizationAndProject(),
+            expected: { organizationId: 'org-2', projectId: 789 },
+        },
+    ])(
+        'preserves a newer selection when an older $lookup lookup finishes',
+        async ({ lookup, context, resolve, expected }) => {
+            const sessionCache = new MemoryCache<SessionScopedState>(`stale-${lookup}`)
+            await sessionCache.clear()
+            await cache.setMany({
+                apiKey: lookup === 'project' ? { ...mockApiKey, scoped_teams: [456] } : mockApiKey,
+                apiKeyFetchedAt: Date.now(),
+            })
+            let finishLookup!: () => void
+            let lookupRequested!: () => void
+            const requested = new Promise<void>((resolve) => {
+                lookupRequested = resolve
+            })
+            const gate = new Promise<void>((resolve) => {
+                finishLookup = resolve
+            })
+            const api = {
+                config: { apiToken: 'phx_test' },
+                users: () => ({
+                    me: async () => {
+                        if (lookup === 'default' || lookup === 'initialization') {
+                            lookupRequested()
+                            await gate
+                        }
+                        return { success: true, data: mockUser }
+                    },
+                }),
+                projects: () => ({
+                    get: async () => {
+                        lookupRequested()
+                        await gate
+                        return { success: true, data: { id: 456, organization: 'org-1' } }
+                    },
+                }),
+            } as unknown as ApiClient
+            const snapshot = (): PinnedActiveContext => ({
+                ...context,
+                sessionScoped: true,
+            })
+            const older = new StateManager(cache, api, snapshot(), sessionCache)
+            const currentApi = {
+                ...api,
+                users: () => ({
+                    me: async () => ({
+                        success: true,
+                        data: {
+                            ...mockUser,
+                            organization: { id: 'org-2', name: 'Other organization' },
+                            team: { id: 789, name: 'Other project', organization: 'org-2' },
+                        },
+                    }),
+                }),
+            } as unknown as ApiClient
+            const newer = new StateManager(cache, currentApi, snapshot(), sessionCache)
+            const pending = resolve(older)
+            await requested
+            try {
+                if (lookup === 'initialization') {
+                    await newer.setDefaultOrganizationAndProject()
+                } else {
+                    await newer.setActiveContext({ orgId: 'org-2', projectId: '789' })
+                }
+            } finally {
+                finishLookup()
+            }
+
+            const resolved = await pending
+            const defaults = await sessionCache.get('defaultContext')
+            expect({
+                resolved,
+                orgId: (await sessionCache.get('activeOrgId')) ?? defaults?.organizationId,
+                projectId: (await sessionCache.get('activeProjectId')) ?? defaults?.projectId?.toString(),
+            }).toEqual({
+                resolved: expected,
+                orgId: 'org-2',
+                projectId: '789',
+            })
+        }
+    )
+
     it.each([true, false, undefined])('reports lookup errors with cached suppression=%s', async (suppressed) => {
         const capture = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
         const error = new Error('Synthetic project lookup failure')
@@ -58,6 +165,45 @@ describe('StateManager', () => {
     })
 
     describe('getUser', () => {
+        it.each(['user', 'credential'] as const)(
+            'shares a failed %s lookup and permits a later retry',
+            async (kind) => {
+                const load = vi
+                    .fn()
+                    .mockRejectedValueOnce(new Error('Synthetic lookup failure'))
+                    .mockResolvedValue({ success: true, data: kind === 'user' ? mockUser : mockApiKey })
+                const api = {
+                    config: { apiToken: 'phx_test' },
+                    users: () => ({ me: load }),
+                    apiKeys: () => ({ current: load }),
+                } as unknown as ApiClient
+                const lookups = new StateLookupCache()
+                const first = new StateManager(cache, api, undefined, undefined, lookups)
+                const second = new StateManager(cache, api, undefined, undefined, lookups)
+                const get = (manager: StateManager): Promise<unknown> =>
+                    kind === 'user' ? manager.getUser() : manager.getApiKey()
+                const failed = await Promise.allSettled([get(first), get(second)])
+                expect(failed.map(({ status }) => status)).toEqual(['rejected', 'rejected'])
+                expect(load).toHaveBeenCalledTimes(1)
+                expect(await get(second)).toMatchObject(kind === 'user' ? mockUser : mockApiKey)
+                expect(load).toHaveBeenCalledTimes(2)
+            }
+        )
+
+        it('keeps shared lookup results bound to their credential cache scope', async () => {
+            const lookups = new StateLookupCache()
+            const managers = ['first-credential', 'second-credential'].map((scope) => {
+                const scopedCache = new MemoryCache<State>(scope)
+                const api = {
+                    users: () => ({ me: async () => ({ success: true, data: { ...mockUser, distinct_id: scope } }) }),
+                } as unknown as ApiClient
+                return new StateManager(scopedCache, api, undefined, undefined, lookups)
+            })
+            expect(
+                (await Promise.all(managers.map((manager) => manager.getUser()))).map((user) => user.distinct_id)
+            ).toEqual(['first-credential', 'second-credential'])
+        })
+
         it('should fetch and cache user on first call', async () => {
             const fetchUserSpy = vi.spyOn(stateManager as any, '_fetchUser').mockResolvedValue(mockUser)
 
@@ -188,14 +334,15 @@ describe('StateManager', () => {
                             data: { ...mockApiKey, scopes: ['user:read', 'cdp:read'] },
                         })
                     const api = { config: { apiToken }, apiKeys: () => ({ current }) } as unknown as ApiClient
+                    const manager = new StateManager(cache, api)
 
-                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                    expect((await manager.getApiKey()).scopes).toEqual(mockApiKey.scopes)
 
                     vi.advanceTimersByTime(60 * 1000)
-                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                    expect((await manager.getApiKey()).scopes).toEqual(mockApiKey.scopes)
 
                     vi.advanceTimersByTime(2 * 60 * 1000)
-                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(expectedScopes)
+                    expect((await manager.getApiKey()).scopes).toEqual(expectedScopes)
                 } finally {
                     vi.useRealTimers()
                 }
@@ -268,11 +415,15 @@ describe('StateManager', () => {
             { label: 'no OAuth app name', clientName: null, expected: undefined },
         ])('stamps $label onto the live client so the same request forwards it', async ({ clientName, expected }) => {
             const api = oauthApi(clientName)
-            stateManager = new StateManager(cache, api)
+            const secondApi = oauthApi(clientName)
+            const lookups = new StateLookupCache()
+            stateManager = new StateManager(cache, api, undefined, undefined, lookups)
+            const second = new StateManager(cache, secondApi, undefined, undefined, lookups)
 
-            await stateManager.getApiKey()
+            await Promise.all([stateManager.getApiKey(), second.getApiKey()])
 
             expect(api.config.oauthClientName).toBe(expected)
+            expect(secondApi.config.oauthClientName).toBe(expected)
             expect(await cache.get('clientName')).toBe(expected)
         })
     })
@@ -499,6 +650,95 @@ describe('StateManager', () => {
             expect(result.projectId).toBeUndefined()
             // Unexpected failures still reach error tracking.
             expect(reportSpy).toHaveBeenCalledOnce()
+        })
+
+        it.each(['503', 'timeout', 'empty'])('recovers a session default after a project-list %s', async (failure) => {
+            const sessionCache = new MemoryCache<SessionScopedState>(`default-recovery-${failure}`)
+            await sessionCache.clear()
+            await cache.setMany({
+                apiKey: { ...mockApiKey, scoped_organizations: ['org-3', 'org-2'] },
+                apiKeyFetchedAt: Date.now(),
+            })
+            const list = vi.fn()
+            if (failure === 'timeout') {
+                list.mockRejectedValueOnce(new Error('Synthetic project-list timeout'))
+            } else {
+                list.mockResolvedValueOnce(
+                    failure === 'empty'
+                        ? { success: true, data: [] }
+                        : { success: false, error: new Error('Synthetic project-list 503') }
+                )
+            }
+            list.mockResolvedValue({ success: true, data: [{ id: 789 }] })
+            let currentUser = mockUser
+            const api = {
+                config: { apiToken: 'phx_test' },
+                users: () => ({ me: async () => ({ success: true, data: currentUser }) }),
+                organizations: () => ({ projects: () => ({ list }) }),
+                projects: () => ({
+                    get: async () => ({
+                        success: false,
+                        error: new Error('Project metadata is outside the active org scope'),
+                    }),
+                }),
+            } as unknown as ApiClient
+            const first = new StateManager(cache, api, { pin: {}, sessionScoped: true }, sessionCache)
+            await first.setDefaultOrganizationAndProject()
+            currentUser = {
+                ...mockUser,
+                organization: { id: 'org-2', name: 'Org 2' },
+                team: { id: 999, name: 'Other project', organization: 'org-2', timezone: 'UTC' },
+            }
+            const next = new StateManager(cache, api, { pin: {}, sessionScoped: true, orgId: 'org-3' }, sessionCache)
+
+            expect(await next.getProjectId()).toBe('789')
+        })
+
+        it('keeps the first recovered default and a newer switch when a delayed recovery finishes', async () => {
+            const sessionCache = new MemoryCache<SessionScopedState>('default-recovery-race')
+            await sessionCache.clear()
+            await sessionCache.set('defaultContext', { organizationId: 'org-3' })
+            let requested!: () => void
+            let finish!: () => void
+            const started = new Promise<void>((resolve) => {
+                requested = resolve
+            })
+            const gate = new Promise<void>((resolve) => {
+                finish = resolve
+            })
+            const list = vi
+                .fn()
+                .mockImplementationOnce(async () => {
+                    requested()
+                    await gate
+                    return { success: true, data: [{ id: 789 }] }
+                })
+                .mockResolvedValue({ success: true, data: [{ id: 999 }] })
+            const api = {
+                config: { apiToken: 'phx_test' },
+                organizations: () => ({ projects: () => ({ list }) }),
+            } as unknown as ApiClient
+            const snapshot = (): PinnedActiveContext => ({ pin: {}, sessionScoped: true, orgId: 'org-3' })
+            const older = new StateManager(cache, api, snapshot(), sessionCache)
+            const newer = new StateManager(cache, api, snapshot(), sessionCache)
+            const pending = older.setDefaultOrganizationAndProject()
+            await started
+            try {
+                await newer.setDefaultOrganizationAndProject()
+                await newer.setActiveContext({ orgId: 'org-2', projectId: '222' })
+            } finally {
+                finish()
+            }
+
+            expect({
+                resolved: await pending,
+                orgId: await sessionCache.get('activeOrgId'),
+                projectId: await sessionCache.get('activeProjectId'),
+            }).toEqual({
+                resolved: { organizationId: 'org-3', projectId: 999 },
+                orgId: 'org-2',
+                projectId: '222',
+            })
         })
 
         it('does not capture a 404 from the scoped-org projects lookup', async () => {
@@ -1031,6 +1271,59 @@ describe('StateManager', () => {
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
         })
+
+        // A project without events is re-read after a minute so the no-data notice stops soon
+        // after the first event. A project with events never flips back, so it keeps the long TTL.
+        it.each([
+            ['without events is re-read', false, 2],
+            ['with events stays cached', true, 1],
+        ])('a project %s two minutes after the fetch', async (_name, ingestedEvent, expectedFetches) => {
+            await cache.set('projectId', projectId)
+            const get = vi.fn().mockResolvedValue({ success: true, data: { id: 42, ingested_event: ingestedEvent } })
+            ;(stateManager as any)._api = { projects: () => ({ get }) }
+
+            await stateManager.getCachedOrFetchProject()
+            await cache.set(`cachedProjectFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
+            await stateManager.getCachedOrFetchProject()
+
+            expect(get).toHaveBeenCalledTimes(expectedFetches)
+        })
+    })
+
+    describe('getOrFetchHasWarehouseData', () => {
+        const projectId = '42'
+        const warehouseScopes = ['warehouse_table:read', 'external_data_source:read']
+        const rejected = new Error('Synthetic list failure')
+
+        it.each<[string, string[], unknown[], boolean | undefined, number?]>([
+            ['unknown without a warehouse read scope', ['query:read'], [], undefined],
+            ['unknown when the only readable list is empty', ['warehouse_table:read'], [{ count: 0 }], undefined],
+            ['true when the only readable list has a table', ['warehouse_table:read'], [{ count: 1 }], true],
+            ['unknown when the refresh of an empty answer fails', warehouseScopes, [rejected, rejected], undefined, 0],
+            ['true when a table exists', warehouseScopes, [{ count: 1 }, { count: 0 }], true],
+            ['true when only a source exists', warehouseScopes, [{ count: 0 }, { count: 2 }], true],
+            ['false when both lists are empty', warehouseScopes, [{ count: 0 }, { count: 0 }], false],
+            ['unknown when a list fails and the other is empty', warehouseScopes, [{ count: 0 }, rejected], undefined],
+            ['true when a list fails and the other has a table', warehouseScopes, [{ count: 1 }, rejected], true],
+        ])('is %s', async (_name, scopes, responses, expected, staleCount) => {
+            await cache.set('apiKey', { scopes, scoped_organizations: [], scoped_teams: [] })
+            if (staleCount !== undefined) {
+                await cache.set(`warehouseObjectCount:${projectId}`, staleCount)
+                await cache.set(`warehouseObjectCountFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
+            }
+            const request = vi.fn()
+            for (const response of responses) {
+                if (response instanceof Error) {
+                    request.mockRejectedValueOnce(response)
+                } else {
+                    request.mockResolvedValueOnce(response)
+                }
+            }
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchHasWarehouseData(projectId)).toBe(expected)
+            expect(request).toHaveBeenCalledTimes(responses.length)
+        })
     })
 
     describe('getOrFetchIntegrationKinds', () => {
@@ -1071,6 +1364,7 @@ describe('StateManager', () => {
                 uuid: 'project-uuid-456',
                 name: 'My Project',
                 organization: 'org-1',
+                ingested_event: false,
             } as any)
 
             const result = await stateManager.getAnalyticsContext()
@@ -1080,6 +1374,7 @@ describe('StateManager', () => {
                 projectId: '456',
                 projectUuid: 'project-uuid-456',
                 projectName: 'My Project',
+                projectHasData: false,
             })
         })
 

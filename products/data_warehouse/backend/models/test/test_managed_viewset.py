@@ -3,19 +3,9 @@ from unittest.mock import patch
 
 from django.db import IntegrityError
 
-from parameterized import parameterized
-
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from products.data_modeling.backend.facade.models import (
-    DAG,
-    REVENUE_ANALYTICS_DAG_NAME,
-    DataModelingJob,
-    DataWarehouseManagedViewSet,
-    DataWarehouseSavedQuery,
-    Node,
-    NodeType,
-)
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseManagedViewSet, DataWarehouseSavedQuery, Node
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -201,56 +191,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
                 list(Node.objects.filter(team=self.team, saved_query=view).values_list("dag", flat=True)),
                 [default_dag.id],
             )
-        self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
-
-    @parameterized.expand([("only_in_managed_dag", False), ("also_in_default_dag", True)])
-    def test_sync_views_moves_node_out_of_revenue_analytics_dag(self, _name, also_in_default_dag):
-        managed_viewset = DataWarehouseManagedViewSet.objects.create(
-            team=self.team,
-            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
-        )
-        managed_viewset.sync_views()
-        sq = (
-            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=managed_viewset)
-            .exclude(deleted=True)
-            .first()
-        )
-        default_dag = DAG.get_or_create_default(self.team)
-        ra_dag = DAG.get_or_create_revenue_analytics(self.team)
-        Node.objects.filter(saved_query=sq).delete()
-        managed_node = Node.objects.create(team=self.team, saved_query=sq, dag=ra_dag, type=NodeType.VIEW)
-        if also_in_default_dag:
-            Node.objects.create(team=self.team, saved_query=sq, dag=default_dag, type=NodeType.VIEW)
-
-        managed_viewset.sync_views()
-
-        nodes = list(Node.objects.filter(team=self.team, saved_query=sq))
-        self.assertEqual([node.dag_id for node in nodes], [default_dag.id])
-        self.assertEqual(nodes[0].id == managed_node.id, not also_in_default_dag)
-        self.assertFalse(Node.objects.filter(dag=ra_dag, saved_query__isnull=False).exists())
-
-    def test_sync_views_leaves_a_materializing_node_in_the_revenue_analytics_dag(self):
-        managed_viewset = DataWarehouseManagedViewSet.objects.create(
-            team=self.team,
-            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
-        )
-        managed_viewset.sync_views()
-        sq = (
-            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=managed_viewset)
-            .exclude(deleted=True)
-            .first()
-        )
-        ra_dag = DAG.get_or_create_revenue_analytics(self.team)
-        Node.objects.filter(saved_query=sq).delete()
-        managed_node = Node.objects.create(team=self.team, saved_query=sq, dag=ra_dag, type=NodeType.MAT_VIEW)
-        DataModelingJob.objects.create(team=self.team, saved_query=sq, status=DataModelingJob.Status.RUNNING)
-
-        managed_viewset.sync_views()
-
-        self.assertEqual(
-            list(Node.objects.filter(team=self.team, saved_query=sq).values_list("id", "dag_id")),
-            [(managed_node.id, ra_dag.id)],
-        )
+        self.assertEqual(list(DAG.objects.filter(team=self.team).values_list("id", flat=True)), [default_dag.id])
 
     def test_delete_with_views(self):
         """Test that delete_with_views properly deletes the managed viewset and marks views as deleted"""
@@ -449,13 +390,6 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         self.assertQueryIsEmpty(customer_query)
 
     def test_sync_views_schedules_after_transaction_commits(self):
-        """schedule_materialization must run AFTER the phase 1 transaction commits,
-        so that row locks on posthog_datawarehousesavedquery are released before
-        synchronous Temporal RPCs and DataWarehouseModelPath updates begin. If
-        schedule_materialization were called from inside the transaction, only the
-        current iteration's saved query would be visible at the call site; after the
-        refactor, all persisted saved queries should be visible at every call site.
-        """
         schemas = self._create_schemas_without_tables()
         for schema in schemas:
             self._create_table_for_schema(schema)

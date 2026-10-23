@@ -34,6 +34,27 @@ posthog_find_venv() {
     return 0
 }
 
+# Export SSL_CERT_FILE as the system CA bundle, unless a CA file is already
+# set. The flox binaries use Nix's OpenSSL, which trusts no CA when neither
+# SSL_CERT_FILE nor NIX_SSL_CERT_FILE names a bundle. `flox activate` sets
+# them, but a borrow outside an activated shell does not. Without a bundle,
+# every TLS request from the borrowed node fails, so pnpm cannot reach the
+# registry and the post-checkout install fails. The paths are the bundles on
+# macOS, Debian/Ubuntu and RHEL/Fedora.
+posthog_export_ca_bundle() {
+    if [ -n "${SSL_CERT_FILE:-}" ] || [ -n "${NIX_SSL_CERT_FILE:-}" ]; then
+        return 0
+    fi
+    for _ph_ca in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+        if [ -f "$_ph_ca" ]; then
+            SSL_CERT_FILE="$_ph_ca"
+            export SSL_CERT_FILE
+            return 0
+        fi
+    done
+    return 0
+}
+
 # Borrow the main clone's toolchain into the current shell's environment.
 # Must be called with cwd = repo root (the hooks guarantee that). Scope $1 is
 # `node` or `all` (default): post-checkout only needs the node borrow, so it
@@ -47,11 +68,16 @@ posthog_worktree_borrow() {
     # add them to PATH so borrowing works even from GUI git clients that
     # don't inherit a flox-activated shell.
     if [ -d "$_ph_main/.flox/run" ]; then
+        _ph_flox_on_path=""
         for _ph_bin in "$_ph_main/.flox/run"/*/bin; do
             if [ -d "$_ph_bin" ]; then
                 PATH="$_ph_bin:$PATH"
+                _ph_flox_on_path=1
             fi
         done
+        if [ -n "$_ph_flox_on_path" ]; then
+            posthog_export_ca_bundle
+        fi
     fi
 
     if [ ! -d node_modules/.pnpm ] && [ -d "$_ph_main/node_modules/.pnpm" ]; then

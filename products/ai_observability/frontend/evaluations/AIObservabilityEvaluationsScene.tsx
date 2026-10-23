@@ -26,10 +26,13 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
@@ -255,7 +258,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 const isBlocked = !canEnable && !evaluation.enabled
                 const blockedReason = 'Add a provider API key to enable this evaluation.'
                 return (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -576,10 +579,10 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className={showEmptyState ? 'hidden' : 'flex justify-between items-start gap-3'}>
-                <div className="min-w-0 flex-1">
+            <div className={showEmptyState ? 'hidden' : 'flex flex-wrap justify-between items-start gap-3'}>
+                <div className="min-w-0 flex-1 basis-64">
                     {selectedDirectory ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <LemonButton
                                 type="tertiary"
                                 size="small"
@@ -589,7 +592,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                                 Online evals
                             </LemonButton>
                             <span className="text-muted">/</span>
-                            <h2 className="text-xl font-semibold m-0">{selectedDirectory.name}</h2>
+                            <h2 className="text-xl font-semibold m-0 break-words min-w-0">{selectedDirectory.name}</h2>
                         </div>
                     ) : (
                         <h2 className="text-xl font-semibold">Online evals</h2>
@@ -599,7 +602,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         evaluation run is billed as an AI observability event.
                     </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     {!selectedDirectoryId && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
@@ -640,7 +643,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
                     <EvaluationMetrics />
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <LemonInput
                             type="search"
                             placeholder="Search online evals..."
@@ -726,6 +729,7 @@ export function AIObservabilityEvaluationsScene(): JSX.Element {
     // evaluationMetricsLogic connects to it, so attaching leaves the two holding each
     // other mounted, and the list never reloads on the next visit to this scene.
     useMountedLogic(evaluationMetricsLogic())
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
@@ -738,14 +742,28 @@ export function AIObservabilityEvaluationsScene(): JSX.Element {
                             type: 'llm_evaluations',
                         }}
                         actions={
-                            <LemonButton
-                                to="https://posthog.com/docs/ai-evals/evaluations"
-                                type="secondary"
-                                targetBlank
-                                size="small"
-                            >
-                                Documentation
-                            </LemonButton>
+                            todayRailNav ? (
+                                <Button
+                                    variant="outline"
+                                    render={
+                                        <LinkPrimitive
+                                            to="https://posthog.com/docs/ai-evals/evaluations"
+                                            target="_blank"
+                                        />
+                                    }
+                                >
+                                    Documentation
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    to="https://posthog.com/docs/ai-evals/evaluations"
+                                    type="secondary"
+                                    targetBlank
+                                    size="small"
+                                >
+                                    Documentation
+                                </LemonButton>
+                            )
                         }
                     />
                     <EvaluationsTabs activeTab="online-evals">

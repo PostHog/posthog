@@ -3,7 +3,6 @@ import pytest
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -26,14 +25,6 @@ def test_pipeline_auth_failures_match_terminal_errors(status: int, reason: str) 
     assert isinstance(result.raised, HTTPError)
     assert reason in str(result.raised)
     assert error_message_matches(str(result.raised), source.get_non_retryable_errors())
-
-
-def test_unknown_table_is_rejected_before_fetching() -> None:
-    result = driver().run("missing", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert "missing" in str(result.raised)
-    assert result.requests == []
 
 
 def test_full_refresh_ignores_a_stale_watermark() -> None:

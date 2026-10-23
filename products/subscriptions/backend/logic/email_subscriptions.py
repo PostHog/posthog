@@ -7,7 +7,6 @@ from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
 from products.subscriptions.backend.logic.subscription_utils import (
     MAX_INSIGHTS,
     UTM_TAGS_BASE,
@@ -15,6 +14,7 @@ from products.subscriptions.backend.logic.subscription_utils import (
     failed_asset_details,
     next_delivery_date_display,
 )
+from products.subscriptions.backend.models.subscription import Subscription, get_unsubscribe_token
 
 logger = structlog.get_logger(__name__)
 

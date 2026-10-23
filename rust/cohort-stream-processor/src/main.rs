@@ -8,7 +8,6 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
 use tracing::{info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -24,11 +23,13 @@ use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
 use cohort_stream_processor::observability::disk::SharedDiskUtilization;
+use cohort_stream_processor::observability::store_files::StoreFilesSweeper;
 use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, ConsumerPauser, Follower, FollowerSet,
-    InputGroups, LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
+    AdmittedSplit, CohortConsumerContext, ConsumerPauser, Follower, FollowerSet, InputGroups,
+    LiveWatermarks, OffsetTracker, OwnershipAudit, PartitionPauser, PartitionRouter,
+    AUDIT_INTERVAL,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaReconcileMarkerSink,
@@ -48,10 +49,13 @@ use cohort_stream_processor::workers::{
     MergeWorkerDeps, PersonSeedDeps, ReconcileBacklog, ReconcileDeps,
 };
 
+// Under `hotpath-alloc`, `#[hotpath::main]` installs its counting allocator around jemalloc instead.
+#[cfg(not(feature = "hotpath-alloc"))]
 common_alloc::used!();
 
 const SERVICE_NAME: &str = "cohort-stream-processor";
 
+#[hotpath::main(allocator = common_alloc::DefaultAllocator)]
 fn main() -> Result<()> {
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
@@ -64,6 +68,7 @@ fn main() -> Result<()> {
     let runtime = runtime_builder
         .build()
         .context("Failed to build tokio runtime")?;
+    hotpath::tokio_runtime!(runtime.handle());
 
     runtime.block_on(async_main(config))
 }
@@ -73,6 +78,7 @@ async fn async_main(config: Config) -> Result<()> {
     log_startup(&config);
 
     config.validate_startup()?;
+    let claim = config.split_claim()?;
 
     let lineage = config
         .checkpoint_enabled
@@ -192,6 +198,126 @@ async fn async_main(config: Config) -> Result<()> {
         ),
     }
 
+    let stream_consumer: StreamConsumer<CohortConsumerContext> = config
+        .consumer_client_config()
+        .create_with_context(CohortConsumerContext)
+        .context("creating cohort_stream_events consumer")?;
+    // Shared with the seed consumer's idle probe.
+    let stream_consumer = Arc::new(stream_consumer);
+
+    let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
+        config
+            .follower_client_config(&config.kafka_merge_consumer_group)
+            .create()
+            .context("creating person_merge_events follower consumer")?,
+    );
+    let transfers_follower_consumer: Arc<StreamConsumer> = Arc::new(
+        config
+            .follower_client_config(&config.kafka_merge_apply_consumer_group)
+            .create()
+            .context("creating cohort_merge_state_transfer follower consumer")?,
+    );
+    // Built only when the gate is on, so a dormant deploy needs no `cohort_cascade_events` topic.
+    let cascade_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_cascade_enabled {
+        Some(Arc::new(
+            config
+                .follower_client_config(&config.kafka_cascade_consumer_group)
+                .create()
+                .context("creating cohort_cascade_events follower consumer")?,
+        ))
+    } else {
+        None
+    };
+    // Gated: a gate-off deploy is safe without the seed topic existing at all.
+    let seed_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_seed_consumer_enabled
+    {
+        Some(Arc::new(
+            config
+                .follower_client_config(&config.kafka_seed_consumer_group)
+                .create()
+                .context("creating cohort_stream_seed_events follower consumer")?,
+        ))
+    } else {
+        None
+    };
+
+    let events_partitions =
+        fetch_partition_count(&stream_consumer, &config.cohort_stream_events_topic)?;
+    let merge_partitions =
+        fetch_partition_count(&merges_follower_consumer, &config.person_merge_events_topic)?;
+    let transfer_partitions = fetch_partition_count(
+        &transfers_follower_consumer,
+        &config.cohort_merge_state_transfer_topic,
+    )?;
+    // Checked before the store opens, because the store records the partition count it opens under.
+    // The merge math hashes `(team, person)` against `config.cohort_partition_count`, so the topics
+    // must not only be co-partitioned with each other but partitioned at exactly that count — a
+    // deploy/lane at N != the configured count silently misroutes every merge.
+    anyhow::ensure!(
+        events_partitions as u32 == config.cohort_partition_count,
+        "{} is partitioned at {} but COHORT_PARTITION_COUNT is {}: the merge partition arithmetic \
+         would misroute. Re-partition the topic to {} or set COHORT_PARTITION_COUNT to {}.",
+        config.cohort_stream_events_topic,
+        events_partitions,
+        config.cohort_partition_count,
+        config.cohort_partition_count,
+        events_partitions,
+    );
+    anyhow::ensure!(
+        merge_partitions == events_partitions && transfer_partitions == events_partitions,
+        "merge topics must be co-partitioned with {} ({} partitions): {} has {}, {} has {}",
+        config.cohort_stream_events_topic,
+        events_partitions,
+        config.person_merge_events_topic,
+        merge_partitions,
+        config.cohort_merge_state_transfer_topic,
+        transfer_partitions,
+    );
+    // A cascade for (team, person) must land on the partition owning that person's `cf_stage2` — the
+    // same partition number as the events topic — so refuse to start co-partitioned at a different
+    // count. Skipped when the gate is off (no cascade topic required).
+    if let Some(cascade_consumer) = &cascade_follower_consumer {
+        let cascade_partitions =
+            fetch_partition_count(cascade_consumer, &config.cohort_cascade_events_topic)?;
+        anyhow::ensure!(
+            cascade_partitions as u32 == config.cohort_partition_count,
+            "cohort_cascade_events must be co-partitioned with {} at COHORT_PARTITION_COUNT={}: {} has {}",
+            config.cohort_stream_events_topic,
+            config.cohort_partition_count,
+            config.cohort_cascade_events_topic,
+            cascade_partitions,
+        );
+    }
+    // A tile must land on the partition owning its person's state slice.
+    if let Some(seed_consumer) = &seed_follower_consumer {
+        let seed_partitions =
+            fetch_partition_count(seed_consumer, &config.cohort_stream_seed_events_topic)?;
+        anyhow::ensure!(
+            seed_partitions as u32 == config.cohort_partition_count,
+            "cohort_stream_seed_events must be co-partitioned with {} at COHORT_PARTITION_COUNT={}: {} has {}",
+            config.cohort_stream_events_topic,
+            config.cohort_partition_count,
+            config.cohort_stream_seed_events_topic,
+            seed_partitions,
+        );
+        // Nothing co-partitions with the marker topic, so only its existence matters. Failing here
+        // beats the alternative: a marker produce retrying forever while it holds the seed offset.
+        // Nested under the seed consumer on purpose: reconcile jobs are admitted only from seed
+        // tiles, so without it no marker can be produced and there is nothing to prove.
+        if config.cohort_seed_reconcile_enabled {
+            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic).with_context(
+                || {
+                    format!(
+                        "{} must exist before a processor with COHORT_SEED_RECONCILE_ENABLED starts. \
+                         Provision the topic, or set COHORT_SEED_RECONCILE_ENABLED=false to start \
+                         without the reconcile path.",
+                        config.cohort_reconcile_markers_topic,
+                    )
+                },
+            )?;
+        }
+    }
+
     let groups = Arc::new(InputGroups::new(&config));
     if lineage.is_some() {
         ensure_one_filesystem(
@@ -200,9 +326,17 @@ async fn async_main(config: Config) -> Result<()> {
         )
         .context("checking the checkpoint directory")?;
     }
-    let (store, restore) = open_store(&config, lineage, groups.clone())
+    let admitted = AdmittedSplit::admit(claim, groups.clone()).await;
+    let (store, restore) = open_store(&config, &admitted, lineage, groups.clone())
         .await
         .context("opening RocksDB state store")?;
+    let claimed = {
+        let groups = groups.clone();
+        tokio::task::spawn_blocking(move || admitted.claim(&groups))
+            .await
+            .context("the ownership claim panicked")?
+            .context("claiming this pod's partitions")?
+    };
     let router = PartitionRouter::with_intake_cap(
         config.partition_channel_buffer,
         config.partition_intake_max_events,
@@ -331,130 +465,7 @@ async fn async_main(config: Config) -> Result<()> {
     // Event-name fan-out gating, likewise set before any worker spawns.
     dispatcher.set_event_name_gating(config.event_name_gating());
 
-    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
-    let stream_consumer: StreamConsumer<CohortConsumerContext> = config
-        .consumer_client_config()
-        .create_with_context(context)
-        .context("creating cohort_stream_events consumer")?;
-    stream_consumer
-        .subscribe(&[config.cohort_stream_events_topic.as_str()])
-        .context("subscribing to cohort_stream_events")?;
-    // Shared with the seed consumer's idle probe.
-    let stream_consumer = Arc::new(stream_consumer);
-
-    let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
-        config
-            .follower_client_config(&config.kafka_merge_consumer_group)
-            .create()
-            .context("creating person_merge_events follower consumer")?,
-    );
-    let transfers_follower_consumer: Arc<StreamConsumer> = Arc::new(
-        config
-            .follower_client_config(&config.kafka_merge_apply_consumer_group)
-            .create()
-            .context("creating cohort_merge_state_transfer follower consumer")?,
-    );
-    // Built only when the gate is on, so a dormant deploy needs no `cohort_cascade_events` topic.
-    let cascade_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_cascade_enabled {
-        Some(Arc::new(
-            config
-                .follower_client_config(&config.kafka_cascade_consumer_group)
-                .create()
-                .context("creating cohort_cascade_events follower consumer")?,
-        ))
-    } else {
-        None
-    };
-    // Gated: a gate-off deploy is safe without the seed topic existing at all.
-    let seed_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_seed_consumer_enabled
-    {
-        Some(Arc::new(
-            config
-                .follower_client_config(&config.kafka_seed_consumer_group)
-                .create()
-                .context("creating cohort_stream_seed_events follower consumer")?,
-        ))
-    } else {
-        None
-    };
-
-    let events_partitions =
-        fetch_partition_count(&stream_consumer, &config.cohort_stream_events_topic)?;
-    let merge_partitions =
-        fetch_partition_count(&merges_follower_consumer, &config.person_merge_events_topic)?;
-    let transfer_partitions = fetch_partition_count(
-        &transfers_follower_consumer,
-        &config.cohort_merge_state_transfer_topic,
-    )?;
-    // The merge math hashes `(team, person)` against `config.cohort_partition_count`, so the topics
-    // must not only be co-partitioned with each other but partitioned at exactly that count — a
-    // deploy/lane at N != the configured count silently misroutes every merge.
-    anyhow::ensure!(
-        events_partitions as u32 == config.cohort_partition_count,
-        "{} is partitioned at {} but COHORT_PARTITION_COUNT is {}: the merge partition arithmetic \
-         would misroute. Re-partition the topic to {} or set COHORT_PARTITION_COUNT to {}.",
-        config.cohort_stream_events_topic,
-        events_partitions,
-        config.cohort_partition_count,
-        config.cohort_partition_count,
-        events_partitions,
-    );
-    anyhow::ensure!(
-        merge_partitions == events_partitions && transfer_partitions == events_partitions,
-        "merge topics must be co-partitioned with {} ({} partitions): {} has {}, {} has {}",
-        config.cohort_stream_events_topic,
-        events_partitions,
-        config.person_merge_events_topic,
-        merge_partitions,
-        config.cohort_merge_state_transfer_topic,
-        transfer_partitions,
-    );
-    // A cascade for (team, person) must land on the partition owning that person's `cf_stage2` — the
-    // same partition number as the events topic — so refuse to start co-partitioned at a different
-    // count. Skipped when the gate is off (no cascade topic required).
-    if let Some(cascade_consumer) = &cascade_follower_consumer {
-        let cascade_partitions =
-            fetch_partition_count(cascade_consumer, &config.cohort_cascade_events_topic)?;
-        anyhow::ensure!(
-            cascade_partitions as u32 == config.cohort_partition_count,
-            "cohort_cascade_events must be co-partitioned with {} at COHORT_PARTITION_COUNT={}: {} has {}",
-            config.cohort_stream_events_topic,
-            config.cohort_partition_count,
-            config.cohort_cascade_events_topic,
-            cascade_partitions,
-        );
-    }
-    // A tile must land on the partition owning its person's state slice.
-    if let Some(seed_consumer) = &seed_follower_consumer {
-        let seed_partitions =
-            fetch_partition_count(seed_consumer, &config.cohort_stream_seed_events_topic)?;
-        anyhow::ensure!(
-            seed_partitions as u32 == config.cohort_partition_count,
-            "cohort_stream_seed_events must be co-partitioned with {} at COHORT_PARTITION_COUNT={}: {} has {}",
-            config.cohort_stream_events_topic,
-            config.cohort_partition_count,
-            config.cohort_stream_seed_events_topic,
-            seed_partitions,
-        );
-        // Nothing co-partitions with the marker topic, so only its existence matters. Failing here
-        // beats the alternative: a marker produce retrying forever while it holds the seed offset.
-        // Nested under the seed consumer on purpose: reconcile jobs are admitted only from seed
-        // tiles, so without it no marker can be produced and there is nothing to prove.
-        if config.cohort_seed_reconcile_enabled {
-            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic).with_context(
-                || {
-                    format!(
-                        "{} must exist before a processor with COHORT_SEED_RECONCILE_ENABLED starts. \
-                         Provision the topic, or set COHORT_SEED_RECONCILE_ENABLED=false to start \
-                         without the reconcile path.",
-                        config.cohort_reconcile_markers_topic,
-                    )
-                },
-            )?;
-        }
-    }
-
-    let mut follower_mirrors = vec![
+    let mut followers = vec![
         Follower::new(
             merges_follower_consumer.clone(),
             config.person_merge_events_topic.clone(),
@@ -465,20 +476,20 @@ async fn async_main(config: Config) -> Result<()> {
         ),
     ];
     if let Some(cascade_consumer) = &cascade_follower_consumer {
-        follower_mirrors.push(Follower::new(
+        followers.push(Follower::new(
             cascade_consumer.clone(),
             config.cohort_cascade_events_topic.clone(),
         ));
     }
     if let Some(seed_consumer) = &seed_follower_consumer {
-        follower_mirrors.push(Follower::new(
+        followers.push(Follower::new(
             seed_consumer.clone(),
             config.cohort_stream_seed_events_topic.clone(),
         ));
     }
-    let followers = Arc::new(FollowerSet::new(follower_mirrors));
-
-    let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
+    FollowerSet::new(followers)
+        .assign(&claimed)
+        .context("assigning the follower consumers this pod's partitions")?;
 
     let guard = manager.monitor_background();
 
@@ -496,14 +507,6 @@ async fn async_main(config: Config) -> Result<()> {
         )
         .await;
     });
-
-    let rebalance_worker = tokio::spawn(run_rebalance_worker(
-        rebalance_rx,
-        dispatcher.clone(),
-        followers,
-        consumer_command_tx,
-        consumer_handle.shutdown_token(),
-    ));
 
     // Hold the first eviction pass past the boot window so its read burst doesn't stack on backlog
     // catch-up; only the eviction sweep is delayed.
@@ -558,6 +561,17 @@ async fn async_main(config: Config) -> Result<()> {
         "store_stats",
         consumer_handle.shutdown_token(),
     ));
+    tokio::spawn(run_sweep_loop(
+        StoreFilesSweeper::new(
+            PathBuf::from(&config.store_path),
+            config
+                .checkpoint_enabled
+                .then(|| PathBuf::from(&config.checkpoint_local_dir)),
+        ),
+        config.stats_publish_interval(),
+        "store_files",
+        consumer_handle.shutdown_token(),
+    ));
     tokio::spawn(
         TokioRuntimeMonitor::new(
             &tokio::runtime::Handle::current(),
@@ -566,15 +580,22 @@ async fn async_main(config: Config) -> Result<()> {
         .start_monitoring(tokio_monitor_handle),
     );
 
+    tokio::spawn(run_sweep_loop(
+        OwnershipAudit::new(groups.clone(), claimed.clone(), consumer_handle.clone()),
+        AUDIT_INTERVAL,
+        "ownership_audit",
+        consumer_handle.shutdown_token(),
+    ));
+
     // Whole-DB checkpoints to the local volume and S3, from boot to the final one on a graceful stop.
     // The loop waits for boot: a capture before the events rewind would record the broker's old
     // offsets of a pending restore.
-    if let (Some(lineage), Some(checkpoint_handle)) = (lineage, checkpoint_handle) {
+    if let Some(checkpoint_handle) = checkpoint_handle {
         let sweeper = Arc::new(CheckpointSweeper::new(
             store_for_checkpoint,
             dispatcher.clone(),
             groups,
-            lineage,
+            claimed.clone(),
             config.durability_config(),
             upload_cadence(
                 config.checkpoint_interval_ms,
@@ -600,6 +621,7 @@ async fn async_main(config: Config) -> Result<()> {
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_follower_consumer,
         config.person_merge_events_topic.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         merge_follower_handle.clone(),
         config.recv_batch_size,
@@ -615,6 +637,7 @@ async fn async_main(config: Config) -> Result<()> {
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_follower_consumer,
         config.cohort_merge_state_transfer_topic.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         transfer_follower_handle.clone(),
         config.recv_batch_size,
@@ -633,6 +656,7 @@ async fn async_main(config: Config) -> Result<()> {
         let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
             cascade_consumer,
             config.cohort_cascade_events_topic.clone(),
+            claimed.stamp(),
             dispatcher.clone(),
             cascade_handle.clone(),
             config.recv_batch_size,
@@ -652,6 +676,7 @@ async fn async_main(config: Config) -> Result<()> {
         let seed_follower = SeedFollowerConsumer::new(
             seed_consumer,
             seed_topic,
+            claimed.stamp(),
             stream_consumer.clone(),
             config.cohort_stream_events_topic.clone(),
             dispatcher.clone(),
@@ -683,12 +708,12 @@ async fn async_main(config: Config) -> Result<()> {
         config.recv_batch_size,
         config.recv_batch_timeout(),
         config.offset_commit_interval(),
-        events_partitions,
-        consumer_command_rx,
+        &claimed,
         // A checkpoint restore boot finishes before anything folds; `None` when the store reopened
-        // or was created, where boot rewinds only what it polled.
+        // or was created.
         restore,
-    );
+    )
+    .context("assigning cohort_stream_events this pod's partitions")?;
     tokio::spawn(events_consumer.process());
 
     health_server
@@ -698,10 +723,6 @@ async fn async_main(config: Config) -> Result<()> {
     metrics_handle.work_completed();
 
     guard.wait().await?;
-
-    if let Err(err) = rebalance_worker.await {
-        warn!(error = %err, "rebalance worker task did not exit cleanly");
-    }
 
     info!(service = SERVICE_NAME, "service stopped");
     Ok(())
@@ -754,13 +775,13 @@ fn log_startup(config: &Config) {
         output_topic = %config.cohort_membership_changed_topic,
         reconcile_markers_topic = %config.cohort_reconcile_markers_topic,
         consumer_group = %config.kafka_consumer_group,
-        offset_reset = %config.kafka_consumer_offset_reset,
         merge_topic = %config.person_merge_events_topic,
         transfer_topic = %config.cohort_merge_state_transfer_topic,
         merge_consumer_group = %config.kafka_merge_consumer_group,
         merge_apply_consumer_group = %config.kafka_merge_apply_consumer_group,
-        session_timeout_ms = config.kafka_session_timeout_ms,
-        pod_identity = config.pod_identity().unwrap_or("<dynamic>"),
+        pod_identity = config.pod_identity().unwrap_or("<none>"),
+        pod_count = config.cohort_pod_count,
+        reshard_from_pod_count = ?config.cohort_reshard_from_pod_count,
         recv_batch_size = config.recv_batch_size,
         partition_channel_buffer = config.partition_channel_buffer,
         store_path = %config.store_path,
@@ -817,5 +838,10 @@ fn init_tracing() {
             .boxed()
     };
 
-    tracing_subscriber::registry().with(log_layer).init();
+    let subscriber = tracing_subscriber::registry().with(log_layer);
+    // Without `hotpath`, this returns an unfiltered no-op layer. That layer lifts the max level to
+    // TRACE, so every DEBUG/TRACE call site builds its event, sqlx's per-query log included.
+    #[cfg(feature = "hotpath")]
+    let subscriber = subscriber.with(hotpath::sqlx_tracing_layer());
+    subscriber.init();
 }

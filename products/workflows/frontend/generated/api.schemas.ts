@@ -413,6 +413,8 @@ export interface HogFlowMinimalApi {
     /** @nullable */
     readonly name: string | null
     readonly description: string
+    /** Tags for organizing workflows, for example by team or use case. Sorted by name. */
+    readonly tags: readonly string[]
     readonly version: number
     readonly status: HogFlowStateEnumApi
     readonly origin_product: HogFlowOriginProductEnumApi | null
@@ -546,7 +548,7 @@ export interface HogFlowEdgeApi {
 }
 
 /**
- * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+ * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
  */
 export type HogFlowActionApiConfig =
     | { [key: string]: unknown }
@@ -607,7 +609,7 @@ export interface HogFlowActionApi {
      * * `random_cohort_branch` - random_cohort_branch
      * * `exit` - exit */
     type: HogFlowActionTypeEnumApi
-    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
     config: HogFlowActionApiConfig
     /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
     output_variable?: unknown
@@ -668,6 +670,12 @@ export interface HogFlowApi {
     name?: string | null
     /** Optional description. */
     description?: string
+    /**
+     * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly version: number
     /** draft (no execution), active (live), archived (disabled).
      *
@@ -689,7 +697,7 @@ export interface HogFlowApi {
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
-    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
      *
      * * `exit_on_conversion` - Conversion
      * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -770,6 +778,12 @@ export interface HogFlowUpdateApi {
     name?: string | null
     /** Optional description. */
     description?: string
+    /**
+     * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly version: number
     /** draft (no execution), active (live), archived (disabled).
      *
@@ -791,7 +805,7 @@ export interface HogFlowUpdateApi {
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
-    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
      *
      * * `exit_on_conversion` - Conversion
      * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -872,6 +886,12 @@ export interface PatchedHogFlowUpdateApi {
     name?: string | null
     /** Optional description. */
     description?: string
+    /**
+     * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly version?: number
     /** draft (no execution), active (live), archived (disabled).
      *
@@ -893,7 +913,7 @@ export interface PatchedHogFlowUpdateApi {
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
-    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
      *
      * * `exit_on_conversion` - Conversion
      * * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -1107,6 +1127,17 @@ export interface HogFlowBatchJobCancelResponseApi {
     done: boolean
 }
 
+export interface HogFlowConvertedToBroadcastApi {
+    /** Id of the workflow that is now a broadcast. */
+    readonly id: string
+    /** The product that now owns the workflow. Always `broadcasts`.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi
+}
+
 /**
  * * `update_action` - update_action
  * * `add_action` - add_action
@@ -1294,6 +1325,7 @@ export interface AppMetricsTotalsResponseApi {
  * * `running` - Running
  * * `paused_by_user` - Paused By User
  * * `paused_by_system` - Paused By System
+ * * `dry_run` - Dry Run
  * * `not_running` - Not Running
  */
 export type SuggestionsScoutStatusEnumApi =
@@ -1303,19 +1335,34 @@ export const SuggestionsScoutStatusEnumApi = {
     Running: 'running',
     PausedByUser: 'paused_by_user',
     PausedBySystem: 'paused_by_system',
+    DryRun: 'dry_run',
     NotRunning: 'not_running',
 } as const
+
+export interface SuggestionsSampleApi {
+    /** Whether an email step of the live version has enough tracked sends, over enough time, for PostHog to judge it. */
+    readonly reached: boolean
+    /** Tracked sends (sends with open tracking on) from the live version's busiest email step in the last 7 days. */
+    readonly tracked_sends: number
+    /** Tracked sends an email step needs before PostHog judges it. */
+    readonly required_sends: number
+    /** When the live version was published. PostHog waits 48 hours before judging it. */
+    readonly version_live_since: string
+}
 
 export interface HogFlowOptimizationApi {
     /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
-    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on writing to the inbox in its scout settings.
      *
      * * `running` - Running
      * * `paused_by_user` - Paused By User
      * * `paused_by_system` - Paused By System
+     * * `dry_run` - Dry Run
      * * `not_running` - Not Running */
     readonly scout_status: SuggestionsScoutStatusEnumApi
+    /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
+    readonly sample: SuggestionsSampleApi | null
 }
 
 /**
@@ -1340,7 +1387,7 @@ export const WorkflowProposalStatusEnumApi = {
 export type WorkflowProposalApiContent = { [key: string]: unknown }
 
 /**
- * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+ * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
  */
 export type WorkflowProposalApiEvidence = { [key: string]: unknown }
 
@@ -1352,7 +1399,7 @@ export interface WorkflowProposalApi {
     readonly rationale: string
     /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
     readonly content: WorkflowProposalApiContent
-    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
     readonly evidence: WorkflowProposalApiEvidence
     /**
      * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
@@ -1798,6 +1845,86 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface BroadcastConversionCandidateApi {
+    /** Workflow id. */
+    readonly id: string
+    /** Workflow name. Empty when unnamed. */
+    readonly name: string
+    /** Workflow status.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    readonly status: HogFlowStateEnumApi
+}
+
+/**
+ * Workflows that only send one email to a batch audience and can move to broadcasts.
+ */
+export interface BroadcastConversionCandidatesApi {
+    /** True when more workflows can move than `results` lists. */
+    readonly has_more: boolean
+    /** The most recently updated candidates, at most 100. */
+    readonly results: readonly BroadcastConversionCandidateApi[]
+}
+
+/**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkUpdateTagsUUIDRequestApi {
+    /**
+     * List of object UUIDs to update tags on.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    action: BulkUpdateTagsActionEnumApi
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
+    reason: string
+}
+
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
+}
+
 /**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */
@@ -2054,6 +2181,70 @@ export interface TeamEmailReputationResponseApi {
     readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
+export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown }
+
+export interface SendCalendarBatchJobApi {
+    /** ID of the batch run. */
+    readonly id: string
+    /** Status of the batch run.
+     *
+     * * `waiting` - Waiting
+     * * `queued` - Queued
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     * * `failed` - Failed */
+    readonly status: HogFlowBatchJobStateEnumApi
+    /** When the batch run started. */
+    readonly created_at: string
+}
+
+export interface SendCalendarFlowApi {
+    /** ID of the workflow. */
+    readonly id: string
+    /**
+     * Name of the workflow.
+     * @nullable
+     */
+    readonly name: string | null
+    /** The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
+    readonly origin_product: HogFlowOriginProductEnumApi | null
+    /** User who created the workflow. */
+    readonly created_by: UserBasicApi | null
+    /**
+     * The reader's access level on the workflow.
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** The trigger type: batch or schedule. */
+    readonly trigger_type: string
+    /** The property filters of a batch trigger's audience. Empty for a schedule trigger. */
+    readonly audience_properties: readonly SendCalendarFlowApiAudiencePropertiesItem[]
+    /**
+     * persons or accounts for a batch trigger's audience. Null when the trigger does not set it.
+     * @nullable
+     */
+    readonly audience_type: string | null
+    /**
+     * The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.
+     * @nullable
+     */
+    readonly email_to: string | null
+    /**
+     * ID of the message category of the first email step.
+     * @nullable
+     */
+    readonly message_category_id: string | null
+    /** The schedules that still have sends to come. */
+    readonly schedules: readonly HogFlowScheduleApi[]
+    /** The batch runs that started inside the requested range. */
+    readonly batch_jobs: readonly SendCalendarBatchJobApi[]
+}
+
 /**
  * Property filters to apply
  */
@@ -2084,6 +2275,48 @@ export interface BlastRadiusRequestApi {
     sends_email?: boolean
 }
 
+/**
+ * * `ready` - Ready
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `needs_attention` - Needs attention
+ */
+export type RealtimeAudienceCohortStateEnumApi =
+    (typeof RealtimeAudienceCohortStateEnumApi)[keyof typeof RealtimeAudienceCohortStateEnumApi]
+
+export const RealtimeAudienceCohortStateEnumApi = {
+    Ready: 'ready',
+    Building: 'building',
+    Rebuilding: 'rebuilding',
+    NeedsAttention: 'needs_attention',
+} as const
+
+export interface RealtimeCohortStatusApi {
+    /** The realtime cohort the audience sends to. */
+    id: number
+    /** The cohort's name. */
+    name: string
+    /** 'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck.
+     *
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `needs_attention` - Needs attention */
+    state: RealtimeAudienceCohortStateEnumApi
+    /**
+     * How far the calculation has come, while the cohort is not ready.
+     * @nullable
+     */
+    percent_complete: number | null
+}
+
+export interface RealtimeCohortRefApi {
+    /** ID of the realtime cohort. */
+    id: number
+    /** Name of the realtime cohort. */
+    name: string
+}
+
 export interface BlastRadiusApi {
     /** Number of users matching the filters */
     affected: number
@@ -2097,6 +2330,10 @@ export interface BlastRadiusApi {
     dedupe_key: DedupeKeyEnumApi | null
     /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
     confirm_token: string
+    /** Set when the audience is one realtime cohort. 'affected' is then the cohort's last calculated size, and a batch run waits until the cohort is ready. */
+    realtime_cohort?: RealtimeCohortStatusApi | null
+    /** Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: a realtime cohort has to be the only condition. */
+    realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
 }
 
 export interface DataSuggestionBuildRequestApi {
@@ -2244,6 +2481,8 @@ export interface DataSuggestionApi {
     stage: DataSuggestionStageEnumApi
     /** The main planned step kinds after the trigger, in order. */
     step_outline: DataSuggestionStepKindEnumApi[]
+    /** Whether PostHog prepared this suggestion ahead of time with its workflow already built. Build it with save_draft to save the draft and stop offering the suggestion. */
+    premade: boolean
 }
 
 export interface DataSuggestionsResponseApi {
@@ -2389,6 +2628,135 @@ export interface PeopleImportApi {
     dropped_too_large: number
 }
 
+/**
+ * * `off` - Off
+ * * `opt_out` - Opt Out
+ * * `opt_in` - Opt In
+ */
+export type EmailTrackingConsentModeEnumApi =
+    (typeof EmailTrackingConsentModeEnumApi)[keyof typeof EmailTrackingConsentModeEnumApi]
+
+export const EmailTrackingConsentModeEnumApi = {
+    Off: 'off',
+    OptOut: 'opt_out',
+    OptIn: 'opt_in',
+} as const
+
+export interface WorkflowSendingRulesApi {
+    /** The project these sending rules belong to. */
+    readonly project_id: number
+    /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+    expected_project_id?: number
+    /**
+     * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    marketing_frequency_cap_max_messages?: number | null
+    /**
+     * The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    marketing_frequency_cap_window_days?: number | null
+    /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
+     *
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In */
+    email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
+    capture_workflows_engagement_events?: boolean
+}
+
+export interface PatchedWorkflowSendingRulesApi {
+    /** The project these sending rules belong to. */
+    readonly project_id?: number
+    /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+    expected_project_id?: number
+    /**
+     * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    marketing_frequency_cap_max_messages?: number | null
+    /**
+     * The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    marketing_frequency_cap_window_days?: number | null
+    /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
+     *
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In */
+    email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
+    capture_workflows_engagement_events?: boolean
+}
+
+/**
+ * * `channel` - Channel
+ * * `domain` - Domain
+ * * `opt-outs` - Opt-outs
+ * * `sending-rules` - Sending rules
+ * * `email-template` - Email template
+ * * `first-workflow` - First workflow
+ */
+export type SetupStepKeyEnumApi = (typeof SetupStepKeyEnumApi)[keyof typeof SetupStepKeyEnumApi]
+
+export const SetupStepKeyEnumApi = {
+    Channel: 'channel',
+    Domain: 'domain',
+    OptOuts: 'opt-outs',
+    SendingRules: 'sending-rules',
+    EmailTemplate: 'email-template',
+    FirstWorkflow: 'first-workflow',
+} as const
+
+export interface WorkflowSetupStepApi {
+    /** Which setup step this is. The steps come in the order the setup wizard asks for them.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    key: SetupStepKeyEnumApi
+    /** Whether the project has done this step. */
+    done: boolean
+    /** The step's name, as the app shows it. */
+    title: string
+    /** What the person does to finish the step. */
+    next_step: string
+    /** Link to the place in the app where the person does this step. */
+    app_url: string
+}
+
+export interface WorkflowSetupStatusApi {
+    /** Every messaging setup step, in order. */
+    steps: WorkflowSetupStepApi[]
+    /** Whether an email workflow can send. Needs a connected email channel on a verified domain, and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
+    ready_to_send_email: boolean
+    /** Whether email sending is paused for the project, so no email sends even with a verified domain. The person contacts PostHog support to resume it. */
+    email_sending_paused: boolean
+    /** The first step that is not done, or null when every step is done.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    next_open_step: SetupStepKeyEnumApi | null
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -2464,7 +2832,7 @@ export type HogFlowsListParams = {
      */
     origin_product?: HogFlowsListOriginProduct
     /**
-     * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
+     * Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string
     /**
@@ -2473,6 +2841,10 @@ export type HogFlowsListParams = {
      * * `archived` - Archived
      */
     status?: HogFlowsListStatus
+    /**
+     * JSON-encoded list of tag names, e.g. ["growth", "onboarding"]. Returns workflows that carry at least one of these tags.
+     */
+    tags?: string
     /**
      * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
      */
@@ -2899,4 +3271,15 @@ export type HogFlowsReputationRetrieveParams = {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
+}
+
+export type HogFlowsSendCalendarRetrieveParams = {
+    /**
+     * End of the shown range, exclusive, as an ISO 8601 datetime. At most 92 days after start.
+     */
+    end: string
+    /**
+     * Start of the shown range, inclusive, as an ISO 8601 datetime.
+     */
+    start: string
 }

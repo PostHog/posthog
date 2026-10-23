@@ -25,9 +25,13 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryActionStep,
+    FilterLogicalOperator,
     GroupPropertyFilter,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
     PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyOperator,
 )
 
@@ -56,6 +60,13 @@ FLAG_EVALUATIONS_DISTINCT_ID = "flag-evaluations-user"
 FLAG_EVALUATIONS_EMAIL = "flag-user@example.com"
 FLAG_EVALUATIONS_GROUP_KEY = "flag-org"
 FLAG_CALL_TIMESTAMP = datetime(2020, 1, 11, 12, 0, 1, tzinfo=UTC)
+FLAG_KEY_MATCHER = PropertyGroupFilterValue(
+    type=FilterLogicalOperator.AND_,
+    values=[
+        EventPropertyFilter(key="$feature_flag", value=FLAG_EVALUATIONS_FLAG_KEY, operator=PropertyOperator.EXACT),
+        HogQLPropertyFilter(key="event = '$feature_flag_called'"),
+    ],
+)
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -1497,6 +1508,66 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(from_events, CachedEventsQueryResponse)
         assert [row[0] for row in from_flag_evaluations.results] == [FLAG_EVALUATIONS_FLAG_KEY]
         assert [row[0] for row in from_events.results] == [EVENTS_FLAG_KEY]
+
+    @parameterized.expand(
+        [
+            ("a_flag_key_matcher", [FLAG_KEY_MATCHER], [("2020-01-10", 2), ("2020-01-11", 1)], True),
+            # The flag_key filter stays inside its OR branch, so the all-events branch still counts the other flag.
+            (
+                "a_flag_key_matcher_or_all_events",
+                [
+                    FLAG_KEY_MATCHER,
+                    PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[HogQLPropertyFilter(key="true")]),
+                ],
+                [("2020-01-10", 2), ("2020-01-11", 2)],
+                True,
+            ),
+            # A destination with no event or action matcher sends an empty OR, which matches every flag call.
+            ("no_matcher", [], [("2020-01-10", 2), ("2020-01-11", 2)], False),
+        ]
+    )
+    def test_flag_evaluations_only_organization_counts_matched_flag_calls_per_day(
+        self,
+        _name: str,
+        matchers: list[PropertyGroupFilterValue],
+        expected: list[tuple[str, int]],
+        reads_flag_key: bool,
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._create_events(
+            data=[("events-user", FLAG_CALL_TIMESTAMP.isoformat(), {"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY})],
+            event="$feature_flag_called",
+        )
+        flush_persons_and_events()
+        for timestamp, flag_key in [
+            (FLAG_CALL_TIMESTAMP - timedelta(days=1), FLAG_EVALUATIONS_FLAG_KEY),
+            (FLAG_CALL_TIMESTAMP - timedelta(days=1), FLAG_EVALUATIONS_FLAG_KEY),
+            (FLAG_CALL_TIMESTAMP, FLAG_EVALUATIONS_FLAG_KEY),
+            (FLAG_CALL_TIMESTAMP, "another-flag"),
+        ]:
+            self._insert_flag_evaluation(
+                FLAG_EVALUATIONS_DISTINCT_ID, uuid.uuid4(), timestamp=timestamp, properties={"$feature_flag": flag_key}
+            )
+        # The shape a destination's volume estimate sends: one OR branch per matcher, ANDed with the global filters.
+        matcher = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=matchers)],
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                event="$feature_flag_called",
+                select=["toDate(timestamp)", "count()"],
+                fixedProperties=[matcher],
+                after="-8d",
+                orderBy=["toDate(timestamp) ASC"],
+            )
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [(str(day), count) for day, count in response.results] == expected
+        assert (f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in (response.hogql or "")) is reads_flag_key
 
     @parameterized.expand([("range_older_than_retention", "-180d"), ("all_time", "all")])
     def test_flag_evaluations_list_stops_at_the_retention_window(self, _name: str, after: str):

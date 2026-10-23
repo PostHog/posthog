@@ -11,17 +11,11 @@ import { Breadcrumb } from '~/types'
 
 import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
 
-export type ScannerEditorStep = 'template' | 'overview' | 'details' | 'configure' | 'triggers' | 'budget'
+export type ScannerEditorStep = 'goal' | 'overview' | 'details' | 'configure' | 'triggers' | 'budget'
 // The manual wizard's stepper; overview belongs to the goal-based flow only, so it stays out.
-export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
-    'template',
-    'details',
-    'configure',
-    'triggers',
-    'budget',
-]
+export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['goal', 'details', 'configure', 'triggers', 'budget']
 export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
-    template: 0,
+    goal: 0,
     overview: 1,
     details: 2,
     configure: 3,
@@ -29,7 +23,7 @@ export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     budget: 5,
 }
 export const STEP_LABELS: Record<ScannerEditorStep, string> = {
-    template: 'Template',
+    goal: 'Goal',
     overview: 'Overview',
     details: 'Details',
     configure: 'Configure',
@@ -40,8 +34,8 @@ export const STEP_LABELS: Record<ScannerEditorStep, string> = {
 export const SCANNER_STEPPER_STEPS: GuidedWizardStep<ScannerEditorStep>[] = SCANNER_EDITOR_STEPS.map((step) => ({
     step,
     label: STEP_LABELS[step],
-    // pinned: data-attr for autocapture, renaming breaks dashboards
-    dataAttr: `vision-editor-step-${step}`,
+    // pinned: data-attr for autocapture, renaming breaks dashboards, so the goal step keeps its old name
+    dataAttr: `vision-editor-step-${step === 'goal' ? 'template' : step}`,
 }))
 
 export interface ScannerFieldErrors {
@@ -52,7 +46,7 @@ export interface ScannerFieldErrors {
 }
 
 /** Steps that mount no validated field, so leaving them must not run whole-form validation. */
-export const UNVALIDATED_SCANNER_STEPS: readonly ScannerEditorStep[] = ['template', 'details']
+export const UNVALIDATED_SCANNER_STEPS: readonly ScannerEditorStep[] = ['goal', 'details']
 
 // Fallback for error shapes that carry no message, so an errored step is never silently clean
 function fieldErrorMessages(error: unknown): string[] {
@@ -74,7 +68,7 @@ function fieldErrorMessages(error: unknown): string[] {
 /** Which step mounts each validated field. The stepper badges and the post-submit jump both read this. */
 export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEditorStep, string[]> {
     return {
-        template: [],
+        goal: [],
         overview: [],
         details: [],
         configure: fieldErrorMessages(errors.scanner_config),
@@ -90,8 +84,8 @@ export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEdit
 }
 
 /**
- * Step URL carrying the current query string. ?template drives the type selector and the reload
- * prefill, so every hop between steps has to preserve it, backwards as well as forwards.
+ * Step URL carrying the current query string. Params such as ?from=overview decide where the editor
+ * returns, so every hop between steps has to preserve them, backwards as well as forwards.
  */
 export function scannerStepUrlWithParams(
     step: ScannerEditorStep,
@@ -112,8 +106,8 @@ export function scannerEditUrl(scannerId: string, returnTab: string | null): str
 
 export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): string {
     switch (step) {
-        case 'template':
-            return urls.replayVisionScannerTemplate(scannerId)
+        case 'goal':
+            return urls.replayVisionScannerGoal(scannerId)
         case 'overview':
             return urls.replayVisionScannerOverview(scannerId)
         case 'details':
@@ -290,16 +284,16 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
             ): Breadcrumb[] => {
                 const crumbs: Breadcrumb[] = [VISION_ROOT_BREADCRUMB]
                 if (isNew) {
-                    // The back arrow targets the second-to-last crumb, so past the template step the
-                    // 'New scanner' crumb points at the template picker and the current step trails it.
+                    // The back arrow targets the second-to-last crumb, so past the goal step the
+                    // 'New scanner' crumb points at the goal step and the current step trails it.
                     crumbs.push({
                         key: 'new-scanner',
                         name: 'New scanner',
-                        path: scannerStepUrlWithParams('template', scannerId, searchParams),
+                        path: scannerStepUrlWithParams('goal', scannerId, searchParams),
                     })
-                    if (step !== 'template') {
+                    if (step !== 'goal') {
                         // Editing a section reached from the goal overview: slot the overview in as the
-                        // back target, so leaving the edit returns there rather than to the template.
+                        // back target, so leaving the edit returns there rather than to the goal step.
                         if (searchParams.from === 'overview' && step !== 'overview') {
                             const { from: _from, ...overviewParams } = searchParams
                             crumbs.push({
@@ -382,12 +376,12 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 }
             }
         return {
-            [urls.replayVisionScannerTemplate(':id')]: (params, searchParams, hashParams, payload) => {
+            [urls.replayVisionScannerGoal(':id')]: (params, searchParams, hashParams, payload) => {
                 if (params.id && params.id !== 'new') {
                     router.actions.replace(urls.replayVisionScannerDetails(params.id))
                     return
                 }
-                openStep('template')(params, searchParams, hashParams, payload)
+                openStep('goal')(params, searchParams, hashParams, payload)
             },
             [urls.replayVisionScannerOverview(':id')]: openStep('overview'),
             [urls.replayVisionScannerDetails(':id')]: openStep('details'),

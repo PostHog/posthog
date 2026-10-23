@@ -136,8 +136,9 @@ Which `scopes` value each granted scope writes under:
 | `warehouse_table:write` | `DataQualityCheck`                            |
 | `llm_skill:write`       | `PersonalAPIKey`                              |
 | `canvas:write`          | `Canvas`                                      |
+| `experiment:write`      | `Experiment`, `FeatureFlag`                   |
 
-Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
+Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, `experiment:write` reaches the linked feature flag when a launch or pause turns it on or off, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
 The scope-named objects themselves still log nothing: a skill body edit (including another scout's) and a warehouse table write leave no row, so read the skill's version history instead.
 A canvas publish leaves no activity row either. Read the canvas's version history: each version a scout published records the run's task.
 
@@ -198,7 +199,10 @@ A fleet left alone drifts; a fleet reviewed occasionally compounds.
 Every few weeks (or when someone says "are the scouts even worth it?"), run a calibration pass:
 
 1. **Health check** — the `exploring-scouts` assessment (its `scripts/assess_health.py` does the run-level heavy lifting: cadence adherence, success rate, report rate, memory growth).
-   Two blind spots to cover yourself: the script only assesses scouts with runs in the window, so walk the roster for enabled scouts with no recent run rows (often the most broken ones, but a scout whose pre-check skips its ticks writes no run row either, so check `precheck_query_source` and dry-run the pre-check before you call it broken; `exploring-scouts` has the steps); and it counts report writes, not outcomes, so judge signal-to-noise by resolving written reports via `posthog:inbox-reports-list` and reading their statuses.
+   The script only assesses scouts with runs in the window, so walk the roster for enabled scouts with no recent run rows.
+   Follow `authoring-scouts` → `references/scheduled-precheck.md` → "Diagnose a tick with no run row": inspect the recorded `last_precheck_at` and `last_precheck_outcome` before diagnosing missing runs.
+   A recent recorded `skip` can explain quiet without proving overall health; stale or absent outcome data leaves the cause unknown. Keep dry runs for query testing.
+   The script also counts report writes, not outcomes, so judge signal-to-noise by resolving written reports via `posthog:inbox-reports-list` and reading their statuses.
    Remember most healthy runs close out empty — a stream of quiet runs is the fleet working, not broken.
 2. **Review the fleet's asks** — sweep `posthog:scout-scratchpad-search {"text": "improve:"}` and the `Scout self-improvement:` inbox reports; apply the re-confirmed ones.
    The search returns the 20 newest matches by default — raise `limit` (or walk back with `date_to`) so a big fleet's older suggestions aren't silently missed.

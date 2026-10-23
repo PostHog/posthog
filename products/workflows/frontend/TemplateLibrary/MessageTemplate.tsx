@@ -1,8 +1,21 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonDivider, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconLock, IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonDivider,
+    LemonMenuOverlay,
+    LemonSwitch,
+    LemonTag,
+    Spinner,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -27,6 +40,7 @@ import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './mes
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { QuillMessageTemplateActions } from './QuillMessageTemplateActions'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
 import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
@@ -54,6 +68,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         syncExternalEdit,
         keepMyTemplateVersion,
         setTransactionalTab,
+        discardDraft,
+        saveTags,
+        setSensitive,
     } = useActions(logic)
     const {
         template,
@@ -67,8 +84,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSyncingExternalEdit,
         transactionalHogFlowId,
         transactionalTab,
+        draftsEnabled,
+        hasDraft,
+        hasUnsavedChanges,
+        isSavingDraft,
+        isDiscardingDraft,
+        isSavingSensitive,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
@@ -112,7 +136,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     value={template?.content.email}
                     onChange={(value) => setTemplateValue('content.email', value)}
                     onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
-                    type="native_email_template"
+                    type={
+                        template?.transactional_hog_flow_id
+                            ? 'native_email_transactional_template'
+                            : 'native_email_template'
+                    }
                     layout="inline"
                 />
             )}
@@ -152,7 +180,31 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     key: 'api',
                     label: 'API',
                     content: transactionalHogFlowId ? (
-                        <TransactionalEmailApiExample templateId={props.id} />
+                        <div className="flex flex-col gap-4">
+                            <LemonCard hoverEffect={false} className="max-w-200 p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3 min-w-0">
+                                        <IconLock className="text-xl text-secondary shrink-0 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="font-semibold">Protect sensitive data</div>
+                                            <p className="text-secondary text-sm m-0 mt-1">
+                                                For emails with login codes or reset links. PostHog keeps no copy of
+                                                what each email contained, and clicked links keep only the site address.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={!!originalTemplate.sensitive}
+                                        onChange={setSensitive}
+                                        loading={isSavingSensitive}
+                                        disabledReason={isSavingSensitive ? 'Saving the setting' : undefined}
+                                        aria-label="Protect sensitive data"
+                                        data-attr="message-template-sensitive-toggle"
+                                    />
+                                </div>
+                            </LemonCard>
+                            <TransactionalEmailApiExample templateId={props.id} />
+                        </div>
                     ) : (
                         <MakeTransactionalPrompt {...props} />
                     ),
@@ -180,91 +232,189 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     nameSuffix={
                         showTransactional && transactionalHogFlowId ? (
-                            <LemonTag type="success" className="ml-1">
-                                Transactional
-                            </LemonTag>
+                            <>
+                                <LemonTag type="success" className="ml-1">
+                                    Transactional
+                                </LemonTag>
+                                {originalTemplate.sensitive && (
+                                    <Tooltip title="PostHog keeps no copy of what each email contained, and clicked links keep only the site address.">
+                                        <LemonTag
+                                            type="highlight"
+                                            icon={<IconLock />}
+                                            className="ml-1"
+                                            data-attr="message-template-sensitive-tag"
+                                        >
+                                            Sensitive
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {(hasDraft || hasUnsavedChanges) && (
+                                    <Tooltip title="Your changes save as a draft. Sends use the live version until you publish.">
+                                        <LemonTag
+                                            type="warning"
+                                            className="ml-1"
+                                            data-attr="message-template-draft-tag"
+                                        >
+                                            {isSavingDraft ? 'Saving draft…' : 'Editing draft'}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </>
                         ) : undefined
                     }
                     actions={
-                        <>
-                            <LemonDivider vertical />
-                            <LemonButton
-                                data-attr="send-test-message-template"
-                                type="secondary"
-                                onClick={() => setSendTestEmailModalOpen(true)}
-                                disabledReason={!template.content.email?.subject ? 'Add a subject first' : undefined}
-                                size="small"
-                            >
-                                Send test
-                            </LemonButton>
-                            {templateChanged && (
+                        todayRailNav ? (
+                            <QuillMessageTemplateActions
+                                isNew={props.id === 'new'}
+                                sendTestDisabledReason={
+                                    !template.content.email?.subject ? 'Add a subject first' : undefined
+                                }
+                                saveDisabledReason={
+                                    draftsEnabled && isSavingDraft
+                                        ? 'Saving your draft'
+                                        : draftsEnabled && !hasDraft && !hasUnsavedChanges
+                                          ? 'No changes to publish'
+                                          : !draftsEnabled && !templateChanged && props.id !== 'new'
+                                            ? 'No changes to save'
+                                            : !template.name
+                                              ? 'Name is required'
+                                              : undefined
+                                }
+                                duplicateDisabledReason={
+                                    templateChanged ? 'Save your changes before duplicating' : undefined
+                                }
+                                templateChanged={templateChanged && !draftsEnabled}
+                                saving={isTemplateSubmitting || templateLoading}
+                                onSendTest={() => setSendTestEmailModalOpen(true)}
+                                onDiscard={() => resetTemplate(originalTemplate)}
+                                onSave={submitTemplate}
+                                onSaveAsNew={() => setIsSaveTemplateModalOpen(true)}
+                                onDuplicate={duplicateTemplate}
+                                onDelete={deleteTemplate}
+                            />
+                        ) : (
+                            <>
+                                <LemonDivider vertical />
                                 <LemonButton
-                                    data-attr="cancel-message-template"
+                                    data-attr="send-test-message-template"
                                     type="secondary"
-                                    onClick={() => resetTemplate(originalTemplate)}
+                                    onClick={() => setSendTestEmailModalOpen(true)}
+                                    disabledReason={
+                                        !template.content.email?.subject ? 'Add a subject first' : undefined
+                                    }
                                     size="small"
                                 >
-                                    Discard changes
+                                    Send test
                                 </LemonButton>
-                            )}
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                form="template"
-                                onClick={submitTemplate}
-                                loading={isTemplateSubmitting || templateLoading}
-                                disabledReason={
-                                    !templateChanged && props.id !== 'new'
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
-                                }
-                                size="small"
-                            >
-                                {props.id === 'new' ? 'Create' : 'Save'}
-                            </LemonButton>
-                            <More
-                                size="small"
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            data-attr="save-as-new-template"
-                                            fullWidth
-                                            onClick={() => setIsSaveTemplateModalOpen(true)}
-                                        >
-                                            Save as new template
-                                        </LemonButton>
-                                        {props.id !== 'new' && (
-                                            <>
-                                                <LemonButton
-                                                    data-attr="duplicate-message-template"
-                                                    fullWidth
-                                                    onClick={duplicateTemplate}
-                                                    disabledReason={
-                                                        templateChanged
-                                                            ? 'Save your changes before duplicating'
-                                                            : undefined
-                                                    }
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    data-attr="delete-message-template"
-                                                    status="danger"
-                                                    fullWidth
-                                                    onClick={deleteTemplate}
-                                                >
-                                                    Delete
-                                                </LemonButton>
-                                            </>
-                                        )}
-                                    </>
-                                }
-                            />
-                        </>
+                                {templateChanged && !draftsEnabled && (
+                                    <LemonButton
+                                        data-attr="cancel-message-template"
+                                        type="secondary"
+                                        onClick={() => resetTemplate(originalTemplate)}
+                                        size="small"
+                                    >
+                                        Discard changes
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    form="template"
+                                    onClick={submitTemplate}
+                                    loading={isTemplateSubmitting || templateLoading}
+                                    disabledReason={
+                                        draftsEnabled && isSavingDraft
+                                            ? 'Saving your draft'
+                                            : draftsEnabled && !hasDraft && !hasUnsavedChanges
+                                              ? 'No changes to publish'
+                                              : !draftsEnabled && !templateChanged && props.id !== 'new'
+                                                ? 'No changes to save'
+                                                : !template.name
+                                                  ? 'Name is required'
+                                                  : undefined
+                                    }
+                                    size="small"
+                                    sideAction={
+                                        draftsEnabled
+                                            ? {
+                                                  'data-attr': 'message-template-draft-actions',
+                                                  'aria-label': 'More draft actions',
+                                                  dropdown: {
+                                                      placement: 'bottom-end',
+                                                      overlay: (
+                                                          <LemonMenuOverlay
+                                                              items={[
+                                                                  {
+                                                                      label: 'Discard draft',
+                                                                      icon: <IconTrash />,
+                                                                      status: 'danger',
+                                                                      onClick: discardDraft,
+                                                                      disabledReason: !hasDraft
+                                                                          ? 'There is no draft to discard'
+                                                                          : isSavingDraft || isDiscardingDraft
+                                                                            ? 'Wait for the draft to finish saving'
+                                                                            : undefined,
+                                                                      'data-attr': 'message-template-discard-draft',
+                                                                  },
+                                                              ]}
+                                                          />
+                                                      ),
+                                                  },
+                                              }
+                                            : undefined
+                                    }
+                                >
+                                    {props.id === 'new' ? 'Create' : draftsEnabled ? 'Publish' : 'Save'}
+                                </LemonButton>
+                                <More
+                                    size="small"
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                data-attr="save-as-new-template"
+                                                fullWidth
+                                                onClick={() => setIsSaveTemplateModalOpen(true)}
+                                            >
+                                                Save as new template
+                                            </LemonButton>
+                                            {props.id !== 'new' && (
+                                                <>
+                                                    <LemonButton
+                                                        data-attr="duplicate-message-template"
+                                                        fullWidth
+                                                        onClick={duplicateTemplate}
+                                                        disabledReason={
+                                                            hasUnsavedChanges
+                                                                ? 'Save your changes before duplicating'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Duplicate
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                    <LemonButton
+                                                        data-attr="delete-message-template"
+                                                        status="danger"
+                                                        fullWidth
+                                                        onClick={deleteTemplate}
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                </>
+                                            )}
+                                        </>
+                                    }
+                                />
+                            </>
+                        )
                     }
+                />
+
+                <SceneTags
+                    tags={[...(template.tags ?? [])]}
+                    onSave={saveTags}
+                    loading={isTemplateSubmitting}
+                    dataAttrKey="message-template"
                 />
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />

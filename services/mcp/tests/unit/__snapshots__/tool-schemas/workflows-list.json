@@ -39,12 +39,16 @@
             "type": "string"
         },
         "search": {
-            "description": "Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+            "description": "Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
             "type": "string"
         },
         "status": {
             "description": "* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
             "enum": ["active", "archived", "draft"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded list of tag names, e.g. [\"growth\", \"onboarding\"]. Returns workflows that carry at least one of these tags.",
             "type": "string"
         },
         "trigger": {

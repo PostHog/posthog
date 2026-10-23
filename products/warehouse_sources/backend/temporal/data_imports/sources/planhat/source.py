@@ -53,7 +53,7 @@ class PlanhatSource(ResumableSource[PlanhatSourceConfig, PlanhatResumeConfig]):
             name=ExternalDataSourceType.PLANHAT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Planhat",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Planhat API access token to pull your customer success data into the PostHog Data warehouse.
 
 You can create an API access token from a Private App under **Settings → Service Accounts** in [Planhat](https://app.planhat.com). The token is shown once, so copy it immediately. It grants read access to your companies, end users, users, licenses, assets, NPS responses, conversations, tickets, invoices, and sales.

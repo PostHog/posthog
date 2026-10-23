@@ -1,1 +1,1 @@
-0185_signalscoutconfig_last_precheck
+0197_signalscratchpad_trgm_fastupdate_off

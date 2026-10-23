@@ -1,14 +1,20 @@
-from products.experiments.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.experiments.backend.temporal import (
+    ACTIVITIES,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    WORKFLOWS,
+)
 from products.experiments.backend.temporal.canary_workflow import ExperimentPrecomputeCanaryWorkflow
 from products.experiments.backend.temporal.enrollment_census_activities import run_experiment_enrollment_census
 from products.experiments.backend.temporal.enrollment_census_workflow import (
     ExperimentPrecomputeEnrollmentCensusWorkflow,
 )
+from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     check_experiment_exposures,
     discover_scheduled_recalculation_candidates,
     start_scheduled_recalculation,
+    wait_for_scheduled_recalculation,
 )
 from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
     ScheduledExperimentRecalculationWorkflow,
@@ -29,6 +35,7 @@ def test_activities_registered():
         "discover_scheduled_recalculation_candidates",
         "check_experiment_exposures",
         "start_scheduled_recalculation",
+        "wait_for_scheduled_recalculation",
     }
 
 
@@ -66,3 +73,27 @@ def test_scheduled_workflows_registered_on_general_purpose_queue():
         assert discover_scheduled_recalculation_candidates in activities
         assert check_experiment_exposures in activities
         assert start_scheduled_recalculation in activities
+        assert wait_for_scheduled_recalculation in activities
+
+
+def test_calc_activity_registered_on_recalculation_and_activity_queues():
+    # Matches specs by content for the same reason as the test above: in test settings every
+    # queue name aliases to one value.
+    from posthog.management.commands.start_temporal_worker import (  # noqa: PLC0415 — imports every product's temporal modules
+        _task_queue_specs,
+    )
+
+    recalculation_specs = [
+        activities
+        for _queue, workflows, activities in _task_queue_specs
+        if ExperimentMetricsRecalculationWorkflow in workflows
+    ]
+    activity_queue_specs = [
+        (workflows, activities)
+        for _queue, workflows, activities in _task_queue_specs
+        if calculate_experiment_metric_for_recalculation in activities and not workflows
+    ]
+    assert len(recalculation_specs) == 1
+    assert calculate_experiment_metric_for_recalculation in recalculation_specs[0]
+    assert activity_queue_specs == [([], EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES)]
+    assert EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES == [calculate_experiment_metric_for_recalculation]

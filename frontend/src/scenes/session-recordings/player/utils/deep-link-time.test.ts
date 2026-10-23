@@ -47,6 +47,12 @@ describe('parseDeepLinkTime', () => {
             t: undefined,
             expected: { kind: 'timestamp', valueMs: isoMs },
         },
+        {
+            name: 'space-separated datetime in timestamp is an absolute timestamp',
+            timestamp: '2026-09-01 10:00:30.000000+00:00',
+            t: undefined,
+            expected: { kind: 'timestamp', valueMs: isoMs },
+        },
         { name: 'unparseable t', timestamp: undefined, t: 'not-a-time', expected: null },
         { name: 'zone-less datetime in t', timestamp: undefined, t: '2026-09-01T10:00:30', expected: null },
         { name: 'date-only t', timestamp: undefined, t: '2026-09-01', expected: null },

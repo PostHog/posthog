@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -17,15 +19,25 @@ import {
 } from './generated/api'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { metricsLogic } from './metricsLogic'
+import { openOverwriteMetricDialog } from './openOverwriteMetricDialog'
 
 jest.mock('lib/api', () => {
     class ApiError extends Error {
         status?: number
         detail: string | null
-        constructor(message?: string, status?: number, _headers?: unknown, data?: { detail?: string }) {
+        code: string | null
+        data?: Record<string, any>
+        constructor(
+            message?: string,
+            status?: number,
+            _headers?: unknown,
+            data?: { detail?: string; code?: string } & Record<string, any>
+        ) {
             super(message)
             this.status = status
             this.detail = data?.detail ?? null
+            this.code = data?.code ?? null
+            this.data = data
         }
     }
     return {
@@ -39,6 +51,8 @@ jest.mock('lib/api', () => {
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
 }))
+
+jest.mock('./openOverwriteMetricDialog', () => ({ openOverwriteMetricDialog: jest.fn() }))
 
 jest.mock('./generated/api', () => ({
     dataCatalogMetricsList: jest.fn(),
@@ -129,6 +143,67 @@ describe('metricsLogic', () => {
         expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('monthly_active_users')
     })
 
+    it.each([
+        [
+            'the new metric modal',
+            'newMetricModalOpen',
+            (built: typeof logic): void => {
+                built.actions.openNewMetricModal()
+                built.actions.setNewMetricForm({
+                    name: 'weekly_active_users',
+                    description: 'Weekly active users',
+                    definitionType: 'insight',
+                    sourceInsightShortId: 'abc123',
+                })
+                built.actions.createMetric()
+            },
+        ],
+        [
+            'the insight modal',
+            'metricFromInsightModalOpen',
+            (built: typeof logic): void => {
+                built.actions.openMetricFromInsightModal()
+                built.actions.createMetricFromInsight({
+                    name: 'weekly_active_users',
+                    display_name: '',
+                    description: 'Weekly active users',
+                    source_insight_short_id: 'abc123',
+                })
+            },
+        ],
+    ] as const)('asks before it overwrites a taken name from %s', async (_source, modalOpenKey, submit) => {
+        const overwritten = buildMetric({ description: 'Overwritten' })
+        ;(dataCatalogMetricsCreate as jest.Mock)
+            .mockRejectedValueOnce(
+                new ApiError('taken', 409, undefined, {
+                    code: 'metric_name_taken',
+                    extra: { existing_metric: { name: 'weekly_active_users', status: 'approved' } },
+                })
+            )
+            .mockResolvedValueOnce(overwritten)
+
+        submit(logic)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewMetricForm({ name: 'edited_after_submit' })
+
+        expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[0][1].overwrite).toBe(false)
+        expect(lemonToast.error).not.toHaveBeenCalled()
+        expect(logic.values[modalOpenKey]).toEqual(true)
+        const { existing, onOverwrite } = (openOverwriteMetricDialog as jest.Mock).mock.calls[0][0]
+        expect(existing).toEqual({ name: 'weekly_active_users', status: 'approved' })
+
+        onOverwrite()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[1][1]).toMatchObject({
+            name: 'weekly_active_users',
+            created_source: 'user',
+            overwrite: true,
+        })
+        expect(logic.values[modalOpenKey]).toEqual(false)
+        expect(logic.values.allMetrics).toEqual([overwritten])
+    })
+
     it('creates a markdown metric as a stub and routes to the metric page to author it', async () => {
         ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(
             buildMetric({ id: 'metric-4', name: 'mrr', definition_kind: null })
@@ -144,7 +219,7 @@ describe('metricsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
-        expect(body.definition).toBeUndefined()
+        expect(body.definition).toBeNull()
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('mrr'))
         expect(router.values.searchParams.edit).toEqual('definition')
     })
@@ -217,6 +292,40 @@ describe('metricsLogic', () => {
 
         expect(logic.values.allMetrics.map((metric) => metric.name)).toEqual(['first', 'second'])
         expect((dataCatalogMetricsList as jest.Mock).mock.calls.map((call) => call[1].offset)).toEqual([0, 0, 100])
+    })
+
+    it('filters by creator and reports the filter change once typing settles', async () => {
+        const me = userLogic.values.user?.uuid as string
+        const mine = buildMetric({
+            id: 'metric-1',
+            name: 'mine',
+            created_by: { id: 1, uuid: me, email: 'me@example.com', hedgehog_config: null },
+        })
+        const theirs = buildMetric({
+            id: 'metric-2',
+            name: 'theirs',
+            created_by: { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null },
+        })
+        logic.actions.loadMetricsSuccess([mine, theirs])
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            logic.actions.setFilters({ createdBy: me })
+            expect(logic.values.metrics).toEqual([mine])
+            expect(capture).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(500)
+            expect(capture).toHaveBeenCalledWith(
+                'data catalog metrics filtered',
+                expect.objectContaining({ changed_filters: ['createdBy'], created_by: 'me', result_count: 1 })
+            )
+
+            logic.actions.setFilters({ createdBy: null })
+            expect(logic.values.metrics).toEqual([mine, theirs])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
     })
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {

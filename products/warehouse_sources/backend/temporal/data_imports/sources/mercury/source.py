@@ -162,7 +162,7 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
             caption="Sync your Mercury business banking data, including accounts, transactions, cards, and invoices.\n\nCreate an API token with Read Only access in Mercury under [Settings > API tokens](https://app.mercury.com/settings/tokens). Read Only tokens do not require an IP allowlist.",
             docsUrl="https://posthog.com/docs/cdp/sources/mercury",
             iconPath="/static/services/mercury.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["banking", "bank"],
             fields=cast(
                 list[FieldType],

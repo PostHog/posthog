@@ -193,6 +193,9 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     check whether either canonical form *is* registered and point the user at it, so a
     dead-end "not visible" error becomes "enter this exact value instead".
 
+    A ``www.`` hostname, with or without a scheme, also matches the domain property of the bare
+    domain, because that property covers every subdomain.
+
     A site's root URL entered where only its domain property is registered gets the domain
     property suggested. A URL with a path doesn't: the domain property covers the whole
     site, so syncing it would import more than the entry asked for.
@@ -224,7 +227,12 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     if not host:
         return None
     registered_set = set(registered)
-    for candidate in (f"https://{host}/", f"http://{host}/", f"sc-domain:{host}"):
+    for candidate in (
+        f"https://{host}/",
+        f"http://{host}/",
+        f"sc-domain:{host}",
+        f"sc-domain:{host.removeprefix('www.')}",
+    ):
         if candidate in registered_set:
             return candidate
     return None

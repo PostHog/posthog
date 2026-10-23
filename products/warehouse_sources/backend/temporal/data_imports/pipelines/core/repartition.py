@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
     append_partition_key_to_table,
+    partition_key_from_add_path,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
     PartitionedFileWriter,
@@ -266,26 +267,6 @@ class RepartitionTarget:
         return cls(**{k: v for k, v in data.items() if k in fields})
 
 
-# Delta's fixed marker for a Hive-style partition directory whose column value is null.
-_HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
-
-
-def _partition_key_from_add_path(path: str) -> str | None:
-    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
-
-    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
-    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
-    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
-    `partition.<key>` column would give.
-    """
-    prefix = f"{PARTITION_KEY}="
-    for segment in path.split("/"):
-        if segment.startswith(prefix):
-            value = segment[len(prefix) :]
-            return None if value == _HIVE_NULL_PARTITION else value
-    return None
-
-
 def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
     """At-rest bytes per partition, read from the Delta log (no S3 LIST, no data scan).
 
@@ -301,7 +282,7 @@ def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | Non
 
     totals: dict[str | None, int] = defaultdict(int)
     for path, size in delta_table._table.get_add_file_sizes().items():
-        key = _partition_key_from_add_path(path) if partitioned else None
+        key = partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 
@@ -870,8 +851,16 @@ def select_coarsen_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
+    *,
+    min_md5_count: int = 1,
+    preferred_md5_count: int | None = None,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the coarsest partition scheme whose largest partition still fits `target_partition_bytes`.
+
+    For md5, `min_md5_count` and `preferred_md5_count` change "coarsest" to "the fitting divisor nearest
+    to `preferred_md5_count`, never below `min_md5_count`". A keyed upsert rewrites at least one file in
+    each md5 partition, but it also merges up to a fixed number of partitions in parallel, so the fewest
+    partitions is not the fastest layout for that table.
 
     The mirror of `select_repartition_target`, for tables left over-fragmented, most of them by the
     finer path itself reacting to failures that were never about partition size. Fragmentation is not
@@ -933,15 +922,25 @@ def select_coarsen_target(
                 divisors.add(low)
                 divisors.add(count // low)
         divisors.discard(count)
-        for new_count in sorted(divisors):  # ascending, so the coarsest layout that fits wins
-            if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count)):
-                return RepartitionTarget(
-                    partition_keys=keys,
-                    trigger_reason="",
-                    partition_mode="md5",
-                    partition_count=new_count,
-                ), "selected"
-        return None, "no_coarser_layout_fits"
+        allowed = sorted(divisor for divisor in divisors if divisor >= min_md5_count)
+        if not allowed:
+            return None, "md5_at_partition_floor"
+        fitting = [
+            new_count for new_count in allowed if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count))
+        ]
+        if not fitting:
+            return None, "no_coarser_layout_fits"
+        if preferred_md5_count is None:
+            new_count = fitting[0]  # ascending, so the coarsest layout that fits wins
+        else:
+            # On a tie, the larger count wins, because it keeps the partitions smaller.
+            new_count = min(fitting, key=lambda divisor: (abs(divisor - preferred_md5_count), -divisor))
+        return RepartitionTarget(
+            partition_keys=keys,
+            trigger_reason="",
+            partition_mode="md5",
+            partition_count=new_count,
+        ), "selected"
 
     if mode == "numerical":
         current_size = schema.partition_size

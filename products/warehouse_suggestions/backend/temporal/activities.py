@@ -16,7 +16,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.rollout import filter_ids_for_rollout
 
 from ..logic.flags import is_warehouse_suggestions_enabled
-from ..logic.job import TeamRunStatus, run_team
+from ..logic.job import TeamRunStatus, run_team, team_ids_with_suggestions_to_maintain
 from ..logic.reads import ReadWindow, read_rollup_days
 from ..logic.rules import RULES
 from .contracts import BatchOutcome, WarehouseSuggestionsInputs
@@ -35,7 +35,7 @@ def team_batches(inputs: WarehouseSuggestionsInputs) -> list[list[int]]:
     if get_kill_switch_level() != KillSwitchLevel.OFF:
         LOGGER.info("warehouse_suggestions.skipped_by_kill_switch")
         return []
-    candidate_ids = inputs.team_ids if inputs.team_ids is not None else _teams_with_reads()
+    candidate_ids = inputs.team_ids if inputs.team_ids is not None else _teams_to_run()
     teams = (
         Team.objects.filter(
             id__in=candidate_ids, is_demo=False, parent_team__isnull=True, organization__for_internal_metrics=False
@@ -65,6 +65,10 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
         disabled=outcomes[TeamRunStatus.DISABLED],
         failed=outcomes["failed"],
     )
+
+
+def _teams_to_run() -> set[int]:
+    return {*_teams_with_reads(), *team_ids_with_suggestions_to_maintain()}
 
 
 def _teams_with_reads() -> list[int]:

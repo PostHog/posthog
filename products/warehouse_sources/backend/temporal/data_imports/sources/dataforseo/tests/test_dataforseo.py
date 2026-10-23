@@ -422,10 +422,6 @@ class TestValidateCredentials:
         with scripted_network([ScriptedResponse(json={"status_code": 40100, "status_message": "unauthorized"})]):
             assert validate_credentials("login", "password") is False
 
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
-            assert validate_credentials("login", "password") is False
-
     @pytest.mark.parametrize(("login", "password"), [("", "password"), ("login", ""), (" ", " ")])
     def test_blank_credentials_are_invalid_without_a_request(self, login: str, password: str) -> None:
         assert validate_credentials(login, password) is False

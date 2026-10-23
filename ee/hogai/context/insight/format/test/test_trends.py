@@ -5,7 +5,16 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import AssistantDateRange, AssistantTrendsQuery, Compare, IntervalType
+from posthog.schema import (
+    AssistantDateRange,
+    AssistantTrendsActionsNode,
+    AssistantTrendsEventsNode,
+    AssistantTrendsFilter,
+    AssistantTrendsQuery,
+    Compare,
+    IntervalType,
+    TrendsFormulaNode,
+)
 
 from .. import TrendsResultsFormatter
 
@@ -19,19 +28,7 @@ class TestTrendsResultsFormatter(BaseTest):
                 "days": ["2025-01-23", "2025-01-24", "2025-01-25"],
                 "count": 288,
                 "label": "$pageview",
-                "action": {
-                    "days": ["2025-01-23T00:00:00+01:00", "2025-01-24T00:00:00+01:00", "2025-01-25T00:00:00+01:00"],
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "name": "$pageview",
-                    "custom_name": None,
-                    "math": "total",
-                    "math_property": None,
-                    "math_hogql": None,
-                    "math_group_type_index": None,
-                    "properties": {},
-                },
+                "order": 0,
             }
         ]
 
@@ -107,22 +104,64 @@ class TestTrendsResultsFormatter(BaseTest):
             "Date|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0",
         )
 
-    def test_trends_breakdown_and_custom_name_label(self):
-        series = {
-            "data": [242, 46, 0],
-            "labels": ["20-Jan-2025", "21-Jan-2025", "22-Jan-2025"],
-            "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
-            "breakdown_value": 0,
-            "label": "$pageview",
-            "action": {
-                "custom_name": "Custom Name",
-            },
-        }
-        formatter = TrendsResultsFormatter(AssistantTrendsQuery(series=[]), [series])
+    @parameterized.expand(
+        [
+            (
+                "breakdown_with_custom_name",
+                AssistantTrendsQuery(series=[AssistantTrendsEventsNode(event="$pageview", custom_name="Views")]),
+                [{"label": "Chrome", "order": 0, "breakdown_value": "Chrome"}],
+                None,
+                "Date|Views breakdown for the value `Chrome`",
+            ),
+            (
+                "breakdown_without_rename",
+                AssistantTrendsQuery(series=[AssistantTrendsEventsNode(event="$pageview", name="$pageview")]),
+                [{"label": "Chrome", "order": 0, "breakdown_value": "Chrome"}],
+                None,
+                "Date|Chrome breakdown for the value `Chrome`",
+            ),
+            (
+                "each_row_takes_the_series_at_its_order",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", name="$pageview"),
+                        AssistantTrendsEventsNode(event="sign up", name="Registrations"),
+                    ]
+                ),
+                [{"label": "$pageview", "order": 0}, {"label": "sign up", "order": 1}],
+                None,
+                "Date|$pageview|Registrations",
+            ),
+            (
+                "an_action_keeps_the_name_it_was_saved_with",
+                AssistantTrendsQuery(series=[AssistantTrendsActionsNode(id=7, name="Old purchase name")]),
+                [{"label": "Purchase made", "order": 0}],
+                {7: "Purchase made"},
+                "Date|Old purchase name",
+            ),
+            (
+                "formula_rows_take_no_series_name",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", custom_name="Views"),
+                        AssistantTrendsEventsNode(event="sign up", custom_name="Registrations"),
+                    ],
+                    trendsFilter=AssistantTrendsFilter(
+                        formulaNodes=[TrendsFormulaNode(formula="A+B"), TrendsFormulaNode(formula="A-B")]
+                    ),
+                ),
+                [{"label": "Formula (A+B)", "order": 0}, {"label": "Formula (A-B)", "order": 1}],
+                None,
+                "Date|Formula (A+B)|Formula (A-B)",
+            ),
+        ]
+    )
+    def test_trends_series_label(self, _name, query, rows, action_names, expected_header):
+        results = [{"data": [1], "labels": ["20-Jan-2025"], "days": ["2025-01-20"], **row} for row in rows]
 
-        self.assertEqual(formatter._extract_series_label(series), "Custom Name breakdown for the value `0`")
-        series.pop("action")
-        self.assertEqual(formatter._extract_series_label(series), "$pageview breakdown for the value `0`")
+        formatted = TrendsResultsFormatter(query, results, action_names=action_names).format()
+
+        self.assertEqual(formatted.split("\n")[0], expected_header)
 
     def test_trends_marks_partial_current_and_future_buckets(self):
         # now is midday on the 25th (UTC), so the 25th's bucket is still collecting and the 26th is
@@ -218,14 +257,11 @@ class TestTrendsResultsFormatter(BaseTest):
                 "count": 0,
                 "aggregated_value": 993,
                 "label": "$pageview",
-                "action": {
-                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
-                },
             }
         ]
         self.assertEqual(
             TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Date range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|993",
+            "Date range|Aggregated value for $pageview\nAll time|993",
         )
 
     @parameterized.expand(
@@ -253,7 +289,6 @@ class TestTrendsResultsFormatter(BaseTest):
                 "count": 0,
                 "aggregated_value": 82,
                 "label": "$pageview",
-                "action": {"days": ["2026-10-12 00:00:00-07:00", "2026-10-13 00:00:00-07:00"]},
             }
         ]
         self.assertEqual(
@@ -271,9 +306,6 @@ class TestTrendsResultsFormatter(BaseTest):
                 "count": 0,
                 "aggregated_value": 993,
                 "label": "$pageview",
-                "action": {
-                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
-                },
             },
             {
                 "data": [],
@@ -281,14 +313,11 @@ class TestTrendsResultsFormatter(BaseTest):
                 "count": 0,
                 "aggregated_value": 1000,
                 "label": "$pageleave",
-                "action": {
-                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
-                },
             },
         ]
         self.assertEqual(
             TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
-            "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
+            "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\nAll time|993|1000",
         )
 
     @parameterized.expand(
@@ -302,17 +331,15 @@ class TestTrendsResultsFormatter(BaseTest):
                         "count": 0,
                         "aggregated_value": 993,
                         "label": "$pageview",
-                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
                     },
                     {
                         "data": [],
                         "days": [],
                         "count": 0,
                         "label": "$pageleave",
-                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
                     },
                 ],
-                "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|N/A",
+                "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\nAll time|993|N/A",
             ),
             (
                 "aggregated_series_second",
@@ -322,7 +349,6 @@ class TestTrendsResultsFormatter(BaseTest):
                         "days": [],
                         "count": 0,
                         "label": "$pageleave",
-                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
                     },
                     {
                         "data": [],
@@ -330,10 +356,9 @@ class TestTrendsResultsFormatter(BaseTest):
                         "count": 0,
                         "aggregated_value": 993,
                         "label": "$pageview",
-                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
                     },
                 ],
-                "Date range|Aggregated value for $pageleave|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|N/A|993",
+                "Date range|Aggregated value for $pageleave|Aggregated value for $pageview\nAll time|N/A|993",
             ),
         ]
     )
@@ -351,7 +376,6 @@ class TestTrendsResultsFormatter(BaseTest):
                 "count": 0,
                 "aggregated_value": 92.22,
                 "label": "Bounce rate",
-                "action": None,
                 "breakdown_value": ["/news-research"],
             }
         ]
@@ -368,9 +392,6 @@ class TestTrendsResultsFormatter(BaseTest):
                 "count": 0,
                 "aggregated_value": 993,
                 "label": "$pageview",
-                "action": {
-                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
-                },
                 "compare": True,
                 "compare_label": Compare.PREVIOUS,
             },
@@ -380,9 +401,6 @@ class TestTrendsResultsFormatter(BaseTest):
                 "count": 0,
                 "aggregated_value": 1000,
                 "label": "$pageview",
-                "action": {
-                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
-                },
                 "compare": True,
                 "compare_label": Compare.CURRENT,
             },

@@ -26,7 +26,6 @@ from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyti
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
 from products.endpoints.backend.logic.execution import EndpointExecutionService
@@ -2471,8 +2470,6 @@ class TestEndpointMaterializationTemporal:
         )
         saved_query.columns = await sync_to_async(saved_query.get_columns)()
         await sync_to_async(saved_query.save)()
-
-        await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(saved_query)
 
         # Link saved_query to version instead of endpoint
         version.saved_query = saved_query

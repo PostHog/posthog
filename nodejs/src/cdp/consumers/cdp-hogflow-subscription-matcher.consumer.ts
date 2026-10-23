@@ -21,6 +21,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import { isValidTeamId } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 
 import {
@@ -139,7 +140,7 @@ type WakeSource = 'events' | 'person' | 'internal_events'
 
 const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
-    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), or unknown team.',
+    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), an invalid team id, or unknown team.',
     labelNames: ['reason'],
 })
 
@@ -185,6 +186,13 @@ type MatchedJob = {
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
+
+// What a stream parser reads from one message: the team to look up, and how to build the globals
+// once the team has loaded.
+type ParsedMessage = {
+    teamId: unknown
+    toGlobals: (team: Team) => HogFunctionInvocationGlobals
+}
 
 // Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
 export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
@@ -768,79 +776,83 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-                    // A job can be parked by distinct_id or person_id, so an event needs at least
-                    // one of them to match anything. Drop only events that carry neither.
-                    if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                        return
-                    }
-                    // The vast majority of events belong to teams with no wait_until_condition
-                    // step and no event conversion goal. Bail on those via the in-memory hogflow
-                    // cache before paying for getTeam + full globals conversion.
-                    if (!(await this.teamIsActionable(clickHouseEvent.team_id))) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
-                        return
-                    }
-                    const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
-                    if (!team) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                        return
-                    }
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
-                }
-            })
-        )
-
-        return events
+        return await this.parseBatch(messages, 'Error parsing message', (message) => {
+            const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+            // A job can be parked by distinct_id or person_id, so an event needs at least
+            // one of them to match anything. Drop only events that carry neither.
+            if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                return null
+            }
+            return {
+                teamId: clickHouseEvent.team_id,
+                toGlobals: (team) => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
+            }
+        })
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parsePersonMessages')
     public async _parsePersonBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
+        return await this.parseBatch(messages, 'Error parsing person message', (message) => {
+            const data = parseJSON(message.value!.toString()) as ClickHousePerson
+            // A deleted person can never satisfy a wait, so skip tombstones.
+            if (data.is_deleted) {
+                return null
+            }
+            // Parked waits are matched by person_id (the job's person.id), so a person
+            // mutation needs an id to wake anything.
+            if (!data.id) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                return null
+            }
+            return {
+                teamId: data.team_id,
+                toGlobals: (team) => convertClickhousePersonToWakeGlobals(data, team, this.config.SITE_URL),
+            }
+        })
+    }
 
-        await Promise.all(
+    /**
+     * Parsing and building the globals do no I/O. They read only the message and the loaded team, so an
+     * error there means the message is malformed. It fails the same way every time it is read, so this
+     * skips it. This also skips a team id that the lookups cannot query, for the same reason.
+     *
+     * The team gate and the team lookup read Postgres. Their errors fail the batch, so the consumer
+     * does not store the batch's offsets and reads the batch again after the pod restarts. Skipping
+     * the message instead would lose the event, and the wait or conversion goal it should satisfy
+     * would time out.
+     */
+    private async parseBatch(
+        messages: Message[],
+        errorLog: string,
+        parse: (message: Message) => ParsedMessage | null
+    ): Promise<HogFunctionInvocationGlobals[]> {
+        const events = await Promise.all(
             messages.map(async (message) => {
-                try {
-                    const data = parseJSON(message.value!.toString()) as ClickHousePerson
-                    // A deleted person can never satisfy a wait — skip tombstones.
-                    if (data.is_deleted) {
-                        return
-                    }
-                    // Parked waits are matched by person_id (the job's person.id), so a person
-                    // mutation needs an id to wake anything.
-                    if (!data.id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                        return
-                    }
-                    // clickhouse_person is a firehose; bail before getTeam + JSON parse for teams
-                    // with no flow the matcher can act on.
-                    if (!(await this.teamIsActionable(data.team_id))) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
-                        return
-                    }
-                    const team = await this.deps.teamManager.getTeam(data.team_id)
-                    if (!team) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                        return
-                    }
-                    events.push(convertClickhousePersonToWakeGlobals(data, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing person message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                const parsed = readMessage(errorLog, () => parse(message))
+                if (!parsed) {
+                    return null
                 }
+                if (!isValidTeamId(parsed.teamId)) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
+                    return null
+                }
+                // The vast majority of messages belong to teams with no wait_until_condition step and
+                // no conversion goal. Bail on those via the in-memory hogflow cache before paying for
+                // getTeam + full globals conversion.
+                if (!(await this.teamIsActionable(parsed.teamId))) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
+                    return null
+                }
+                const team = await this.deps.teamManager.getTeam(parsed.teamId)
+                if (!team) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
+                    return null
+                }
+                return readMessage(errorLog, () => parsed.toGlobals(team))
             })
         )
-
-        return events
+        return events.filter((globals): globals is HogFunctionInvocationGlobals => globals !== null)
     }
 
     // Step resumes name their job, so they skip the person and team gates the event parser applies.
@@ -877,34 +889,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
     public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
-                    if (!parsed.event.distinct_id && !parsed.person?.id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                        return
-                    }
-                    if (!(await this.teamIsActionable(parsed.team_id))) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
-                        return
-                    }
-                    const team = await this.deps.teamManager.getTeam(parsed.team_id)
-                    if (!team) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                        return
-                    }
-                    events.push(convertInternalEventToHogFunctionInvocationGlobals(parsed, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing internal event message', e)
-                    counterParseError.labels({ error: e.message }).inc()
-                }
-            })
-        )
-
-        return events
+        return await this.parseBatch(messages, 'Error parsing internal event message', (message) => {
+            const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+            if (!parsed.event.distinct_id && !parsed.person?.id) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                return null
+            }
+            return {
+                teamId: parsed.team_id,
+                toGlobals: (team) =>
+                    convertInternalEventToHogFunctionInvocationGlobals(parsed, team, this.config.SITE_URL),
+            }
+        })
     }
 
     // Synchronous (no getTeam/globals conversion — a repoint only carries ids), so unlike the other
@@ -912,7 +908,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public _parsePersonDistinctIdBatch(messages: Message[]): PersonDistinctIdMove[] {
         const moves: PersonDistinctIdMove[] = []
         for (const message of messages) {
-            try {
+            const move = readMessage('Error parsing person distinct id message', (): PersonDistinctIdMove | null => {
                 const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
                 // version > 0 is a repoint (identify/merge). version 0 is the distinct_id's first mapping
                 // to a person, which a wait parked before the person resolved needs to acquire its anchor:
@@ -920,26 +916,30 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 // unwakeable by any person-property change. processMoveBatch scopes version 0 to exactly
                 // those jobs, which is what keeps this off the insert firehose.
                 if (data.version === undefined || data.version === null || data.version < 0) {
-                    continue
+                    return null
                 }
                 // A distinct_id being deleted can't wake anything, and must never re-point a wait at a
                 // person that is going away.
                 if (data.is_deleted) {
-                    continue
+                    return null
                 }
                 if (!data.distinct_id || !data.person_id) {
                     counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                    continue
+                    return null
                 }
-                moves.push({
+                if (!isValidTeamId(data.team_id)) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
+                    return null
+                }
+                return {
                     teamId: data.team_id,
                     distinctId: data.distinct_id,
                     newPersonId: data.person_id,
                     version: data.version,
-                })
-            } catch (e) {
-                logger.error('Error parsing person distinct id message', e)
-                counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+            if (move) {
+                moves.push(move)
             }
         }
         return moves
@@ -1273,6 +1273,18 @@ function convertClickhousePersonToWakeGlobals(
             elements_chain: '',
         },
         person,
+    }
+}
+
+// Runs a step that reads only the message. A throw counts as a parse error and makes this return null.
+// The caller then skips the message.
+function readMessage<T>(errorLog: string, read: () => T): T | null {
+    try {
+        return read()
+    } catch (e) {
+        logger.error(errorLog, e)
+        counterParseError.labels({ error: e.message }).inc()
+        return null
     }
 }
 

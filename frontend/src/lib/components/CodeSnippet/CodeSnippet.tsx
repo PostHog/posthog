@@ -57,18 +57,23 @@ export enum Language {
 export const getLanguage = (lang: string): Language => {
     switch (lang) {
         case 'bash':
+        case 'sh':
+        case 'shell':
             return Language.Bash
         case 'csharp':
             return Language.CSharp
         case 'javascript':
+        case 'js':
         case 'jsx':
             return Language.JavaScript
         case 'typescript':
+        case 'ts':
         case 'tsx':
             return Language.TypeScript
         case 'java':
             return Language.Java
         case 'ruby':
+        case 'rb':
             return Language.Ruby
         case 'objectivec':
             return Language.ObjectiveC
@@ -79,6 +84,7 @@ export const getLanguage = (lang: string): Language => {
         case 'php':
             return Language.PHP
         case 'python':
+        case 'py':
             return Language.Python
         case 'dart':
             return Language.Dart
@@ -87,6 +93,7 @@ export const getLanguage = (lang: string): Language => {
         case 'json':
             return Language.JSON
         case 'yaml':
+        case 'yml':
             return Language.YAML
         case 'html':
             return Language.HTML

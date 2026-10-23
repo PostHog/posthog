@@ -68,7 +68,7 @@ class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResu
             name=ExternalDataSourceType.KONGKONNECT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kong Inc. (Kong Konnect)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, and identity realm consumers behind them, into the PostHog Data warehouse.
 
 Create a **Personal Access Token** under **Konnect → Personal access tokens**, or a **System Account access token** for a service identity. Either is sent as a bearer token.

@@ -18,6 +18,7 @@ import {
     mergeUsage,
 } from './llmPlaygroundRunLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import { createResponseFormat } from './playgroundPromptConfig'
 
 // Same contract as fetch-event-source: an error from the request or from onmessage goes to onerror,
 // and the request is sent again unless onerror throws.
@@ -111,6 +112,8 @@ describe('llmPlaygroundRunLogic', () => {
         llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
         llmPlaygroundPromptsLogic.actions.setTemperature(0.4)
         llmPlaygroundPromptsLogic.actions.setTopP(0.9)
+        const responseFormat = createResponseFormat({ type: 'object', properties: { ok: { type: 'boolean' } } })
+        llmPlaygroundPromptsLogic.actions.setResponseFormat(responseFormat)
         llmPlaygroundRunLogic.actions.submitPrompt()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -119,7 +122,9 @@ describe('llmPlaygroundRunLogic', () => {
         expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
             temperature: 0.4,
             top_p: 0.9,
+            response_format: responseFormat,
         })
+        expect(logic.values.comparisonItems[0]).toMatchObject({ expectsJson: true })
 
         logic.unmount()
         streamSpy.mockRestore()
