@@ -176,7 +176,7 @@ from products.signals.backend.report_check_authoring import (
     replace_metric_check,
 )
 from products.signals.backend.report_claims import (
-    actor_owns_claim,
+    actor_works_under_claim,
     get_active_claim,
     get_active_claims,
     reports_with_active_claim,
@@ -2275,6 +2275,7 @@ class SignalReportViewSet(
                 pull_requests=data.get("pull_requests"),
                 claim_id=str(data["claim_id"]) if data.get("claim_id") else None,
                 takeover=data["takeover"],
+                takeover_claim_id=str(data["takeover_claim_id"]) if data.get("takeover_claim_id") else None,
             )
         except InvalidPullRequestUrl as err:
             raise serializers.ValidationError({"pr_url": str(err)})
@@ -5910,7 +5911,7 @@ class SignalReportArtefactViewSet(
                 if (
                     assignment is None
                     or assignment.claim_id != claim_id
-                    or not actor_owns_claim(assignment, attribution)
+                    or not actor_works_under_claim(assignment, attribution)
                 ):
                     return Response(
                         {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT

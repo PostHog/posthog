@@ -700,6 +700,13 @@ class SignalReportClaimSerializer(serializers.Serializer):
     takeover = serializers.BooleanField(
         required=False, default=False, help_text="Explicitly end another actor's claim and take ownership."
     )
+    takeover_claim_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "With takeover, the claim the caller expects to replace. The takeover is rejected when a different "
+            "claim is active, so a takeover based on a stale read cannot replace a newer claim."
+        ),
+    )
     pr_url = serializers.URLField(
         required=False,
         help_text="Compatibility alias for adding one PR. Prefer pull_requests for new callers.",
@@ -715,6 +722,8 @@ class SignalReportClaimSerializer(serializers.Serializer):
             raise serializers.ValidationError("Release cannot be combined with PR attachment or takeover.")
         if attrs.get("claim_id") and attrs.get("takeover"):
             raise serializers.ValidationError("A claim ID cannot be combined with takeover.")
+        if attrs.get("takeover_claim_id") and not attrs.get("takeover"):
+            raise serializers.ValidationError("takeover_claim_id requires takeover.")
         return attrs
 
 
