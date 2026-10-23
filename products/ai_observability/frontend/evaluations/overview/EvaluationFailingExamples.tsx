@@ -4,9 +4,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import type { EvaluationFailureApi } from '../../generated/api.schemas'
+import type { EvaluationRunApi } from '../../generated/api.schemas'
 
-export function EvaluationFailingExamples({ failures }: { failures: EvaluationFailureApi[] }): JSX.Element {
+export function EvaluationFailingExamples({ failures }: { failures: EvaluationRunApi[] }): JSX.Element {
     return (
         <ul className="flex flex-col gap-3">
             {failures.map((failure, index) => (

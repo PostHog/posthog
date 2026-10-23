@@ -2,9 +2,8 @@ import { useActions } from 'kea'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import type { EvaluationOverviewDetailsApi } from '../../generated/api.schemas'
 import { RATE_LIMITED_MESSAGE } from './evaluationOverviewDisplay'
-import { type DetailsLoad, evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
+import { type DetailsLoad, type EvaluationDetails, evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 
 export function EvaluationResultDetails({
     evaluationId,
@@ -13,7 +12,7 @@ export function EvaluationResultDetails({
 }: {
     evaluationId: string
     load: DetailsLoad | null
-    children: (details: EvaluationOverviewDetailsApi) => JSX.Element
+    children: (details: EvaluationDetails) => JSX.Element
 }): JSX.Element {
     const { loadDetails } = useActions(evaluationResultDrawerLogic)
 

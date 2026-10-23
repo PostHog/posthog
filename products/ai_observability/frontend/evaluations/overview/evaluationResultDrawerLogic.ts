@@ -1,11 +1,12 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { evaluationsOverviewDetailsRetrieve } from '../../generated/api'
+import { evaluationsRunsRetrieve, evaluationsScoreDistributionRetrieve } from '../../generated/api'
 import type {
-    EvaluationOverviewDetailsApi,
     EvaluationResultApi,
+    EvaluationRunApi,
     EvaluationsOverviewApi,
+    ScoreHistogramApi,
 } from '../../generated/api.schemas'
 import {
     type OverviewFailure,
@@ -16,11 +17,18 @@ import {
 
 /** How long the pointer rests on a row name before its details are read. */
 const PREFETCH_DELAY_MS = 75
+const RECENT_FAILURES_LIMIT = 5
+
+/** Each part is null when the evaluation has none: failures need a passing rule, the histogram a score scale. */
+export interface EvaluationDetails {
+    recentFailures: EvaluationRunApi[] | null
+    scoreDistribution: ScoreHistogramApi | null
+}
 
 export type DetailsTrigger = 'open' | 'prefetch'
 export type DetailsLoad =
     | { status: 'loading' }
-    | { status: 'ready'; details: EvaluationOverviewDetailsApi }
+    | { status: 'ready'; details: EvaluationDetails }
     | { status: 'error'; failure: OverviewFailure }
 
 function detailsKey(evaluationId: string, request: OverviewRequest): string {
@@ -222,12 +230,27 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
             const { date_from, date_to } = values.request.params
             const refresh = cache.refreshKeys?.delete(key) === true
             const generation = cache.generation ?? 0
-            const load = await evaluationsOverviewDetailsRetrieve(String(values.currentTeamId), evaluationId, {
-                date_from,
-                date_to,
-                ...(refresh ? { refresh: true } : {}),
-            }).then(
-                (details): DetailsLoad => ({ status: 'ready', details }),
+            const projectId = String(values.currentTeamId)
+            const params = { date_from, date_to, ...(refresh ? { refresh: true } : {}) }
+            // Each endpoint rejects an evaluation it does not apply to, so the row decides which ones to read.
+            const summary = values.rowsById.get(evaluationId)?.summary
+            const scale = summary && 'score' in summary ? summary.score?.scale : null
+            const load = await Promise.all([
+                summary?.kind === 'pass_rate'
+                    ? evaluationsRunsRetrieve(projectId, evaluationId, {
+                          ...params,
+                          outcome: 'failed',
+                          limit: RECENT_FAILURES_LIMIT,
+                      }).then((runs) => runs.results)
+                    : null,
+                scale && scale.min < scale.max
+                    ? evaluationsScoreDistributionRetrieve(projectId, evaluationId, params)
+                    : null,
+            ]).then(
+                ([recentFailures, scoreDistribution]): DetailsLoad => ({
+                    status: 'ready',
+                    details: { recentFailures, scoreDistribution },
+                }),
                 (error: unknown): DetailsLoad => ({ status: 'error', failure: failureOf(error) })
             )
             if (cache.prefetchingKey === key) {

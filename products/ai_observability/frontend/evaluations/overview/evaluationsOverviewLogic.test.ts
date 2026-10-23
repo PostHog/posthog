@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { EvaluationApi } from '../../generated/api.schemas'
+import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
@@ -44,6 +44,45 @@ const evaluation = (id: string, directoryId: string | null): Partial<EvaluationA
     created_by: null,
 })
 
+const row = (id: string, outputType: string, summary: EvaluationResultApi['summary']): EvaluationResultApi => ({
+    id,
+    name: `Evaluation ${id}`,
+    directoryName: null,
+    evaluationType: 'llm_judge',
+    outputType,
+    enabled: true,
+    statusReason: null,
+    createdBy: null,
+    gradedCount: 10,
+    previousGradedCount: null,
+    notApplicableCount: 0,
+    skippedCount: 0,
+    lastRunAt: null,
+    summary,
+    trend: { values: [], volume: [] },
+    change: null,
+    lowEvidence: false,
+    attentionReasons: [],
+    bucketStatus: [],
+    trackedCategory: null,
+})
+
+const SCALE = { min: 0, max: 10 }
+const ROWS = [
+    row('eval-a', 'boolean', { kind: 'pass_rate', passed: 8, failed: 2, previous: null, score: null }),
+    row('eval-b', 'numeric', {
+        kind: 'pass_rate',
+        passed: 8,
+        failed: 2,
+        previous: null,
+        score: { mean: 7, scale: SCALE },
+    }),
+    row('eval-c', 'numeric', { kind: 'score', score: { mean: 7, scale: SCALE }, previousMean: null }),
+    row('eval-d', 'numeric', { kind: 'score', score: { mean: 7, scale: null }, previousMean: null }),
+    row('eval-e', 'categorical', { kind: 'categories', multiple: false, categories: [], noCategoriesCount: 0 }),
+]
+const HISTOGRAM = { scale: SCALE, buckets: [{ label: '7', count: 10 }] }
+
 const PERIOD = 'date_from=2026-10-01&date_to=2026-10-14'
 
 /** The clock the tests read. Only Date is faked, so kea breakpoints and network mocks keep real timers. */
@@ -55,6 +94,16 @@ function lastHours(hours: number): string {
     const instant = (value: dayjs.Dayjs): string => value.format('YYYY-MM-DDTHH:mm:ss[Z]')
     return `date_from=${instant(end.subtract(hours, 'hour'))}&date_to=${instant(end)}`
 }
+
+/** A details read as `<endpoint> <id> <query>`, without the period every read sends. */
+function detailRequest(endpoint: string, id: string, url: string): string {
+    const params = new URL(url).searchParams
+    params.delete('date_from')
+    params.delete('date_to')
+    return `${endpoint} ${id} ${params.toString()}`.trim()
+}
+
+const FAILURES_QUERY = 'outcome=failed&limit=5'
 
 describe('evaluationsOverviewLogic', () => {
     let requests: URLSearchParams[]
@@ -92,26 +141,20 @@ describe('evaluationsOverviewLogic', () => {
                     results: [evaluation('eval-a', null), evaluation('eval-b', 'dir-1'), evaluation('eval-c', 'dir-1')],
                 },
                 '/api/projects/:teamId/evaluation_directories/': [],
-                '/api/projects/:teamId/evaluations/:id/overview_details/': ({ params, request }) => {
-                    const refresh = new URL(request.url).searchParams.get('refresh') === 'true'
-                    detailRequests.push(`${params.id}${refresh ? ' refresh' : ''}`)
-                    return [
-                        200,
-                        {
-                            evaluationId: params.id,
-                            start: '2026-10-01T00:00:00+00:00',
-                            end: '2026-10-15T00:00:00+00:00',
-                            recentFailures: [],
-                            scoreDistribution: null,
-                        },
-                    ]
+                '/api/projects/:teamId/evaluations/:id/runs/': ({ params, request }) => {
+                    detailRequests.push(detailRequest('runs', params.id as string, request.url))
+                    return [200, { results: [] }]
+                },
+                '/api/projects/:teamId/evaluations/:id/score_distribution/': ({ params, request }) => {
+                    detailRequests.push(detailRequest('score_distribution', params.id as string, request.url))
+                    return [200, HISTOGRAM]
                 },
                 '/api/projects/:teamId/evaluations/overview/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     requests.push(params)
                     // The backend buckets a day or two by hour.
                     const oneDay = params.get('date_from') === params.get('date_to')
-                    return [200, { ...EMPTY_OVERVIEW, interval: oneDay ? 'hour' : 'day' }]
+                    return [200, { ...EMPTY_OVERVIEW, evaluations: ROWS, interval: oneDay ? 'hour' : 'day' }]
                 },
             },
         })
@@ -250,7 +293,7 @@ describe('evaluationsOverviewLogic', () => {
         drawerLogic.actions.prefetchDetails('eval-b')
         await expectLogic(drawerLogic).toFinishAllListeners()
 
-        expect(detailRequests).toEqual(['eval-b'])
+        expect(detailRequests).toEqual([`runs eval-b ${FAILURES_QUERY}`, 'score_distribution eval-b'])
         expect(drawerLogic.values.details).toMatchObject({
             'eval-b/2026-10-01/2026-10-14': { status: 'ready' },
         })
@@ -266,7 +309,12 @@ describe('evaluationsOverviewLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(drawerLogic).toFinishAllListeners()
 
-        expect(detailRequests).toEqual(['eval-b', 'eval-b'])
+        expect(detailRequests).toEqual([
+            `runs eval-b ${FAILURES_QUERY}`,
+            'score_distribution eval-b',
+            `runs eval-b ${FAILURES_QUERY}`,
+            'score_distribution eval-b',
+        ])
         expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
     })
 
@@ -356,7 +404,65 @@ describe('evaluationsOverviewLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(drawerLogic).toFinishAllListeners()
 
-        expect(detailRequests).toEqual(['eval-b', 'eval-b refresh'])
+        expect(detailRequests).toEqual([
+            `runs eval-b ${FAILURES_QUERY}`,
+            'score_distribution eval-b',
+            `runs eval-b refresh=true&${FAILURES_QUERY}`,
+            'score_distribution eval-b refresh=true',
+        ])
         expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
+    })
+
+    test.each([
+        {
+            kind: 'boolean pass rate',
+            id: 'eval-a',
+            expected: [`runs eval-a ${FAILURES_QUERY}`],
+            details: { recentFailures: [], scoreDistribution: null },
+        },
+        {
+            kind: 'numeric pass rate',
+            id: 'eval-b',
+            expected: [`runs eval-b ${FAILURES_QUERY}`, 'score_distribution eval-b'],
+            details: { recentFailures: [], scoreDistribution: HISTOGRAM },
+        },
+        {
+            kind: 'score',
+            id: 'eval-c',
+            expected: ['score_distribution eval-c'],
+            details: { recentFailures: null, scoreDistribution: HISTOGRAM },
+        },
+        {
+            kind: 'score without bounds',
+            id: 'eval-d',
+            expected: [],
+            details: { recentFailures: null, scoreDistribution: null },
+        },
+        {
+            kind: 'categorical',
+            id: 'eval-e',
+            expected: [],
+            details: { recentFailures: null, scoreDistribution: null },
+        },
+    ])('reads only the details a $kind evaluation has', async ({ id, expected, details }) => {
+        const drawerLogic = evaluationResultDrawerLogic()
+        drawerLogic.mount()
+
+        drawerLogic.actions.openDrawer(id)
+        await expectLogic(drawerLogic).toFinishAllListeners()
+
+        expect(detailRequests).toEqual(expected)
+        expect(drawerLogic.values.openDetails).toEqual({ status: 'ready', details })
+    })
+
+    it('shows the details as failed when either read fails', async () => {
+        useMocks({ get: { '/api/projects/:teamId/evaluations/:id/score_distribution/': () => [500, {}] } })
+        const drawerLogic = evaluationResultDrawerLogic()
+        drawerLogic.mount()
+
+        drawerLogic.actions.openDrawer('eval-b')
+        await expectLogic(drawerLogic).toFinishAllListeners()
+
+        expect(drawerLogic.values.openDetails).toEqual({ status: 'error', failure: 'failed' })
     })
 })

@@ -11,10 +11,11 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 
 import type {
     EvaluationApi,
-    EvaluationOverviewDetailsApi,
     EvaluationResultApi,
+    EvaluationRunsApi,
     EvaluationsOverviewApi,
     PassRateOverviewEntryApi,
+    ScoreHistogramApi,
 } from '../../generated/api.schemas'
 
 const DAYS = Array.from({ length: 14 }, (_, index) => `2026-10-${String(7 + index).padStart(2, '0')}T00:00:00+00:00`)
@@ -311,32 +312,28 @@ const FAILURES: Record<string, string[]> = {
     ],
 }
 
-/** Invented drawer details for one evaluation, matching the shape the details endpoint returns. */
-function details(id: string): EvaluationOverviewDetailsApi {
+/** Invented failing runs for one evaluation, newest first, matching the shape the runs endpoint returns. */
+function failingRuns(id: string): EvaluationRunsApi {
     return {
-        evaluationId: id,
-        start: DAYS[0],
-        end: '2026-10-21T00:00:00+00:00',
-        recentFailures: (FAILURES[id] ?? []).map((reasoning, index) => ({
+        results: (FAILURES[id] ?? []).map((reasoning, index) => ({
             timestamp: `2026-10-19T0${9 - index}:12:00Z`,
+            outcome: 'failed',
             reasoning,
             targetEventId: `0b1ee000-0000-4000-8000-00000000000${index}`,
             traceId: `trace-example-${index}`,
         })),
-        scoreDistribution:
-            id === SCORE.id
-                ? {
-                      scale: { min: 1, max: 5 },
-                      buckets: [
-                          { label: '1', count: 40 },
-                          { label: '2', count: 96 },
-                          { label: '3', count: 210 },
-                          { label: '4', count: 452 },
-                          { label: '5', count: 322 },
-                      ],
-                  }
-                : null,
     }
+}
+
+const SCORE_HISTOGRAM: ScoreHistogramApi = {
+    scale: { min: 1, max: 5 },
+    buckets: [
+        { label: '1', count: 40 },
+        { label: '2', count: 96 },
+        { label: '3', count: 210 },
+        { label: '4', count: 452 },
+        { label: '5', count: 322 },
+    ],
 }
 
 function scene(rows: EvaluationResultApi[], { rateLimited = false } = {}): ReturnType<typeof mswDecorator> {
@@ -350,10 +347,8 @@ function scene(rows: EvaluationResultApi[], { rateLimited = false } = {}): Retur
                 const ids = new URL(request.url).searchParams.get('evaluation_ids')?.split(',')
                 return [200, overview(ids ? rows.filter((row) => ids.includes(row.id)) : rows)]
             },
-            '/api/projects/:team_id/evaluations/:id/overview_details/': ({ params }) => [
-                200,
-                details(String(params.id)),
-            ],
+            '/api/projects/:team_id/evaluations/:id/runs/': ({ params }) => [200, failingRuns(String(params.id))],
+            '/api/projects/:team_id/evaluations/:id/score_distribution/': SCORE_HISTOGRAM,
             '/api/projects/:team_id/evaluation_directories/': DIRECTORIES.filter((directory) =>
                 rows.some((row) => row.directoryName === directory.name)
             ),
