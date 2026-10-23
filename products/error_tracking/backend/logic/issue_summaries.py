@@ -10,7 +10,7 @@ import time
 import hashlib
 from datetime import datetime, timedelta
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.db import IntegrityError
 from django.utils import timezone
@@ -112,7 +112,10 @@ IN_APP_FRAME_MARKER = "[in-app]"
 WAIT_POLL_INTERVAL_SECONDS = 0.25
 # Event values must not open or close the <issue> block that fences them in the prompt.
 ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
-LOCK_HELD_FOR_GENERATION = "1"
+# A worker claims with this prefix and its own token, so only that worker can settle the claim.
+LOCK_CLAIM_PREFIX = "claim:"
+# Workers deployed before claim tokens claim with this value.
+LEGACY_LOCK_CLAIM = "1"
 LOCK_QUEUED = "queued"
 # Takes the lock when the key is free or holds only the queued marker. Returns nil on success, else the value that holds it.
 CLAIM_LUA = """
@@ -124,6 +127,18 @@ end
 return held
 """
 # Deletes the key only while it holds the queued marker, so a worker's claim or a hold outcome survives.
+# Writes the outcome only while the key still holds the caller's claim. An empty TTL keeps the current one.
+SETTLE_LUA = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+if ARGV[3] == '' then
+    redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+else
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+end
+return 1
+"""
 RELEASE_QUEUED_LUA = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     return redis.call('DEL', KEYS[1])
@@ -322,15 +337,16 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     stored = get_issue_summary(team_id, issue_id)
     if (blocked := generation_blocked(team_id, stored)) is not None:
         return IssueSummaryResult(outcome=blocked, summary=stored)
-    if (held := _claim_generation(team_id, issue_id)) is not None:
+    claim = f"{LOCK_CLAIM_PREFIX}{uuid4().hex}"
+    if (held := _claim_generation(team_id, issue_id, claim)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
     try:
         result = _generate_claimed(team_id, issue_id)
     except Exception:
-        _settle_claim(team_id, issue_id, IssueSummaryOutcome.UNEXPECTED_ERROR)
+        _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR)
         raise
-    _settle_claim(team_id, issue_id, result.outcome)
+    _settle_claim(team_id, issue_id, claim, result.outcome)
     return result
 
 
@@ -414,12 +430,12 @@ def _lock_key(team_id: int, issue_id: UUID | str) -> str:
     return f"{ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{team_id}:{issue_id}"
 
 
-def _claim_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
-    """None when this worker now holds the issue, else the outcome that holds it."""
+def _claim_generation(team_id: int, issue_id: UUID | str, claim: str) -> IssueSummaryOutcome | None:
+    """None when this worker now holds the issue under `claim`, else the outcome that holds it."""
     try:
         held = get_client().register_script(CLAIM_LUA)(
             keys=[_lock_key(team_id, issue_id)],
-            args=[LOCK_QUEUED, LOCK_HELD_FOR_GENERATION, ISSUE_SUMMARY_LOCK_TTL_SECONDS],
+            args=[LOCK_QUEUED, claim, ISSUE_SUMMARY_LOCK_TTL_SECONDS],
         )
     except RedisError:
         # Fail open, as the budget does: a Redis outage can let two concurrent reads both pay.
@@ -431,24 +447,22 @@ def _claim_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome
 def _lock_outcome(held: bytes | str | None) -> IssueSummaryOutcome:
     """A live claim or a queued task means a summary may come. Every other value is the outcome that stopped generation."""
     value = held.decode() if isinstance(held, bytes) else held
-    if value is None or value in (LOCK_HELD_FOR_GENERATION, LOCK_QUEUED):
+    if value is None or value in (LEGACY_LOCK_CLAIM, LOCK_QUEUED) or value.startswith(LOCK_CLAIM_PREFIX):
         return IssueSummaryOutcome.IN_PROGRESS
     return IssueSummaryOutcome(value)
 
 
-def _settle_claim(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
-    """Replace the claim with `outcome` when no summary came of it, so reads stop waiting for one.
+def _settle_claim(team_id: int, issue_id: UUID | str, claim: str, outcome: IssueSummaryOutcome) -> None:
+    """Replace this worker's claim with `outcome` when no summary came of it, so reads stop waiting for one.
 
-    A hold outcome extends the lock. Any other failure keeps the lock TTL, so the retry spacing does not change,
-    and `xx` keeps an expired lock from coming back with no TTL at all.
+    A hold outcome extends the lock. Any other failure keeps the lock TTL, so the retry spacing does not change.
+    Nothing is written when the key no longer holds `claim`: the lock expired, or another read took the issue.
     """
     if outcome in SETTLED_OUTCOMES:
         return
+    ttl = str(ISSUE_SUMMARY_HOLD_SECONDS) if outcome in HOLD_OUTCOMES else ""
     try:
-        if outcome in HOLD_OUTCOMES:
-            get_client().set(_lock_key(team_id, issue_id), outcome.value, ex=ISSUE_SUMMARY_HOLD_SECONDS)
-        else:
-            get_client().set(_lock_key(team_id, issue_id), outcome.value, xx=True, keepttl=True)
+        get_client().register_script(SETTLE_LUA)(keys=[_lock_key(team_id, issue_id)], args=[claim, outcome.value, ttl])
     except RedisError:
         logger.warning("error_tracking_issue_summary_hold_unavailable", team_id=team_id, exc_info=True)
 

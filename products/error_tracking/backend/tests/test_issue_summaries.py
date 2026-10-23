@@ -343,7 +343,8 @@ class TestIssueSummaryGeneration(BaseTest):
             ("held_no_exception", True, IssueSummaryOutcome.NO_EXCEPTION.value, False, False),
             ("held_rate_limited", True, IssueSummaryOutcome.RATE_LIMITED.value, False, False),
             ("held_after_failure", True, IssueSummaryOutcome.MODEL_ERROR.value, False, False),
-            ("claimed_by_another_worker", True, issue_summaries.LOCK_HELD_FOR_GENERATION, True, False),
+            ("claimed_by_another_worker", True, f"{issue_summaries.LOCK_CLAIM_PREFIX}other", True, False),
+            ("claimed_by_an_older_worker", True, issue_summaries.LEGACY_LOCK_CLAIM, True, False),
         ]
     )
     def test_start_generation_queues_only_when_it_can_generate(
@@ -398,6 +399,18 @@ class TestIssueSummaryGeneration(BaseTest):
 
         self._release_lock()
         assert self._start() == (True, True)
+
+    def test_failure_does_not_overwrite_a_lock_this_worker_no_longer_holds(self) -> None:
+        def lose_the_lock_then_fail(**_kwargs: Any) -> MagicMock:
+            issue_summaries.get_client().set(self._lock_key, issue_summaries.LOCK_QUEUED, ex=60)
+            raise TimeoutError("slow")
+
+        self.completions.side_effect = lose_the_lock_then_fail
+
+        result = get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert result.outcome == IssueSummaryOutcome.MODEL_ERROR
+        assert issue_summaries.get_client().get(self._lock_key) == issue_summaries.LOCK_QUEUED.encode()
 
     def test_unexpected_error_stops_start_and_still_raises(self) -> None:
         with (
