@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -282,3 +283,27 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
 
         assert result["queryError"] == str(error)
         assert result["rows"] == []
+
+    def test_increase_column_shows_the_same_total_after_the_retry(self) -> None:
+        for route in ("/c1", "/c2", "/c3", "/c4", "/c5"):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="jobs_done_total",
+                points=[(self.now - dt.timedelta(minutes=59 - minute), 60.0 * minute) for minute in range(60)],
+                labels={"route": route},
+                metric_type="sum",
+                is_monotonic=True,
+            )
+        config = {
+            "groupBy": "route",
+            "columns": [{"label": "Jobs", "metricName": "jobs_done_total", "aggregation": "increase"}],
+            "dateRange": {"date_from": "-1h"},
+        }
+
+        full_buckets = self._run(config)
+        with patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 60):
+            retried = self._run(config)
+
+        assert [row["values"][0] for row in retried["rows"]] == pytest.approx(
+            [row["values"][0] for row in full_buckets["rows"]], rel=0.25
+        )

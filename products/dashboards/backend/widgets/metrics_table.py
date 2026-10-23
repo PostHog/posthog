@@ -55,6 +55,11 @@ def _clause(index: int, column: dict[str, Any], group_by: str) -> MetricQueryCla
     )
 
 
+def _sum(values: list[float]) -> float | None:
+    finite = [value for value in values if math.isfinite(value)]
+    return sum(finite) if finite else None
+
+
 def _mean(values: list[float]) -> float | None:
     finite = [value for value in values if math.isfinite(value)]
     return sum(finite) / len(finite) if finite else None
@@ -150,7 +155,10 @@ def run_metrics_table_widget(
         row = rows_by_key.setdefault(
             key, {"key": key, "values": [None] * len(columns), "sparklines": [[] for _ in columns]}
         )
-        row["values"][index] = _mean([point.value for point in item.points if point.value is not None])
+        values = [point.value for point in item.points if point.value is not None]
+        # An increase bucket holds the change in that bucket, so the total over the range does not depend on
+        # the bucket size. Every other calculation is a level per bucket, so its mean does not either.
+        row["values"][index] = _sum(values) if columns[index]["aggregation"] == "increase" else _mean(values)
         row["sparklines"][index] = _sparkline(item)
 
     ordered = _order_rows(
