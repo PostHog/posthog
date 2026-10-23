@@ -14,10 +14,14 @@ from products.error_tracking.backend.logic.sentry_migration.client import Sentry
 
 # Keep in sync with BUCKET_OPTIONS in frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/rateLimitConfigLogic.ts.
 SUPPORTED_BUCKET_MINUTES = (15, 30, 60)
+# ErrorTrackingSettings.project_rate_limit_value is a 32-bit integer column.
+MAX_RATE_LIMIT_VALUE = 2**31 - 1
 
 # Characters with a meaning in RE2, Rust regex and JavaScript. Escaping only these keeps every
 # generated pattern valid in all three engines: ClickHouse, cymbal and the Python HogVM.
 _REGEX_METACHARACTERS = frozenset(".^$*+?()[]{}|\\")
+# Inside a character class Rust regex also reads `&&`, `--` and `~~` as set operations.
+_CLASS_METACHARACTERS = frozenset("\\[]^-&~")
 
 # A Sentry pattern that starts with a literal exception type, such as "TypeError: Failed to fetch*".
 _TYPE_PREFIX = re.compile(r"^([A-Za-z_$][\w$.]*): (.+)$", re.DOTALL)
@@ -172,8 +176,8 @@ def _group(operator: str, values: list[dict]) -> dict:
 def glob_to_regex(glob: str) -> str:
     """Translate a Sentry glob into an anchored, case-insensitive regex.
 
-    Sentry globs support `*`, `?`, `{a,b}` alternatives and backslash escapes, match across
-    newlines, and ignore case.
+    Sentry globs support `*`, `?`, `[abc]`, `[a-z]` and `[!abc]` classes, `{a,b}` alternatives
+    and backslash escapes, match across newlines, and ignore case.
     """
     parts: list[str] = []
     in_alternatives = False
@@ -188,6 +192,10 @@ def glob_to_regex(glob: str) -> str:
             parts.append(".*")
         elif char == "?":
             parts.append(".")
+        elif char == "[" and (class_end := _class_end(glob, index)) is not None:
+            parts.append(_char_class(glob[index + 1 : class_end]))
+            index = class_end + 1
+            continue
         elif char == "{" and not in_alternatives and "}" in glob[index + 1 :]:
             parts.append("(?:")
             in_alternatives = True
@@ -204,6 +212,26 @@ def glob_to_regex(glob: str) -> str:
 
 def _escape(char: str) -> str:
     return f"\\{char}" if char in _REGEX_METACHARACTERS else char
+
+
+def _class_end(glob: str, start: int) -> int | None:
+    """Index of the `]` that closes the class opened at `start`, or None when the class never closes."""
+    body_start = start + 1
+    if glob[body_start : body_start + 1] == "!":
+        body_start += 1
+    # A `]` right after the opening bracket is a literal member, as in `[]a]`.
+    close = glob.find("]", body_start + 1)
+    return close if close != -1 else None
+
+
+def _char_class(body: str) -> str:
+    negated = body.startswith("!")
+    members = body[1:] if negated else body
+    escaped = []
+    for position, char in enumerate(members):
+        is_range = char == "-" and 0 < position < len(members) - 1
+        escaped.append(char if is_range or char not in _CLASS_METACHARACTERS else f"\\{char}")
+    return f"[{'^' if negated else ''}{''.join(escaped)}]"
 
 
 def _glob_leaf(key: str, glob: str) -> dict:
@@ -286,8 +314,23 @@ class SentryMigrationPlanner:
             SUPPORTED_BUCKET_MINUTES, key=lambda minutes: abs(minutes * 60 - rate_limit.window_seconds)
         )
         value = max(1, round(rate_limit.count * bucket_minutes * 60 / rate_limit.window_seconds))
-        converted = SentryMigrationRateLimit(value=value, bucket_size_minutes=bucket_minutes)
         sentry_value = f"{rate_limit.count:,} events per {_format_window(rate_limit.window_seconds)}"
+        if value > MAX_RATE_LIMIT_VALUE:
+            return SentryMigrationItem(
+                id=f"rate_limit:{rate_limit.key_id}",
+                category=SentryMigrationCategory.RATE_LIMIT,
+                sentry_setting=f'Rate limit on client key "{rate_limit.key_label}"',
+                sentry_value=sentry_value,
+                fit=SentryMigrationFit.UNSUPPORTED,
+                note=(
+                    f"This becomes {value:,} exceptions per {_format_window(bucket_minutes * 60)}, which is more "
+                    "than a PostHog rate limit can hold."
+                ),
+                suppression_rule_filters=None,
+                rate_limit=None,
+                already_in_posthog=False,
+            )
+        converted = SentryMigrationRateLimit(value=value, bucket_size_minutes=bucket_minutes)
 
         notes: list[str] = []
         exact = bucket_minutes * 60 == rate_limit.window_seconds
@@ -322,11 +365,18 @@ class SentryMigrationPlanner:
         note: str | None = None
         if typed:
             exception_type, value_glob = typed.groups()
-            values = [_leaf("$exception_types", "exact", [exception_type])]
+            values = [_leaf("$exception_types", "regex", f"(?i)^{''.join(map(_escape, exception_type))}$")]
             if value_glob != "*":
                 values.append(_glob_leaf("$exception_values", value_glob))
             filters = _group("AND", values)
-            fit = SentryMigrationFit.GOOD
+            # Cymbal deduplicates $exception_types and $exception_values separately, so the two lists
+            # don't line up by position and a rule can't pair a type with its own message.
+            fit = SentryMigrationFit.PARTIAL
+            note = (
+                "Sentry matched the type and the message of the same exception. PostHog checks them across the "
+                "whole exception chain, so a chained error can match the type in one exception and the message "
+                "in another."
+            )
         else:
             # Sentry matches the pattern against "Type: message", so the type alone can match it too.
             filters = _group("OR", [_glob_leaf("$exception_values", glob), _glob_leaf("$exception_types", glob)])

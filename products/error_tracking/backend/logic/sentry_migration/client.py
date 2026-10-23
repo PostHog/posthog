@@ -1,3 +1,4 @@
+import time
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
@@ -15,6 +16,8 @@ SENTRY_CLOUD_URL = "https://sentry.io"
 REQUEST_TIMEOUT_SECONDS = 15
 # A person waits on every call, so stop paging long before a slow walk times the request out.
 MAX_PAGES = 10
+# Upper bound on all Sentry calls one PostHog request makes, however many organizations the token sees.
+TOTAL_TIMEOUT_SECONDS = 45
 
 
 class SentryApiError(Exception):
@@ -49,8 +52,9 @@ class SentryProjectConfig:
 def normalize_base_url(base_url: str | None) -> str:
     url = (base_url or SENTRY_CLOUD_URL).strip().rstrip("/")
     parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise SentryApiError("Enter the Sentry URL with http:// or https://, for example https://sentry.io.")
+    # The auth token travels in a header, so a plain http:// URL would expose it on the network.
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise SentryApiError("Enter the Sentry URL with https://, for example https://sentry.io.")
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
@@ -65,6 +69,7 @@ class SentryApiClient:
     def __init__(self, connection: SentryConnection) -> None:
         self._token = connection.auth_token
         self._base_url = normalize_base_url(connection.base_url)
+        self._deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS
 
     def list_projects(self) -> list[SentryProject]:
         projects: list[SentryProject] = []
@@ -133,19 +138,27 @@ class SentryApiClient:
             next_link = response.links.get("next", {})
             # Sentry always sends a next link, and marks whether it leads to more results.
             if next_link.get("results") != "true" or not next_link.get("cursor"):
-                break
+                return results
             cursor = next_link["cursor"]
-        return results
+        raise SentryApiError(
+            "This token can see more Sentry data than PostHog can read in one go. "
+            "Use a token whose user belongs to fewer organizations, then connect again."
+        )
 
     def _get(self, api_url: str, path: str) -> Any:
         return self._json(self._request(f"{api_url}{path}"))
 
     def _request(self, url: str) -> requests.Response:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise SentryApiError(
+                "Sentry took too long to answer. Try again, or use a token whose user belongs to fewer organizations."
+            )
         try:
             response = pinned_request(
                 "GET",
                 url,
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=min(REQUEST_TIMEOUT_SECONDS, remaining),
                 headers={"Authorization": f"Bearer {self._token}", "Accept": "application/json"},
             )
         except SSRFBlockedError as err:

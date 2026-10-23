@@ -30,9 +30,17 @@ const CATEGORY_TITLES: Record<SentryMigrationCategoryEnumApi, string> = {
 }
 
 export function SentryMigration(): JSX.Element {
-    const { isConnected, projects, selectedProjectKey, items, itemsLoading, selectedItemIds, importResultLoading } =
-        useValues(sentryMigrationLogic)
-    const { toggleItem, applyImport, disconnect } = useActions(sentryMigrationLogic)
+    const {
+        isConnected,
+        projects,
+        selectedProjectKey,
+        items,
+        itemsLoading,
+        previewFailed,
+        selectedItemIds,
+        importResultLoading,
+    } = useValues(sentryMigrationLogic)
+    const { toggleItem, applyImport, disconnect, loadPreview } = useActions(sentryMigrationLogic)
     const editAccessDisabledReason = errorTrackingEditAccessDisabledReason()
     const selectableCount = (items ?? []).filter(isSelectable).length
 
@@ -73,7 +81,28 @@ export function SentryMigration(): JSX.Element {
                             </Button>
                         </div>
 
-                        {!selectedProjectKey ? null : itemsLoading || items === null ? (
+                        {!selectedProjectKey ? null : itemsLoading ? (
+                            <Spinner />
+                        ) : previewFailed ? (
+                            <Empty>
+                                <EmptyHeader>
+                                    <EmptyTitle>Couldn't load this project from Sentry</EmptyTitle>
+                                    <EmptyDescription>
+                                        Try again. If it keeps failing, the token may have expired, so use another
+                                        token.
+                                    </EmptyDescription>
+                                </EmptyHeader>
+                                <EmptyContent>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => loadPreview()}
+                                        data-attr="error-tracking-sentry-migration-retry-preview"
+                                    >
+                                        Try again
+                                    </Button>
+                                </EmptyContent>
+                            </Empty>
+                        ) : items === null ? (
                             <Spinner />
                         ) : items.length === 0 ? (
                             <Empty>
