@@ -59,8 +59,9 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
 
 /**
  * Scope entry for a `RedisPool`. `start` creates the pool and resolves after
- * one connection answers. `stop` drains the pool then clears it so all
- * connections are released.
+ * one connection answers. A pool with `exitOnRepeatedErrors: false` starts
+ * without a connection, because an outage of an optional store must not block
+ * startup. `stop` drains the pool then clears it so all connections are released.
  */
 export class RedisPoolComponent {
     constructor(private readonly config: RedisPoolConfig) {}
@@ -70,6 +71,9 @@ export class RedisPoolComponent {
         const stop = async (): Promise<void> => {
             await pool.drain()
             await pool.clear()
+        }
+        if (this.config.connection.exitOnRepeatedErrors === false) {
+            return { value: pool, stop }
         }
         try {
             await pool.release(await pool.acquire())
