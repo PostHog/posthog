@@ -7,6 +7,9 @@ export function errorCode(error: unknown): unknown {
         : undefined
 }
 
+// Matches Linux's MAXSYMLINKS, so a link cycle fails instead of looping.
+const MAX_SYMLINK_HOPS = 40
+
 export function assertSafeDestination(root: string, destination: string, hint = ''): void {
     const normalizedRoot = path.resolve(root)
     const normalizedDestination = path.resolve(destination)
@@ -22,6 +25,7 @@ export async function assertResolvesInside(root: string, target: string, hint = 
     const missing: string[] = []
     let existing = path.resolve(target)
     let realExisting: string
+    let hops = 0
     for (;;) {
         try {
             realExisting = await fs.realpath(existing)
@@ -31,13 +35,18 @@ export async function assertResolvesInside(root: string, target: string, hint = 
                 throw error
             }
         }
-        // A dangling link fails realpath too, but writing through it would create its target.
+        // A dangling link fails realpath too, but writing through it would create its target, so check that.
         const isLink = await fs.lstat(existing).then(
             (stats) => stats.isSymbolicLink(),
             () => false
         )
         if (isLink) {
-            throw new Error(`Refusing to write through the dangling symlink ${existing}${hint}`)
+            hops += 1
+            if (hops > MAX_SYMLINK_HOPS) {
+                throw new Error(`Refusing to follow too many symlinks at ${existing}${hint}`)
+            }
+            existing = path.resolve(path.dirname(existing), await fs.readlink(existing))
+            continue
         }
         missing.unshift(path.basename(existing))
         existing = path.dirname(existing)

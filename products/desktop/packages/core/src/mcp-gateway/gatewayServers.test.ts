@@ -438,9 +438,15 @@ describe("canEditGatewayPolicyScope", () => {
     ["an admin without a share", server({}), true, true],
     [
       "a member with their own share",
-      server({ agents: [share(1)] }),
+      server({ agents: [share(1)], your_connection: connection() }),
       false,
       true,
+    ],
+    [
+      "a member whose connection behind their share is deleted",
+      server({ agents: [share(1)] }),
+      false,
+      false,
     ],
     [
       "a member with only a teammate's share",

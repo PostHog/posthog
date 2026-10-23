@@ -404,6 +404,7 @@ export interface gatewayServerLogicMeta {
             agentSharesByAccountId: Record<string, AgentServerShare>
         ) => MCPServiceAccountApi[]
         canEditScope: (
+            server: MCPGatewayServerApi | null,
             isAdmin: boolean,
             scope: PolicyScope,
             canManageAgentAccess: boolean,
@@ -727,8 +728,9 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                 serviceAccounts.filter((account) => !agentSharesByAccountId[account.id]?.sharedByYou),
         ],
         canEditScope: [
-            (s) => [s.isAdmin, s.scope, s.canManageAgentAccess, s.agentSharesByAccountId],
+            (s) => [s.server, s.isAdmin, s.scope, s.canManageAgentAccess, s.agentSharesByAccountId],
             (
+                server: MCPGatewayServerApi | null,
                 isAdmin: boolean,
                 scope: PolicyScope,
                 canManageAgentAccess: boolean,
@@ -736,9 +738,11 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
             ): boolean =>
                 isAdmin ||
                 scope.scopeType === 'member' ||
-                // An agent's tool policy covers every member's share, so members tune it only alongside their own.
+                // An agent's tool policy covers every member's share, so members tune it only alongside
+                // their own share and the connection behind it.
                 (scope.scopeType === 'agent' &&
                     canManageAgentAccess &&
+                    !!server?.your_connection &&
                     !!agentSharesByAccountId[scope.scopeServiceAccountId ?? '']?.sharedByYou),
         ],
         agentShareDisabledReason: [

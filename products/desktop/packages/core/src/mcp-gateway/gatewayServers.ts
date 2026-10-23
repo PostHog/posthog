@@ -194,7 +194,7 @@ export function getGatewayServerRemovalAction(
 /**
  * Whether the caller may change tool policy for a scope. An agent's policy
  * covers every member's share of the server, so a member may change it only
- * while holding a share of their own.
+ * while holding a share of their own and the connection behind it.
  */
 export function canEditGatewayPolicyScope(
   server: McpGatewayServer,
@@ -207,10 +207,13 @@ export function canEditGatewayPolicyScope(
 ): boolean {
   if (caller.isAdmin || scope.scopeType === "member") return true;
   if (scope.scopeType !== "agent" || !caller.canManageAgentAccess) return false;
-  return server.agents.some(
-    (agent) =>
-      agent.service_account_id === scope.scopeServiceAccountId &&
-      agent.user.id === caller.currentUserId,
+  return (
+    server.your_connection !== null &&
+    server.agents.some(
+      (agent) =>
+        agent.service_account_id === scope.scopeServiceAccountId &&
+        agent.user.id === caller.currentUserId,
+    )
   );
 }
 

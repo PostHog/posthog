@@ -52,8 +52,17 @@ describe('CLI AGENTS.md installer', () => {
         }
         await fs.symlink(outside, path.join(dir, 'AGENTS.md'))
 
-        await expect(installAgentsMdSnippet({ cwd: dir })).rejects.toThrow('Refusing to write')
+        await expect(installAgentsMdSnippet({ cwd: dir })).rejects.toThrow('Refusing to write outside')
         const outsideAfter = await fs.readFile(outside, 'utf-8').catch(() => null)
         expect(outsideAfter).toBe(exists ? 'Outside content.\n' : null)
+    })
+
+    it('writes through an AGENTS.md symlink to a missing file inside the working directory', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-agents-md-'))
+        await fs.symlink('CLAUDE.md', path.join(dir, 'AGENTS.md'))
+
+        await installAgentsMdSnippet({ cwd: dir })
+
+        await expect(fs.readFile(path.join(dir, 'CLAUDE.md'), 'utf-8')).resolves.toContain('<posthog>')
     })
 })

@@ -239,6 +239,13 @@ describe("GatewayServerDetail", () => {
       mocks.currentUser = { id: currentUserId };
       const serverWithAgent = {
         ...server,
+        your_connection: {
+          installation_id: "installation-1",
+          is_enabled: true,
+          pending_oauth: false,
+          needs_reauth: false,
+          last_used_at: null,
+        },
         agents: [
           {
             service_account_id: "sa-1",
