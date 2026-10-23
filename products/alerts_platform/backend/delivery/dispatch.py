@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
+    MessageLink,
 )
 from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
 from products.alerts_platform.backend.temporal.metrics import increment_root_edit_failures, safe_record
@@ -44,6 +45,7 @@ def deliver(
     incident_action: IncidentAction | None = None,
     source_alert_url: str | None = None,
     source_incident_key: str | None = None,
+    project: MessageLink | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
     busy = 0
@@ -84,6 +86,7 @@ def deliver(
                     source_alert_url=source_alert_url,
                     overflowed=overflowed,
                     source_incident_key=source_incident_key,
+                    project=project,
                 ),
                 in_reply_to=claim.handle,
             )

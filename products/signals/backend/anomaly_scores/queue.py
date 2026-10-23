@@ -5,6 +5,7 @@ from the `$anomaly_score` events. `selection.pick_order` then orders the due ins
 """
 
 import datetime
+import itertools
 from collections.abc import Collection
 from typing import Any, cast
 
@@ -223,10 +224,10 @@ def select_insights(
     for team_id in sorted({insight.team_id for insight in due_by_id.values()}):
         due_ids = [insight.insight_id for insight in due_by_id.values() if insight.team_id == team_id]
         usage.update(insight_usage(team_id=team_id, insight_ids=due_ids, now=now))
-    candidates = []
+    candidates_by_team: dict[int, list[Candidate]] = {}
     for insight in due_by_id.values():
         newest = newest_buckets[insight.insight_id]
-        candidates.append(
+        candidates_by_team.setdefault(insight.team_id, []).append(
             Candidate(
                 insight_id=insight.insight_id,
                 interval=insight.interval,
@@ -237,9 +238,19 @@ def select_insights(
                 usage=usage[insight.insight_id],
             )
         )
-    order = pick_order(
-        candidates, config=selection_config, tick_start=now, max_staleness=config.limits.max_backfill_buckets
-    )
+    team_orders = [
+        pick_order(
+            candidates_by_team[team_id],
+            config=selection_config,
+            tick_start=now,
+            max_staleness=config.limits.max_backfill_buckets,
+        )
+        for team_id in sorted(candidates_by_team)
+    ]
+    # Projects take turns, so one large project cannot take every slot of the tick budget.
+    order = [
+        insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None
+    ]
     picks = [
         InsightPick(
             team_id=due_by_id[insight_id].team_id, insight_id=insight_id, scored_through=state.get(insight_id, {})

@@ -18,15 +18,14 @@ Three behaviours are load-bearing:
    needs an availability SLO before the environment variables come out.
 
 3. **Environment fallback only when the client is off.** Flag disabled, a flag check that
-   errored, or NEITHER variable configured means "read `os.environ` as before". That covers
-   self-hosted deployments, local development, and the rollout window. It is not an outage
-   path: once the client is on and the service is down, the call fails.
+   errored, or the deployment not fully configured means "read `os.environ` as before". That
+   covers self-hosted deployments, local development, and the rollout window. It is not an
+   outage path: once the client is on and the service is down, the call fails.
 
-   Half-configured is the exception, and it raises. A URL without a signing key (or the
-   reverse) reads as "not configured" and quietly serves credentials from the pod's own
-   environment — which looks like success for every key still mounted there and fails only
-   for the ones that have actually moved to the service. That is the shape of a rollout that
-   appears to work and hasn't started.
+   Half-configured (a URL without a signing key, or the reverse) also reads the environment,
+   because a deploy that adds one variable before the other must not take down every credential
+   read in the pod. It is still a mistake, so it is loud: a warning once per process naming the
+   variable to set, and its own `half_configured` reason on the environment fallback counter.
 
 The token carries the request. `keys` is the exact set this call needs, so a token lifted
 from a log unlocks those fields for five minutes rather than everything the deployment
@@ -35,6 +34,7 @@ may read. There is deliberately no request body.
 
 import os
 import time
+import functools
 from dataclasses import field
 from datetime import timedelta
 from typing import Any
@@ -53,12 +53,7 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
 
 from .callers import CredentialsCaller
-from .errors import (
-    CredentialsServiceMisconfiguredError,
-    CredentialsServiceUnreachableError,
-    SecretInRecoveryError,
-    SecretMissingError,
-)
+from .errors import CredentialsServiceUnreachableError, SecretInRecoveryError, SecretMissingError
 
 logger = structlog.get_logger(__name__)
 
@@ -145,16 +140,29 @@ def _missing_config() -> str | None:
     return "CREDENTIALS_SERVICE_JWT_SECRET" if has_url else "CREDENTIALS_SERVICE_URL"
 
 
+@functools.cache
+def _warn_half_configured(missing: str) -> None:
+    logger.warning(
+        "credentials_service.half_configured_reading_environment",
+        missing=missing,
+        detail="Set both CREDENTIALS_SERVICE_URL and CREDENTIALS_SERVICE_JWT_SECRET, or neither.",
+    )
+
+
 def _disabled_reason() -> str | None:
     """Why the environment fallback is in use, or None when the service should be called.
 
     The flag fails closed: closed means the old environment-variable path, because a flag
-    service blip must not take out credential reads. The three reasons matter separately
+    service blip must not take out credential reads. The four reasons matter separately
     during the rollout — "flag_error" is the fail-closed path that quietly keeps a pod on
     environment variables while the flag service is unhealthy, and it must not look like
     a deliberate opt-out.
     """
-    if not settings.CREDENTIALS_SERVICE_URL or not credentials_service_signing_keys():
+    missing = _missing_config()
+    if missing is not None:
+        _warn_half_configured(missing)
+        return "half_configured"
+    if not settings.CREDENTIALS_SERVICE_URL:
         return "unconfigured"
     try:
         enabled = bool(posthoganalytics.feature_enabled(CREDENTIALS_SERVICE_FLAG, CREDENTIALS_SERVICE_FLAG_DISTINCT_ID))
@@ -279,9 +287,6 @@ class CredentialsServiceClient:
         return RotatingSecret(current=secret.value, incoming=secret.incoming)
 
     def _resolve(self, keys: list[str], caller: CredentialsCaller) -> dict[str, SecretValue]:
-        missing = _missing_config()
-        if missing is not None:
-            raise CredentialsServiceMisconfiguredError(missing)
         reason = _disabled_reason()
         if reason is not None:
             CREDENTIALS_SERVICE_ENV_FALLBACK_COUNTER.labels(reason=reason).inc()

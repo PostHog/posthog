@@ -12,16 +12,15 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
 )
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
-from products.experiments.backend.health.condition_changes import parse_release_conditions
 from products.experiments.backend.health.context import (
     ChangeWindow,
-    ConditionsChange,
     ConditionSetTraffic,
     FlagHistoryNotCheckedReason,
     HealthContext,
     parse_flag_state,
 )
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
+from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)

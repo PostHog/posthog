@@ -8,13 +8,11 @@ import json
 import logging
 import functools
 from collections.abc import Mapping
-from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
-from django.utils import timezone
 
 import requests
 import posthoganalytics
@@ -195,21 +193,15 @@ def posthog_code_billing_synced(organization: "Organization") -> bool:
     return bool(usage.get("period")) and isinstance(entry, dict) and ("usage" in entry or "limit" in entry)
 
 
-# (org age below, minimum highest product trust score); older orgs need none. Matches the
-# legacy gateway's PostHog Code account trust policy.
-_TRUST_MINIMUMS: tuple[tuple[timedelta, float], ...] = ((timedelta(days=7), 7), (timedelta(days=30), 3))
+# Billing's SUBSCRIBED_PAYING_TRUSTED (a paid invoice). Billing sets score 3 when a card subscribes, before any payment.
+_PAID_TRUST_MINIMUM = 7.0
 
 
 def posthog_code_trusted(organization: "Organization") -> bool:
-    """Whether the org's age and best product trust score clear the minimum; a missing or
-    malformed score counts as zero."""
+    """Whether the org's best trust score shows a paid invoice; a missing or malformed score counts as zero."""
     scores = organization.customer_trust_scores or {}
     best = max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
-    age = timezone.now() - organization.created_at
-    for below_age, minimum in _TRUST_MINIMUMS:
-        if age < below_age:
-            return best >= minimum
-    return True
+    return best >= _PAID_TRUST_MINIMUM
 
 
 def _override_tier(raw: object) -> LimitTier | None:

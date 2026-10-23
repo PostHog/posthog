@@ -12,20 +12,22 @@ from products.experiments.backend.health.condition_set_traffic import (
     needs_condition_set_traffic,
 )
 from products.experiments.backend.health.context import (
-    BucketingChange,
-    BucketingSetting,
-    ConditionsChange,
     ConditionSetTraffic,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagState,
+)
+from products.experiments.backend.health.exposure_inputs import ExposureInputs
+from products.experiments.backend.health.loader import HealthInputs
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    BucketingSetting,
+    ConditionsChange,
     ReleaseCondition,
     Split,
     SplitChange,
 )
-from products.experiments.backend.health.exposure_inputs import ExposureInputs
-from products.experiments.backend.health.loader import HealthInputs
 
 
 def _health_inputs_split(split: Split) -> list[dict[str, Any]]:
