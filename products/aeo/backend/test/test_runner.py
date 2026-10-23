@@ -1,6 +1,8 @@
 import datetime as dt
+import threading
 
 import pytest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -117,21 +119,31 @@ def test_a_prompt_every_engine_failed_on_stays_unchecked(team: Team, settings) -
     assert last_checked["q1?"] is None
 
 
-class _InterruptingEngine(_StubEngine):
+class _GatedEngine(_StubEngine):
     def __init__(self) -> None:
-        self.prompts: list[str] = []
+        self.started: list[str] = []
+        self.release = threading.Event()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
-        self.prompts.append(prompt)
-        raise KeyboardInterrupt
+        self.started.append(prompt)
+        # The first prompt finishes; any prompt after it holds until the test lets it go.
+        if len(self.started) > 1:
+            self.release.wait(timeout=10)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
 
 
 def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settings) -> None:
     settings.AEO_RUN_CONCURRENCY = 1
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(5)])
-    engine = _InterruptingEngine()
+    engine = _GatedEngine()
 
-    with pytest.raises(KeyboardInterrupt):
-        run_citation_checks(team, engines=[engine])
-
-    assert len(engine.prompts) == 1
+    try:
+        with (
+            patch("products.aeo.backend.runner._record_prompt_checks", side_effect=KeyboardInterrupt),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            run_citation_checks(team, engines=[engine])
+        # The single worker finished the first prompt and may hold the second; the other three were cancelled.
+        assert len(engine.started) <= 2
+    finally:
+        engine.release.set()

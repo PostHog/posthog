@@ -12,6 +12,7 @@ from products.aeo.backend.engines import (
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
+    _SharedBackoff,
     anthropic_truncated_error,
     build_check_fields,
     gateway_post_json,
@@ -378,7 +379,11 @@ def test_gateway_post_json_retries_throttling_and_transient_errors(
     session = MagicMock(spec=requests.Session)
     session.post.side_effect = responses
 
-    with patch("products.aeo.backend.engines.time.sleep") as sleep:
+    with (
+        patch("products.aeo.backend.engines.GATEWAY_BACKOFF", _SharedBackoff()),
+        patch("products.aeo.backend.engines.time.monotonic", return_value=100.0),
+        patch("products.aeo.backend.engines.time.sleep") as sleep,
+    ):
         if raises is None:
             assert gateway_post_json(session, "https://gw.test", {}, {}) == {"ok": True}
         else:
@@ -387,3 +392,16 @@ def test_gateway_post_json_retries_throttling_and_transient_errors(
 
     assert session.post.call_count == posts
     assert [call.args[0] for call in sleep.call_args_list] == sleeps
+
+
+def test_shared_backoff_keeps_the_longest_pause() -> None:
+    backoff = _SharedBackoff()
+    with (
+        patch("products.aeo.backend.engines.time.monotonic", return_value=100.0),
+        patch("products.aeo.backend.engines.time.sleep") as sleep,
+    ):
+        backoff.pause(30)
+        backoff.pause(5)
+        backoff.wait()
+
+    sleep.assert_called_once_with(30.0)

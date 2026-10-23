@@ -137,6 +137,29 @@ def _retry_delay_seconds(response: requests.Response, attempt: int) -> float:
     return min(GATEWAY_RETRY_BASE_SECONDS * 2**attempt, GATEWAY_RETRY_MAX_SECONDS)
 
 
+class _SharedBackoff:
+    """A pause every worker thread honours before its next gateway request. One throttled
+    response pauses the whole run, so the other workers stop adding load while it backs off."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._resume_at = 0.0
+
+    def pause(self, seconds: float) -> None:
+        with self._lock:
+            # A shorter pause from another worker must not cut a longer one short.
+            self._resume_at = max(self._resume_at, time.monotonic() + seconds)
+
+    def wait(self) -> None:
+        with self._lock:
+            remaining = self._resume_at - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
+
+
+GATEWAY_BACKOFF = _SharedBackoff()
+
+
 def gateway_post_json(
     session: requests.Session,
     url: str,
@@ -147,9 +170,10 @@ def gateway_post_json(
     """POST and decode JSON, retrying throttled and transient errors a bounded number of
     times; raises requests.RequestException once the attempts run out or on any other failure."""
     for attempt in range(GATEWAY_MAX_ATTEMPTS):
+        GATEWAY_BACKOFF.wait()
         response = session.post(url, headers=headers, json=payload, timeout=timeout)
         if response.status_code in RETRYABLE_STATUS_CODES and attempt < GATEWAY_MAX_ATTEMPTS - 1:
-            time.sleep(_retry_delay_seconds(response, attempt))
+            GATEWAY_BACKOFF.pause(_retry_delay_seconds(response, attempt))
             continue
         response.raise_for_status()
         return response.json()
