@@ -116,16 +116,6 @@ FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
 ]
 
 
-# Not an Exception, because `_queue_generation` catches Exception and would turn a hung publish into a pass.
-class StartBlocked(BaseException):
-    pass
-
-
-def _reset_producer_pool(app: Any) -> None:
-    app._pool = None
-    app.amqp._producer_pool = None
-
-
 class TestIssueSummaryGeneration(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -443,10 +433,10 @@ class TestIssueSummaryGeneration(BaseTest):
         with patch.object(team_flags, "feature_enabled_or_false", return_value=False):
             assert read(self) is None
 
-        self._restrict_event_property("$current_url", self.user)
+        self._restrict_event_property("$current_url")
         assert read(self) is None
 
-    def _restrict_event_property(self, name: str, user: User) -> None:
+    def _restrict_event_property(self, name: str) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -454,17 +444,17 @@ class TestIssueSummaryGeneration(BaseTest):
         definition = PropertyDefinition.objects.create(team=self.team, name=name, type=PropertyDefinition.Type.EVENT)
         upsert_property_access_control(
             team_id=self.team.id,
-            created_by_id=user.id,
+            created_by_id=self.user.id,
             input=UpsertPropertyAccessControlInput(
                 property_definition_id=str(definition.id),
                 access_level=PropertyAccessLevel.NONE,
-                organization_member_id=user.organization_memberships.get().id,
+                organization_member_id=self.organization_membership.id,
             ),
         )
 
     def test_restricted_member_cannot_start_and_other_members_still_read(self) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
-        self._restrict_event_property("$exception_list", self.user)
+        self._restrict_event_property("$exception_list")
 
         assert self._start() == (False, False)
         assert summaries_facade.get_or_generate_issue_summary(self.team.id, self.issue.id, user=self.user) is None
@@ -476,6 +466,15 @@ class TestIssueSummaryGeneration(BaseTest):
         assert summaries_facade.get_issue_summary(self.team.id, self.issue.id, user=outsider) is None
 
     def test_start_gives_up_quickly_when_the_broker_does_not_answer(self) -> None:
+        # Not an Exception, because `_queue_generation` catches Exception and would turn a hung publish into a pass.
+        class StartBlocked(BaseException):
+            pass
+
+        def reset_producer_pool() -> None:
+            app._pool = None
+            app.amqp._producer_pool = None
+
+        self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS", 0.05))
         silent_broker = socket.socket()
         silent_broker.bind(("127.0.0.1", 0))
         silent_broker.listen()
@@ -485,10 +484,10 @@ class TestIssueSummaryGeneration(BaseTest):
         # Settings name the broker with the old CELERY_ key, which wins over `broker_url`.
         saved = {key: app.conf[key] for key in ("task_always_eager", "CELERY_BROKER_URL")}
         # The producer pool keeps the broker it first connected to, so drop it on both sides of the swap.
-        self.addCleanup(_reset_producer_pool, app)
+        self.addCleanup(reset_producer_pool)
         self.addCleanup(app.conf.update, saved)
         app.conf.update(task_always_eager=False, CELERY_BROKER_URL=silent_url)
-        _reset_producer_pool(app)
+        reset_producer_pool()
         assert app.connection_for_write().as_uri() == silent_url
         self.enterContext(patch.object(issue_summaries, "capture_exception"))
 
