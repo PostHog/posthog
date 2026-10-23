@@ -70,10 +70,9 @@ def run_citation_checks(
 
     # Engine calls are network-bound and run in worker threads. Database writes stay on
     # this thread, so the workers never open their own Django connections.
-    with ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY)) as pool:
-        futures = {
-            pool.submit(_check_prompt, team, run_id, engines, target_domains, prompt): prompt for prompt in prompts
-        }
+    pool = ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY))
+    futures = {pool.submit(_check_prompt, team, run_id, engines, target_domains, prompt): prompt for prompt in prompts}
+    try:
         for done, future in enumerate(as_completed(futures), start=1):
             try:
                 result = future.result()
@@ -96,6 +95,12 @@ def run_citation_checks(
                     write_failures += len(result.fields_per_engine)
             if done % 100 == 0:
                 logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
+    except BaseException:
+        # A Celery time limit or a worker shutdown lands here. Drop the queued prompts so they
+        # make no more paid calls whose results nobody records.
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True)
 
     summary = CitationRunSummary(
         team_id=team.id,
@@ -188,7 +193,9 @@ def _record_prompt_checks(
         # (the Celery task, the management command) run inside one.
         with team_scope(canonical_team_id):
             AEOCitationCheck.objects.bulk_create(prompt_rows)
-        AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
+        # A prompt every engine failed on was not really checked, so leave it first in line for the next run.
+        if any(not fields["check_failed"] for fields in fields_per_engine):
+            AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
         return False

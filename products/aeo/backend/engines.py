@@ -13,6 +13,7 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import time
 import threading
 from dataclasses import field
 from typing import Any, Protocol
@@ -121,6 +122,21 @@ def _gateway_sessions() -> _ThreadSessions:
     return _ThreadSessions(trust_env=False)
 
 
+# Throttling and transient upstream errors. A full run sends many calls in parallel, so
+# these get a short bounded retry instead of becoming a failed check straight away.
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+GATEWAY_MAX_ATTEMPTS = 3
+GATEWAY_RETRY_BASE_SECONDS = 5
+GATEWAY_RETRY_MAX_SECONDS = 60
+
+
+def _retry_delay_seconds(response: requests.Response, attempt: int) -> float:
+    retry_after = response.headers.get("Retry-After", "")
+    if retry_after.isdigit():
+        return min(float(retry_after), GATEWAY_RETRY_MAX_SECONDS)
+    return min(GATEWAY_RETRY_BASE_SECONDS * 2**attempt, GATEWAY_RETRY_MAX_SECONDS)
+
+
 def gateway_post_json(
     session: requests.Session,
     url: str,
@@ -128,10 +144,16 @@ def gateway_post_json(
     payload: dict[str, Any],
     timeout: int = GATEWAY_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """POST and decode JSON; raises requests.RequestException on any failure."""
-    response = session.post(url, headers=headers, json=payload, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+    """POST and decode JSON, retrying throttled and transient errors a bounded number of
+    times; raises requests.RequestException once the attempts run out or on any other failure."""
+    for attempt in range(GATEWAY_MAX_ATTEMPTS):
+        response = session.post(url, headers=headers, json=payload, timeout=timeout)
+        if response.status_code in RETRYABLE_STATUS_CODES and attempt < GATEWAY_MAX_ATTEMPTS - 1:
+            time.sleep(_retry_delay_seconds(response, attempt))
+            continue
+        response.raise_for_status()
+        return response.json()
+    raise AssertionError("unreachable: the last attempt returns or raises")
 
 
 def _dedupe_urls(urls: list[str]) -> list[str]:

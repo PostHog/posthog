@@ -96,3 +96,42 @@ def test_one_prompt_crashing_does_not_end_the_run(team: Team, settings) -> None:
 
     assert (summary.prompts, summary.rows_written, summary.engine_failures) == (3, 2, 1)
     assert sorted(AEOCitationCheck.objects.for_team(team.id).values_list("prompt_text", flat=True)) == ["q0?", "q2?"]
+
+
+class _FailingEngine(_StubEngine):
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        if prompt == "q1?":
+            return CitationCheck(engine=self.name, model=self.model, error="HTTPError: status=429")
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
+def test_a_prompt_every_engine_failed_on_stays_unchecked(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 2
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(2)])
+
+    summary, _ = run_citation_checks(team, engines=[_FailingEngine()])
+
+    assert (summary.rows_written, summary.engine_failures) == (2, 1)
+    last_checked = dict(AEOPrompt.objects.for_team(team.id).values_list("prompt", "last_checked_at"))
+    assert last_checked["q0?"] is not None
+    assert last_checked["q1?"] is None
+
+
+class _InterruptingEngine(_StubEngine):
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        self.prompts.append(prompt)
+        raise KeyboardInterrupt
+
+
+def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 1
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(5)])
+    engine = _InterruptingEngine()
+
+    with pytest.raises(KeyboardInterrupt):
+        run_citation_checks(team, engines=[engine])
+
+    assert len(engine.prompts) == 1

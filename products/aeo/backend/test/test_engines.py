@@ -1,16 +1,20 @@
 from types import SimpleNamespace
 
+import pytest
 from unittest.mock import patch
 
+import requests
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
+    GATEWAY_MAX_ATTEMPTS,
     OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
     anthropic_truncated_error,
     build_check_fields,
+    gateway_post_json,
     is_target_url,
     openai_response_error,
     parse_anthropic_citations,
@@ -350,3 +354,40 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
     # Sanitizing must not move the verdict: it runs on the recorded copy only.
     assert fields["cited"] is True
     assert fields["target_best_position"] == 1
+
+
+def _response(status: int, retry_after: str | None = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response._content = b'{"ok": true}'
+    if retry_after is not None:
+        response.headers["Retry-After"] = retry_after
+    return response
+
+
+@parameterized.expand(
+    [
+        ("throttled_then_ok", [_response(429, retry_after="7"), _response(200)], None, 2, [7.0]),
+        ("transient_until_attempts_run_out", [_response(503)] * GATEWAY_MAX_ATTEMPTS, requests.HTTPError, 3, [5, 10]),
+        ("client_error_is_not_retried", [_response(400)], requests.HTTPError, 1, []),
+    ]
+)
+def test_gateway_post_json_retries_throttling_and_transient_errors(
+    _name: str, responses: list, raises: type[Exception] | None, posts: int, sleeps: list[float]
+) -> None:
+    session = SimpleNamespace(post=lambda *args, **kwargs: responses.pop(0))
+    sent: list[int] = []
+
+    def post(*args, **kwargs):
+        sent.append(1)
+        return session.post(*args, **kwargs)
+
+    with patch("products.aeo.backend.engines.time.sleep") as sleep:
+        if raises is None:
+            assert gateway_post_json(SimpleNamespace(post=post), "https://gw.test", {}, {}) == {"ok": True}
+        else:
+            with pytest.raises(raises):
+                gateway_post_json(SimpleNamespace(post=post), "https://gw.test", {}, {})
+
+    assert len(sent) == posts
+    assert [call.args[0] for call in sleep.call_args_list] == sleeps
