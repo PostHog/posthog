@@ -49,7 +49,10 @@ function createMockContext(opts: {
 
     const context = {
         api: { request },
-        stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        stateManager: {
+            getProjectId: vi.fn().mockResolvedValue('1'),
+            getAnalyticsContext: vi.fn().mockResolvedValue({ organizationId: 'org-1', projectUuid: 'project-uuid-1' }),
+        },
         getDistinctId: vi.fn().mockResolvedValue('user-1'),
     } as unknown as Context
 
@@ -153,7 +156,7 @@ describe('workflows batch handlers', () => {
 
         it.each([
             {
-                name: 'an email workflow with the flag on',
+                name: 'an email workflow with the flag on for its project',
                 actions: [{ type: 'function_email' }],
                 flagOn: true,
                 pointsAtTier: true,
@@ -168,7 +171,10 @@ describe('workflows batch handlers', () => {
         ])(
             'rejects and does not fire when the audience exceeds the per-team cap for $name',
             async ({ actions, flagOn, pointsAtTier }) => {
-                vi.mocked(isFeatureFlagEnabled).mockResolvedValue(flagOn)
+                // The flag targets the workspace, so it reads as on only when the project group is passed.
+                vi.mocked(isFeatureFlagEnabled).mockImplementation(
+                    async (_key, _distinctId, groups) => flagOn && groups?.project === 'project-uuid-1'
+                )
                 const { context, request } = createMockContext({
                     trigger: { type: 'batch', filters: BATCH_FILTERS },
                     blastRadius: { affected: 5001, total: 1_000_000, limit: 5000 },
