@@ -913,9 +913,14 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
         organization_id=config.organization_id, user__email__iexact=email
     ).exists():
         return None
-    # An email can hold more than one pending invite in an organization, so use the one with the highest level.
+    # An email can hold more than one pending invite in an organization, so use the unexpired one with the
+    # highest level. An expired invite fails the same validation as a duplicate membership above.
     return (
-        OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            organization_id=config.organization_id,
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
         .order_by("-level", "-created_at")
         .first()
     )

@@ -3649,20 +3649,27 @@ class TestSAMLInviteLookup(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("joiner@saml-invite.example.com", False),
-            ("Joiner@SAML-Invite.example.com", False),
-            ("joiner@saml-invite.example.com", True),
+            ("joiner@saml-invite.example.com", False, False),
+            ("Joiner@SAML-Invite.example.com", False, False),
+            ("joiner@saml-invite.example.com", True, False),
+            ("joiner@saml-invite.example.com", True, True),
         ]
     )
-    def test_finds_the_invite_for_the_config_that_signed_the_assertion(self, asserted_email, newer_member_invite):
+    def test_finds_the_invite_for_the_config_that_signed_the_assertion(
+        self, asserted_email, newer_member_invite, admin_invite_expired
+    ):
         identifier = self._saml_identifier_for("saml-invite.example.com")
-        invite = OrganizationInvite.objects.create(
+        admin_invite = OrganizationInvite.objects.create(
             organization=self.organization,
             target_email="joiner@saml-invite.example.com",
             level=OrganizationMembership.Level.ADMIN,
         )
+        if admin_invite_expired:
+            admin_invite.created_at = timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 5)
+            admin_invite.save()
+        member_invite = None
         if newer_member_invite:
-            OrganizationInvite.objects.create(
+            member_invite = OrganizationInvite.objects.create(
                 organization=self.organization,
                 target_email="joiner@saml-invite.example.com",
                 level=OrganizationMembership.Level.MEMBER,
@@ -3670,8 +3677,10 @@ class TestSAMLInviteLookup(APIBaseTest):
 
         found = lookup_invite_for_saml(asserted_email, identifier)
 
+        expected_invite = member_invite if admin_invite_expired else admin_invite
         assert found is not None
-        assert found.id == invite.id
+        assert expected_invite is not None
+        assert found.id == expected_invite.id
 
     def test_finds_it_when_the_identifier_no_longer_matches_a_domain(self):
         # The identifier holds a domain id on configs created before it moved onto the config, and
