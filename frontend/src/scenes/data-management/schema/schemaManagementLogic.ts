@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object'
+export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object' | 'Array'
 
 export const MAX_PROPERTY_NAME_LENGTH = 200
 
@@ -17,6 +17,7 @@ export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
     { value: 'Boolean', label: 'Boolean' },
     { value: 'DateTime', label: 'DateTime' },
     { value: 'Object', label: 'Object' },
+    { value: 'Array', label: 'Array' },
 ]
 
 function getErrorMessage(error: any, defaultMessage: string): string {
