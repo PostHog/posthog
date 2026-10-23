@@ -356,12 +356,12 @@ export const ReportCardStates: Story = {
             />
             <ReportCard
                 report={makeReport({
-                    title: 'No summary yet, still collecting context',
-                    status: SignalReportStatus.CANDIDATE,
+                    title: 'note(example): Example report without a priority',
                     priority: null,
                     actionability: null,
-                    summary: null,
-                    source_products: ['llm_analytics'],
+                    summary:
+                        'Account: [Example workspace](https://example.com/accounts/example) | 12 active users need review.',
+                    source_products: ['signals_scout'],
                 })}
             />
             <ReportCard
