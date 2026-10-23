@@ -11,7 +11,7 @@ import {
 } from '../hogflows/batch-resolver.types'
 import { EmailStatusService, EmailStatusWriter } from '../messaging/email-status.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
+import { CyclotronV2Janitor, EMAIL_STATE_READ_CHUNK_SIZE, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -2873,6 +2873,34 @@ describe('Cyclotron V2', () => {
                 for (const row of rows) {
                     expect(row).toMatchObject({ team_id: 1, message_id: jobId, recipient_hash: 'a1b2' })
                 }
+            })
+
+            it('records each stalled transactional email once when they fill more than one state read', async () => {
+                const jobIds = Array.from({ length: EMAIL_STATE_READ_CHUNK_SIZE + 1 }, () => uuidv7())
+                for (const id of jobIds) {
+                    await insertRawJob({
+                        id,
+                        function_id: uuidv7(),
+                        queue_name: 'email',
+                        status: 'running',
+                        lock_id: uuidv7(),
+                        last_heartbeat: new Date(Date.now() - 60_000),
+                        state: jobState('$transactional_email'),
+                    })
+                }
+                const produce = jest.fn().mockResolvedValue(undefined)
+
+                const janitor = createJanitor(
+                    { stallTimeoutMs: 1_000, maxTouchCount: 2 },
+                    createMockResults(true).service,
+                    new EmailStatusService({ produce } as any)
+                )
+                await janitor.runOnce()
+                await janitor.stop()
+
+                const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString('utf-8')))
+                expect(rows.map((row) => row.message_id).sort()).toEqual([...jobIds].sort())
+                expect(new Set(rows.map((row) => row.status))).toEqual(new Set(['unknown']))
             })
         })
     })

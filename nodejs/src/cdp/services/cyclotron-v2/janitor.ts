@@ -83,12 +83,18 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
-type EmailStatusJobRow = {
+type JobRow = {
     id: string
     team_id: number
     queue_name: string
+}
+
+type EmailStatusJobRow = JobRow & {
     state: Buffer | null
 }
+
+// A job's state carries its attachments, so the janitor reads the state of only this many email jobs at once.
+export const EMAIL_STATE_READ_CHUNK_SIZE = 100
 
 const hogFlowStateOf = (row: EmailStatusJobRow): Partial<HogFlowInvocationContext> | null => {
     try {
@@ -488,7 +494,7 @@ export class CyclotronV2Janitor {
             ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs, STALL_BACKOFF_FIRST_RETRY_SPREAD_MS]
             : [heartbeatCutoff]
 
-        const result = await this.pool.query<EmailStatusJobRow>(
+        const result = await this.pool.query<JobRow>(
             `WITH stalled AS (
                 SELECT id
                 FROM cyclotron_jobs
@@ -501,8 +507,7 @@ export class CyclotronV2Janitor {
                 janitor_touch_count = LEAST(janitor_touch_count + 1, ${CYCLOTRON_COUNTER_MAX})${backoffClause}
             FROM stalled
             WHERE cyclotron_jobs.id = stalled.id
-            RETURNING cyclotron_jobs.id, cyclotron_jobs.team_id, cyclotron_jobs.queue_name,
-                CASE WHEN cyclotron_jobs.queue_name = 'email' THEN cyclotron_jobs.state END AS state`,
+            RETURNING cyclotron_jobs.id, cyclotron_jobs.team_id, cyclotron_jobs.queue_name`,
             params
         )
 
@@ -511,31 +516,54 @@ export class CyclotronV2Janitor {
             janitorStalledCounter.inc(count)
             logger.info('CyclotronV2Janitor reset stalled jobs', { count })
         }
-        await this.recordEmailStatuses(result.rows, 'unknown')
+        await this.recordStalledEmailStatuses(result.rows)
 
         return count
     }
 
-    // record() counts and logs a failed write, and the job handling must not depend on it.
-    private async recordEmailStatuses(rows: EmailStatusJobRow[], status: EmailStatus, reason?: string): Promise<void> {
+    private async recordStalledEmailStatuses(rows: JobRow[]): Promise<void> {
         if (!this.emailStatus) {
             return
         }
-        for (const row of rows) {
-            if (row.queue_name !== 'email') {
-                continue
-            }
-            const state = hogFlowStateOf(row)
-            const recipientHash = transactionalEmailRecipientHash(
-                { triggerEvent: state?.event?.event, recipientHash: state?.emailRecipientHash },
-                'janitor'
+        const emailJobIds = rows.filter((row) => row.queue_name === 'email').map((row) => row.id)
+        for (let start = 0; start < emailJobIds.length; start += EMAIL_STATE_READ_CHUNK_SIZE) {
+            const chunk = await this.pool.query<EmailStatusJobRow>(
+                `SELECT id, team_id, queue_name, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[])`,
+                [emailJobIds.slice(start, start + EMAIL_STATE_READ_CHUNK_SIZE)]
             )
-            if (recipientHash) {
-                await this.emailStatus
-                    .record({ teamId: row.team_id, messageId: row.id, status, at: new Date(), recipientHash, reason })
-                    .catch(() => undefined)
-            }
+            await this.recordEmailStatuses(chunk.rows, 'unknown')
         }
+    }
+
+    // record() counts and logs a failed write, and the job handling must not depend on it.
+    private async recordEmailStatuses(rows: EmailStatusJobRow[], status: EmailStatus, reason?: string): Promise<void> {
+        const emailStatus = this.emailStatus
+        if (!emailStatus) {
+            return
+        }
+        await Promise.all(
+            rows
+                .filter((row) => row.queue_name === 'email')
+                .map(async (row) => {
+                    const state = hogFlowStateOf(row)
+                    const recipientHash = transactionalEmailRecipientHash(
+                        { triggerEvent: state?.event?.event, recipientHash: state?.emailRecipientHash },
+                        'janitor'
+                    )
+                    if (recipientHash) {
+                        await emailStatus
+                            .record({
+                                teamId: row.team_id,
+                                messageId: row.id,
+                                status,
+                                at: new Date(),
+                                recipientHash,
+                                reason,
+                            })
+                            .catch(() => undefined)
+                    }
+                })
+        )
     }
 
     /**
