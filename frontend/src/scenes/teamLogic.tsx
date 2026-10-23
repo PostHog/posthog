@@ -46,7 +46,25 @@ const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
         return 'Session recording minimum duration'
     }
 
+    if (attr === 'feature_flag_policy_config') {
+        return 'Feature flag settings'
+    }
+
     return attr ? identifierToHuman(attr) : 'Project'
+}
+
+/** Blocklist entries are third-party IP addresses and domains, so analytics gets only their counts. */
+function featureFlagPolicyConfigForAnalytics(
+    config: TeamType['feature_flag_policy_config']
+): Record<string, boolean | number | undefined> | undefined {
+    if (!config) {
+        return undefined
+    }
+    return {
+        require_tags: config.require_tags,
+        blocked_hosts_count: config.blocked_hosts?.length,
+        blocked_ips_count: config.blocked_ips?.length,
+    }
 }
 
 /** Return whether the provided value is a full TeamType object that's only available when authenticated. */
@@ -463,7 +481,10 @@ export const teamLogic = kea<teamLogicType>([
                     Object.keys(payload).forEach((property) => {
                         posthog.capture(`${property} team setting updated`, {
                             setting: property,
-                            value: payload[property as keyof TeamType],
+                            value:
+                                property === 'feature_flag_policy_config'
+                                    ? featureFlagPolicyConfigForAnalytics(payload.feature_flag_policy_config)
+                                    : payload[property as keyof TeamType],
                         })
                     })
 
