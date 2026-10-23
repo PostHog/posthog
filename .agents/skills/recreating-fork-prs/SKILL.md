@@ -18,25 +18,26 @@ A maintainer re-creates the reviewed change on a branch in this repository.
 
 A branch in this repository is trusted: secret-gated CI steps run with its code in control.
 Push only the commits you reviewed.
+The push, the new PR, and the comment on the fork PR all act in the user's name. Get the user's go-ahead for each one.
 
 ```text
-- [ ] 1. Review the fork PR and pin its head SHA
+- [ ] 1. Pin the fork PR's head SHA, then review it
 - [ ] 2. Rebuild the change on a new branch
 - [ ] 3. Compare the branch with the reviewed SHA
 - [ ] 4. Open the new PR
 - [ ] 5. Close the fork PR
 ```
 
-## 1. Review and pin
-
-Review the fork PR on GitHub as it is. Then record the head SHA you reviewed:
+## 1. Pin, then review
 
 ```sh
 gh pr view <n> --json headRefOid,author,isCrossRepository
 ```
 
-The contributor can push again at any time.
-Every later step uses this SHA, never the fork's branch name.
+Review the code at that `headRefOid`.
+When the review ends, run the command again.
+If `headRefOid` changed, the contributor pushed during the review: review the new commits and pin the new SHA.
+Every later step uses the pinned SHA, never the fork's branch name.
 
 ## 2. Rebuild the change
 
@@ -53,40 +54,47 @@ An empty commit, such as one pushed only to rerun CI, stops the cherry-pick. Dro
 A conflict can mean that master already has part of the change, from another PR or an earlier re-creation.
 Search master for it before you resolve the conflict, and stop if the fork PR is no longer needed.
 
-Cherry-pick keeps the contributor as author and makes you the committer.
+Cherry-pick keeps each commit's author and makes you the committer.
 Every branch here requires signed commits, so contributor commits cannot be pushed as they are.
 The cherry-picked commits carry your signature when `commit.gpgsign` is on.
 
-When the fork history is noisy (many fixups, merges from master), squash it into one commit with the contributor as author:
+GitHub credits an author only when the commit email is linked to their account.
+An empty `login` here means the email is not linked:
 
 ```sh
-git merge --squash <sha>
-git commit --author="$(git log -1 --format='%an <%ae>' <sha>)"
+gh pr view <n> --json commits --jq '.commits[].authors[] | {login, email}'
 ```
 
-GitHub credits an author only when the commit email is linked to their account.
-An empty `login` in `gh pr view <n> --json commits --jq '.commits[].authors[]'` means the email is not linked.
-Then use their no-reply address instead:
+Then rewrite the author to their no-reply address before you add any commit of your own:
 
 ```sh
 gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'
+git rebase origin/master --exec 'git commit --amend --no-edit --author="<name> <no-reply address>"'
 ```
 
-Put your own fixes in separate commits after theirs, so the history shows which part is theirs.
+When one person wrote every commit and the history is noisy (many fixups, merges from master), squash it instead:
+
+```sh
+git merge --squash <sha>
+git commit --author="<name> <linked email or no-reply address>"
+```
+
+With several authors, cherry-pick, so each author keeps credit.
 
 ## 3. Compare before the first push
 
 A push to this repository cannot be taken back, so check the branch first.
-For cherry-picked commits:
+Run this before you add your own commits:
 
 ```sh
-git range-diff "$(git merge-base origin/master <sha>)..<sha>" origin/master..HEAD
+git diff <sha> HEAD -- $(gh pr view <n> --json files --jq '.files[].path')
 ```
 
-Each pair must show `=`. A `!` means conflict resolution changed the content: read that change.
-A `<` row with no match is a commit you skipped. Confirm that it was empty.
-For a squash, compare `git diff "$(git merge-base origin/master <sha>)" <sha>` with `git diff origin/master HEAD`.
-Leave your follow-up commits out of this comparison.
+No output means the branch matches the reviewed code in every file the PR touches.
+Each remaining hunk is a master change made after the fork branched, or a conflict resolution, or a fix the contributor made inside a merge commit that `--no-merges` dropped.
+Read each hunk and know which kind it is.
+
+Then add your own fixes as separate commits, so the history shows which part is theirs.
 
 ## 4. Open the new PR
 
