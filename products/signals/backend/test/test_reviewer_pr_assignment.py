@@ -5,11 +5,14 @@ from unittest.mock import MagicMock, patch
 
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import ReviewerCorrections, SuggestedReviewerEntry
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -659,6 +662,82 @@ class TestDirectlyResponsibleIndividual:
 
         assert self._assign(team, report, github) == []
         assert github.is_assignable.call_count == 1
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("correction", ["needs-review", "excluded-uuid", "excluded-login"])
+    def test_report_corrections_apply_to_owning_team_candidates(
+        self, org_and_team: tuple[Organization, Team], ownership: MagicMock, correction: str
+    ) -> None:
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice"])
+        ownership.return_value = PathOwnership(team_by_path={"posthog/api/a.py": "team-x"}, registry={}, resolved=True)
+        github = self._github(existing_assignees=[], assignable=None)
+        github.list_team_members.return_value = {"success": True, "logins": ["alice"]}
+        rules = ReviewerCorrections(
+            needs_review=correction == "needs-review",
+            excluded=(SuggestedReviewerEntry(user_uuid=str(users["alice"].uuid)),)
+            if correction == "excluded-uuid"
+            else (SuggestedReviewerEntry(github_login="alice"),)
+            if correction == "excluded-login"
+            else (),
+        )
+        SignalReportArtefact.objects.create(
+            team=team, report=report, type="reviewer_corrections", content=rules.model_dump_json()
+        )
+
+        assert self._assign(team, report, github) == []
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("source", ["claimant", "reviewer-uuid", "reviewer-login"])
+    @pytest.mark.parametrize("unavailable", ["inactive", "project"])
+    def test_ineligible_members_receive_no_assignment_or_review_request(
+        self, org_and_team: tuple[Organization, Team], source: str, unavailable: str
+    ) -> None:
+        org, team = org_and_team
+        reviewers = [] if source == "claimant" else ["uuid:alice" if source == "reviewer-uuid" else "alice"]
+        report, users = self._setup(org, team, reviewers)
+        if source == "claimant":
+            self._claim(team, report, users, kind="user", login="alice")
+        if unavailable == "inactive":
+            User.objects.filter(id=users["alice"].id).update(is_active=False)
+        else:
+            org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
+            org.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
+        github = self._github(existing_assignees=[], assignable=None)
+
+        assert self._assign(team, report, github) == []
+        github.request_pull_request_reviews.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "change", ["assigned", "unassigned", "closed", "history-unavailable", "report", "claimant"]
+    )
+    def test_changes_during_github_checks_stop_dri_assignment(
+        self, org_and_team: tuple[Organization, Team], change: str
+    ) -> None:
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice"])
+        github = self._github(existing_assignees=[], assignable=None)
+
+        def check(_repo: str, _login: str) -> dict[str, bool]:
+            if change == "assigned":
+                github.get_pull_request.return_value["assignees"] = ["manual-owner"]
+            elif change == "unassigned":
+                github.was_ever_unassigned.return_value = {"success": True, "unassigned": True}
+            elif change == "closed":
+                github.get_pull_request.return_value["state"] = "closed"
+            elif change == "history-unavailable":
+                github.was_ever_unassigned.return_value = {"success": False}
+            elif change == "report":
+                SignalReportArtefact.objects.create(team=team, report=report, type="suggested_reviewers", content="[]")
+            elif change == "claimant":
+                self._claim(team, report, users, kind="user", login="bob")
+            return {"success": True, "assignable": True}
+
+        github.is_assignable.side_effect = check
+
+        assert self._assign(team, report, github) == []
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
