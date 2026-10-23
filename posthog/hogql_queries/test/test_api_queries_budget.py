@@ -35,9 +35,9 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
         runner.is_query_service = is_query_service
         return runner
 
-    def _drain(self) -> None:
+    def _drain(self, read_bytes: int = 10_000) -> None:
         refill_and_read(str(self.team.pk), budget_spec_for(self.organization))
-        debit(str(self.team.pk), 10_000)
+        debit(str(self.team.pk), read_bytes)
 
     def test_status_reports_remaining_and_retry_after(self):
         self._drain()
@@ -97,6 +97,7 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
         assert event == "api queries budget limited"
         assert properties["outcome"] == outcome
         assert properties["team_id"] == self.team.pk
+        assert properties["organization_plan"] == "free"
         assert properties["bytes_per_hour"] == 3600
         assert properties["remaining_bytes"] <= 0
         assert properties["retry_after_seconds"] >= 1
@@ -129,6 +130,24 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
             side_effect=Exception("flag service down"),
         ):
             self._runner()._enforce_api_queries_budget()
+
+    @parameterized.expand([("free", False, True), ("paid", True, False), ("never_synced", None, False)])
+    def test_flag_can_enforce_only_free_organizations(self, _name, has_active_subscription, refused):
+        self.organization.has_active_subscription = has_active_subscription
+        self.organization.save()
+        self._drain(read_bytes=1_000_000)
+
+        def flag_on_for_free_plans(*_args, person_properties=None, **_kwargs):
+            return (person_properties or {}).get("organization_plan") == "free"
+
+        with patch(
+            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled", side_effect=flag_on_for_free_plans
+        ):
+            if refused:
+                with pytest.raises(APIQueriesBudgetExceeded):
+                    self._runner()._enforce_api_queries_budget()
+            else:
+                self._runner()._enforce_api_queries_budget()
 
     @parameterized.expand([("api_key_query_unbudgeted", True), ("app_query", False)])
     def test_call_with_rate_limits_admits_unbudgeted_queries(self, _name, is_query_service):
