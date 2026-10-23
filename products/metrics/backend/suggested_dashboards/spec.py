@@ -129,6 +129,8 @@ class GenerationRecord(_Model):
 
     model: str = ""
     requested_name: str = ""
+    # A finished template lists only the metrics of its panels, so a regeneration starts again from these.
+    requested_metric_names: list[str] = Field(default_factory=list)
     rounds: list[GenerationRound] = Field(default_factory=list)
     # The panels in the shape that the model writes, so that a check round can show the model its own panels.
     draft_panels: list[DraftPanel] = Field(default_factory=list)

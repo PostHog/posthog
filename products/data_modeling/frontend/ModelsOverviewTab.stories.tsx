@@ -1,7 +1,6 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -99,7 +98,6 @@ const meta: Meta<typeof ModelsOverviewTab> = {
     },
     decorators: [mswDecorator({})],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
         pageUrl: urls.models(),
         mockDate: '2026-09-15',
         msw: {

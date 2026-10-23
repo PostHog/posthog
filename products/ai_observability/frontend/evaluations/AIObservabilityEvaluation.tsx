@@ -47,7 +47,12 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import { formatNumericEvaluationScore, numericOutputConfigError, categoricalOutputConfigError } from './constants'
+import {
+    formatNumericEvaluationScore,
+    booleanOutputConfigError,
+    numericOutputConfigError,
+    categoricalOutputConfigError,
+} from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -180,7 +185,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
                 ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
-                : undefined
+                : (booleanOutputConfigError(evaluation.output_config) ?? undefined)
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -243,15 +248,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-6">
+        <div className="@container/evaluation min-w-0 space-y-6">
             <SceneBreadcrumbBackButton />
             {/* Header */}
-            <SceneStickyBar hasSceneTitleSection={false} className="flex justify-between items-start gap-2 space-y-0">
+            <SceneStickyBar
+                hasSceneTitleSection={false}
+                className="flex flex-col justify-between items-start gap-4 space-y-0 @min-[64rem]/evaluation:flex-row"
+            >
                 <div className="space-y-2 min-w-0">
                     <h1 className="text-2xl font-semibold break-words">
                         {isNewEvaluation ? 'New evaluation' : evaluation.name}
                     </h1>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {isNewEvaluation ? (
                             <LemonTag type="primary">New</LemonTag>
                         ) : (
@@ -270,7 +278,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         )}
                     </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex flex-wrap gap-2 max-w-full">
                     {trendInsightUrl ? (
                         <LemonButton
                             type="secondary"
@@ -500,7 +508,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             <div className="max-w-4xl">
                                 <div className="space-y-6">
                                     {/* Basic Information */}
-                                    <div className="bg-bg-light border rounded p-6">
+                                    <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
                                         <h3 className="text-lg font-semibold mb-4">Basic information</h3>
 
                                         <div className="space-y-4">
@@ -749,7 +757,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 />
                                             </LemonField.Pure>
 
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <Tooltip
                                                     title={canEnableReason}
                                                     visible={canEnableReason ? undefined : false}
@@ -789,7 +797,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         </div>
                                                     }
                                                 >
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex flex-wrap items-center gap-2">
                                                         <LemonSwitch
                                                             checked={evaluation.output_config.allows_na ?? false}
                                                             onChange={setAllowsNA}
@@ -818,7 +826,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         </div>
                                                     }
                                                 >
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex flex-wrap items-center gap-2">
                                                         <LemonSwitch
                                                             checked={evaluation.output_config.true_is_failure ?? false}
                                                             onChange={setTrueIsFailure}
@@ -837,7 +845,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                     {/* Prompt / Code Configuration */}
                                     {hasEditableCriteria && (
-                                        <div className="bg-bg-light border rounded p-6">
+                                        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
                                             <h3 className="text-lg font-semibold mb-4">
                                                 {isHog ? 'Evaluation code' : 'Evaluation prompt'}
                                             </h3>
@@ -851,7 +859,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     )}
 
                                     {/* Trigger Configuration */}
-                                    <div ref={triggersRef} className="bg-bg-light border rounded p-6">
+                                    <div
+                                        ref={triggersRef}
+                                        className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6"
+                                    >
                                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
                                         <p className="text-muted text-sm mb-4">
                                             The evaluation runs on generations that match any one of these condition
@@ -902,6 +913,23 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                         <EvaluationReportConfig evaluationId={evaluation.id} />
                                     </div>
                                 )}
+                                <div className="flex justify-end mt-6">
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Evaluation}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={evaluation.user_access_level ?? undefined}
+                                    >
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={handleSave}
+                                            disabledReason={saveButtonDisabledReason}
+                                            loading={evaluationFormSubmitting}
+                                            data-attr="llma-evaluation-save-bottom"
+                                        >
+                                            {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </div>
                             </div>
                         ),
                     },

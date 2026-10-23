@@ -612,7 +612,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guardian/guardian.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guardian/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gumroad/gumroad.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/gumroad/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/guru/guru.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gusto/gusto.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gusto/settings.py
@@ -875,7 +874,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pendo/pendo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pendo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/perigon/perigon.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/perigon/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persistiq/persistiq.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persistiq/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/persona.py

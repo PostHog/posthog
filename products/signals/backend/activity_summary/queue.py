@@ -1,36 +1,62 @@
 """Pick the (team, user) pairs that the next activity summary tick updates, and measure the daily caps.
 
-Row counts here are only a queue estimate. `update_activity_summary` still applies the real drop
+Each pair has a queue state row. One cursor per input source reads the new rows of all enrolled teams
+and adds them to the pending units of their pair. `select_pairs` then ranks the due pairs and fills the
+tick budget in two passes: paying organizations first, then free organizations with the budget that is
+left. Row counts here are only a queue estimate. `update_activity_summary` still applies the real drop
 rules and `min_units`, and backs a pair off when it skips, so the pair leaves the queue head.
 """
 
+import math
+import uuid
 import datetime
-from collections import Counter
+from collections.abc import Callable
+from typing import Any
 
-from django.db.models import Count, OuterRef, Q, Subquery, Sum
-from django.db.models.functions import Coalesce
+from django.db import transaction
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    DateTimeField,
+    F,
+    FloatField,
+    Max,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+    Value,
+    When,
+    Window,
+)
+from django.db.models.expressions import Combinable
+from django.db.models.functions import Cast, Coalesce, Extract, Greatest, Ln, RowNumber
 
 from posthog.dataclasses import frozen
-from posthog.models import ActivityLog, Team
+from posthog.models import ActivityLog, FileSystemViewLog, Team
 
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
-from products.signals.backend.activity_summary.prompt import SYSTEM_PROMPT
+from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, system_prompt
 from products.signals.backend.activity_summary.render import (
+    DEFAULT_LIMITS,
+    MAX_LIMITS,
     MAX_SUMMARY_CHARS,
+    NOISY_ACTIVITY_SCOPES,
+    RENDER_VERSION,
+    SANDBOX_PROMPT_TITLE_PREFIX,
     SCOUT_CLIENT_PREFIX,
-    SECTIONS_MAX_CHARS,
-    WINDOW_DAYS,
+    RenderLimits,
 )
-from products.signals.backend.activity_summary.summaries import (
-    DEFAULT_MODEL,
-    MAX_ATTEMPTS,
-    MAX_COMPLETION_TOKENS,
-    MODEL_PRICES,
-    cost_usd,
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MAX_ATTEMPTS, MODEL_PRICES, cost_usd
+from products.signals.backend.models import (
+    UserActivitySummary,
+    UserActivitySummaryQueueCursor,
+    UserActivitySummaryQueueState,
 )
-from products.signals.backend.models import UserActivitySummary
 from products.tasks.backend.facade.user_task_summaries import list_user_task_times
 
 DAY = datetime.timedelta(days=1)
@@ -40,6 +66,18 @@ _BOUND_CHARS_PER_TOKEN = 2
 _UNPRICED_UPDATE_COST_USD = 0.05
 _CALLED_MODEL = (UserActivitySummary.Status.OK, UserActivitySummary.Status.FAILED)
 
+SOURCE_ACTIVITY_LOG = "activity_log"
+SOURCE_TASKS = "tasks"
+SOURCE_VIEWS = "views"
+# A cursor stays this far behind now, so it still reads a row that commits a little after its timestamp.
+FEED_LAG = datetime.timedelta(minutes=5)
+# One tick reads at most this much of one source. A cursor that fell behind catches up over the next ticks.
+MAX_FEED_STEP = datetime.timedelta(hours=6)
+TIER_PAYING = "paying"
+TIER_FREE = "free"
+# A summary younger than this many target intervals counts as fresh on the tick event.
+_FRESH_STALENESS = 2
+
 
 @frozen(order=True)
 class ActivitySummaryPair:
@@ -48,10 +86,30 @@ class ActivitySummaryPair:
 
 
 @frozen
-class _Stored:
-    input_watermark: datetime.datetime | None
-    generated_at: datetime.datetime | None
-    next_eligible_at: datetime.datetime | None
+class ActivitySummaryTierStats:
+    tier: str
+    due_pairs: int = 0
+    # Hours since the due time of the pair that waits longest. Null when no pair is due.
+    oldest_due_hours: float | None = None
+    # The share of pairs with activity in the window whose summary is younger than twice the tier's target interval.
+    fresh_share: float | None = None
+
+
+@frozen
+class PairSelection:
+    pairs: list[ActivitySummaryPair]
+    due_pairs: int
+    tiers: list[ActivitySummaryTierStats]
+
+
+@frozen
+class _NewRows:
+    units: int
+    last_at: datetime.datetime
+
+
+_Pending = dict[ActivitySummaryPair, _NewRows]
+_Reader = Callable[[list[int], datetime.datetime, datetime.datetime, bool], _Pending]
 
 
 @frozen
@@ -60,12 +118,18 @@ class DailyUsage:
     cost_usd: float
 
 
-def max_update_cost_usd(model: str = DEFAULT_MODEL) -> float:
+def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, model: str = DEFAULT_MODEL) -> float:
     """The most one update can cost: every attempt with the largest input and output."""
-    input_chars = SECTIONS_MAX_CHARS + MAX_SUMMARY_CHARS + len(SYSTEM_PROMPT)
+    # The previous summary is a profile, cut to `limits.profile_max_chars`, plus fields that `MAX_SUMMARY_CHARS` covers.
+    input_chars = (
+        limits.sections_max_chars
+        + limits.profile_max_chars
+        + MAX_SUMMARY_CHARS
+        + len(system_prompt(limits.profile_max_chars))
+    )
     bound = cost_usd(
         MAX_ATTEMPTS * input_chars // _BOUND_CHARS_PER_TOKEN,
-        MAX_ATTEMPTS * MAX_COMPLETION_TOKENS,
+        MAX_ATTEMPTS * limits.max_completion_tokens,
         MODEL_PRICES.get(model),
     )
     return _UNPRICED_UPDATE_COST_USD if bound is None else bound
@@ -76,7 +140,8 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
 
     One row holds the latest update of a pair, so an earlier update of the same pair in the same 24
     hours is not counted. With the minimum update interval that happens only after a failure.
-    A row without a cost counts as the most one update can cost, so missing usage cannot pass the cap.
+    A row without a cost counts as the most one update can cost under the largest limits the flag allows,
+    because the row can come from a tick with larger limits than now. So missing usage cannot pass the cap.
     An update that raised before it called the model is not counted, unless the row holds an earlier paid update.
     """
     rows = (
@@ -91,104 +156,407 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
     )
     return DailyUsage(
         updates=rows["updates"],
-        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(),
+        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(MAX_LIMITS),
     )
 
 
-def _enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
-    if not config.organization_ids:
-        return []
-    return list(
-        Team.objects.filter(
-            organization_id__in=config.organization_ids,
-            organization__is_ai_data_processing_approved=True,
-        )
-        .exclude(id__in=config.skip_team_ids)
-        .values_list("id", flat=True)
-    )
+def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
+    """The teams of every approved organization, or of the approved organizations in the allowlist."""
+    teams = Team.objects.filter(organization__is_ai_data_processing_approved=True)
+    if not config.enroll_all_approved:
+        if not config.organization_ids:
+            return []
+        teams = teams.filter(organization_id__in=config.organization_ids)
+    return list(teams.exclude(id__in=config.skip_team_ids).values_list("id", flat=True))
 
 
-def _stored_rows(team_ids: list[int]) -> dict[ActivitySummaryPair, _Stored]:
+def is_team_enrolled(config: ActivitySummaryConfig, team: Team) -> bool:
+    """The single-team form of `enrolled_team_ids`. A disabled config enrolls no team."""
+    if not config.enabled or team.id in config.skip_team_ids:
+        return False
+    if team.organization.is_ai_data_processing_approved is not True:
+        return False
+    return config.enroll_all_approved or team.organization_id in _listed_organization_ids(config)
+
+
+def _listed_organization_ids(config: ActivitySummaryConfig) -> set[uuid.UUID]:
+    # The same parse as the `organization_id__in` filter, so an id in another UUID format still matches.
+    listed: set[uuid.UUID] = set()
+    for organization_id in config.organization_ids:
+        try:
+            listed.add(uuid.UUID(organization_id))
+        except ValueError:
+            continue
+    return listed
+
+
+def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime) -> None:
+    current = pending.get(pair)
+    if current is None:
+        pending[pair] = _NewRows(units=units, last_at=at)
+    else:
+        pending[pair] = _NewRows(units=current.units + units, last_at=max(current.last_at, at))
+
+
+def _watermarks(team_ids: list[int]) -> dict[ActivitySummaryPair, datetime.datetime | None]:
     # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
     rows = UserActivitySummary.all_teams.filter(team_id__in=team_ids).values_list(
-        "team_id", "user_id", "input_watermark", "generated_at", "next_eligible_at"
+        "team_id", "user_id", "input_watermark"
     )
-    return {
-        ActivitySummaryPair(team_id=team_id, user_id=user_id): _Stored(
-            input_watermark=watermark, generated_at=generated_at, next_eligible_at=eligible
-        )
-        for team_id, user_id, watermark, generated_at, eligible in rows
-    }
+    return {ActivitySummaryPair(team_id=team_id, user_id=user_id): watermark for team_id, user_id, watermark in rows}
 
 
-def _new_activity_rows(
-    team_ids: list[int], window_start: datetime.datetime, now: datetime.datetime
-) -> dict[ActivitySummaryPair, int]:
-    """Activity log rows per pair after the pair's watermark, with the scope filters of `inputs.py`."""
-    watermark = Subquery(
-        # nosemgrep: idor-lookup-without-team (correlated on the outer row's team_id)
-        UserActivitySummary.all_teams.filter(team_id=OuterRef("team_id"), user_id=OuterRef("user_id")).values(
-            "input_watermark"
-        )[:1]
-    )
+def _after_watermark(
+    rows: list[tuple[int, int, datetime.datetime]], team_ids: list[int], after_watermark: bool
+) -> _Pending:
+    watermarks = _watermarks(team_ids) if after_watermark else {}
+    pending: _Pending = {}
+    for team_id, user_id, at in rows:
+        pair = ActivitySummaryPair(team_id=team_id, user_id=user_id)
+        watermark = watermarks.get(pair)
+        # A row the summary already read is no pending unit, but it still dates the pair's last activity.
+        _add(pending, pair, 1 if watermark is None or at > watermark else 0, at)
+    return pending
+
+
+def _activity_rows(
+    team_ids: list[int], start: datetime.datetime, end: datetime.datetime, after_watermark: bool
+) -> _Pending:
+    """Activity log rows per pair in [start, end), with the filters of `inputs.user_activity`."""
     rows = (
         ActivityLog.objects.filter(
-            team_id__in=team_ids, user_id__isnull=False, created_at__gte=window_start, created_at__lt=now
+            team_id__in=team_ids, user_id__isnull=False, created_at__gte=start, created_at__lt=end
         )
         .exclude(is_system=True)
         .exclude(was_impersonated=True)
+        .exclude(scope__in=NOISY_ACTIVITY_SCOPES)
         .exclude(client__startswith=SCOUT_CLIENT_PREFIX)
-        .filter(created_at__gt=Coalesce(watermark, window_start))
-        .values("team_id", "user_id")
-        .annotate(rows=Count("id"))
-        .values_list("team_id", "user_id", "rows")
     )
+    unit_count = Count("id")
+    if after_watermark:
+        watermark = Subquery(
+            # nosemgrep: idor-lookup-without-team (correlated on the outer row's team_id)
+            UserActivitySummary.all_teams.filter(team_id=OuterRef("team_id"), user_id=OuterRef("user_id")).values(
+                "input_watermark"
+            )[:1]
+        )
+        # A row the summary already read is no pending unit, but it still dates the pair's last activity.
+        unit_count = Count("id", filter=Q(created_at__gt=Coalesce(watermark, start)))
     return {
-        ActivitySummaryPair(team_id=team_id, user_id=user_id): count
-        for team_id, user_id, count in rows
+        ActivitySummaryPair(team_id=team_id, user_id=user_id): _NewRows(units=units, last_at=last_at)
+        for team_id, user_id, units, last_at in rows.values("team_id", "user_id")
+        .annotate(units=unit_count, last_at=Max("created_at"))
+        .values_list("team_id", "user_id", "units", "last_at")
         if team_id is not None and user_id is not None
     }
 
 
-def _new_tasks(
-    team_ids: list[int],
-    window_start: datetime.datetime,
-    now: datetime.datetime,
-    stored: dict[ActivitySummaryPair, _Stored],
-) -> Counter[ActivitySummaryPair]:
-    counts: Counter[ActivitySummaryPair] = Counter()
-    for task in list_user_task_times(
-        team_ids=team_ids, start=window_start, end=now, origin_products=TASK_ORIGIN_PRODUCTS
-    ):
-        pair = ActivitySummaryPair(team_id=task.team_id, user_id=task.user_id)
-        row = stored.get(pair)
-        if row is None or row.input_watermark is None or task.created_at > row.input_watermark:
-            counts[pair] += 1
-    return counts
-
-
-def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> list[ActivitySummaryPair]:
-    """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
-
-    A pair is due when it has a task or an activity log row after its watermark, or in the last
-    `WINDOW_DAYS` with no watermark, and its `next_eligible_at` is empty or past. Pairs with no
-    summary come first, then the pairs with the most new rows, then the oldest summaries.
-    """
-    team_ids = _enrolled_team_ids(config)
-    if not team_ids or limit <= 0:
-        return []
-    window_start = now - datetime.timedelta(days=WINDOW_DAYS)
-    stored = _stored_rows(team_ids)
-    new_rows = Counter(_new_activity_rows(team_ids, window_start, now)) + _new_tasks(
-        team_ids, window_start, now, stored
+def _task_rows(
+    team_ids: list[int], start: datetime.datetime, end: datetime.datetime, after_watermark: bool
+) -> _Pending:
+    """Tasks per pair in [start, end), with the filters of `inputs.user_tasks`."""
+    tasks = list_user_task_times(
+        team_ids=team_ids,
+        start=start,
+        end=end,
+        origin_products=TASK_ORIGIN_PRODUCTS,
+        exclude_title_prefixes=(SANDBOX_PROMPT_TITLE_PREFIX,),
+    )
+    return _after_watermark(
+        [(task.team_id, task.user_id, task.created_at) for task in tasks], team_ids, after_watermark
     )
 
-    due: list[tuple[bool, int, datetime.datetime, ActivitySummaryPair]] = []
-    for pair, count in new_rows.items():
-        row = stored.get(pair)
-        if row is not None and row.next_eligible_at is not None and row.next_eligible_at > now:
-            continue
-        generated_at = row.generated_at if row is not None else None
-        due.append((generated_at is not None, -count, generated_at or window_start, pair))
-    due.sort()
-    return [pair for *_, pair in due[:limit]]
+
+def _view_rows(
+    team_ids: list[int], start: datetime.datetime, end: datetime.datetime, after_watermark: bool
+) -> _Pending:
+    """Viewed objects and scenes per pair with a latest view in [start, end). Folders are not views."""
+    if not team_ids:
+        return {}
+    rows = (
+        FileSystemViewLog.objects.filter(team_id__in=team_ids, viewed_at__gte=start, viewed_at__lt=end)
+        .exclude(type="folder")
+        .values_list("team_id", "user_id", "viewed_at")
+    )
+    return _after_watermark(list(rows), team_ids, after_watermark)
+
+
+_READERS: dict[str, _Reader] = {
+    SOURCE_ACTIVITY_LOG: _activity_rows,
+    SOURCE_TASKS: _task_rows,
+    SOURCE_VIEWS: _view_rows,
+}
+
+
+def queue_sources(config: ActivitySummaryConfig) -> tuple[str, ...]:
+    return (
+        (SOURCE_ACTIVITY_LOG, SOURCE_TASKS, SOURCE_VIEWS) if config.count_views else (SOURCE_ACTIVITY_LOG, SOURCE_TASKS)
+    )
+
+
+_STORED_FIELDS = ("next_eligible_at", "generated_at", "prompt_version", "render_version")
+
+
+def _state_fields(stored: dict[str, Any]) -> dict[str, Any]:
+    """The queue state fields that copy a stored summary."""
+    return {
+        "due_at": stored["next_eligible_at"],
+        "summarized_at": stored["generated_at"],
+        "prompt_version": stored["prompt_version"],
+        "render_version": stored["render_version"],
+    }
+
+
+def _create_missing_states(pairs: list[ActivitySummaryPair]) -> None:
+    """Create a state row for each pair that has none, with the times and versions of its stored summary."""
+    team_ids = {pair.team_id for pair in pairs}
+    # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the given pairs)
+    stored = UserActivitySummary.all_teams.filter(
+        team_id__in=team_ids, user_id__in={pair.user_id for pair in pairs}
+    ).values("team_id", "user_id", *_STORED_FIELDS)
+    copies = {ActivitySummaryPair(team_id=row["team_id"], user_id=row["user_id"]): _state_fields(row) for row in stored}
+    UserActivitySummaryQueueState.all_teams.bulk_create(
+        [
+            UserActivitySummaryQueueState(team_id=pair.team_id, user_id=pair.user_id, **copies.get(pair, {}))
+            for pair in pairs
+        ],
+        ignore_conflicts=True,
+    )
+
+
+def _add_pending(pending: _Pending) -> None:
+    if not pending:
+        return
+    _create_missing_states(list(pending))
+    for pair, rows in pending.items():
+        UserActivitySummaryQueueState.objects.for_team(pair.team_id).filter(user_id=pair.user_id).update(
+            pending_units=F("pending_units") + rows.units,
+            # Postgres GREATEST skips a null.
+            last_activity_at=Greatest("last_activity_at", rows.last_at),
+        )
+
+
+def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime) -> int:
+    """Move each source cursor forward and add the rows it passes to the queue state. Returns the pairs fed.
+
+    A source with no cursor starts at the current end, so the backfill command seeds the earlier rows.
+    """
+    team_ids = enrolled_team_ids(config)
+    end = now - FEED_LAG
+    fed = 0
+    for source in queue_sources(config):
+        with transaction.atomic():
+            cursor = UserActivitySummaryQueueCursor.objects.select_for_update().filter(source=source).first()
+            if cursor is None:
+                UserActivitySummaryQueueCursor.objects.get_or_create(source=source, defaults={"position": end})
+                continue
+            stop = min(end, cursor.position + MAX_FEED_STEP)
+            if stop <= cursor.position:
+                continue
+            pending = _READERS[source](team_ids, cursor.position, stop, False)
+            _add_pending(pending)
+            cursor.position = stop
+            cursor.save(update_fields=["position", "updated_at"])
+            fed += len(pending)
+    return fed
+
+
+def seed_queue(config: ActivitySummaryConfig, team_ids: list[int], end: datetime.datetime) -> int:
+    """Set the queue state of these teams from the rows in the window before `end`.
+
+    Pending units count the rows after each pair's watermark. Last activity counts every row, so a
+    stale summary with no new rows is still due.
+
+    Pending units of these teams that the window does not hold go to zero. Returns the pairs seeded.
+    """
+    if not team_ids:
+        return 0
+    window_start = end - datetime.timedelta(days=config.limits.window_days)
+    pending: _Pending = {}
+    for source in queue_sources(config):
+        for pair, rows in _READERS[source](team_ids, window_start, end, True).items():
+            _add(pending, pair, rows.units, rows.last_at)
+    with transaction.atomic():
+        # nosemgrep: idor-lookup-without-team (operator backfill with no user input; filtered to the given teams)
+        UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids).update(pending_units=0)
+        _add_pending(pending)
+    return len(pending)
+
+
+def move_cursors_to(config: ActivitySummaryConfig, end: datetime.datetime) -> None:
+    """Move each cursor to `end` unless it is already past it, so the feed does not count seeded rows again."""
+    for source in queue_sources(config):
+        cursor, created = UserActivitySummaryQueueCursor.objects.get_or_create(
+            source=source, defaults={"position": end}
+        )
+        if not created and cursor.position < end:
+            cursor.position = end
+            cursor.save(update_fields=["position", "updated_at"])
+
+
+def sync_pair_state(team_id: int, user_id: int) -> None:
+    """Copy the times and versions of the stored summary to the pair's queue state.
+
+    Pending units go to zero when the summary's watermark includes the newest pending row.
+    """
+    stored = (
+        UserActivitySummary.objects.for_team(team_id)
+        .filter(user_id=user_id)
+        .values(*_STORED_FIELDS, "input_watermark")
+        .first()
+    )
+    if stored is None:
+        return
+    watermark = stored["input_watermark"]
+    UserActivitySummaryQueueState.objects.for_team(team_id).filter(user_id=user_id).update(
+        **_state_fields(stored),
+        pending_units=F("pending_units")
+        if watermark is None
+        else Case(When(last_activity_at__lte=watermark, then=0), default=F("pending_units")),
+    )
+
+
+def _current(config: ActivitySummaryConfig) -> Q:
+    """Queue states with no summary, or a summary that `logic.is_stale` does not mark stale."""
+    current = Q(prompt_version=PROMPT_VERSION, render_version=RENDER_VERSION)
+    if config.rebuild_before is not None:
+        current &= Q(summarized_at__gte=config.rebuild_before)
+    return Q(summarized_at__isnull=True) | current
+
+
+def _hours_since(now: datetime.datetime, at: Coalesce) -> Combinable:
+    age = Value(now, output_field=DateTimeField()) - at
+    return Cast(Extract(age, "epoch"), FloatField()) / Value(3600.0)
+
+
+def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: list[int]) -> QuerySet:
+    """The queue states of these teams, with their tier, staleness and priority score.
+
+    Staleness is the summary age over the tier's target interval. A pair with no summary counts its age
+    from its first queued row. The score is log(1 + pending units) times staleness, plus a bonus for a
+    pair with no summary, or a bonus plus staleness for a stale summary.
+    """
+    paying = Coalesce(F("team__organization__has_active_subscription"), Value(False))
+    target_hours = Case(
+        When(paying=True, then=Value(config.target_interval_days_paying * 24)),
+        default=Value(config.target_interval_days_free * 24),
+        output_field=FloatField(),
+    )
+    age_hours = _hours_since(now, Coalesce("summarized_at", "created_at"))
+    stale = Case(When(_current(config), then=Value(False)), default=Value(True), output_field=BooleanField())
+    cold_bonus = Case(
+        When(summarized_at__isnull=True, then=Value(config.cold_start_bonus)),
+        # A stale pair often has no pending units, so its staleness orders it among the other rebuilds.
+        When(stale=True, then=Value(config.cold_start_bonus) + F("staleness")),
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
+    return (
+        # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
+        UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids)
+        .annotate(organization_id=F("team__organization_id"), paying=paying, stale=stale)
+        .annotate(staleness=age_hours / target_hours)
+        .annotate(score=Ln(F("pending_units") + 1) * F("staleness") + cold_bonus)
+    )
+
+
+def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime) -> QuerySet:
+    return states.filter(
+        Q(due_at__isnull=True) | Q(due_at__lte=now),
+        Q(pending_units__gte=max(1, config.min_units)) | Q(stale=True),
+        last_activity_at__gte=now - datetime.timedelta(days=config.limits.window_days),
+    )
+
+
+def _cap_rebuilds(due: QuerySet, max_rebuilds: int) -> QuerySet:
+    """The due pairs with at most `max_rebuilds` stale pairs, paying pairs and the highest scores first."""
+    rebuild_ids = list(
+        due.filter(stale=True)
+        .order_by("-paying", F("score").desc(), "team_id", "user_id")
+        .values_list("id", flat=True)[:max_rebuilds]
+    )
+    return due.filter(Q(stale=False) | Q(id__in=rebuild_ids))
+
+
+def _fill_pass(due: QuerySet, limit: int, max_org_share: float) -> list[UserActivitySummaryQueueState]:
+    """The highest scores first, with at most `max_org_share` of `limit` from one organization."""
+    if limit <= 0:
+        return []
+    order = (F("score").desc(), "team_id", "user_id")
+    return list(
+        due.annotate(org_rank=Window(RowNumber(), partition_by=[F("organization_id")], order_by=order))
+        .filter(org_rank__lte=max(1, int(max_org_share * limit)))
+        .order_by(*order)
+        .only("id", "team_id", "user_id")[:limit]
+    )
+
+
+def _tier_stats(
+    states: QuerySet, due: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
+) -> list[ActivitySummaryTierStats]:
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
+    waiting = {
+        row["paying"]: row
+        for row in due.values("paying").annotate(
+            pairs=Count("id"),
+            oldest=Max(_hours_since(now, Coalesce("due_at", "created_at"))),
+        )
+    }
+    activity = {
+        row["paying"]: row
+        for row in states.filter(last_activity_at__gte=window_start)
+        .values("paying")
+        .annotate(
+            active=Count("id"),
+            fresh=Count("id", filter=Q(summarized_at__isnull=False, staleness__lt=_FRESH_STALENESS)),
+        )
+    }
+    stats = []
+    for tier, paying in ((TIER_PAYING, True), (TIER_FREE, False)):
+        due_row = waiting.get(paying)
+        activity_row = activity.get(paying)
+        stats.append(
+            ActivitySummaryTierStats(
+                tier=tier,
+                due_pairs=due_row["pairs"] if due_row else 0,
+                oldest_due_hours=max(0.0, due_row["oldest"]) if due_row else None,
+                fresh_share=activity_row["fresh"] / activity_row["active"] if activity_row else None,
+            )
+        )
+    return stats
+
+
+def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> PairSelection:
+    """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
+
+    A pair is due when it has a row in the last `window_days` and its due time is empty or past. A pair
+    with a current summary also needs at least `min_units` pending units. One unit never comes from less
+    than one row, so a pair with fewer rows would only skip. A pair with a stale summary needs no pending
+    units, because its update reads the full window, and it ranks with the pairs with no summary.
+    Stale pairs take at most `rebuild_budget_share` of `limit`, paying pairs first, so a version change
+    does not stop the other updates. The first pass ranks the paying pairs and the free pairs with at
+    least `max_overdue_factor` staleness, for `paying_budget_share` of `limit`. The second pass ranks the
+    other free pairs for the budget that is left.
+    """
+    team_ids = enrolled_team_ids(config)
+    if not team_ids:
+        return PairSelection(pairs=[], due_pairs=0, tiers=[])
+    states = _states(config, now, team_ids)
+    due = _due(states, config, now)
+    tiers = _tier_stats(states, due, config, now)
+    due = _cap_rebuilds(due, math.ceil(limit * config.rebuild_budget_share))
+    first = _fill_pass(
+        due.filter(Q(paying=True) | Q(staleness__gte=config.max_overdue_factor)),
+        int(limit * config.paying_budget_share),
+        config.max_org_share,
+    )
+    second = _fill_pass(
+        due.filter(paying=False).exclude(id__in=[state.id for state in first]),
+        limit - len(first),
+        config.max_org_share,
+    )
+    return PairSelection(
+        pairs=[ActivitySummaryPair(team_id=state.team_id, user_id=state.user_id) for state in first + second],
+        due_pairs=sum(tier.due_pairs for tier in tiers),
+        tiers=tiers,
+    )

@@ -15,11 +15,18 @@ GRAPH_API_HOST = "https://graph.facebook.com"
 # Node/edge field selections. Meta returns nothing but `id` unless `fields` is passed,
 # so every request names its columns explicitly.
 ACCOUNT_FIELDS = "id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count"
-MEDIA_FIELDS = (
+MEDIA_PAGE_SAFE_FIELDS = (
     "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,"
-    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled,is_shared_to_feed,owner,"
-    "boost_ads_list,boost_eligibility_info,copyright_check_information,legacy_instagram_media_id"
+    "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled"
 )
+# Meta refuses a whole media page when one post on it is a video Meta can no longer find and the
+# page asks for one of these fields. A refused page is read again with the safe fields only, and
+# each of its posts then reads these fields on its own (see `_media_page`).
+MEDIA_REFUSABLE_FIELDS = (
+    "is_shared_to_feed,owner,boost_ads_list,boost_eligibility_info,copyright_check_information,"
+    "legacy_instagram_media_id"
+)
+MEDIA_FIELDS = f"{MEDIA_PAGE_SAFE_FIELDS},{MEDIA_REFUSABLE_FIELDS}"
 STORY_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,timestamp,username"
 COMMENT_FIELDS = "id,text,timestamp,username,like_count,hidden,parent_id,from"
 # The media comments edge lists top-level comments only. Expanding `replies` inline brings

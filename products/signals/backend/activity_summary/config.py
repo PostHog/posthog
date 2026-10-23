@@ -4,13 +4,23 @@ The parse fails closed: a missing, malformed or unreadable payload turns the tic
 field falls back to its default, and no default is unbounded.
 """
 
+import datetime
+import dataclasses
 from typing import Any
+
+from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.activity_summary.logic import MIN_UNITS, MIN_UPDATE_INTERVAL
+from products.signals.backend.activity_summary.logic import (
+    MAX_SKIP_BACKOFF,
+    MAX_VERSIONS,
+    MIN_UNITS,
+    MIN_UPDATE_INTERVAL,
+)
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
 logger = structlog.get_logger(__name__)
@@ -23,6 +33,8 @@ ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
 @frozen
 class ActivitySummaryConfig:
     enabled: bool = False
+    # Enrolls every organization with AI data processing approval. Otherwise only `organization_ids`.
+    enroll_all_approved: bool = False
     organization_ids: tuple[str, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     max_pairs_per_tick: int = 50
@@ -32,8 +44,30 @@ class ActivitySummaryConfig:
     max_concurrency: int = 4
     min_units: int = MIN_UNITS
     min_update_interval_hours: float = MIN_UPDATE_INTERVAL.total_seconds() / 3600
+    max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
     capture_events: bool = True
+    # Count viewed objects in the queue. Turn it on only when the update reads views as an input.
+    count_views: bool = False
+    # The summary age each tier aims for. A pair's staleness is its summary age over this interval.
+    target_interval_days_paying: float = 3.0
+    target_interval_days_free: float = 5.0
+    # A free pair with at least this staleness joins the paying pass, so paying pairs cannot starve it.
+    max_overdue_factor: float = 3.0
+    # Added to the score of a pair with no summary, because a first summary changes the most.
+    cold_start_bonus: float = 5.0
+    # The share of the tick that the paying pass can take. The free pass gets the rest.
+    paying_budget_share: float = 1.0
+    # The largest share of one pass that the pairs of one organization can take.
+    max_org_share: float = 0.1
+    # The tick stops when this share of its model calls failed or raised.
+    max_error_rate: float = 0.5
+    max_skip_backoff_hours: float = MAX_SKIP_BACKOFF.total_seconds() / 3600
+    limits: RenderLimits = DEFAULT_LIMITS
+    # Summaries generated before this time are rebuilt from the full window, as after a version change.
+    rebuild_before: datetime.datetime | None = None
+    # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
+    rebuild_budget_share: float = 0.3
 
 
 DISABLED = ActivitySummaryConfig()
@@ -50,6 +84,11 @@ def _positive_number(value: Any, default: float) -> float:
     return float(value)
 
 
+def _fraction(value: Any, default: float) -> float:
+    number = _positive_number(value, default)
+    return number if number <= 1 else default
+
+
 def _bool(value: Any, default: bool) -> bool:
     return value if isinstance(value, bool) else default
 
@@ -64,12 +103,40 @@ def _organization_ids(value: Any) -> tuple[str, ...]:
     return tuple(item for item in value if isinstance(item, str) and item) if isinstance(value, list) else ()
 
 
+def parse_limits(payload: Any) -> RenderLimits:
+    """The `limits` object of the payload. An invalid field gets its default, a large one its `max_value`."""
+    if not isinstance(payload, dict):
+        return DEFAULT_LIMITS
+    return RenderLimits(
+        **{
+            field.name: min(
+                _positive_int(payload.get(field.name), getattr(DEFAULT_LIMITS, field.name)), field.metadata["max_value"]
+            )
+            for field in dataclasses.fields(RenderLimits)
+        }
+    )
+
+
+def _timestamp(value: Any) -> datetime.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.UTC)
+    # A future time would mark every new summary stale again, so it waits until the time passes.
+    return parsed if parsed <= timezone.now() else None
+
+
 def parse_config(payload: Any) -> ActivitySummaryConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return DISABLED
     defaults = ActivitySummaryConfig()
     return ActivitySummaryConfig(
         enabled=True,
+        enroll_all_approved=_bool(payload.get("enroll_all_approved"), defaults.enroll_all_approved),
         organization_ids=_organization_ids(payload.get("organization_ids")),
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_pairs_per_tick=_positive_int(payload.get("max_pairs_per_tick"), defaults.max_pairs_per_tick),
@@ -80,8 +147,25 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         min_update_interval_hours=_positive_number(
             payload.get("min_update_interval_hours"), defaults.min_update_interval_hours
         ),
+        max_versions=_positive_int(payload.get("max_versions"), defaults.max_versions),
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
+        count_views=_bool(payload.get("count_views"), defaults.count_views),
+        target_interval_days_paying=_positive_number(
+            payload.get("target_interval_days_paying"), defaults.target_interval_days_paying
+        ),
+        target_interval_days_free=_positive_number(
+            payload.get("target_interval_days_free"), defaults.target_interval_days_free
+        ),
+        max_overdue_factor=_positive_number(payload.get("max_overdue_factor"), defaults.max_overdue_factor),
+        cold_start_bonus=_positive_number(payload.get("cold_start_bonus"), defaults.cold_start_bonus),
+        paying_budget_share=_fraction(payload.get("paying_budget_share"), defaults.paying_budget_share),
+        max_org_share=_fraction(payload.get("max_org_share"), defaults.max_org_share),
+        max_error_rate=_fraction(payload.get("max_error_rate"), defaults.max_error_rate),
+        max_skip_backoff_hours=_positive_number(payload.get("max_skip_backoff_hours"), defaults.max_skip_backoff_hours),
+        limits=parse_limits(payload.get("limits")),
+        rebuild_before=_timestamp(payload.get("rebuild_before")),
+        rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
     )
 
 
@@ -90,6 +174,7 @@ def read_config() -> ActivitySummaryConfig:
     logger.info(
         "activity_summary_config_read",
         enabled=config.enabled,
+        enroll_all_approved=config.enroll_all_approved,
         organizations=len(config.organization_ids),
     )
     return config

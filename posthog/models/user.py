@@ -602,6 +602,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             "current_organization_membership_level": (
                 current_organization_membership.level if current_organization_membership else None
             ),
+            "current_organization_membership_level_name": (
+                current_organization_membership.get_level_display() if current_organization_membership else None
+            ),
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,

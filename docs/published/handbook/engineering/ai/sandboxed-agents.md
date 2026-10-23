@@ -251,8 +251,23 @@ Sandbox-bound tokens cannot change either tool-selection field.
 Both fields and their initial values are activity-logged.
 
 The write path is gated by `scouts-tool-access` and fails closed when the flag is absent or unavailable.
-Keep the flag disabled until tool enforcement ships: storing a list alone does not restrict tools at runtime.
-The tool picker and runtime enforcement are separate changes.
+
+While the flag is on, a run stamps the list on its task at dispatch, and a config edit applies from the next run.
+The run holds the listed tools, the built-in run-context tools, and the tools the MCP server offers every client.
+The run-context tools include `skill-get` and `skill-file-get`, so even an empty selection can load its skill and reference files without granting skill writes.
+The tool catalogue returns `run_context_tools` for the picker’s always-available group. The picker excludes these from choices and removes redundant entries from saved lists when editing them.
+The API refuses a request that uses a method other than GET, HEAD, or OPTIONS, or that needs a write scope, unless a tool the run holds calls that endpoint or the endpoint belongs to the sandbox harness.
+The method counts because some actions change state behind a read scope.
+Harness run writes and run-context writes are restricted to the token-bound task’s current run.
+Report artefacts require a held tool; they are not a harness exception.
+For soft-delete endpoints, updating an object does not grant deletion, and a delete-only grant cannot change other fields.
+A narrowed run cannot call external MCP server tools or change tool approvals through the MCP Store endpoints.
+The refusal is a 403 with the code `scout_tool_not_granted`.
+The check reads the run from the token's task binding, never from a request header.
+GET reads stay governed by the token scopes.
+Token introspection supplies the dispatch snapshot to the MCP server, which hides unpicked tools and refuses direct and exec calls with `tool_not_granted`.
+Refused exec calls retain the catalogued target tool name in analytics; unknown names are recorded as `unrecognized`.
+Keep the flag disabled for customers until the settings picker ships.
 
 ### Activity attribution
 
@@ -489,7 +504,9 @@ that landed since the last bake. The snapshot clones the migrated Postgres datab
 `test_posthog`, so pytest's default `--reuse-db` path also applies only newer migrations.
 The pnpm store and Playwright's Chromium are prewarmed too:
 `pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
-are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
+are no-ops. The image also has `ffmpeg`, because the lean VM base ships no codec tooling,
+and the CI-pinned `semgrep`, `actionlint` and `shellcheck`, so agents can run the repo's lint gates before they push.
+Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
 not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
 from the task's own source. The bake must run on the real VM runtime —
 dockerd cannot run inside Modal's gVisor image builder — which is why it is a sandbox filesystem
@@ -727,6 +744,7 @@ or stream echo, and never submits the message again.
 
 The `phai-context-selection` feature flag enables hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
 The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Person-property conditions use the current actor's email and staff status, so an email-targeted rollout applies to that actor's eligible tasks while percentage and variant bucketing remain task-based.
 Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
 An explicit disabled response stops further preparation requests for that sandbox session, including after conversation history is cleared.
 Flag changes can enable selection in a new session. Preparation errors do not disable later attempts.

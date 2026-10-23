@@ -1,4 +1,10 @@
-import { formatRankingLift, rankingLiftBarFill, rankingLiftBarPercent, rankingStrength } from './rankingFormat'
+import {
+    formatRankingLift,
+    formatRankingLiftComparison,
+    rankingLiftBarFill,
+    rankingLiftBarPercent,
+    rankingStrength,
+} from './rankingFormat'
 
 describe('rankingFormat', () => {
     test.each([
@@ -10,6 +16,17 @@ describe('rankingFormat', () => {
         [12.4, '12x'],
     ])('formats a lift of %s as %s', (lift, expected) => {
         expect(formatRankingLift(lift)).toBe(expected)
+    })
+
+    test.each([
+        [2.4, '2.4x more likely'],
+        [1.06, '1.1x more likely'],
+        [1.04, '1.0x as likely'],
+        [0.96, '1.0x as likely'],
+        [0.6, '0.6x as likely'],
+        [12.4, '12x more likely'],
+    ])('labels a lift of %s on the pill as %s', (lift, expected) => {
+        expect(formatRankingLiftComparison(lift)).toBe(expected)
     })
 
     test.each([

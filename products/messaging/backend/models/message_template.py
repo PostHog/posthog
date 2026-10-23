@@ -1,9 +1,11 @@
 from django.db import models
 
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
 
-class MessageTemplate(UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class MessageTemplate(Taggable, UUIDTModel):
     """
     A model for storing message templates used for email and eventually other messaging channels.
     """

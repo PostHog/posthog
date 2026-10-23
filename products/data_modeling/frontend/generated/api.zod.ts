@@ -66,24 +66,13 @@ export const DataModelingNodesMaterializeCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Run this node and its upstream or downstream dependencies.
- *
- * Request body:
- *     direction: "upstream" | "downstream" (required)
- *         - "upstream": Run all ancestors of this node, plus this node
- *         - "downstream": Run this node and all its descendants
+ * Run this node with its upstream dependencies or downstream dependents.
  */
-export const dataModelingNodesRunCreateBodyNameMax = 2048
-
-export const dataModelingNodesRunCreateBodyDescriptionMax = 1024
-
 export const DataModelingNodesRunCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesRunCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
-        .optional()
+    direction: zod
+        .enum(['upstream', 'downstream'])
+        .describe('\* `upstream` - Upstream\n\* `downstream` - Downstream')
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            'Run this view with all upstream dependencies or all downstream dependents.\n\n\* `upstream` - Upstream\n\* `downstream` - Downstream'
         ),
-    description: zod.string().max(dataModelingNodesRunCreateBodyDescriptionMax).optional(),
 })

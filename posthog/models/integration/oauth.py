@@ -19,11 +19,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
-from posthog.credentials_service.client import credentials_service_enabled
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
-from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
@@ -482,25 +481,6 @@ OAUTH_CLIENT_FALLBACK_KEYS: dict[str, tuple[str, str]] = {
 SLACK_APP_CLIENT_CREDENTIAL_KEYS = ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"]
 
 
-def _slack_instance_setting(key: str) -> str | None:
-    return get_instance_settings([key])[key] or None
-
-
-def _slack_app_client_credentials() -> dict[str, str]:
-    """Slack's app credentials, with instance settings in place of Django settings.
-
-    Self-hosted deployments edit these in the instance settings UI, and the value there wins over
-    the environment variable it defaults from. With the service off, the client would read the
-    environment variable directly and ignore that edit, so the service is only asked when it is on.
-    """
-    if not credentials_service_enabled():
-        values = get_instance_settings(SLACK_APP_CLIENT_CREDENTIAL_KEYS)
-        return {key: values[key] or "" for key in SLACK_APP_CLIENT_CREDENTIAL_KEYS}
-    return get_many_or_settings(
-        SLACK_APP_CLIENT_CREDENTIAL_KEYS, CREDENTIALS_CALLER, settings_lookup=_slack_instance_setting
-    )
-
-
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -563,7 +543,7 @@ class OauthIntegration:
             client_id, client_secret = values[target.client_id_key], values[target.client_secret_key]
             not_configured = f"PostHog connect app not configured for region {target.region}"
         elif kind == "slack":
-            values = _slack_app_client_credentials()
+            values = get_many_or_instance_settings(SLACK_APP_CLIENT_CREDENTIAL_KEYS, CREDENTIALS_CALLER)
             client_id, client_secret = values["SLACK_APP_CLIENT_ID"], values["SLACK_APP_CLIENT_SECRET"]
             not_configured = "Slack app not configured"
         elif kind == "apple-ads":

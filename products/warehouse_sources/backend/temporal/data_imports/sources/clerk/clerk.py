@@ -446,13 +446,11 @@ def clerk_source(
     def items() -> Iterable[Any] | AsyncIterable[Any]:
         if webhook_enabled:
             return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
-        return polled_items()
-
-    def polled_items() -> Iterator[Any]:
         if gated_feature is None:
-            yield from resource
-            return
-        yield from _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
+            # The resource itself, so the framework stages a page's resume state before the page is
+            # yielded and a hand-off keeps the rows the pipeline still buffers.
+            return resource
+        return _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
 
     if endpoint_config.partition_key is None:
         return SourceResponse(

@@ -62,6 +62,7 @@ members = [
   "ingestion-control-plane",
   "ingestion-worker-proto",
   "kafka-deduplicator",
+  "personhog-changelog-relay",
   "personhog-common",
   "personhog-coordination",
   "personhog-identity",

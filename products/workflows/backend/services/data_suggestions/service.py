@@ -416,6 +416,7 @@ def _plan_and_build(
         slack_integration_id=slack_integration_id,
         once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         event_properties=frozenset(event_properties),
+        weekly_count=suggestion.weekly_count,
     )
     built = None
     # The model now and then links a step to an id it never wrote. A second plan almost always holds up.

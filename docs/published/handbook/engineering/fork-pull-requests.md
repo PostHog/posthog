@@ -3,7 +3,7 @@ title: Pull requests from forks
 sidebar: Handbook
 ---
 
-Backend CI runs on Depot CI, from `.depot/workflows/ci-backend.yml`, and its gate check `Backend CI on Depot / Django Tests Pass on Depot` is required on `master`.
+Backend CI runs on Depot CI, from `.depot/workflows/ci-backend.yml`, and its gate's `Backend CI on Depot / Test results` check is required on `master`.
 Depot CI never runs a fork's code, so a fork pull request gets no backend run and that check stays pending.
 A fork pull request cannot merge as it is.
 After review, a PostHog engineer re-creates the change on a branch in this repository, which gets a Depot run and the required check.

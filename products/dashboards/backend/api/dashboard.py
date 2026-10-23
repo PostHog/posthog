@@ -54,18 +54,21 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
+from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
-    check_can_add_insight_to_shared_dashboard,
+    check_can_add_insight_to_dashboard,
     dashboard_filter_leaves,
+    dashboard_shared_or_subscribed,
     is_publicly_shared,
 )
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.constants import GENERATED_DASHBOARD_PREFIX
+from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -165,7 +168,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_product_access_error,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
-from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
+from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
@@ -2115,6 +2118,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:
+            self._check_restored_tiles_access(
+                instance, cast(User, self.context["request"].user), self.context["view"].user_access_control
+            )
             self._undo_delete_related_tiles(instance)
 
         being_deleted = not instance.deleted and validated_data.get("deleted", False)
@@ -2477,7 +2483,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         insight = existing.insight
         if became_live and insight is not None:
-            check_can_add_insight_to_shared_dashboard(user, instance, insight.query)
+            check_can_add_insight_to_dashboard(user, instance, insight.query)
 
         marking_changed = any(
             getattr(existing, field) != tile_defaults[field]
@@ -2702,6 +2708,35 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 DashboardSerializer._sync_filesystem_for_insights(insight_ids_to_delete, instance.team_id)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
+
+    @staticmethod
+    def _check_restored_tiles_access(instance: Dashboard, user: User, user_access_control: UserAccessControl) -> None:
+        """A dashboard restore brings every tile back without a tile write, so the check that
+        gates a single tile restore runs here, once over every insight the restore shows again.
+        An insight can be edited while its dashboard is deleted, so its query may have changed
+        since. The exposure is decided once and the queries compile against one schema, so a
+        restore costs one check rather than one per tile."""
+        if not instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return
+        if user_access_control.is_organization_admin:
+            return
+        exposure = dashboard_shared_or_subscribed(instance)
+        if exposure is None:
+            return
+        queries = [
+            query
+            for query in Insight.objects_including_soft_deleted.filter(
+                dashboard_tiles__dashboard_id=instance.id, dashboard_tiles__deleted=True
+            )
+            .distinct()
+            .values_list("query", flat=True)
+            if isinstance(query, dict)
+        ]
+        if denied_resources := denied_query_resources(user, instance.team, queries):
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            raise serializers.ValidationError(
+                f"Can't restore this dashboard: you don't have access to {denied_names}, and this dashboard is {exposure}."
+            )
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
@@ -3338,7 +3373,7 @@ class DashboardsViewSet(
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
         if tile.insight is not None:
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
             )
         try:
@@ -3418,7 +3453,7 @@ class DashboardsViewSet(
                 raise exceptions.ValidationError("This insight is already on the destination dashboard.")
 
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), destination, tile.insight.query, user_access_control
             )
         elif tile.text is not None:
@@ -3721,13 +3756,18 @@ class DashboardsViewSet(
                 break
 
             tile_context = {**context, "dashboard_tile": tile, "order": order}
-            tile_data = DashboardTileResultSerializer(tile, context=tile_context).data
+            tile_serializer = DashboardTileResultSerializer(tile, context=tile_context)
+            tile_data = tile_serializer.data
 
             if output_format == "optimized":
                 insight_data = tile_data.get("insight") or {}
                 raw_result = insight_data.get("result")
                 if insight_data and raw_result is not None:
-                    formatted = self._format_insight_for_llm(insight, insight_data)
+                    # The serializer memoizes the insight result, so this reads the response it just rendered.
+                    insight_result = cast(InsightResultSerializer, tile_serializer.fields["insight"]).insight_result(
+                        insight
+                    )
+                    formatted = self._format_insight_for_llm(insight, insight_data, insight_result)
                     if formatted is None:
                         # No formatter covers this query type, so the raw result still has to be bounded.
                         formatted = render_unsupported_result(raw_result)
@@ -3871,11 +3911,26 @@ class DashboardsViewSet(
 
         return Response({"results": results})
 
-    @extend_schema(responses={200: WidgetCatalogResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="widget_type",
+                type=str,
+                enum=sorted(EXPECTED_WIDGET_TYPES),
+                many=True,
+                style="form",
+                explode=False,
+                required=False,
+                description="Widget types to return. Omit to return every registered widget type.",
+            ),
+        ],
+        responses={200: WidgetCatalogResponseSerializer},
+    )
     @action(methods=["GET"], detail=False, required_scopes=["dashboard:read"])
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List registered dashboard widget types and per-type config_schema documentation for agents."""
-        return Response({"results": get_widget_catalog_entries()})
+        widget_types = parse_widget_type_filter(request.query_params.getlist("widget_type"))
+        return Response({"results": get_widget_catalog_entries(widget_types)})
 
     @extend_schema(
         request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
@@ -4037,7 +4092,9 @@ class DashboardsViewSet(
 
         return tile
 
-    def _format_insight_for_llm(self, insight: Insight, insight_data: dict) -> str | None:
+    def _format_insight_for_llm(
+        self, insight: Insight, insight_data: dict, insight_result: InsightResult
+    ) -> str | None:
         if not settings.EE_AVAILABLE:
             return None
         try:
@@ -4049,7 +4106,13 @@ class DashboardsViewSet(
             query = InsightVizNode.model_validate(query_dict)
             if not query.source:
                 return None
-            result_dict = {"results": insight_data.get("result"), "columns": insight_data.get("columns")}
+            result_dict = {
+                "results": insight_data.get("result"),
+                "columns": insight_data.get("columns"),
+                # Total-value rows carry no dates, so the formatter labels them with the ranges the query ran over.
+                "resolved_date_range": insight_result.resolved_date_range,
+                "resolved_compare_date_range": insight_result.resolved_compare_date_range,
+            }
             return format_query_results_for_llm(query.source, result_dict, self.team)
         except Exception:
             logger.warning("dashboard_run_insights_format_failed", exc_info=True, insight_id=insight.id)

@@ -50,6 +50,7 @@ from products.signals.backend.ranking.serving_manifest import (
     ServingManifest,
     ServingManifestEntry,
     model_key,
+    serving_engagement_key,
     serving_manifest_key,
     serving_model_prefix,
     serving_project_vectors_key,
@@ -89,6 +90,12 @@ from products.signals.dags.inbox_ranking.training.examples import (
     holdout_mask,
     reports_missing_birth_snapshot,
 )
+from products.signals.dags.inbox_ranking.training.families import (
+    MODEL_FAMILIES,
+    NN_MODEL_NAME,
+    NN_WITH_PRIO_MODEL_NAME,
+    ModelFamily,
+)
 from products.signals.dags.inbox_ranking.training.heads import ACTION_LABEL_COLUMNS, HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
@@ -120,12 +127,8 @@ from products.signals.dags.inbox_ranking.training.train import HoldoutGrade, _he
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     LEGACY_POOL_NAME,
-    MODEL_FAMILIES,
-    NN_MODEL_NAME,
-    NN_WITH_PRIO_MODEL_NAME,
     POOL_NAME,
     SERVED_SCORES_TABLE,
-    ModelFamily,
     calibration_rows,
     chance_band,
     empty_scores_write_allowed,
@@ -142,6 +145,15 @@ from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, W
 
 # A per-head XGBoost family on the report vector. The sweep still serves this learner.
 EMBEDDINGS_MODEL_NAME = "report_embeddings_xgb"
+EXPERIMENT_MODEL_NAME = "report_embeddings_experiment"
+_EMBEDDINGS_FAMILY = ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET)
+_EXPERIMENT_FAMILY = ModelFamily(
+    name=EXPERIMENT_MODEL_NAME,
+    feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
+    experiment=True,
+    baseline=EMBEDDINGS_MODEL_NAME,
+    expires=datetime.date(2026, 9, 30),
+)
 EMBEDDING_FEATURE_SETS = (REPORT_EMBEDDINGS_FEATURE_SET,)
 
 
@@ -2337,6 +2349,9 @@ def test_recent_versions_and_challengers_come_from_the_window_and_skip_a_version
         (NN_WITH_PRIO_MODEL_NAME, "2026-08-19", False),
         (NN_WITH_PRIO_MODEL_NAME, "2026-08-18", True),
         (NN_MODEL_NAME, "2026-08-17", True),
+        # Readable, with every file, and newest in the window: an experiment never serves, so it is
+        # no challenger either.
+        (EXPERIMENT_MODEL_NAME, "2026-08-19", True),
     ):
         folder = model_object_key(prefix, name, version, "")
         client.objects[folder + METADATA_FILE] = json.dumps(
@@ -2347,7 +2362,7 @@ def test_recent_versions_and_challengers_come_from_the_window_and_skip_a_version
     monkeypatch.setattr(settings, "INBOX_RANKING_SERVING_RECENT_VERSIONS", 3)
     store = _AppObjectStore()
 
-    _run_serving_manifest(monkeypatch, store, dataset_client=client, families=MODEL_FAMILIES)
+    _run_serving_manifest(monkeypatch, store, dataset_client=client, families=(*MODEL_FAMILIES, _EXPERIMENT_FAMILY))
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert [(entry.model_name, entry.model_version, entry.roles) for entry in manifest.models] == [
@@ -2473,7 +2488,12 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     missing_key = model_key(EMBEDDINGS_MODEL_NAME, pin_version)
     absent_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-07-01")
     denied_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-06-01")
-    pins = (missing_key, absent_key, denied_key, retired_key)
+    experiment_key = model_key(EXPERIMENT_MODEL_NAME, pin_version)
+    client.objects[model_object_key(prefix, EXPERIMENT_MODEL_NAME, pin_version, METADATA_FILE)] = json.dumps(
+        _serving_metadata(EXPERIMENT_MODEL_NAME, pin_version, heads=("open",), **_FEATURE_FIELDS)
+    ).encode()
+    client.objects[model_object_key(prefix, EXPERIMENT_MODEL_NAME, pin_version, "open.ubj")] = b"booster"
+    pins = (missing_key, absent_key, denied_key, retired_key, experiment_key)
     monkeypatch.setattr(
         "products.signals.dags.inbox_ranking.training.dag.read_ranking_overrides",
         lambda now: RankingOverrides(pin=pins),
@@ -2483,7 +2503,9 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     )
     store = _AppObjectStore()
 
-    _run_serving_manifest(monkeypatch, store, dataset_client=denied_client)
+    _run_serving_manifest(
+        monkeypatch, store, dataset_client=denied_client, families=(_EMBEDDINGS_FAMILY, _EXPERIMENT_FAMILY)
+    )
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert not set(pins) & {entry.key for entry in manifest.models}
@@ -2494,6 +2516,7 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     assert METADATA_FILE in dropped[absent_key]
     assert "AccessDenied" in dropped[denied_key]
     assert "this build can produce" in dropped[retired_key]
+    assert "is an experiment family" in dropped[experiment_key]
 
 
 def test_the_serving_prefix_layout_is_stable():
@@ -2502,6 +2525,11 @@ def test_the_serving_prefix_layout_is_stable():
     assert (
         serving_model_prefix("inbox_ranking", model_key(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
         == "inbox_ranking/serving/models/report_embeddings_xgb@2026-08-19"
+    )
+    # The mirror's write grant covers only the serving prefix.
+    assert (
+        serving_engagement_key("inbox_ranking", "2026-08-19")
+        == "inbox_ranking/serving/engagement/2026-08-19/engagement.parquet"
     )
 
 

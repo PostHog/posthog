@@ -170,7 +170,7 @@ async def assert_metrics_in_clickhouse(
             SELECT metric_kind, metric_name, count
             FROM sharded_app_metrics2
             WHERE app_source = 'batch_export'
-            AND app_source_id = {{batch_export_id:String}}
+            AND app_source_id = {batch_export_id:String}
             FORMAT JSONEachRow \
             """
 
