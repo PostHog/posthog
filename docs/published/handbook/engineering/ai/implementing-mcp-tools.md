@@ -130,7 +130,9 @@ Start with a release condition matching one authenticated user's distinct ID; do
 
 Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
 Use the targeted user's calls after that refresh for offline evaluation, and record when the payload changes.
-Existing intent analytics stay unchanged; the server does not capture the prompt text separately.
+Each `$mcp_tool_call` records the evaluated flag as `$feature/mcp-intent-prompt`: `true` for enabled and `false` for disabled.
+If evaluation is unavailable, the property is omitted. This records flag assignment; clients may still have cached an earlier prompt.
+The server does not capture the prompt text separately.
 
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.

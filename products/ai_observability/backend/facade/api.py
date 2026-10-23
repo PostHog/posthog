@@ -173,13 +173,6 @@ def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail
     )
 
 
-def get_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters:
-    """Grade `$ai_evaluation` events with the same rules the evaluation UI applies: boolean polarity, the numeric
-    or categorical passing rule, and no skipped, N/A or sentiment runs. The conditions change when an evaluation's
-    output config changes, so a caller that stores them rebuilds them on `evaluation_output_changed`."""
-    return build_evaluation_pass_filters(team_id)
-
-
 def resolve_evaluation_pass_markers[P](properties: list[P], team_id: int) -> list[P]:
     """Replace each evaluation pass marker with the team's current condition."""
     markers = {contracts.EVALUATION_GRADED_MARKER, contracts.EVALUATION_PASSED_MARKER}
