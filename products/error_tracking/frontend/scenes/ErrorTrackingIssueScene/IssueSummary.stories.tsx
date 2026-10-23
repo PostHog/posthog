@@ -24,9 +24,9 @@ const SUMMARY: ErrorTrackingIssueSummaryApi = {
 
 const noop = (): void => {}
 
-function render(props: Partial<IssueSummarySectionProps>): JSX.Element {
+function render(props: Partial<IssueSummarySectionProps>, width: 'narrow' | 'wide' = 'narrow'): JSX.Element {
     return (
-        <div className="w-[520px] border">
+        <div className={width === 'wide' ? 'w-[720px] border' : 'w-[520px] border'}>
             <IssueSummarySection
                 view="ready"
                 summary={SUMMARY}
@@ -42,6 +42,8 @@ function render(props: Partial<IssueSummarySectionProps>): JSX.Element {
 }
 
 export const Ready: Story = { render: () => render({}) }
+
+export const ReadyWide: Story = { render: () => render({}, 'wide') }
 
 export const ReadyWithoutLikelyCause: Story = {
     render: () => render({ summary: { ...SUMMARY, likely_cause: '' }, feedback: 'good' }),

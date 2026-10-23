@@ -1,7 +1,17 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconLogomark, IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import {
+    IconArrowRight,
+    IconBug,
+    IconLogomark,
+    IconPeople,
+    IconRefresh,
+    IconSearch,
+    IconThumbsDown,
+    IconThumbsUp,
+} from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -20,11 +30,27 @@ export interface IssueSummarySectionProps {
     onFeedback: (feedback: IssueSummaryFeedback) => void
 }
 
-function SummaryField({ label, children }: { label: string; children: string }): JSX.Element {
+function SummaryField({
+    icon,
+    label,
+    tag,
+    emphasis = false,
+    children,
+}: {
+    icon: JSX.Element
+    label: string
+    tag?: JSX.Element
+    emphasis?: boolean
+    children: string
+}): JSX.Element {
     return (
-        <div>
-            <div className="text-xs font-semibold text-secondary">{label}</div>
-            <p className="m-0 text-sm leading-snug">{children}</p>
+        <div className="grid gap-x-3 gap-y-0.5 px-2 py-1.5 border-b @xl:grid-cols-[11rem_1fr]">
+            <dt className="flex flex-wrap items-center gap-1 text-xs font-semibold text-secondary @xl:items-start @xl:pt-0.5">
+                <span className="flex shrink-0 text-sm">{icon}</span>
+                <span>{label}</span>
+                {tag}
+            </dt>
+            <dd className={clsx('m-0 text-sm leading-snug', emphasis && 'font-semibold')}>{children}</dd>
         </div>
     )
 }
@@ -87,14 +113,32 @@ export function IssueSummarySection({
                 )}
             </div>
             {view === 'ready' && summary ? (
-                <div className="min-h-0 overflow-y-auto px-2 py-2 flex flex-col gap-2">
-                    <SummaryField label="What happened">{summary.what_happened}</SummaryField>
-                    {summary.likely_cause ? (
-                        <SummaryField label="Likely cause (hypothesis)">{summary.likely_cause}</SummaryField>
-                    ) : null}
-                    <SummaryField label="Who is affected">{summary.who_is_affected}</SummaryField>
-                    <SummaryField label="Next step">{summary.suggested_next_step}</SummaryField>
-                    <div className="text-xs text-muted">
+                <div className="@container min-h-0 overflow-y-auto">
+                    <dl className="m-0">
+                        <SummaryField icon={<IconBug />} label="What happened" emphasis>
+                            {summary.what_happened}
+                        </SummaryField>
+                        {summary.likely_cause ? (
+                            <SummaryField
+                                icon={<IconSearch />}
+                                label="Likely cause"
+                                tag={
+                                    <LemonTag size="small" type="muted">
+                                        Hypothesis
+                                    </LemonTag>
+                                }
+                            >
+                                {summary.likely_cause}
+                            </SummaryField>
+                        ) : null}
+                        <SummaryField icon={<IconPeople />} label="Who is affected">
+                            {summary.who_is_affected}
+                        </SummaryField>
+                        <SummaryField icon={<IconArrowRight />} label="Next step">
+                            {summary.suggested_next_step}
+                        </SummaryField>
+                    </dl>
+                    <div className="px-2 py-1 text-xs text-muted">
                         Generated <TZLabel time={summary.generated_at} />
                     </div>
                 </div>
