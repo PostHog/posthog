@@ -7,14 +7,14 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 export type AuthBannerVariant = 'note' | 'warning' | 'danger' | 'success'
 
-// Every variant shares the note's surface, so banners read as part of the auth card. Only the left
-// accent and the icon carry the variant's color. The scene remaps `text-warning` to the primary text
-// color, so the accents read the global `--warning`, `--danger` and `--success` colors directly.
+// Every variant shares the note's surface, so banners read as part of the auth card. A solid outline
+// mixed from the variant's color and the icon carry its meaning. The scene remaps `text-warning` to
+// the primary text color, so the colors read the global `--warning`, `--danger` and `--success`.
 const VARIANT_CLASSES: Record<AuthBannerVariant, string> = {
-    note: 'border-l-[color:var(--auth-scene-note-border)] text-secondary',
-    warning: 'border-l-[color:var(--warning)] text-primary',
-    danger: 'border-l-[color:var(--danger)] text-primary',
-    success: 'border-l-[color:var(--success)] text-primary',
+    note: 'border-[color:var(--auth-scene-note-border)] text-secondary',
+    warning: 'border-[color:color-mix(in_srgb,var(--warning)_55%,transparent)] text-primary',
+    danger: 'border-[color:color-mix(in_srgb,var(--danger)_55%,transparent)] text-primary',
+    success: 'border-[color:color-mix(in_srgb,var(--success)_55%,transparent)] text-primary',
 }
 
 const VARIANT_ICONS: Partial<Record<AuthBannerVariant, ReactNode>> = {
@@ -42,7 +42,7 @@ export function AuthBanner({
             role={variant === 'danger' ? 'alert' : undefined}
             className={clsx(
                 'flex gap-2.5 items-start py-3 px-3.5 text-sm leading-relaxed text-left rounded',
-                'bg-[var(--auth-scene-note-bg)] border border-[color:var(--auth-scene-note-border)] border-l-[3px]',
+                'bg-[var(--auth-scene-note-bg)] border',
                 VARIANT_CLASSES[variant],
                 className
             )}
