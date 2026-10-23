@@ -49,6 +49,7 @@ class DashboardWidgetType(models.TextChoices):
     EXPERIMENT_RESULTS = "experiment_results"
     EXPERIMENTS_LIST = "experiments_list"
     LOGS_LIST = "logs_list"
+    METRICS = "metrics"
     NOTEBOOK_WIDGET = "notebook_widget"
     SESSION_REPLAY_LIST = "session_replay_list"
     SURVEY_RESULTS = "survey_results"

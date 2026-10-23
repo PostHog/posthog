@@ -26,6 +26,8 @@ import {
     parseExperimentsListWidgetConfigApiError,
 } from './experiments/experimentsWidgetConfigValidation'
 import { parseLogsWidgetConfigApiError } from './logs/logsWidgetConfigValidation'
+import { metricsWidgetDefaultTitle } from './metrics/metricsWidgetConfig'
+import { parseMetricsWidgetConfigApiError } from './metrics/metricsWidgetConfigValidation'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
 import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetConfigValidation'
 
@@ -50,6 +52,10 @@ const EditNotebookWidgetModal = lazyWithRetry(() =>
     import('products/notebooks/frontend/NotebookDashboardWidget/EditNotebookWidgetModal').then((m) => ({
         default: m.EditNotebookWidgetModal,
     }))
+)
+const MetricsWidget = lazyWithRetry(() => import('./metrics/MetricsWidget').then((m) => ({ default: m.MetricsWidget })))
+const EditMetricsWidgetModal = lazyWithRetry(() =>
+    import('./metrics/EditMetricsWidgetModal').then((m) => ({ default: m.EditMetricsWidgetModal }))
 )
 const ConversationsWidget = lazyWithRetry(() =>
     import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidget }))
@@ -197,6 +203,8 @@ export type DashboardWidgetDefinition = {
     productAccess?: DashboardWidgetProductAccess
     /** Maps dashboard PATCH API errors to edit-modal field errors for this widget type. */
     parseConfigApiError: DashboardWidgetConfigApiErrorParser
+    /** Card title when the tile has no name, derived from its config (e.g. the charted metric). */
+    getDefaultTitle?: (config: Record<string, unknown>) => string | undefined
     /** Fallback when catalog `availability` is unmet; defaults to `WidgetAvailabilitySetupPrompt`. */
     unavailableContentFallback?: ComponentType<{ availability: WidgetAvailabilityConfig }>
 }
@@ -222,6 +230,8 @@ export type DashboardWidgetComponentProps = {
     canMutateConversationsTickets?: boolean
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
     onConfigPublished?: () => void
+    /** Opens the widget settings; set only for viewers who can edit the tile. */
+    onEdit?: () => void
 }
 
 export type DashboardWidgetMetadataPatch = {
@@ -308,6 +318,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditLogsWidgetModal,
         productAccess: 'logs',
         parseConfigApiError: parseLogsWidgetConfigApiError,
+    },
+    metrics: {
+        Component: MetricsWidget,
+        EditModal: EditMetricsWidgetModal,
+        productAccess: 'metrics',
+        parseConfigApiError: parseMetricsWidgetConfigApiError,
+        getDefaultTitle: metricsWidgetDefaultTitle,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

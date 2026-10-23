@@ -532,3 +532,7 @@ class SuggestedDashboardError(Exception):
 
 class SuggestedDashboardNotFound(SuggestedDashboardError):
     pass
+
+
+class MetricsHeatmapIneligibleError(ValueError):
+    """A metrics query can't draw a heatmap. The message is safe to show."""

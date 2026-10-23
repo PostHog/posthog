@@ -8,6 +8,7 @@ import {
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
+    metricsWidgetConfigSchema,
     notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
@@ -23,6 +24,7 @@ const WIDGET_CONFIG_SCHEMAS = {
     experiments_list: experimentsWidgetConfigSchema,
     experiment_results: experimentResultsWidgetConfigSchema,
     logs_list: logsWidgetConfigSchema,
+    metrics: metricsWidgetConfigSchema,
     notebook_widget: notebookWidgetConfigSchema,
     survey_results: surveyResultsWidgetConfigSchema,
 } as const
@@ -37,6 +39,7 @@ type ZodDef = {
     element?: SchemaNode
     shape?: Record<string, SchemaNode>
     entries?: Record<string, unknown>
+    values?: readonly unknown[]
 }
 
 function zodDef(schema: SchemaNode): ZodDef | undefined {
@@ -81,8 +84,20 @@ function zodPropertyTree(schema: SchemaNode): unknown {
         return { $enum: Object.keys(def.entries).sort() }
     }
 
+    if (def?.type === 'literal' && def.values) {
+        return { $type: def.values.every((value) => typeof value === 'number') ? 'integer' : 'string' }
+    }
+
     if (def?.type === 'union' && def.options) {
         const substantiveOptions = def.options.filter((option) => zodDef(unwrapZod(option))?.type !== 'null')
+        // An integer enum (e.g. days of the week) is a union of literals, since a Zod enum holds strings only.
+        const literalValues = substantiveOptions.flatMap((option) => zodDef(unwrapZod(option))?.values ?? [])
+        if (
+            literalValues.length > 1 &&
+            substantiveOptions.every((option) => zodDef(unwrapZod(option))?.type === 'literal')
+        ) {
+            return { $enum: [...literalValues].sort() }
+        }
         if (substantiveOptions.length === 1) {
             return zodPropertyTree(substantiveOptions[0]!)
         }
@@ -133,7 +148,11 @@ function zodPropertyTree(schema: SchemaNode): unknown {
     return { $type: 'unknown' }
 }
 
-function normalizePropertyTree(tree: unknown): unknown {
+// The metrics config embeds a MetricsQuery, whose float fields (quantile, goal lines, axis bounds) OpenAPI types as
+// `number`. This helper reads every Zod number as `integer`, so only that config reads a `number` the same way.
+const WIDGETS_WITH_FLOAT_FIELDS: ReadonlySet<string> = new Set(['metrics'])
+
+function normalizePropertyTree(tree: unknown, readFloatsAsIntegers = false): unknown {
     if (!tree || typeof tree !== 'object' || Array.isArray(tree)) {
         return tree
     }
@@ -143,7 +162,13 @@ function normalizePropertyTree(tree: unknown): unknown {
         return { $types: normalizedTypes }
     }
 
-    return Object.fromEntries(Object.entries(tree).map(([key, value]) => [key, normalizePropertyTree(value)]))
+    if (readFloatsAsIntegers && '$type' in tree && tree.$type === 'number') {
+        return { $type: 'integer' }
+    }
+
+    return Object.fromEntries(
+        Object.entries(tree).map(([key, value]) => [key, normalizePropertyTree(value, readFloatsAsIntegers)])
+    )
 }
 
 describe('widget config schema parity', () => {
@@ -157,7 +182,10 @@ describe('widget config schema parity', () => {
     it('frontend zod schemas match nested OpenAPI property trees', () => {
         for (const [widgetType, expectedTree] of Object.entries(configPropertyMetadata.configPropertyTrees)) {
             const schema = WIDGET_CONFIG_SCHEMAS[widgetType as keyof typeof WIDGET_CONFIG_SCHEMAS]
-            expect(normalizePropertyTree(zodPropertyTree(schema))).toEqual(normalizePropertyTree(expectedTree))
+            const readFloatsAsIntegers = WIDGETS_WITH_FLOAT_FIELDS.has(widgetType)
+            expect(normalizePropertyTree(zodPropertyTree(schema))).toEqual(
+                normalizePropertyTree(expectedTree, readFloatsAsIntegers)
+            )
         }
     })
 

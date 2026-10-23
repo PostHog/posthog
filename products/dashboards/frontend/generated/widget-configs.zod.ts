@@ -10,6 +10,7 @@ import { ErrorTrackingListWidgetConfig } from './widget-config-schemas/errorTrac
 import { ExperimentResultsWidgetConfig as ExperimentResultsWidgetConfigComponent } from './widget-config-schemas/experimentResultsWidgetConfig.zod'
 import { ExperimentsListWidgetConfig } from './widget-config-schemas/experimentsListWidgetConfig.zod'
 import { LogsListWidgetConfig } from './widget-config-schemas/logsListWidgetConfig.zod'
+import { MetricsWidgetConfig as MetricsWidgetConfigComponent } from './widget-config-schemas/metricsWidgetConfig.zod'
 import { NotebookWidgetConfig as NotebookWidgetConfigComponent } from './widget-config-schemas/notebookWidgetConfig.zod'
 import { SessionReplayListWidgetConfig } from './widget-config-schemas/sessionReplayListWidgetConfig.zod'
 import { SurveyResultsWidgetConfig as SurveyResultsWidgetConfigComponent } from './widget-config-schemas/surveyResultsWidgetConfig.zod'
@@ -23,6 +24,7 @@ export const errorTrackingWidgetConfigSchema = /* @__PURE__ */ ErrorTrackingList
 export const experimentResultsWidgetConfigSchema = /* @__PURE__ */ ExperimentResultsWidgetConfigComponent
 export const experimentsWidgetConfigSchema = /* @__PURE__ */ ExperimentsListWidgetConfig
 export const logsWidgetConfigSchema = /* @__PURE__ */ LogsListWidgetConfig
+export const metricsWidgetConfigSchema = /* @__PURE__ */ MetricsWidgetConfigComponent
 export const notebookWidgetConfigSchema = /* @__PURE__ */ NotebookWidgetConfigComponent
 export const sessionReplayWidgetConfigSchema = /* @__PURE__ */ SessionReplayListWidgetConfig
 export const surveyResultsWidgetConfigSchema = /* @__PURE__ */ SurveyResultsWidgetConfigComponent
@@ -35,6 +37,7 @@ export type ErrorTrackingWidgetConfig = zod.infer<typeof errorTrackingWidgetConf
 export type ExperimentResultsWidgetConfig = zod.infer<typeof experimentResultsWidgetConfigSchema>
 export type ExperimentsWidgetConfig = zod.infer<typeof experimentsWidgetConfigSchema>
 export type LogsWidgetConfig = zod.infer<typeof logsWidgetConfigSchema>
+export type MetricsWidgetConfig = zod.infer<typeof metricsWidgetConfigSchema>
 export type NotebookWidgetConfig = zod.infer<typeof notebookWidgetConfigSchema>
 export type SessionReplayWidgetConfig = zod.infer<typeof sessionReplayWidgetConfigSchema>
 export type SurveyResultsWidgetConfig = zod.infer<typeof surveyResultsWidgetConfigSchema>
@@ -84,6 +87,10 @@ export const logsWidgetFormSchema = logsWidgetConfigSchema.pick({
     dateRange: true,
     wrapLines: true,
     timezone: true,
+})
+
+export const metricsWidgetFormSchema = metricsWidgetConfigSchema.pick({
+    query: true,
 })
 
 export const notebookWidgetFormSchema = notebookWidgetConfigSchema.pick({})

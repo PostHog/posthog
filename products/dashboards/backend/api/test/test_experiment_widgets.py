@@ -1,4 +1,3 @@
-from concurrent.futures import Future
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -447,38 +446,10 @@ class TestExperimentResultsWidget(APIBaseTest):
         assert "secret_table" not in str(entry)
 
 
-class _InlineExecutor:
-    """Runs run_widgets work items on the test thread so widget queries can see
-    data created inside the test transaction (real threads get new DB connections)."""
-
-    def __init__(self, max_workers: int | None = None) -> None:
-        pass
-
-    def __enter__(self) -> "_InlineExecutor":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass
-
-    def submit(self, fn: Any, *args: Any, **kwargs: Any) -> "Future[Any]":
-        future: Future[Any] = Future()
-        future.set_result(fn(*args, **kwargs))
-        return future
-
-
 class TestExperimentWidgetsViaRunWidgetsEndpoint(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        self.executor_patcher = patch(
-            "products.dashboards.backend.api.dashboard.ThreadPoolExecutor",
-            _InlineExecutor,
-        )
-        self.executor_patcher.start()
-
-    def tearDown(self) -> None:
-        self.executor_patcher.stop()
-        super().tearDown()
 
     def _run(self, dashboard_id: int, tile_ids: list[int]) -> dict[str, Any]:
         response = self.client.get(
