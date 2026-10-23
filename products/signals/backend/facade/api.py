@@ -763,6 +763,9 @@ async def emit_signal(
     remediation: SignalRemediation | None = None,
     idempotency_key: str | None = None,
     signal_id: str | None = None,
+    sync_with_source: bool = False,
+    source_match_signal_id: str | None = None,
+    source_match_report_id: str | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -795,6 +798,10 @@ async def emit_signal(
             investigating from scratch. Not required by any existing source.
         idempotency_key: Optional stable key for callers that may retry. Repeated calls with
             the same key, source product, and source type start at most one emitter workflow.
+        sync_with_source: Route a new material version of the same source record back to its
+            existing report instead of relying on semantic matching.
+        source_match_signal_id: Existing signal matched by durable source identity, when known.
+        source_match_report_id: Existing report matched by durable source identity, when known.
 
     Example:
         await emit_signal(
@@ -913,6 +920,9 @@ async def emit_signal(
         weight=weight,
         extra=extra or {},
         remediation=remediation_dict,
+        sync_with_source=sync_with_source,
+        source_match_signal_id=source_match_signal_id,
+        source_match_report_id=source_match_report_id,
     )
 
     # Ensure the buffer workflow is running (idempotent)

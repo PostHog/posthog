@@ -816,6 +816,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
         startup_requested_at: datetime | None = None,
+        subscription_owner_id: int | None = None,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -899,7 +900,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             task._apply_ai_run_defaults(state, acting_user_id)
             model_access = resolve_model_access(state)
             if model_access.adapter is not None:
-                state[f"{model_access.adapter}_subscription_user_id"] = acting_user_id or task.created_by_id
+                state[f"{model_access.adapter}_subscription_user_id"] = (
+                    subscription_owner_id or acting_user_id or task.created_by_id
+                )
             if task.ownership_version is not None:
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
 
