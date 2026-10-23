@@ -22,6 +22,7 @@ from django.conf import settings
 
 import httpx
 import requests
+import structlog
 from google.genai import (
     errors as genai_errors,
     types as genai_types,
@@ -29,7 +30,6 @@ from google.genai import (
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import ai_gateway_headers, build_gemini_client, resolve_ai_gateway_config
-from posthog.ph_client import feature_enabled_or_false
 from posthog.security.llm_prompt_sanitization import (
     GENERIC_VALUE_MAX_LEN,
     sanitize_user_text,
@@ -37,11 +37,16 @@ from posthog.security.llm_prompt_sanitization import (
 )
 
 from products.aeo.backend.facade.contracts import AEO_GEMINI_ENGINE_FLAG
+from products.aeo.backend.flags import aeo_flag_enabled
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
+logger = structlog.get_logger(__name__)
+
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
+# The gateway drops a Gemini request at its own 290s header timeout, so a longer client wait only outlives it.
+GEMINI_TIMEOUT_MS = 290_000
 EXA_TIMEOUT_SECONDS = 60
 EXA_ANSWER_URL = "https://api.exa.ai/answer"
 
@@ -106,6 +111,8 @@ class ParsedAnswer:
     retrieved_urls: list[str] = field(default_factory=list)
     search_queries: list[str] = field(default_factory=list)
     cost_usd: float | None = None
+    # Gemini grounding chunks whose redirect could not be mapped back to a source domain (Gemini only).
+    unresolved_chunks: int = 0
 
 
 class CitationEngine(Protocol):
@@ -264,24 +271,31 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
 
 
 def _gemini_chunk_url(web: genai_types.GroundingChunkWeb) -> str | None:
+    """None means the chunk is a grounding redirect that names no source domain."""
     uri = web.uri or ""
     try:
         host = (urlparse(uri).hostname or "").lower()
     except ValueError:
         host = ""
-    if host == GEMINI_GROUNDING_REDIRECT_HOST:
-        # is_target_url matches on host, so a redirect uri never counts as a citation of
-        # the source. Record the source domain from the chunk instead of following the redirect.
-        domain = (web.domain or web.title or "").strip().lower()
-        return f"https://{domain}" if _BARE_DOMAIN.match(domain) else uri
-    return uri or None
+    if host != GEMINI_GROUNDING_REDIRECT_HOST:
+        return uri or None
+    # is_target_url matches on host, so a redirect uri never counts as a citation of the
+    # source. Record the source domain from the chunk instead of following the redirect.
+    # The title is third-party page text, so it only counts when it is a bare domain.
+    for candidate in (web.domain, web.title):
+        domain = (candidate or "").strip().lower()
+        if _BARE_DOMAIN.match(domain):
+            return f"https://{domain}"
+    return None
 
 
 def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> ParsedAnswer:
     """Parse a generate_content response grounded with Google Search.
 
     Retrieved = every grounding chunk; cited = the chunks a grounding support
-    attaches to a span of the answer, in first-reference order.
+    attaches to a span of the answer, in first-reference order. A redirect chunk
+    that names no source domain is dropped and counted in unresolved_chunks, so
+    the engine can fail the check instead of recording a redirect URL nothing matches.
     """
     candidate = response.candidates[0] if response.candidates else None
     if candidate is None:
@@ -292,9 +306,9 @@ def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> Par
     metadata = candidate.grounding_metadata
     if metadata is None:
         return ParsedAnswer(answer_text=answer_text)
-    chunk_urls = [
-        _gemini_chunk_url(chunk.web) if chunk.web is not None else None for chunk in metadata.grounding_chunks or []
-    ]
+    chunks = metadata.grounding_chunks or []
+    # Positional, so a support's chunk index still lands on the right chunk.
+    chunk_urls = [_gemini_chunk_url(chunk.web) if chunk.web is not None else None for chunk in chunks]
     cited: list[str] = []
     for support in metadata.grounding_supports or []:
         for index in support.grounding_chunk_indices or []:
@@ -306,17 +320,36 @@ def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> Par
         cited_urls=_dedupe_urls(cited),
         retrieved_urls=_dedupe_urls([url for url in chunk_urls if url]),
         search_queries=list(metadata.web_search_queries or []),
+        unresolved_chunks=sum(1 for chunk, url in zip(chunks, chunk_urls) if chunk.web is not None and url is None),
     )
 
 
-def gemini_response_error(response: genai_types.GenerateContentResponse) -> str | None:
-    """A response with no candidate never answered, usually because the prompt was
-    blocked. That is a failed check, not a zero-citation answer."""
-    if response.candidates:
+def gemini_response_error(response: genai_types.GenerateContentResponse, cited_urls: list[str]) -> str | None:
+    """A response that never answered is a failed check, not a zero-citation answer:
+    no candidate (the prompt was blocked), a candidate without content, or a candidate
+    that stopped for a reason other than STOP (safety, recitation, max tokens) before
+    citing anything, the same way anthropic_truncated_error treats a cut-off answer."""
+    if not response.candidates:
+        feedback = response.prompt_feedback
+        block_reason = feedback.block_reason if feedback is not None else None
+        return f"no_candidates_response: {block_reason.value if block_reason is not None else 'unknown'}"
+    candidate = response.candidates[0]
+    finish_reason = candidate.finish_reason
+    reason = finish_reason.value.lower() if finish_reason is not None else "unknown"
+    if candidate.content is None:
+        return f"{reason}_response: no content"
+    if finish_reason in (None, genai_types.FinishReason.STOP) or cited_urls:
         return None
-    feedback = response.prompt_feedback
-    reason = feedback.block_reason if feedback is not None and feedback.block_reason is not None else None
-    return f"no_candidates_response: {reason.value if reason is not None else 'unknown'}"
+    return f"{reason}_response: {candidate.finish_message or 'stopped before citing'}"
+
+
+def gemini_unresolved_error(parsed: ParsedAnswer) -> str | None:
+    """Every grounding chunk was a redirect naming no source domain, so the answer may
+    well have cited us and the check cannot tell. That is a failed check, not a
+    zero-citation answer."""
+    if parsed.unresolved_chunks and not parsed.retrieved_urls:
+        return f"unresolved_grounding_redirects: {parsed.unresolved_chunks} chunks"
+    return None
 
 
 def is_target_url(url: str, target_domains: list[str]) -> bool:
@@ -518,25 +551,43 @@ class GeminiGroundedEngine:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
-        # The client carries the trace and property headers, so each check builds its own.
+        # The client carries the trace and property headers, so each check builds its own
+        # and closes its connection pool when the check ends.
         client = build_gemini_client(
             ai_product=GEMINI_AI_PRODUCT,
             trace_id=trace_id,
             properties=custom_properties,
-            timeout_ms=GATEWAY_TIMEOUT_SECONDS * 1000,
+            timeout_ms=GEMINI_TIMEOUT_MS,
         )
         if client is None:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error="ai_gateway_unset")
         config = genai_types.GenerateContentConfig(
             tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
+            max_output_tokens=MAX_ANSWER_TOKENS,
         )
         try:
-            response = client.models.generate_content(model=self.model, contents=prompt, config=config)
+            with client:
+                response = client.models.generate_content(model=self.model, contents=prompt, config=config)
         except (genai_errors.APIError, httpx.HTTPError) as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_gemini_request_error(e))
-        if (error := gemini_response_error(response)) is not None:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
+        except Exception as e:
+            # The SDK raises plain ValueError and pydantic errors on a malformed 2xx body, and
+            # the gateway client raises its own host error. One escaped exception would abort
+            # the whole run, so every failure becomes a failed check row instead.
+            return CitationCheck(
+                engine=self.name, model=self.model, trace_id=trace_id, error=f"{type(e).__name__}: {str(e)[:200]}"
+            )
         parsed = parse_gemini_grounding(response)
+        if parsed.unresolved_chunks:
+            logger.warning(
+                "aeo_gemini_unresolved_grounding_redirects",
+                unresolved=parsed.unresolved_chunks,
+                resolved=len(parsed.retrieved_urls),
+                trace_id=trace_id,
+            )
+        error = gemini_response_error(response, parsed.cited_urls) or gemini_unresolved_error(parsed)
+        if error is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
         return CitationCheck(
             engine=self.name,
             model=self.model,
@@ -586,14 +637,7 @@ class ExaAnswerEngine:
 
 
 def _gemini_engine_enabled(team: Team) -> bool:
-    """Fail-closed: the flag defaults off and an evaluation error reads as off.
-    Evaluated the same way the citation-tracking task gate is, so the flag can
-    target teams through the organization group."""
-    return feature_enabled_or_false(
-        AEO_GEMINI_ENGINE_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-    )
+    return aeo_flag_enabled(AEO_GEMINI_ENGINE_FLAG, team)
 
 
 def available_engines(team: Team) -> list[CitationEngine]:

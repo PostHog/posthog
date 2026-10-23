@@ -19,9 +19,10 @@ ENGINES_BY_NAME = {
     "openai": OpenAIWebSearchEngine,
     "exa": ExaAnswerEngine,
     # Scheduled runs include it only behind the aeo-engine-gemini flag; a manual
-    # run can pick it explicitly.
+    # run can pick it explicitly, but records rows only with --allow-ungated-gemini.
     "gemini": GeminiGroundedEngine,
 }
+GEMINI_ENGINE_NAME = "gemini"
 
 
 class Command(BaseCommand):
@@ -40,21 +41,33 @@ class Command(BaseCommand):
             help="Comma-separated subset of: claude,openai,exa,gemini. Default: all configured (gemini only with its flag).",
         )
         parser.add_argument("--dry-run", action="store_true", help="Run engines but record no checks.")
+        parser.add_argument(
+            "--allow-ungated-gemini",
+            action="store_true",
+            help=(
+                "Record gemini checks without the aeo-engine-gemini flag. The flag holds the engine "
+                "until a review of Google's grounding terms clears it, so without this option a run "
+                "that includes gemini must be a --dry-run."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        engine_names = [name.strip() for name in options["engines"].split(",")] if options["engines"] else []
+        for name in engine_names:
+            if name not in ENGINES_BY_NAME:
+                raise CommandError(f"Unknown engine '{name}'. Choose from {sorted(ENGINES_BY_NAME)}")
+        if GEMINI_ENGINE_NAME in engine_names and not options["dry_run"] and not options["allow_ungated_gemini"]:
+            raise CommandError(
+                "A run that includes gemini records checks only with --allow-ungated-gemini. "
+                "Pass --dry-run to run it without recording."
+            )
+
         try:
             team = Team.objects.get(id=options["team_id"])
         except Team.DoesNotExist:
             raise CommandError(f"Team {options['team_id']} does not exist")
 
-        engines = None
-        if options["engines"]:
-            engines = []
-            for name in options["engines"].split(","):
-                name = name.strip()
-                if name not in ENGINES_BY_NAME:
-                    raise CommandError(f"Unknown engine '{name}' — choose from {sorted(ENGINES_BY_NAME)}")
-                engines.append(ENGINES_BY_NAME[name]())
+        engines = [ENGINES_BY_NAME[name]() for name in engine_names] or None
 
         summary, checks = run_citation_checks(
             team,

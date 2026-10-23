@@ -45,7 +45,8 @@ aeo_citation_checks: PostgresTable = PostgresTable(
             name="prompt_hash", description="SHA-256 of the normalized prompt; stable join key across runs."
         ),
         "engine": StringDatabaseField(
-            name="engine", description="Answer engine: claude-web-search, openai-web-search, or exa-answer."
+            name="engine",
+            description="Answer engine: claude-web-search, openai-web-search, exa-answer, or gemini-google-search.",
         ),
         "model": StringDatabaseField(name="model", description="Engine model that answered."),
         "check_failed": BooleanDatabaseField(
