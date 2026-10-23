@@ -187,7 +187,9 @@ tools:
         description: >
             Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
             new content is validated against the artefact type's schema. Editing the latest row of a status type changes
-            the report's canonical status; to re-assess while keeping history, append a new artefact instead.
+            the report's canonical status; to re-assess while keeping history, append a new artefact instead. Do not use
+            this tool to change suggested reviewers. Use `inbox-report-reviewers-update` so reviewer corrections and
+            stale-write protection are preserved.
     inbox-report-checks-create:
         operation: signals_scout_report_check_create
         enabled: true
@@ -256,6 +258,22 @@ tools:
         description: >
             Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts
             themselves are `check_result` artefacts on the report, so read those through the artefact list.
+    inbox-report-reviewers-update:
+        operation: signals_reports_reviewers_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Update a report's suggested reviewers
+        description: >
+            Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the
+            current list. For add or remove, pass the changed people in `targets` and the full list in `content` for
+            compatibility with older servers. For replace or confirm, first read the report and pass
+            `reviewer_assignment.state` as `expected_reviewers`.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
