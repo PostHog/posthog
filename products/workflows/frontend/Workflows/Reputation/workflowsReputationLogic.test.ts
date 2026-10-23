@@ -1,9 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { BillingType } from '~/types'
 
 import type { EmailSendingAllowanceApi } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -24,6 +28,19 @@ describe('workflowsReputationLogic', () => {
     beforeEach(() => {
         useMocks({ get: { '/api/projects/:team_id/hog_flows/reputation': { workflows: [], isps: [] } } })
         initKeaTests()
+    })
+
+    it.each([
+        ['shows the request on a paid plan with the flag on', true, true],
+        ['hides the request when the flag is off', false, false],
+    ])('%s', async (_name, flagOn, expected) => {
+        const logic = workflowsReputationLogic()
+        logic.mount()
+        billingLogic.actions.loadBillingSuccess({ subscription_level: 'paid' } as BillingType)
+        const flag = FEATURE_FLAGS.WORKFLOWS_SENDING_TIER_REQUESTS
+        featureFlagLogic.actions.setFeatureFlags(flagOn ? [flag] : [], { [flag]: flagOn })
+
+        expect(logic.values.canRequestSendingTierIncrease).toBe(expected)
     })
 
     it('opens the support composer with the tier request details attached', async () => {
