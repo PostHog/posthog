@@ -1,7 +1,8 @@
 import re
 import time
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from functools import lru_cache
@@ -18,7 +19,7 @@ from asgiref.sync import async_to_sync
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
-from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunTokenUsage
+from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunSpend, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun
@@ -61,8 +62,16 @@ def gateway_usage_enabled(run: TaskRun) -> bool:
 def _save_accounting_state(run: TaskRun) -> None:
     # Accounting can finish after completion; it must not emit completion signals again.
     # It also leaves `updated_at` alone, because recency gauges and stale-run sweeps read it.
+    previous = TaskRun.objects.select_related("task").get(id=run.id, team_id=run.team_id)
+    delta = (_token_usage(run).cost_microusd or 0) - (_token_usage(previous).cost_microusd or 0)
     TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state)
-    task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=run.team_id)
+    task_run_cost_updated.send(
+        sender=TaskRun,
+        run_id=run.id,
+        team_id=run.team_id,
+        cost_delta_microusd=delta,
+        origin_product=previous.task.origin_product,
+    )
 
 
 def record_gateway_routing(*, run_id: UUID | str, team_id: int, uses_gateway: bool) -> None:
@@ -225,6 +234,29 @@ def _token_usage(run: TaskRun) -> TaskRunTokenUsage:
 
 def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage:
     return _token_usage(TaskRun.objects.get(id=run_id, team_id=team_id))
+
+
+def _run_spend(run: TaskRun) -> TaskRunSpend:
+    usage = _token_usage(run)
+    return TaskRunSpend(
+        created_at=run.created_at,
+        run_id=run.id,
+        task_id=run.task_id,
+        cost_microusd=usage.cost_microusd,
+        complete=usage.complete,
+        is_terminal=run.is_terminal,
+        stage=(run.state or {}).get("ai_stage") or "task",
+    )
+
+
+@contextmanager
+def locked_task_run_spend(*, team_id: int, run_id: UUID) -> Iterator[TaskRunSpend]:
+    with transaction.atomic():
+        yield _run_spend(_locked_run(run_id, team_id))
+
+
+def get_task_runs_spend(*, team_id: int, run_ids: Iterable[UUID]) -> list[TaskRunSpend]:
+    return [_run_spend(run) for run in TaskRun.objects.filter(team_id=team_id, id__in=run_ids)]
 
 
 def _token_cost_microusd(run: TaskRun) -> int | None:

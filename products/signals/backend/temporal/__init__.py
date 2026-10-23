@@ -74,6 +74,7 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 from products.signals.backend.temporal.grouping import (
     TeamSignalGroupingWorkflow,
     assign_and_emit_signal_activity,
+    complete_signal_grouping_activity,
     fetch_report_contexts_activity,
     generate_search_queries_activity,
     get_embedding_activity,
@@ -126,6 +127,7 @@ from products.signals.backend.temporal.summary import (
     publish_report_spend_activity,
     report_has_assigned_signals_activity,
     report_is_candidate_activity,
+    report_spend_owner_activity,
     reset_report_to_potential_activity,
     revert_report_to_candidate_activity,
 )
@@ -177,6 +179,7 @@ ACTIVITIES = [
     stamp_dispatched_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     assign_and_emit_signal_activity,
+    complete_signal_grouping_activity,
     capture_signal_dropped_activity,
     check_signals_quota_limited_activity,
     delete_report_activity,
@@ -201,6 +204,7 @@ ACTIVITIES = [
     report_is_candidate_activity,
     publish_report_completed_activity,
     publish_report_spend_activity,
+    report_spend_owner_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
     delete_team_reports_activity,

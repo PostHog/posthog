@@ -40,11 +40,12 @@ GITHUB_ONLY_DOMAINS = [
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class SelectRepositoryInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
+    signal_id: str | None = None
 
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
@@ -158,6 +159,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 user_id=user_id,
                 signals=input.signals,
                 signal_report_id=input.report_id,
+                spend_signal_id=input.signal_id,
                 sandbox_environment_id=sandbox_env_id,
             )
             logger.info(

@@ -1548,8 +1548,14 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
     ai_stage = (ctx.state or {}).get("ai_stage")
-    requires_go = resolve_sandbox_ai_product(ctx.origin_product, ai_stage, internal=task.internal) == (
-        POSTHOG_CODE_PRODUCT
+    requires_go = (
+        resolve_sandbox_ai_product(
+            ctx.origin_product,
+            ai_stage,
+            internal=task.internal,
+            billing_product=(ctx.state or {}).get("billing_product"),
+        )
+        == POSTHOG_CODE_PRODUCT
     )
     try:
         env_vars = ai_gateway_env_vars(
@@ -1665,7 +1671,11 @@ def ai_gateway_env_vars(
     also raises, because the Python gateway refuses it too.
     """
     ai_product = (
-        resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal) if team_id is not None else None
+        resolve_sandbox_ai_product(
+            origin_product, ai_stage, internal=internal, billing_product=(state or {}).get("billing_product")
+        )
+        if team_id is not None
+        else None
     )
     requires_go = ai_product == POSTHOG_CODE_PRODUCT
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):

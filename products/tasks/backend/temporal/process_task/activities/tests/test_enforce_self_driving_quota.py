@@ -41,8 +41,14 @@ def _make_self_driving_run(test_task, test_task_run):
 @pytest.mark.requires_secrets
 class TestEnforceSelfDrivingRunQuotaActivity:
     @pytest.mark.django_db(transaction=True)
-    def test_non_self_driving_origin_stops_checking_without_gating(self, activity_environment, test_task_run):
-        # The gate must never touch user or AI tasks: a wrong-origin run exits before any quota read.
+    @pytest.mark.parametrize("manual_report", [False, True])
+    def test_non_self_driving_origin_stops_checking_without_gating(
+        self, activity_environment, test_task, test_task_run, manual_report
+    ):
+        if manual_report:
+            _make_self_driving_run(test_task, test_task_run)
+            test_task_run.state = {"billing_product": "posthog_ai"}
+            test_task_run.save(update_fields=["state"])
         with patch(f"{MODULE}.self_driving_quota_gate") as gate_mock:
             assert _run_activity(activity_environment, test_task_run) == SELF_DRIVING_QUOTA_STOP_CHECKING
         gate_mock.assert_not_called()

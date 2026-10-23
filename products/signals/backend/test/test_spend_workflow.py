@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from django.test import override_settings
 
 from temporalio import activity
+from temporalio.client import WorkflowFailureError, WorkflowUpdateFailedError, WorkflowUpdateStage
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -23,10 +24,14 @@ from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow
 
 
 @pytest.mark.asyncio
-async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_after_a_write() -> None:
+@pytest.mark.parametrize("publication_fails", [False, True])
+async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_after_a_write(
+    publication_fails: bool,
+) -> None:
     queue = f"spend-test-{uuid4()}"
     driver = str(uuid4())
     write_started, release_write = asyncio.Event(), asyncio.Event()
+    confirmation_started, release_confirmation = asyncio.Event(), asyncio.Event()
     latest_spend = 1
     stored: list[int] = []
     changes: list[SignalMetadataChange] = []
@@ -38,11 +43,13 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
         assert (input.team_id, input.signal_id) == (1, driver)
         attempts += 1
         if attempts == 1:
-            raise ApplicationError("ClickHouse row not visible yet", type="SignalSpendNotVisible")
+            raise ApplicationError("Kafka delivery failed")
         spend = latest_spend
         if attempts == 2:
             write_started.set()
             await release_write.wait()
+        if publication_fails:
+            raise ApplicationError("Kafka delivery failed permanently", non_retryable=True)
         stored.append(spend)
         changes.extend(input.changes)
         return SignalSpendPublication(
@@ -56,6 +63,8 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
         nonlocal confirmation_attempts
         confirmation_attempts += 1
         if confirmation_attempts == 1:
+            confirmation_started.set()
+            await release_confirmation.wait()
             raise ApplicationError("ClickHouse ingestion delayed", type="SignalSpendNotVisible")
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -79,11 +88,28 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
                 handle = env.client.get_workflow_handle(f"signal-spend-1-{driver}")
                 await handle.signal("refresh")
                 release_write.set()
+                if publication_fails:
+                    with pytest.raises(WorkflowUpdateFailedError):
+                        await asyncio.wait_for(publication, timeout=20)
+                    with pytest.raises(WorkflowFailureError):
+                        await handle.result()
+                    assert stored == []
+                    assert confirmation_attempts == 0
+                    return
                 await asyncio.wait_for(publication, timeout=20)
+                await asyncio.wait_for(confirmation_started.wait(), timeout=20)
+                assert stored == [1]
+                next_publication = await handle.start_update(
+                    "publish_spend", wait_for_stage=WorkflowUpdateStage.ACCEPTED
+                )
+                release_confirmation.set()
+                await next_publication.result()
+                await handle.result()
                 assert stored == [1, 2]
                 assert changes == [change]
 
                 latest_spend = 3
                 await publish_signal_spend(team_id=1, signal_id=driver)
+                await env.client.get_workflow_handle(f"signal-spend-1-{driver}").result()
                 assert stored == [1, 2, 3]
                 assert confirmation_attempts == 4

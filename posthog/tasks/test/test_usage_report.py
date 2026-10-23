@@ -5052,7 +5052,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
 
         from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
-        from products.signals.backend.models import SignalReport, SignalReportTask
+        from products.signals.backend.models import SignalReport, SignalReportTask, SignalSpend
 
         # `products.tasks` is isolated; reach its models via the app registry, not a cross-boundary import.
         Task = apps.get_model("tasks", "Task")
@@ -5085,6 +5085,20 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_signals_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [(team.id, 1500)])
+
+        SignalSpend.objects.for_team(team.id).create(
+            team=team,
+            kind=SignalSpend.Kind.AD_HOC,
+            signal_id=uuid4(),
+            finalized_at=period.start,
+            spend=15,
+        )
+        SignalReport.objects.filter(id=report.id).update(created_at=period.start - relativedelta(days=1))
+        with (
+            patch("posthoganalytics.get_feature_flag", return_value=period.start.date().isoformat()),
+            patch("posthoganalytics.feature_enabled", return_value=False),
+        ):
+            self.assertEqual(get_teams_with_signals_credits_used_in_period(period.start, period.end), [(team.id, 1515)])
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:

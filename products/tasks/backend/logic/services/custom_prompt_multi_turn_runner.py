@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, JsonValue, ValidationError
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.service import RPCError, RPCStatusCode
 
 from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.facade.contracts import SessionFile
@@ -56,6 +59,20 @@ def turn_failure_error_type(error: BaseException) -> str | None:
     return None
 
 
+async def wait_for_task_completion(handle: WorkflowHandle) -> None:
+    completion = asyncio.create_task(handle.result())
+    try:
+        while not completion.done():
+            await asyncio.wait({completion}, timeout=10)
+            if activity.in_activity():
+                activity.heartbeat()
+        await completion
+    finally:
+        if not completion.done():
+            completion.cancel()
+            await asyncio.gather(completion, return_exceptions=True)
+
+
 # Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
 @dataclass(frozen=False)
 class MultiTurnSession:
@@ -90,6 +107,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -138,6 +156,7 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -219,6 +238,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -267,6 +287,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -455,5 +476,14 @@ class MultiTurnSession:
                 await asyncio.to_thread(record_run_failure_cause, self.task_run.id, error_type)
             await self._workflow_handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error])
             logger.info("multi_turn: ended session run=%s status=%s", self.task_run.id, status)
-        except Exception:
-            logger.warning("multi_turn: failed to signal completion run=%s", self.task_run.id, exc_info=True)
+        except Exception as completion_error:
+            if not (isinstance(completion_error, RPCError) and completion_error.status == RPCStatusCode.NOT_FOUND):
+                logger.warning("multi_turn: failed to signal completion run=%s", self.task_run.id, exc_info=True)
+                if self.task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}:
+                    raise
+        if self.task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}:
+            try:
+                await wait_for_task_completion(self._workflow_handle)
+            except WorkflowFailureError:
+                # Teardown must not discard an agent response that the caller already received.
+                logger.exception("multi_turn: task teardown failed run=%s", self.task_run.id)
