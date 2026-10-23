@@ -5228,14 +5228,20 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         )
         load = uuid.uuid4()
 
-        def picks(feed_load_id: uuid.UUID) -> list[str]:
+        def load_picks(**params: str) -> tuple[list[str], str]:
             with patch(
                 "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"
             ):
-                results = self.client.get(self.feed_url, {"feed_load_id": str(feed_load_id)}).json()["results"]
-            return [item["observation"]["session_id"] for item in results if item["reason"]["kind"] == "embedding_pick"]
+                body = self.client.get(self.feed_url, params).json()
+            picks = [
+                item["observation"]["session_id"]
+                for item in body["results"]
+                if item["reason"]["kind"] == "embedding_pick"
+            ]
+            return picks, body["as_of"]
 
-        assert picks(load) == ["s-0", "s-1"]
+        picks, as_of = load_picks()
+        assert picks == ["s-0", "s-1"]
         for _ in range(2):
             # The same load reporting twice, as a tab hidden and shown again does, counts once.
             resp = self.client.post(
@@ -5247,8 +5253,9 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         assert ReplayObservationFeedImpression.objects.for_team(self.team.id).get().shown_count == 1
         assert not ReplayObservationFeedImpression.objects.for_team(other_team.id).exists()
 
-        assert picks(load) == ["s-0", "s-1"]
-        assert picks(uuid.uuid4()) == ["s-1", "s-0"]
+        # A later page of the same load ranks as of its first page, before the impression.
+        assert load_picks(as_of=as_of)[0] == ["s-0", "s-1"]
+        assert load_picks()[0] == ["s-1", "s-0"]
 
     def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
         # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a

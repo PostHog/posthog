@@ -4,7 +4,6 @@ import { router, urlToAction } from 'kea-router'
 
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import posthog from 'lib/posthog-typed'
-import { uuid } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,6 +23,7 @@ import { csvParam, parseCsvParam } from '../utils/urlParams'
 import { ScannerType } from './types'
 import { dismissFeedItem, withFeedItemRestored, withoutFeedItem } from './watchFeedDismissal'
 import { type WatchFeedEmptyReason, resolveWatchFeedEmptyReason } from './watchFeedEmptyState'
+import { recordFeedImpressions } from './watchFeedImpressionCounts'
 import {
     type WatchFeedLoad,
     WatchFeedImpressions,
@@ -332,15 +332,11 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                         // fail instead so the tab shows the error state and a retry.
                         throw new Error('No current team')
                     }
-                    const feedLoadId = uuid()
-                    const response = await visionScannersWatchFeedRetrieve(String(teamId), {
-                        ...feedParams(values),
-                        feed_load_id: feedLoadId,
-                    })
+                    const response = await visionScannersWatchFeedRetrieve(String(teamId), feedParams(values))
                     // Drop out-of-order responses — the most recent filter change owns the feed.
                     breakpoint()
                     actions.setFeedRanker(response.ranker ?? 'weighted-score', response.ranker_variant ?? null)
-                    actions.setFeedLoad(newWatchFeedLoad(response.ranker, response.results, feedLoadId))
+                    actions.setFeedLoad(newWatchFeedLoad(response.ranker, response.results))
                     actions.setFeedPaging(response.has_more ?? false, response.as_of ?? null)
                     return response.results
                 },
@@ -350,24 +346,23 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     if (!teamId || !load || !values.feedHasMore || !values.feedAsOf) {
                         return values.feedItems
                     }
+                    // Counted against what was served, so a card hidden since then does not shift the next page.
+                    const offset = Object.keys(load.positions).length
                     const response = await visionScannersWatchFeedRetrieve(String(teamId), {
                         ...feedParams(values),
-                        // Counted against what was served, so a card hidden since then does not shift the next page.
-                        offset: Object.keys(load.positions).length,
+                        offset,
                         as_of: values.feedAsOf,
-                        feed_load_id: load.feedLoadId,
                     })
                     // A filter change while this page was in flight started a new load, which owns the feed now.
                     if (values.feedLoad?.feedLoadId !== load.feedLoadId) {
                         return values.feedItems
                     }
-                    const known = new Set(Object.keys(load.positions))
-                    const page = response.results.filter((item) => !known.has(item.observation.id))
+                    const page = response.results.filter((item) => !(item.observation.id in load.positions))
                     actions.extendFeedLoad(withNextPage(load, page))
                     actions.setFeedPaging(response.has_more ?? false, response.as_of ?? null)
                     posthog.capture('replay_vision_watch_feed_page_loaded', {
                         ...servedListProperties(values.feedLoad, page),
-                        offset: known.size,
+                        offset,
                         clip_count: page.length,
                         has_more: response.has_more,
                     })
@@ -669,7 +664,9 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
 
     // The tab content mounts only while the tab is active, so mount is the fetch signal.
     afterMount(({ actions, cache }) => {
-        cache.impressions = new WatchFeedImpressions('feed_tab')
+        cache.impressions = new WatchFeedImpressions('feed_tab', (load, ids) =>
+            recordFeedImpressions(load.feedLoadId, ids)
+        )
         // Not paused on hide: hiding is when the batch must go out.
         cache.disposables.add(cache.impressions.flushOnHideAndUnmount, 'impressionsFlush', { pauseOnPageHidden: false })
         actions.loadFeed()
