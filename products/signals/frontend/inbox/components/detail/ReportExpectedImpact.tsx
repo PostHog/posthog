@@ -81,6 +81,10 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
             {measurements.length ? (
                 measurements.map(({ check, reportStatus, config, metric, goal, detail, tag, cancellable }) => {
                     const query = asReportMetricSeriesQuery(metric)
+                    const showApprovalLabel =
+                        cancellable &&
+                        !check.monitoring_timing &&
+                        !['resolved', 'suppressed', 'deleted'].includes(reportStatus)
                     return (
                         <div key={check.id} className="flex flex-col gap-2">
                             <p className="m-0 font-semibold">
@@ -90,7 +94,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                 )}
                             </p>
                             <div className="m-0 flex flex-wrap items-center gap-x-1 text-secondary text-sm">
-                                {cancellable && !check.monitoring_timing && reportStatus === 'monitoring' ? (
+                                {showApprovalLabel ? (
                                     <span>{check.approved_at ? 'Approved measurement' : 'Proposed measurement'}</span>
                                 ) : (
                                     <LemonTag type={tag.type}>{tag.label}</LemonTag>
@@ -134,11 +138,9 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                             check={check}
                                             reportStatus={reportStatus}
                                             detail={
-                                                reportStatus !== 'monitoring' || check.monitoring_timing || !cancellable
-                                                    ? detail
-                                                    : check.soak_minutes != null && report.status !== 'resolved'
-                                                      ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
-                                                      : detail
+                                                showApprovalLabel && check.soak_minutes != null
+                                                    ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
+                                                    : detail
                                             }
                                         />
                                     }
