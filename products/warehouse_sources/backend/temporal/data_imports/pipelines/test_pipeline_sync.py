@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.tasks import cleanup_disabled_external_data_schema
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
@@ -400,6 +401,8 @@ class TestRegisterCdcCompanionTableStamp:
         with (
             patch.object(DataWarehouseTable, "get_columns", side_effect=drop_history_target_mid_registration),
             patch.object(DataWarehouseTable, "get_count", return_value=100),
+            # Deleting a schema with a running job dispatches the in-flight teardown, which reaches Temporal.
+            patch.object(cleanup_disabled_external_data_schema, "delay"),
         ):
             async_to_sync(register_cdc_companion_table)(
                 run_id=str(job.id),

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -21,14 +21,18 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
+def _own_table_name(schema: ExternalDataSchema, source: ExternalDataSource) -> str:
+    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+    return build_table_name(source, names.table_storage_name)
+
+
 def companion_table_name(schema: ExternalDataSchema, source: ExternalDataSource) -> str | None:
     """The warehouse table name of the schema's history table, or None when the schema's own table has it.
 
     A pinned folder can give the schema's own table the companion's name.
     """
     companion_name = build_table_name(source, companion_resource_name(schema.name))
-    own_names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-    return None if companion_name == build_table_name(source, own_names.table_storage_name) else companion_name
+    return None if companion_name == _own_table_name(schema, source) else companion_name
 
 
 def companion_tables(schema: ExternalDataSchema) -> list[DataWarehouseTable]:
@@ -41,10 +45,14 @@ def companion_tables(schema: ExternalDataSchema) -> list[DataWarehouseTable]:
     if companion_name is None:
         return []
 
-    # A source table named `<table>_cdc` resolves to the same table name, and that record is not ours.
-    # Its schema may not link it: in cdc_only mode the schema links its own history table instead.
     siblings = ExternalDataSchema.objects.filter(team_id=schema.team_id).exclude(deleted=True).exclude(id=schema.id)
-    if siblings.filter(source_id=source.id, name=companion_resource_name(schema.name)).exists():
+    # A source table such as `Orders_cdc` can resolve to the same table name, and a sibling that synced it
+    # owns that record. Its schema may not link it: in cdc_only mode the schema links its own history
+    # table instead. A sibling that never synced wrote nothing under the name.
+    synced_siblings = siblings.filter(source_id=source.id).filter(
+        Q(table_id__isnull=False) | Q(last_synced_at__isnull=False)
+    )
+    if any(_own_table_name(sibling, source) == companion_name for sibling in synced_siblings):
         return []
     return list(
         DataWarehouseTable.objects.filter(
