@@ -1,4 +1,4 @@
-//! Check whether one frame resolves against an uploaded symbol set, fetched by ref or read locally.
+//! Resolve one frame against a symbol set downloaded by ref.
 //! This does not reproduce Cymbal's selection of the set for an exception.
 use std::{
     fs,
@@ -18,9 +18,7 @@ use symbolic::{
 };
 
 #[derive(Args)]
-pub struct VerifyArgs {
-    /// Uploaded symbol-set binary. Omit to download the set from PostHog by ref.
-    pub file: Option<PathBuf>,
+pub struct ResolveArgs {
     /// Symbol-set ref selected by the exception's frame (chunk ID, map ID or debug ID)
     #[arg(long)]
     pub r#ref: String,
@@ -226,7 +224,7 @@ fn render_frames(result: Value) -> Value {
     })).collect::<Vec<_>>()})
 }
 
-fn read_frame(args: &VerifyArgs) -> Result<Value> {
+fn read_frame(args: &ResolveArgs) -> Result<Value> {
     let input = if let Some(path) = &args.frame_file {
         if path.as_os_str() == "-" {
             let mut input = String::new();
@@ -246,29 +244,17 @@ fn read_frame(args: &VerifyArgs) -> Result<Value> {
     serde_json::from_str(&input).context("invalid frame JSON")
 }
 
-fn load_uploaded_bytes_with(
-    args: &VerifyArgs,
+fn download_symbol_set_with(
+    r#ref: &str,
     resolve_ref: impl FnOnce(&str) -> Result<String>,
     download_bytes: impl FnOnce(&str) -> Result<Vec<u8>>,
 ) -> Result<Vec<u8>> {
-    if let Some(file) = &args.file {
-        return fs::read(file)
-            .with_context(|| format!("reading uploaded symbol set from {}", file.display()));
-    }
-    let id = resolve_ref(&args.r#ref)
-        .with_context(|| format!("looking up symbol set ref {:?}", args.r#ref))?;
+    let id =
+        resolve_ref(r#ref).with_context(|| format!("looking up symbol set ref {:?}", r#ref))?;
     download_bytes(&id).with_context(|| format!("downloading symbol set {id}"))
 }
 
-fn load_uploaded_bytes(args: &VerifyArgs) -> Result<Vec<u8>> {
-    load_uploaded_bytes_with(
-        args,
-        crate::api::symbol_sets::resolve_ref,
-        crate::api::symbol_sets::download_bytes,
-    )
-}
-
-pub fn verify(args: &VerifyArgs) -> Result<()> {
+pub fn resolve(args: &ResolveArgs) -> Result<()> {
     let frame = read_frame(args)?;
     let image: Option<Value> = args
         .debug_image
@@ -284,7 +270,11 @@ pub fn verify(args: &VerifyArgs) -> Result<()> {
             args.r#ref
         );
     }
-    let data = load_uploaded_bytes(args)?;
+    let data = download_symbol_set_with(
+        &args.r#ref,
+        crate::api::symbol_sets::resolve_ref,
+        crate::api::symbol_sets::download_bytes,
+    )?;
     let result = match platform {
         "node:javascript" | "web:javascript" => {
             let parsed: SourceAndMap =
@@ -325,37 +315,9 @@ mod tests {
     use posthog_symbol_data::write_symbol_data;
 
     #[test]
-    fn local_bytes_do_not_trigger_remote_lookup() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("set.bin");
-        fs::write(&file, [1, 2, 3]).unwrap();
-        let args = VerifyArgs {
-            file: Some(file),
-            r#ref: "chunk-1".into(),
-            frame: Some("{}".into()),
-            frame_file: None,
-            debug_image: None,
-        };
-        let bytes = load_uploaded_bytes_with(
-            &args,
-            |_| panic!("unexpected lookup"),
-            |_| panic!("unexpected download"),
-        )
-        .unwrap();
-        assert_eq!(bytes, [1, 2, 3]);
-    }
-
-    #[test]
     fn remote_bytes_are_looked_up_by_ref_then_downloaded() {
-        let args = VerifyArgs {
-            file: None,
-            r#ref: "chunk-1".into(),
-            frame: Some("{}".into()),
-            frame_file: None,
-            debug_image: None,
-        };
-        let bytes = load_uploaded_bytes_with(
-            &args,
+        let bytes = download_symbol_set_with(
+            "chunk-1",
             |r| {
                 assert_eq!(r, "chunk-1");
                 Ok("set-id".into())
@@ -367,8 +329,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(bytes, [4, 5]);
-        let error = load_uploaded_bytes_with(
-            &args,
+        let lookup_error = download_symbol_set_with(
+            "chunk-1",
+            |_| anyhow::bail!("not found"),
+            |_| panic!("download should not run after lookup failure"),
+        )
+        .unwrap_err();
+        assert!(lookup_error
+            .to_string()
+            .contains("looking up symbol set ref"));
+        let error = download_symbol_set_with(
+            "chunk-1",
             |_| Ok("set-id".into()),
             |_| anyhow::bail!("not available"),
         )
@@ -385,8 +356,7 @@ mod tests {
             r#"{"platform":"node:javascript","chunk_id":"chunk-1"}"#,
         )
         .unwrap();
-        let args = VerifyArgs {
-            file: Some(dir.path().join("set.bin")),
+        let args = ResolveArgs {
             r#ref: "chunk-1".into(),
             frame: None,
             frame_file: Some(frame_file.clone()),

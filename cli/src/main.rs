@@ -1,4 +1,7 @@
-use posthog_cli::{cmd, safe_eprintln, utils::broken_pipe::BrokenPipeSafeStderr};
+use posthog_cli::{
+    cmd, invocation_context::init_posthog_telemetry, safe_eprintln,
+    utils::broken_pipe::BrokenPipeSafeStderr,
+};
 
 fn main() {
     let subscriber = tracing_subscriber::fmt()
@@ -11,6 +14,8 @@ fn main() {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+    init_posthog_telemetry();
+
     let result = cmd::Cli::run();
     posthog_rs::flush();
 
