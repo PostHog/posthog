@@ -513,8 +513,17 @@ export const BatchExportsCreateBody = () => zod
                                                 .describe('The event property this condition reads.'),
                                             matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
                                             pattern: zod
-                                                .string()
-                                                .describe('Matched against the property named by `key`.'),
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Matched against the property named by `key`. Required for every matcher except `cidr`.'
+                                                ),
+                                            patterns: zod
+                                                .union([zod.array(zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'IP ranges for the `cidr` matcher, matched when the IP falls in any of them. Each entry is a CIDR range, a bare address, or a start-end range like `192.0.2.10-192.0.2.40`.'
+                                                ),
                                         })
                                     ),
                                     name: zod
@@ -1262,8 +1271,17 @@ export const BatchExportsPartialUpdateBody = () => zod
                                                 .describe('The event property this condition reads.'),
                                             matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
                                             pattern: zod
-                                                .string()
-                                                .describe('Matched against the property named by `key`.'),
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Matched against the property named by `key`. Required for every matcher except `cidr`.'
+                                                ),
+                                            patterns: zod
+                                                .union([zod.array(zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'IP ranges for the `cidr` matcher, matched when the IP falls in any of them. Each entry is a CIDR range, a bare address, or a start-end range like `192.0.2.10-192.0.2.40`.'
+                                                ),
                                         })
                                     ),
                                     name: zod
@@ -1742,8 +1760,17 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                                                 .describe('The event property this condition reads.'),
                                             matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
                                             pattern: zod
-                                                .string()
-                                                .describe('Matched against the property named by `key`.'),
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Matched against the property named by `key`. Required for every matcher except `cidr`.'
+                                                ),
+                                            patterns: zod
+                                                .union([zod.array(zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'IP ranges for the `cidr` matcher, matched when the IP falls in any of them. Each entry is a CIDR range, a bare address, or a start-end range like `192.0.2.10-192.0.2.40`.'
+                                                ),
                                         })
                                     ),
                                     name: zod
@@ -2054,7 +2081,18 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                                             ])
                                             .describe('The event property this condition reads.'),
                                         matcher: zod.enum(['contains', 'regex', 'exact', 'cidr']),
-                                        pattern: zod.string().describe('Matched against the property named by `key`.'),
+                                        pattern: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Matched against the property named by `key`. Required for every matcher except `cidr`.'
+                                            ),
+                                        patterns: zod
+                                            .union([zod.array(zod.string()), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'IP ranges for the `cidr` matcher, matched when the IP falls in any of them. Each entry is a CIDR range, a bare address, or a start-end range like `192.0.2.10-192.0.2.40`.'
+                                            ),
                                     })
                                 ),
                                 name: zod

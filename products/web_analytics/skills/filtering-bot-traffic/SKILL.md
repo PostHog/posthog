@@ -157,13 +157,19 @@ integration, a niche crawler — add a **custom bot rule** instead of waiting fo
 built-in list to catch up. Rules extend the same classification surface, so `Is bot`
 (`isLikelyBot`), `Bot name`, and `Traffic category` reflect them everywhere HogQL runs.
 
-A rule matches one event property — the user agent by default, but also `$ip`, `$lib`,
+A rule holds one or more conditions, combined with `AND` or `OR`.
+Each condition reads one event property: the user agent by default, but also `$ip`, `$lib`,
 `$host`, `$pathname`, `$current_url`, `$browser`, `$os`, `$browser_language`,
 `$screen_width`, `$screen_height`, `$geoip_country_code`, `$referrer`, or
-`$referring_domain` — using `contains` (case-insensitive substring), `regex` (RE2), or
-`cidr` (an IP range, only valid with `$ip`). Set `name` to the label reported by `Bot
-name`, and optionally `category` to a built-in category like `ai_crawler` to relabel the
-traffic type.
+`$referring_domain`.
+It matches with `contains` (case-insensitive substring), `exact` (case-sensitive equality),
+or `regex` (RE2) against `pattern`, or with `cidr` (only valid with `$ip`) against `patterns`.
+`patterns` is a list of IP ranges, and the condition matches when the IP falls in any of them.
+Each entry is a CIDR range (`192.0.2.0/24`), a bare address, or a start-end range (`192.0.2.10-192.0.2.40`).
+One condition can hold up to 500 ranges, such as a cloud provider's published ranges for a region,
+so "user agent equals X AND IP in the provider's ranges" fits in one rule.
+Set `name` to the label reported by `Bot name`, and optionally `category` to a built-in
+category like `ai_crawler` to relabel the traffic type.
 
 Three ways to manage rules:
 

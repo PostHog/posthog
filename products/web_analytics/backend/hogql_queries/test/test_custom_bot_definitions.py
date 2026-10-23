@@ -16,9 +16,12 @@ from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEF
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
     MAX_CONDITIONS_PER_RULE,
     MAX_CUSTOM_BOT_DEFINITIONS,
+    MAX_IP_RANGES_PER_CONDITION,
     MAX_PATTERN_LENGTH,
     MAX_TOTAL_CONDITIONS,
+    MAX_TOTAL_IP_RANGES,
     TRAFFIC_TYPE_BY_CATEGORY,
+    CidrCondition,
     CidrGroup,
     CompositeGroup,
     PatternGroup,
@@ -27,6 +30,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     compile_definitions,
     compile_pattern,
     compiled_patterns,
+    ip_range_count,
     parse_rules,
     validate_rule,
     validate_rule_set,
@@ -48,7 +52,7 @@ def condition(**kwargs) -> CustomBotCondition:
 def rule(
     *, items: list[CustomBotCondition] | None = None, combiner=FilterLogicalOperator.AND_, **kwargs
 ) -> CustomBotRule:
-    condition_overrides = {key: kwargs.pop(key) for key in ("key", "pattern", "matcher") if key in kwargs}
+    condition_overrides = {key: kwargs.pop(key) for key in ("key", "pattern", "patterns", "matcher") if key in kwargs}
     return CustomBotRule(
         **{
             "id": "1",
@@ -62,8 +66,18 @@ def rule(
 
 def cidr_rule(**kwargs) -> CustomBotRule:
     return rule(
-        **{"key": CustomBotField.FIELD_IP, "matcher": CustomBotMatcher.CIDR, "pattern": "192.0.2.0/24", **kwargs}
+        **{
+            "key": CustomBotField.FIELD_IP,
+            "matcher": CustomBotMatcher.CIDR,
+            "pattern": None,
+            "patterns": ["192.0.2.0/24"],
+            **kwargs,
+        }
     )
+
+
+def separate_addresses(count: int, start: int = 0) -> list[str]:
+    return [f"10.{n // 200}.{n % 200}.1" for n in range(start, start + count)]
 
 
 class TestPatternCompilation:
@@ -96,22 +110,37 @@ class TestPatternCompilation:
         [
             # The IP matcher compares in IPv6 space, so an IPv4 range shifts by 96 bits and its
             # address becomes IPv4-mapped. Comparing a /24 as-is would match nothing.
-            ("192.0.2.0/24", (120, "::ffff:192.0.2.0")),
-            ("192.0.2.7", (128, "::ffff:192.0.2.7")),
+            (("192.0.2.0/24",), ((120, ("::ffff:192.0.2.0",)),)),
+            (("192.0.2.7",), ((128, ("::ffff:192.0.2.7",)),)),
             # Host bits set: read as the network rather than rejected.
-            ("192.0.2.7/24", (120, "::ffff:192.0.2.0")),
-            ("2001:db8::/32", (32, "2001:db8::")),
+            (("192.0.2.7/24",), ((120, ("::ffff:192.0.2.0",)),)),
+            (("2001:db8::/32",), ((32, ("2001:db8::",)),)),
+            (("192.0.2.0/24", "2001:db8::/32"), ((32, ("2001:db8::",)), (120, ("::ffff:192.0.2.0",)))),
+            (("192.0.2.0/25", "192.0.2.128/25"), ((120, ("::ffff:192.0.2.0",)),)),
+            (
+                ("192.0.2.10-192.0.2.40",),
+                (
+                    (124, ("::ffff:192.0.2.16",)),
+                    (125, ("::ffff:192.0.2.32",)),
+                    (126, ("::ffff:192.0.2.12",)),
+                    (127, ("::ffff:192.0.2.10",)),
+                    (128, ("::ffff:192.0.2.40",)),
+                ),
+            ),
+            (("192.0.2.0/24", "192.0.2.10 - 192.0.2.40"), ((120, ("::ffff:192.0.2.0",)),)),
         ]
     )
-    def test_cidr_compiles_into_ipv6_space(self, pattern: str, expected: tuple[int, str]):
-        assert compile_cidr(pattern) == expected
+    def test_cidr_compiles_into_ipv6_space(self, ranges: tuple[str, ...], expected: tuple):
+        assert compile_cidr(ranges) == expected
 
 
 class TestValidation:
     @parameterized.expand(
         [
             ("empty", {"pattern": ""}, "Pattern cannot be empty"),
+            ("missing", {"pattern": None}, "Pattern cannot be empty"),
             ("whitespace", {"pattern": "   "}, "Pattern cannot be empty"),
+            ("a list on a pattern matcher", {"patterns": ["AcmeBot"]}, "Only IP range conditions"),
             ("too long", {"pattern": "a" * (MAX_PATTERN_LENGTH + 1)}, "cannot be longer"),
             ("no name", {"name": ""}, "Bot name cannot be empty"),
             (
@@ -153,6 +182,16 @@ class TestValidation:
         ]
 
         with pytest.raises(ValueError, match="across all rules"):
+            validate_rule_set(rules)
+
+    def test_rejects_a_rule_set_over_the_aggregate_ip_range_budget(self):
+        per_rule = MAX_IP_RANGES_PER_CONDITION
+        rules = [
+            cidr_rule(id=str(i), patterns=separate_addresses(per_rule, start=i * per_rule))
+            for i in range(MAX_TOTAL_IP_RANGES // per_rule + 1)
+        ]
+
+        with pytest.raises(ValueError, match="IP network blocks across all rules"):
             validate_rule_set(rules)
 
     def test_rejects_a_rule_with_too_many_conditions(self):
@@ -208,34 +247,52 @@ class TestValidation:
 
     @parameterized.expand(
         [
-            ("single address", "192.0.2.7"),
-            ("v4 range", "192.0.2.0/24"),
-            ("v6 range", "2001:db8::/32"),
-            ("host bits set", "192.0.2.7/24"),
+            ("single address", {"patterns": ["192.0.2.7"]}),
+            ("v4 range", {"patterns": ["192.0.2.0/24"]}),
+            ("v6 range", {"patterns": ["2001:db8::/32"]}),
+            ("host bits set", {"patterns": ["192.0.2.7/24"]}),
+            ("a list across ip versions", {"patterns": ["192.0.2.0/24", "198.51.100.7", "2001:db8::/32"]}),
+            ("a start-end range", {"patterns": ["192.0.2.10 - 192.0.2.40"]}),
+            ("a range saved before conditions held a list", {"pattern": "192.0.2.0/24", "patterns": None}),
+            ("as many ranges as a condition holds", {"patterns": separate_addresses(MAX_IP_RANGES_PER_CONDITION)}),
+            (
+                "overlapping ranges that merge under the block cap",
+                {"patterns": [f"10.0.0.1-10.0.{n}.254" for n in range(1, 100)]},
+            ),
         ]
     )
-    def test_accepts_usable_ip_ranges(self, _name: str, pattern: str):
-        validate_rule(cidr_rule(pattern=pattern))
+    def test_accepts_usable_ip_ranges(self, _name: str, overrides: dict):
+        validate_rule(cidr_rule(**overrides))
 
     @parameterized.expand(
         [
-            ("not an address", "not-an-ip"),
-            ("prefix too long", "192.0.2.0/33"),
-            ("empty", "   "),
+            ("not an address", ["not-an-ip"], "'not-an-ip' is not a valid"),
+            ("prefix too long", ["192.0.2.0/33"], "is not a valid"),
+            ("empty", ["   "], "cannot be empty"),
+            ("no ranges", [], "at least one"),
             # Python's ip_network keeps a zone identifier that ClickHouse toIPv6 later rejects, so a
             # saved rule would break every query reading a bot field. Reject it at validation.
-            ("zone-scoped ipv6", "fe80::1%eth0"),
+            ("zone-scoped ipv6", ["fe80::1%eth0"], "zone identifier"),
+            ("one bad entry in a list", ["192.0.2.0/24", "192.0.2.300", "2001:db8::/32"], "'192.0.2.300' is not"),
+            ("a range across ip versions", ["192.0.2.1-2001:db8::1"], "same IP version"),
+            ("a range that ends before it starts", ["192.0.2.40-192.0.2.10"], "must not come after its end"),
+            ("too many entries", separate_addresses(MAX_IP_RANGES_PER_CONDITION + 1), "at most"),
+            (
+                "entries that cover too many network blocks",
+                [f"10.0.{n}.1-10.0.{n}.6" for n in range(MAX_IP_RANGES_PER_CONDITION // 3)],
+                "more than",
+            ),
         ]
     )
-    def test_rejects_unusable_ip_ranges(self, _name: str, pattern: str):
-        with pytest.raises(ValueError):
-            validate_rule(cidr_rule(pattern=pattern))
+    def test_rejects_unusable_ip_ranges(self, _name: str, patterns: list[str], expected_message: str):
+        with pytest.raises(ValueError, match=expected_message):
+            validate_rule(cidr_rule(patterns=patterns))
 
     def test_rejects_a_range_on_a_property_that_is_not_an_ip(self):
         # Comparing a user agent to a network range can never match, so it is a mistake worth
         # naming rather than a rule that silently does nothing.
         with pytest.raises(ValueError, match="IP ranges only work with"):
-            validate_rule(rule(matcher=CustomBotMatcher.CIDR, pattern="192.0.2.0/24"))
+            validate_rule(rule(matcher=CustomBotMatcher.CIDR, pattern=None, patterns=["192.0.2.0/24"]))
 
     def test_rejects_a_property_outside_the_supported_set(self):
         raw = condition().model_dump()
@@ -288,6 +345,39 @@ class TestCompileDefinitions:
 
         total = sum(len(group.conditions) if isinstance(group, CompositeGroup) else 1 for group in groups)
         assert total <= MAX_TOTAL_CONDITIONS
+
+    def test_rules_beyond_the_ip_range_budget_are_dropped(self):
+        per_rule = MAX_IP_RANGES_PER_CONDITION
+        rules = [
+            rule(
+                id=str(i),
+                name=f"Bot {i}",
+                items=[
+                    condition(id=f"{i}-ua"),
+                    condition(
+                        id=f"{i}-ip",
+                        key=CustomBotField.FIELD_IP,
+                        matcher=CustomBotMatcher.CIDR,
+                        pattern=None,
+                        patterns=separate_addresses(per_rule, start=i * per_rule),
+                    ),
+                ],
+            )
+            for i in range(MAX_TOTAL_IP_RANGES // per_rule + 1)
+        ]
+
+        groups = compile_definitions(rules)
+
+        assert (
+            sum(
+                ip_range_count(item.groups)
+                for group in groups
+                if isinstance(group, CompositeGroup)
+                for item in group.conditions
+                if isinstance(item, CidrCondition)
+            )
+            == MAX_TOTAL_IP_RANGES
+        )
 
     def test_rules_beyond_the_cap_are_dropped(self):
         groups = compile_definitions([rule(id=str(i), name=f"Bot {i}") for i in range(MAX_CUSTOM_BOT_DEFINITIONS + 10)])

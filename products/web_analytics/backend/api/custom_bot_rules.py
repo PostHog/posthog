@@ -18,6 +18,8 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     CUSTOM_BOT_FIELDS,
     MAX_CUSTOM_BOT_DEFINITIONS,
     MAX_ID_LENGTH,
+    MAX_IP_RANGES_PER_CONDITION,
+    MAX_PATTERN_LENGTH,
     PATTERN_MATCHERS,
     assert_patterns_compile,
     compiled_patterns,
@@ -39,10 +41,17 @@ class WebAnalyticsBotConditionSerializer(serializers.Serializer):
     )
     key = serializers.CharField(help_text=f"Event property the condition reads. One of: {_FIELD_LIST}.")
     matcher = serializers.CharField(
-        help_text="How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property)."
+        help_text="How the condition matches: 'contains' (case-insensitive substring of `pattern`), 'regex' (RE2 `pattern`), 'exact' (case-sensitive equality with `pattern`), or 'cidr' (the IP falls in any range in `patterns`, only valid with the `$ip` property)."
     )
     pattern = serializers.CharField(
-        help_text="Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24."
+        required=False,
+        help_text="Value matched against the property named by `key`. Required for every matcher except 'cidr'.",
+    )
+    patterns = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_PATTERN_LENGTH),
+        required=False,
+        max_length=MAX_IP_RANGES_PER_CONDITION,
+        help_text=f"IP ranges for the 'cidr' matcher. The condition matches when the IP falls in any of them. Each entry is a CIDR range like 192.0.2.0/24, a netmask range like 192.0.2.0/255.255.255.0, a bare address, or a start-end range like 192.0.2.10-192.0.2.40. At most {MAX_IP_RANGES_PER_CONDITION} entries.",
     )
 
     def validate_key(self, value: str) -> str:
@@ -110,6 +119,13 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         team.modifiers = modifiers
         team.save(update_fields=["modifiers"])
 
+    @staticmethod
+    def _condition(item: dict[str, Any]) -> dict[str, Any]:
+        condition: dict[str, Any] = {**item, "id": item.get("id") or str(uuid4())}
+        if item["matcher"] == CIDR_MATCHER and item.get("patterns"):
+            condition.pop("pattern", None)
+        return condition
+
     @extend_schema(
         operation_id="web_analytics_bot_rules_list",
         summary="List custom bot rules",
@@ -137,15 +153,7 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "id": str(uuid4()),
             "name": data["name"],
             "combiner": data["combiner"],
-            "items": [
-                {
-                    "id": item.get("id") or str(uuid4()),
-                    "key": item["key"],
-                    "matcher": item["matcher"],
-                    "pattern": item["pattern"],
-                }
-                for item in data["items"]
-            ],
+            "items": [self._condition(item) for item in data["items"]],
         }
         if data.get("category"):
             rule["category"] = data["category"]

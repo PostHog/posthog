@@ -1741,6 +1741,11 @@ def team_api_test_factory():
                 ("substring", [{"key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}], True),
                 ("regex", [{"key": "$raw_user_agent", "pattern": "AcmeBot/[0-9]+", "matcher": "regex"}], True),
                 ("ip range", [{"key": "$ip", "pattern": "192.0.2.0/24", "matcher": "cidr"}], True),
+                (
+                    "ip range list",
+                    [{"key": "$ip", "patterns": ["192.0.2.0/24", "198.51.100.10-198.51.100.40"], "matcher": "cidr"}],
+                    True,
+                ),
                 ("another property", [{"key": "$lib", "pattern": "posthog-python", "matcher": "contains"}], True),
                 ("exact matcher", [{"key": "$screen_width", "pattern": "800", "matcher": "exact"}], True),
                 (
@@ -1755,6 +1760,11 @@ def team_api_test_factory():
                 ("lookahead", [{"key": "$raw_user_agent", "pattern": "Acme(?=Bot)", "matcher": "regex"}], False),
                 ("unparsable regex", [{"key": "$raw_user_agent", "pattern": "Acme(", "matcher": "regex"}], False),
                 ("unusable ip range", [{"key": "$ip", "pattern": "not-an-ip", "matcher": "cidr"}], False),
+                (
+                    "too many ip ranges",
+                    [{"key": "$ip", "patterns": [f"10.0.{n}.1" for n in range(250)] * 3, "matcher": "cidr"}],
+                    False,
+                ),
                 # A range can only ever match an IP, so pairing it with a user agent is a mistake.
                 (
                     "range on a user agent",
@@ -1802,7 +1812,7 @@ def team_api_test_factory():
             if should_succeed:
                 assert response.status_code == status.HTTP_200_OK, response.json()
                 stored = response.json()["modifiers"]["customBotDefinitions"][0]
-                assert stored["items"][0]["pattern"] == conditions[0]["pattern"]
+                assert stored["items"][0] == {"id": "c0", **conditions[0]}
             else:
                 assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 

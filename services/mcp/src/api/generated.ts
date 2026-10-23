@@ -2454,8 +2454,10 @@ export namespace Schemas {
       /** The event property this condition reads. */
       key: CustomBotField;
       matcher: CustomBotMatcher;
-      /** Matched against the property named by `key`. */
-      pattern: string;
+      /** Matched against the property named by `key`. Required for every matcher except `cidr`. */
+      pattern?: string | null;
+      /** IP ranges for the `cidr` matcher, matched when the IP falls in any of them. Each entry is a CIDR range, a bare address, or a start-end range like `192.0.2.10-192.0.2.40`. */
+      patterns?: string[] | null;
     }
 
     export interface CustomBotRule {
@@ -119128,10 +119130,16 @@ export namespace Schemas {
       id?: string;
       /** Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
       key: string;
-      /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property). */
+      /** How the condition matches: 'contains' (case-insensitive substring of `pattern`), 'regex' (RE2 `pattern`), 'exact' (case-sensitive equality with `pattern`), or 'cidr' (the IP falls in any range in `patterns`, only valid with the `$ip` property). */
       matcher: string;
-      /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
-      pattern: string;
+      /** Value matched against the property named by `key`. Required for every matcher except 'cidr'. */
+      pattern?: string;
+      /**
+         * IP ranges for the 'cidr' matcher. The condition matches when the IP falls in any of them. Each entry is a CIDR range like 192.0.2.0/24, a netmask range like 192.0.2.0/255.255.255.0, a bare address, or a start-end range like 192.0.2.10-192.0.2.40. At most 500 entries.
+         * @maxItems 500
+         * @items.maxLength 200
+         */
+      patterns?: string[];
     }
 
     export interface WebAnalyticsBotRule {

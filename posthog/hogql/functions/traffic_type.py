@@ -32,6 +32,7 @@ from posthog.dataclasses import frozen
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
     BOT_IP_DEFINITIONS,
+    IpPrefixGroups,
     bot_ip_prefix_groups_by_definition,
     merged_bot_ip_prefix_groups,
 )
@@ -149,7 +150,7 @@ def _safe_pattern_property(key: str, property_expr: ast.Expr) -> ast.Expr:
 
 def _condition_expr(condition: PatternCondition | CidrCondition, property_expr: ast.Expr) -> ast.Expr:
     if isinstance(condition, CidrCondition):
-        return _ip_group_match(_safe_ip_expr(property_expr), condition.prefixlen, (condition.network,))
+        return _ip_groups_match(_safe_ip_expr(property_expr), condition.groups)
     # The same hyperscan family as the grouped rules, so the save-time compile probe covers this
     # pattern too.
     return ast.Call(
@@ -194,8 +195,8 @@ def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str)
     if isinstance(group, CidrGroup):
         safe_ip = _safe_ip_expr(property_expr)
         multi_if_args: list[ast.Expr] = []
-        for index, (prefixlen, address) in enumerate(group.networks, start=1):
-            multi_if_args.append(_ip_group_match(safe_ip, prefixlen, (address,)))
+        for index, groups in enumerate(group.networks, start=1):
+            multi_if_args.append(_ip_groups_match(safe_ip, groups))
             multi_if_args.append(ast.Constant(value=index))
         multi_if_args.append(ast.Constant(value=0))
         index_call: ast.Expr = ast.Call(name="multiIf", args=multi_if_args)
@@ -249,12 +250,15 @@ def _ip_group_match(safe_ip: ast.Expr, prefixlen: int, addresses: tuple[str, ...
     )
 
 
+def _ip_groups_match(safe_ip: ast.Expr, groups: IpPrefixGroups) -> ast.Expr:
+    matches = [_ip_group_match(safe_ip, prefixlen, addresses) for prefixlen, addresses in groups]
+    return matches[0] if len(matches) == 1 else ast.Or(exprs=matches)
+
+
 def _build_ip_match_expr(ip_expr: ast.Expr) -> ast.Expr:
     """True when the IP falls in any known bot range (merged across all definitions)."""
     safe_ip = _safe_ip_expr(ip_expr)
-    return ast.Or(
-        exprs=[_ip_group_match(safe_ip, prefixlen, nets) for prefixlen, nets in merged_bot_ip_prefix_groups()]
-    )
+    return _ip_groups_match(safe_ip, merged_bot_ip_prefix_groups())
 
 
 def _build_ip_definition_index_expr(ip_expr: ast.Expr) -> ast.Expr:
@@ -262,7 +266,7 @@ def _build_ip_definition_index_expr(ip_expr: ast.Expr) -> ast.Expr:
     safe_ip = _safe_ip_expr(ip_expr)
     multi_if_args: list[ast.Expr] = []
     for index, (_key, groups) in enumerate(bot_ip_prefix_groups_by_definition(), start=1):
-        multi_if_args.append(ast.Or(exprs=[_ip_group_match(safe_ip, prefixlen, nets) for prefixlen, nets in groups]))
+        multi_if_args.append(_ip_groups_match(safe_ip, groups))
         multi_if_args.append(ast.Constant(value=index))
     multi_if_args.append(ast.Constant(value=0))
     return ast.Call(name="multiIf", args=multi_if_args)

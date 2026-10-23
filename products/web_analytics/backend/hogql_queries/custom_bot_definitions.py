@@ -29,7 +29,19 @@ to the API before a rule tightened cannot break every query for the project.
 """
 
 import re
-from ipaddress import ip_network
+from collections.abc import Iterable, Iterator
+from dataclasses import replace
+from functools import lru_cache
+from ipaddress import (
+    IPv4Address,
+    IPv4Network,
+    IPv6Address,
+    IPv6Network,
+    ip_address,
+    ip_network,
+    summarize_address_range,
+)
+from itertools import chain, islice
 from typing import TYPE_CHECKING, Literal, Union
 
 import structlog
@@ -37,10 +49,10 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BotDefinition
-from products.web_analytics.backend.hogql_queries.bot_ip_definitions import ipv6_prefix_groups
+from products.web_analytics.backend.hogql_queries.bot_ip_definitions import IpPrefixGroups, collapsed_ipv6_prefix_groups
 
 if TYPE_CHECKING:
-    from posthog.schema import CustomBotRule
+    from posthog.schema import CustomBotCondition, CustomBotRule
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +63,8 @@ MAX_CUSTOM_BOT_DEFINITIONS = 50
 MAX_CONDITIONS_PER_RULE = 10
 MAX_TOTAL_CONDITIONS = 100
 MAX_PATTERN_LENGTH = 200
+MAX_IP_RANGES_PER_CONDITION = 500
+MAX_TOTAL_IP_RANGES = 1000
 MAX_NAME_LENGTH = 100
 # Ids are stored on team.modifiers, which is read on every query for the team.
 MAX_ID_LENGTH = 100
@@ -140,12 +154,12 @@ class PatternGroup:
 class CidrGroup:
     """Rules matched against the client IP by network range.
 
-    `networks[i]` is the (prefix length, IPv6 network address) of `definitions[i]`. IPv4 ranges are
-    already mapped into IPv6 space, matching how the built-in IP ranges are compared.
+    `networks[i]` holds the (prefix length, IPv6 network addresses) groups of `definitions[i]`. IPv4
+    ranges are already mapped into IPv6 space, matching how the built-in IP ranges are compared.
     """
 
     key: str
-    networks: list[tuple[int, str]]
+    networks: list[IpPrefixGroups]
     definitions: list[BotDefinition]
 
 
@@ -158,8 +172,7 @@ class PatternCondition:
 @frozen
 class CidrCondition:
     key: str
-    prefixlen: int
-    network: str
+    groups: IpPrefixGroups
 
 
 @frozen
@@ -196,15 +209,101 @@ def compile_pattern(pattern: str, matcher: str) -> str:
     return f"(?i){_escape_literal(pattern)}"
 
 
-def compile_cidr(pattern: str) -> tuple[int, str]:
-    """Turn an IP rule into the (prefix length, network address) pair the IP matcher compares.
+@frozen
+class IpBounds:
+    version: int
+    start: int
+    end: int
 
-    Normalized with strict=False first, matching what validation accepts — otherwise a range
+    def summarized(self) -> Iterator[IPv4Network | IPv6Network]:
+        if self.version == 4:
+            return summarize_address_range(IPv4Address(self.start), IPv4Address(self.end))
+        return summarize_address_range(IPv6Address(self.start), IPv6Address(self.end))
+
+
+def parse_ip_entry(entry: str) -> IpBounds:
+    """Normalized with strict=False first, matching what validation accepts — otherwise a range
     written with host bits set, like 192.0.2.7/24, would save and then fail to compile.
     """
-    network = ip_network(pattern.strip(), strict=False)
-    prefixlen, addresses = ipv6_prefix_groups((str(network),))[0]
-    return prefixlen, addresses[0]
+    stripped = entry.strip()
+    # A zone identifier ("fe80::1%eth0") parses in Python but ClickHouse toIPv6 rejects it, and
+    # a scoped link-local address can never be an event $ip. Reject it here so it cannot save and
+    # then break every query that reads a bot field for the project.
+    if "%" in stripped:
+        raise ValueError("a zone identifier is not supported")
+    if "-" not in stripped:
+        network = ip_network(stripped, strict=False)
+        return IpBounds(version=network.version, start=int(network.network_address), end=int(network.broadcast_address))
+    start_text, _, end_text = stripped.partition("-")
+    start = ip_address(start_text.strip())
+    end = ip_address(end_text.strip())
+    if start.version != end.version:
+        raise ValueError("both ends of a range must be the same IP version")
+    if int(start) > int(end):
+        raise ValueError("the start of a range must not come after its end")
+    return IpBounds(version=start.version, start=int(start), end=int(end))
+
+
+def _merged_bounds(bounds: Iterable[IpBounds]) -> list[IpBounds]:
+    merged: list[IpBounds] = []
+    for current in sorted(bounds, key=lambda bound: (bound.version, bound.start)):
+        last = merged[-1] if merged else None
+        if last and last.version == current.version and current.start <= last.end + 1:
+            merged[-1] = replace(last, end=max(last.end, current.end))
+        else:
+            merged.append(current)
+    return merged
+
+
+def ip_range_count(groups: IpPrefixGroups) -> int:
+    return sum(len(addresses) for _prefixlen, addresses in groups)
+
+
+@lru_cache(maxsize=256)
+def compile_cidr(ranges: tuple[str, ...]) -> IpPrefixGroups:
+    """Turn an IP rule into the (prefix length, network addresses) groups the IP matcher compares."""
+    bounds: list[IpBounds] = []
+    for entry in ranges:
+        try:
+            bounds.append(parse_ip_entry(entry))
+        except ValueError as error:
+            raise ValueError(f"'{entry}' is not a valid IP address or range: {error}.") from error
+    blocks = chain.from_iterable(bound.summarized() for bound in _merged_bounds(bounds))
+    networks = list(islice(blocks, MAX_IP_RANGES_PER_CONDITION + 1))
+    if len(networks) > MAX_IP_RANGES_PER_CONDITION:
+        raise ValueError(
+            f"These ranges cover more than {MAX_IP_RANGES_PER_CONDITION} network blocks. Use fewer or wider ranges."
+        )
+    return collapsed_ipv6_prefix_groups(networks)
+
+
+def condition_ranges(condition: "CustomBotCondition") -> tuple[str, ...]:
+    if condition.patterns:
+        return tuple(condition.patterns)
+    return (condition.pattern,) if condition.pattern else ()
+
+
+def validate_ranges(ranges: tuple[str, ...], key: str) -> None:
+    if key != IP_FIELD:
+        raise ValueError(f"IP ranges only work with the {CUSTOM_BOT_FIELDS[IP_FIELD]} property.")
+    if not ranges:
+        raise ValueError("Add at least one IP address or range.")
+    if len(ranges) > MAX_IP_RANGES_PER_CONDITION:
+        raise ValueError(f"A condition can have at most {MAX_IP_RANGES_PER_CONDITION} IP ranges.")
+    for entry in ranges:
+        if not entry.strip():
+            raise ValueError("IP ranges cannot be empty.")
+        if len(entry) > MAX_PATTERN_LENGTH:
+            raise ValueError(f"An IP range cannot be longer than {MAX_PATTERN_LENGTH} characters.")
+    compile_cidr(ranges)
+
+
+def rule_ip_range_count(rule: "CustomBotRule") -> int:
+    return sum(
+        ip_range_count(compile_cidr(condition_ranges(item)))
+        for item in rule.items
+        if item.matcher.value == CIDR_MATCHER
+    )
 
 
 def validate_pattern(pattern: str, matcher: str, key: str) -> None:
@@ -213,23 +312,6 @@ def validate_pattern(pattern: str, matcher: str, key: str) -> None:
         raise ValueError("Pattern cannot be empty.")
     if len(pattern) > MAX_PATTERN_LENGTH:
         raise ValueError(f"Pattern cannot be longer than {MAX_PATTERN_LENGTH} characters.")
-
-    if matcher == CIDR_MATCHER:
-        if key != IP_FIELD:
-            raise ValueError(f"IP ranges only work with the {CUSTOM_BOT_FIELDS[IP_FIELD]} property.")
-        stripped = pattern.strip()
-        # A zone identifier ("fe80::1%eth0") parses in Python but ClickHouse toIPv6 rejects it, and
-        # a scoped link-local address can never be an event $ip. Reject it here so it cannot save and
-        # then break every query that reads a bot field for the project.
-        if "%" in stripped:
-            raise ValueError(f"'{pattern}' is not a valid IP address or range: a zone identifier is not supported.")
-        try:
-            # strict=False so "12.34.56.78/24" is read as its network rather than rejected for
-            # having host bits set.
-            ip_network(stripped, strict=False)
-        except ValueError as error:
-            raise ValueError(f"'{pattern}' is not a valid IP address or range: {error}.") from error
-        return
 
     if matcher not in PATTERN_MATCHERS:
         raise ValueError(f"Unknown matcher '{matcher}'.")
@@ -269,7 +351,12 @@ def validate_rule(rule: "CustomBotRule") -> None:
         seen_ids.add(item.id)
         if item.key not in CUSTOM_BOT_FIELDS:
             raise ValueError(f"Cannot match on property '{item.key}'.")
-        validate_pattern(item.pattern, item.matcher.value, item.key)
+        if item.matcher.value == CIDR_MATCHER:
+            validate_ranges(condition_ranges(item), item.key)
+            continue
+        if item.patterns:
+            raise ValueError("Only IP range conditions can match a list of values.")
+        validate_pattern(item.pattern or "", item.matcher.value, item.key)
 
 
 def validate_rule_set(rules: list["CustomBotRule"]) -> None:
@@ -277,6 +364,8 @@ def validate_rule_set(rules: list["CustomBotRule"]) -> None:
     total = sum(len(rule.items) for rule in rules)
     if total > MAX_TOTAL_CONDITIONS:
         raise ValueError(f"You can have at most {MAX_TOTAL_CONDITIONS} conditions across all rules.")
+    if sum(rule_ip_range_count(rule) for rule in rules) > MAX_TOTAL_IP_RANGES:
+        raise ValueError(f"You can have at most {MAX_TOTAL_IP_RANGES} IP network blocks across all rules.")
 
 
 def parse_rules(raw: list, strict: bool = False, warn_on_drop: bool = True) -> list["CustomBotRule"]:
@@ -380,10 +469,11 @@ def _compile_composite(rule: "CustomBotRule") -> CompositeGroup:
     conditions: list[Union[PatternCondition, CidrCondition]] = []
     for item in rule.items:
         if item.matcher.value == CIDR_MATCHER:
-            prefixlen, network = compile_cidr(item.pattern)
-            conditions.append(CidrCondition(key=item.key, prefixlen=prefixlen, network=network))
+            conditions.append(CidrCondition(key=item.key, groups=compile_cidr(condition_ranges(item))))
         else:
-            conditions.append(PatternCondition(key=item.key, pattern=compile_pattern(item.pattern, item.matcher.value)))
+            conditions.append(
+                PatternCondition(key=item.key, pattern=compile_pattern(item.pattern or "", item.matcher.value))
+            )
     combiner: Literal["AND", "OR"] = "OR" if rule.combiner.value == "OR" else "AND"
     return CompositeGroup(combiner=combiner, conditions=conditions, definition=_to_bot_definition(rule))
 
@@ -411,6 +501,7 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
     open_bucket: list[CustomBotRule] = []
     order: list[Union[tuple[str, str, list[CustomBotRule]], CustomBotRule]] = []
     total_conditions = 0
+    total_ip_ranges = 0
     for rule in rules[:MAX_CUSTOM_BOT_DEFINITIONS]:
         try:
             validate_rule(rule)
@@ -420,7 +511,8 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
         # in a client-supplied query that never went through a save path. Stop rather than skip:
         # dropping only the oversized rule would let a later rule jump the precedence order.
         total_conditions += len(rule.items)
-        if total_conditions > MAX_TOTAL_CONDITIONS:
+        total_ip_ranges += rule_ip_range_count(rule)
+        if total_conditions > MAX_TOTAL_CONDITIONS or total_ip_ranges > MAX_TOTAL_IP_RANGES:
             break
         if len(rule.items) > 1:
             order.append(rule)
@@ -445,7 +537,7 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
             groups.append(
                 CidrGroup(
                     key=key,
-                    networks=[compile_cidr(rule.items[0].pattern) for rule in bucket],
+                    networks=[compile_cidr(condition_ranges(rule.items[0])) for rule in bucket],
                     definitions=[_to_bot_definition(rule) for rule in bucket],
                 )
             )
@@ -453,7 +545,9 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
             groups.append(
                 PatternGroup(
                     key=key,
-                    patterns=[compile_pattern(rule.items[0].pattern, rule.items[0].matcher.value) for rule in bucket],
+                    patterns=[
+                        compile_pattern(rule.items[0].pattern or "", rule.items[0].matcher.value) for rule in bucket
+                    ],
                     definitions=[_to_bot_definition(rule) for rule in bucket],
                 )
             )

@@ -13,6 +13,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,6 +28,7 @@ import {
     MAX_CONDITIONS_PER_RULE,
     MAX_CUSTOM_BOT_RULES,
     MAX_TOTAL_CONDITIONS,
+    conditionRanges,
     defaultMatcherFor,
     fieldLabel,
     matcherLabel,
@@ -38,6 +40,7 @@ import {
     validateCustomBotCondition,
     validateCustomBotRule,
     validateCustomBotRuleSet,
+    withMatcher,
 } from './customBotRulesUtils'
 
 // Lowercase: the labels render mid-sentence ("when all conditions are met").
@@ -71,12 +74,33 @@ function ReadOnlyBotRules({ rules }: { rules: CustomBotRule[] }): JSX.Element {
                     {rule.items.map((condition) => (
                         <span key={condition.id} className="text-sm">
                             {fieldLabel(condition.key)} {matcherLabel(condition.matcher)}{' '}
-                            <code>{condition.pattern}</code>
+                            {condition.matcher === CustomBotMatcher.Cidr ? (
+                                <ReadOnlyIpRanges ranges={conditionRanges(condition)} />
+                            ) : (
+                                <code>{condition.pattern}</code>
+                            )}
                         </span>
                     ))}
                 </div>
             ))}
         </div>
+    )
+}
+
+const READ_ONLY_RANGES_SHOWN = 3
+
+function ReadOnlyIpRanges({ ranges }: { ranges: string[] }): JSX.Element {
+    const hidden = ranges.length - READ_ONLY_RANGES_SHOWN
+    return (
+        <>
+            {ranges.slice(0, READ_ONLY_RANGES_SHOWN).map((range, index) => (
+                <span key={`${range}-${index}`}>
+                    {index > 0 ? ', ' : null}
+                    <code>{range}</code>
+                </span>
+            ))}
+            {hidden > 0 ? <span className="text-muted"> and {hidden} more</span> : null}
+        </>
     )
 }
 
@@ -156,7 +180,8 @@ export function CustomBotRules(): JSX.Element {
             <p className="mb-0">
                 Match the user agent to catch a crawler that names itself, the IP address to catch one that sends a
                 browser user agent from a range you know, or combine conditions to catch one that only stands out
-                through a combination, like an 800x600 screen.{' '}
+                through a combination, like an 800x600 screen. An IP address condition can hold a list of ranges, one
+                per line or separated by commas, such as the ranges a cloud provider publishes for a region.{' '}
                 <Link to="https://posthog.com/docs/web-analytics/bot-detection">Read more about bot detection</Link>
             </p>
 
@@ -230,11 +255,13 @@ export function CustomBotRules(): JSX.Element {
                                 condition.matcher === CustomBotMatcher.Regex
                                     ? CustomBotMatcher.Regex
                                     : defaultMatcherFor(key)
-                            updateChildItem({ ...condition, key, matcher })
+                            updateChildItem(withMatcher(condition, key, matcher))
                         }
+                        const rangeCount =
+                            condition.matcher === CustomBotMatcher.Cidr ? conditionRanges(condition).length : 0
                         return (
                             <div className="w-full flex flex-col gap-1">
-                                <div className="flex flex-row items-center gap-2">
+                                <div className="flex flex-row items-start gap-2 flex-wrap">
                                     <LemonSelect
                                         value={condition.key}
                                         options={CUSTOM_BOT_FIELD_OPTIONS}
@@ -244,19 +271,43 @@ export function CustomBotRules(): JSX.Element {
                                     <LemonSelect
                                         value={condition.matcher}
                                         options={matcherOptionsFor(condition.key)}
-                                        onChange={(matcher) => updateChildItem({ ...condition, matcher })}
+                                        onChange={(matcher) =>
+                                            updateChildItem(withMatcher(condition, condition.key, matcher))
+                                        }
                                         disabledReason={restrictedReason}
                                     />
-                                    <LemonInput
-                                        className="flex-1 font-mono"
-                                        value={condition.pattern}
-                                        onChange={(pattern) => updateChildItem({ ...condition, pattern })}
-                                        placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
-                                        status={error ? 'danger' : undefined}
-                                        disabledReason={restrictedReason}
-                                    />
+                                    {condition.matcher === CustomBotMatcher.Cidr ? (
+                                        <div className="flex-1 min-w-60">
+                                            <LemonTextArea
+                                                className="font-mono"
+                                                value={(condition.patterns ?? []).join('\n')}
+                                                onChange={(text) =>
+                                                    updateChildItem({ ...condition, patterns: text.split('\n') })
+                                                }
+                                                placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
+                                                minRows={1}
+                                                maxRows={8}
+                                                aria-invalid={!!error}
+                                                disabled={!!restrictedReason}
+                                                data-attr="custom-bot-rules-ip-ranges"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <LemonInput
+                                            className="flex-1 min-w-60 font-mono"
+                                            value={condition.pattern ?? ''}
+                                            onChange={(pattern) => updateChildItem({ ...condition, pattern })}
+                                            placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
+                                            status={error ? 'danger' : undefined}
+                                            disabledReason={restrictedReason}
+                                        />
+                                    )}
                                 </div>
-                                {error ? <span className="text-danger text-xs">{error}</span> : null}
+                                {error ? (
+                                    <span className="text-danger text-xs">{error}</span>
+                                ) : rangeCount > 1 ? (
+                                    <span className="text-muted text-xs">{rangeCount} ranges</span>
+                                ) : null}
                             </div>
                         )
                     }}

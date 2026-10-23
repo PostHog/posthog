@@ -5375,7 +5375,18 @@ class CustomBotCondition(BaseModel):
     id: str
     key: CustomBotField = Field(..., description="The event property this condition reads.")
     matcher: CustomBotMatcher
-    pattern: str = Field(..., description="Matched against the property named by `key`.")
+    pattern: str | None = Field(
+        default=None,
+        description=("Matched against the property named by `key`. Required for every matcher except `cidr`."),
+    )
+    patterns: list[str] | None = Field(
+        default=None,
+        description=(
+            "IP ranges for the `cidr` matcher, matched when the IP falls in any of"
+            " them. Each entry is a CIDR range, a bare address, or a start-end range"
+            " like `192.0.2.10-192.0.2.40`."
+        ),
+    )
 
 
 class CustomBotRule(BaseModel):

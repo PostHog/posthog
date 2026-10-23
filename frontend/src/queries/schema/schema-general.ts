@@ -7363,7 +7363,7 @@ export enum CustomBotMatcher {
     Regex = 'regex',
     /** Case-sensitive equality against the whole property value. */
     Exact = 'exact',
-    /** Matches an IP against a network range, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
+    /** Matches an IP against the network ranges in `patterns`, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
     Cidr = 'cidr',
 }
 
@@ -7371,8 +7371,10 @@ export enum CustomBotMatcher {
 export interface CustomBotCondition {
     /** The event property this condition reads. */
     key: CustomBotField
-    /** Matched against the property named by `key`. */
-    pattern: string
+    /** Matched against the property named by `key`. Required for every matcher except `cidr`. */
+    pattern?: string
+    /** IP ranges for the `cidr` matcher, matched when the IP falls in any of them. Each entry is a CIDR range, a bare address, or a start-end range like `192.0.2.10-192.0.2.40`. */
+    patterns?: string[]
     matcher: CustomBotMatcher
     id: string // the ID is only needed for the settings editor, so only needs to be unique within one rule
 }
