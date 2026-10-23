@@ -9,11 +9,11 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
-import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
 
 import { HighlightedName } from '../components/HighlightedName'
-import { NoAccountInRegionBanner } from '../components/NoAccountInRegionBanner'
+import { NoAccountInRegionNotice } from '../components/NoAccountInRegionNotice'
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
 
 export function SignupCredentialsStep(): JSX.Element {
@@ -45,9 +45,10 @@ export function SignupCredentialsStep(): JSX.Element {
         </>
     )
 
-    const signingUpAs = (
+    const greeting = (
         <>
-            <span>Signing up as</span> <span className="AuthScene__mono">{signupPanelEmail.email}</span>
+            <span>Nice to meet you,</span> <span className="AuthScene__mono">{signupPanelEmail.email}</span>
+            <span>.</span>
         </>
     )
 
@@ -64,20 +65,9 @@ export function SignupCredentialsStep(): JSX.Element {
                         'Create your account'
                     )
                 }
-                sub={
-                    pendingConnection ? (
-                        <>
-                            <span className="block">{signingUpAs}</span>
-                            <span className="block mt-1">
-                                {reviewAccessCopy(pendingConnection, 'Once your account is ready')}
-                            </span>
-                        </>
-                    ) : (
-                        signingUpAs
-                    )
-                }
+                sub={greeting}
             />
-            <NoAccountInRegionBanner email={signupPanelEmail.email} />
+            <NoAccountInRegionNotice email={signupPanelEmail.email} />
             {passkeyError && (
                 <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                     <span>{passkeyError}</span>
