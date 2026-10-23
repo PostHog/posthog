@@ -2,10 +2,7 @@ import pytest
 from unittest.mock import patch
 
 from products.signals.backend.contracts import GithubIssueSignalExtra
-from products.signals.backend.emission import (
-    github_issues as github_issues_module,
-    pipeline,
-)
+from products.signals.backend.emission import pipeline
 from products.signals.backend.emission.github_issues import EXTRA_FIELDS, GITHUB_ISSUES_CONFIG, github_issue_emitter
 from products.signals.backend.emission.pipeline import build_emitter_outputs
 
@@ -59,11 +56,13 @@ class TestGithubIssueEmitter:
         assert "blank white area" in result.description
 
     @pytest.mark.parametrize("body", [None, ""])
-    def test_skips_issue_with_no_body(self, github_issue_record, body):
+    def test_body_removal_emits_an_existing_source_only_revision(self, github_issue_record, body):
         github_issue_record["body"] = body
         result = github_issue_emitter(team_id=1, record=github_issue_record)
 
-        assert result is None
+        assert result is not None
+        assert result.existing_source_only is True
+        assert "Charts fail to render" in result.description
 
     @pytest.mark.parametrize("missing_field", ["id", "title"])
     def test_raises_when_required_field_falsy(self, github_issue_record, missing_field):
@@ -137,15 +136,13 @@ class TestGithubIssueEmitter:
         assert result.extra["author_login"] is None
         assert result.extra["author_association"] is None
 
-    def test_logged_records_leave_the_user_object_out(self, github_issue_record):
-        # The record reaches the logs on every skipped or malformed issue, and the nested user object
-        # carries a numeric id and avatar URLs that identify a person well beyond the handle.
+    def test_body_removal_leaves_the_user_object_out_of_extra(self, github_issue_record):
         github_issue_record["body"] = ""
 
-        with patch.object(github_issues_module.logger, "info") as log_info:
-            github_issue_emitter(team_id=1, record=github_issue_record)
+        result = github_issue_emitter(team_id=1, record=github_issue_record)
 
-        assert "user" not in log_info.call_args.kwargs["record"]
+        assert result is not None
+        assert "user" not in result.extra
 
     def test_a_failed_record_reaches_the_pipeline_log_without_the_user_object(self, github_issue_record):
         # The emitter raises on malformed labels, and the shared pipeline logs the record it handed
@@ -199,8 +196,17 @@ class TestGithubIssuesConfig:
 
     def test_closed_issues_only_refresh_existing_reports(self):
         assert GITHUB_ISSUES_CONFIG.sync_with_source is True
-        assert GITHUB_ISSUES_CONFIG.existing_source_only_states == ("closed",)
         assert GITHUB_ISSUES_CONFIG.where_clause is None
+
+        record = {
+            "id": 1,
+            "title": "Closed issue",
+            "body": "Resolved",
+            "state": "closed",
+        }
+        result = github_issue_emitter(team_id=1, record=record)
+        assert result is not None
+        assert result.existing_source_only is True
 
     def test_has_actionability_prompt(self):
         assert GITHUB_ISSUES_CONFIG.actionability_prompt is not None

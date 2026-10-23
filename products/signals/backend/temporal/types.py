@@ -76,6 +76,8 @@ class EmitSignalInputs:
     remediation: Optional[dict] = None
     signal_id: str | None = None
     sync_with_source: bool = False
+    source_match_signal_id: str | None = None
+    source_match_report_id: str | None = None
 
 
 @dataclass

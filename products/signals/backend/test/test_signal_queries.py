@@ -24,7 +24,12 @@ from products.signals.backend.facade.api import (
     get_outcomes_for_signal_source_slice,
     get_reports_for_signal_source_slice,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportPullRequest,
+)
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -42,6 +47,7 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_live_source_signal_matches,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
+    fetch_source_signal_matches,
     retract_source_signals,
 )
 
@@ -600,6 +606,28 @@ class TestFetchLiveSourceSignalMatches(_SignalEmbeddingsTestBase):
                 SourceSignalMatch(signal_id="older", report_id="old-report"),
             ]
         }
+
+
+class TestFetchSourceSignalMatches(APIBaseTest):
+    def test_returns_durable_association_without_retained_embedding(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        SignalEmissionRecord.objects.create(
+            team=self.team,
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            emitted_at=timezone.now() - timedelta(days=100),
+            signal_id="durable-signal",
+            report_id=str(report.id),
+        )
+
+        with patch(
+            "products.signals.backend.temporal.signal_queries.fetch_live_source_signal_matches"
+        ) as retained_lookup:
+            result = fetch_source_signal_matches(self.team, ["issue-1"], "github", "issue")
+
+        assert result == {"issue-1": [SourceSignalMatch(signal_id="durable-signal", report_id=str(report.id))]}
+        retained_lookup.assert_not_called()
 
 
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):

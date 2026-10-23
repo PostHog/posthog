@@ -54,6 +54,7 @@ def _make_config(**overrides: Any) -> SignalSourceTableConfig:
             description=record.get("description", ""),
             weight=0.5,
             extra=record,
+            existing_source_only=record.get("existing_source_only", False),
         ),
         "record_fetcher": data_warehouse_record_fetcher,
         "partition_field": "created_at",
@@ -403,6 +404,7 @@ class TestEmissionRetryIdentity:
         with (
             patch(f"{PIPELINE_MODULE_PATH}.activity") as temporal_activity,
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches", return_value={}),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
         ):
             temporal_activity.in_activity.return_value = True
@@ -753,6 +755,8 @@ class TestEmitSignals:
             idempotency_key=None,
             signal_id=output.signal_id,
             sync_with_source=False,
+            source_match_signal_id=None,
+            source_match_report_id=None,
         )
 
     @pytest.mark.asyncio
@@ -852,23 +856,28 @@ class TestEmitSignals:
                 await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
 
 
-class TestExistingSourceOnlyStates:
+class TestExistingSourceOnlyOutputs:
     @pytest.mark.asyncio
     async def test_terminal_source_only_emits_when_it_already_has_a_report(self):
-        config = _make_config(sync_with_source=True, existing_source_only_states=("closed",))
-        records = [
+        config = _make_config(sync_with_source=True, actionability_prompt="Actionable? {description}")
+        records: list[dict[str, Any]] = [
             {"id": "open", "state": "open"},
-            {"id": "known-closed", "state": "closed"},
-            {"id": "new-closed", "state": "closed"},
+            {"id": "known-closed", "state": "closed", "existing_source_only": True},
+            {"id": "new-closed", "state": "closed", "existing_source_only": True},
         ]
         team = MagicMock(id=1)
         team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
         with (
             patch(
-                f"{PIPELINE_MODULE_PATH}.fetch_live_source_signal_matches",
-                return_value={"known-closed": [MagicMock()]},
+                f"{PIPELINE_MODULE_PATH}.fetch_source_signal_matches",
+                return_value={"known-closed": [MagicMock(signal_id="previous-signal", report_id="existing-report")]},
             ),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+            patch(
+                f"{PIPELINE_MODULE_PATH}.filter_actionable",
+                new_callable=AsyncMock,
+                side_effect=lambda **kwargs: kwargs["outputs"],
+            ) as filter_actionable,
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
@@ -876,6 +885,11 @@ class TestExistingSourceOnlyStates:
 
         assert result["signals_emitted"] == 2
         assert {call.kwargs["source_id"] for call in emit.await_args_list} == {"open", "known-closed"}
+        known_call = next(call for call in emit.await_args_list if call.kwargs["source_id"] == "known-closed")
+        assert known_call.kwargs["source_match_signal_id"] == "previous-signal"
+        assert known_call.kwargs["source_match_report_id"] == "existing-report"
+        assert filter_actionable.await_args is not None
+        assert [output.source_id for output in filter_actionable.await_args.kwargs["outputs"]] == ["open"]
         filtered = [call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"]
         assert [call.kwargs["properties"]["source_id"] for call in filtered] == ["new-closed"]
         assert filtered[0].kwargs["properties"]["filter_reason"] == "source_state_without_report"

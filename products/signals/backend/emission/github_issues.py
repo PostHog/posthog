@@ -85,14 +85,7 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         msg = f"GitHub issue record has empty required field: id={issue_id!r}, title={title!r}"
         logger.exception(msg, record=_loggable(record), team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
-    if not body:
-        logger.info(
-            "Ignoring GitHub issue without a body",
-            record=_loggable(record),
-            team_id=team_id,
-            signals_type="data-import-signals",
-        )
-        return None
+    body = body or ""
     extra = _build_extra(record)
     labels = sorted(extra["labels"])
     material_version = hashlib.sha256(
@@ -119,6 +112,7 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         weight=1.0,
         extra=extra,
         idempotency_key=f"{issue_id}:{material_version}",
+        existing_source_only=not body or extra.get("state") == "closed",
     )
 
 
@@ -178,7 +172,6 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     emitter=github_issue_emitter,
     record_fetcher=data_warehouse_record_fetcher,
     sync_with_source=True,
-    existing_source_only_states=("closed",),
     partition_field="updated_at",
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + PASSTHROUGH_FIELDS + AUTHOR_FIELDS,

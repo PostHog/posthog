@@ -22,6 +22,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.models import SignalEmissionRecord, SignalReport
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     REASSIGN_SIGNAL_ROW_CAP,
@@ -928,6 +929,66 @@ def fetch_live_source_signal_matches(
         for row in (result.results or [])
         if row[0] and row[1]
     }
+
+
+def fetch_source_signal_matches(
+    team: Team,
+    source_ids: list[str],
+    source_product: str,
+    source_type: str,
+) -> dict[str, list[SourceSignalMatch]]:
+    """Resolve source identity durably, falling back to retained signal embeddings during rollout."""
+    if not source_ids:
+        return {}
+
+    records = list(
+        SignalEmissionRecord.objects.filter(
+            team=team,
+            source_product=source_product,
+            source_type=source_type,
+            source_id__in=source_ids,
+            signal_id__isnull=False,
+            report_id__isnull=False,
+        ).values_list("source_id", "signal_id", "report_id")
+    )
+    report_ids = {report_id for _, _, report_id in records if report_id}
+    live_report_ids = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team=team, id__in=report_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    }
+    matches = {
+        source_id: [SourceSignalMatch(signal_id=signal_id, report_id=report_id)]
+        for source_id, signal_id, report_id in records
+        if signal_id and report_id in live_report_ids
+    }
+
+    missing_source_ids = [source_id for source_id in source_ids if source_id not in matches]
+    if not missing_source_ids:
+        return matches
+
+    retained_matches = fetch_live_source_signal_matches(
+        team,
+        missing_source_ids,
+        source_product,
+        source_type,
+    )
+    retained_report_ids = {match.report_id for source_matches in retained_matches.values() for match in source_matches}
+    live_retained_report_ids = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team=team, id__in=retained_report_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    }
+    matches.update(
+        {
+            source_id: [match for match in source_matches if match.report_id in live_retained_report_ids]
+            for source_id, source_matches in retained_matches.items()
+            if any(match.report_id in live_retained_report_ids for match in source_matches)
+        }
+    )
+    return matches
 
 
 def fetch_live_report_ids_for_source_ids(

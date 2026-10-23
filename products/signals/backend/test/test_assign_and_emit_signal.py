@@ -17,7 +17,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.spend import record_llm_spend
@@ -779,7 +779,7 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
     )
     source_match = SourceSignalMatch(signal_id=str(uuid.uuid4()), report_id=str(report.id))
     with (
-        patch(f"{GROUPING_MODULE_PATH}.fetch_live_source_signal_matches", return_value={"source-1": [source_match]}),
+        patch(f"{GROUPING_MODULE_PATH}.fetch_source_signal_matches", return_value={"source-1": [source_match]}),
         patch(f"{GROUPING_MODULE_PATH}.match_signal_to_report", new=AsyncMock()) as semantic_match,
     ):
         match = await match_signal_to_report_activity(
@@ -814,6 +814,7 @@ async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(atea
         signals_researched=2,
     )
     input_ = _build_input(ateam.id, _existing_match(str(report.id), source_synced=True), weight=0.5)
+    input_.sync_with_source = True
 
     result = await assign_and_emit_signal_activity(input_)
 
@@ -830,6 +831,14 @@ async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(atea
     )
     assert refresh["report_id"] == str(report.id)
     assert refresh["created_recurrence"] is False
+    association = await SignalEmissionRecord.objects.aget(
+        team_id=ateam.id,
+        source_product=input_.source_product,
+        source_type=input_.source_type,
+        source_id=input_.source_id,
+    )
+    assert association.signal_id == input_.signal_id
+    assert association.report_id == str(report.id)
 
 
 @pytest.mark.parametrize(
