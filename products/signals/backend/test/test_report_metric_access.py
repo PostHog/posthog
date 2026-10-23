@@ -153,6 +153,8 @@ class TestReportMetricAccessPolicy(APIBaseTest):
             {"type": "AND", "values": "not-a-list"},
             {"type": "hogql", "key": "matchesAction(12)"},
             {"type": "hogql", "key": "person.cohorts = 12"},
+            {"type": "hogql", "key": "distinct_id IN COHORT 12"},
+            {"type": "hogql", "key": "distinct_id NOT IN COHORT 12"},
             {"type": "hogql", "key": "person_id IN (SELECT person_id FROM cohortpeople WHERE cohort_id = 12)"},
             {"type": "hogql", "key": "properties.$browser ="},
             {"type": "hogql", "key": ""},

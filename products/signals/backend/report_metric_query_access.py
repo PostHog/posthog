@@ -29,6 +29,11 @@ def _hogql_filter_allows_read(expression: object) -> bool:
         if isinstance(node, ast.And | ast.Or | ast.Tuple | ast.Array):
             pending.extend((child, depth + 1) for child in node.exprs)
         elif isinstance(node, ast.CompareOperation | ast.ArithmeticOperation):
+            if isinstance(node, ast.CompareOperation) and node.op in {
+                ast.CompareOperationOp.InCohort,
+                ast.CompareOperationOp.NotInCohort,
+            }:
+                return False
             pending.extend(((node.left, depth + 1), (node.right, depth + 1)))
         elif isinstance(node, ast.Not):
             pending.append((node.expr, depth + 1))
