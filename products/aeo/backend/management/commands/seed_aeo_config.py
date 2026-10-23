@@ -10,6 +10,7 @@ from products.aeo.backend.facade.api import update_config
 from products.aeo.backend.facade.contracts import AEOConfig, AEOConfigError, Competitor
 
 CONFIG_KEYS = frozenset({"target_domains", "brand_names", "competitors"})
+COMPETITOR_KEYS = frozenset({"name", "domains"})
 
 
 def _strings(value: object, field: str) -> tuple[str, ...]:
@@ -21,6 +22,10 @@ def _strings(value: object, field: str) -> tuple[str, ...]:
 def _competitor(item: object, index: int) -> Competitor:
     if not isinstance(item, dict) or not isinstance(item.get("name"), str):
         raise CommandError(f"competitors[{index}] must be an object with a name and a list of domains")
+    if unknown := sorted(set(item) - COMPETITOR_KEYS):
+        raise CommandError(
+            f"competitors[{index}] has unknown key(s) {unknown}; a competitor may hold {sorted(COMPETITOR_KEYS)}"
+        )
     return Competitor(name=item["name"], domains=_strings(item.get("domains", []), f"competitors[{index}].domains"))
 
 

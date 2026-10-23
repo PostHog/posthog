@@ -138,6 +138,13 @@ def test_seed_command_stores_the_file(team: Team, tmp_path: Path) -> None:
             },
             r"competitors\[0\].domains must be a list",
         ),
+        (
+            {
+                "target_domains": ["brand.example.net"],
+                "competitors": [{"name": "Rival", "domians": ["rival.example.net"]}],
+            },
+            r"competitors\[0\] has unknown key\(s\) \['domians'\]",
+        ),
         ([], "JSON object"),
     ],
 )
@@ -145,6 +152,29 @@ def test_seed_command_fails_loudly_on_a_bad_file(team: Team, tmp_path: Path, pay
     with pytest.raises(CommandError, match=message):
         _seed(team.id, tmp_path / "aeo-config.json", payload)
     assert not TeamAEOConfig.objects.filter(team_id=team.id).exists()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"target_domains": ["brand.example.net"], "competitors": [{"name": "Rival", "domians": ["other.example.net"]}]},
+        {"target_domains": ["brand.example.net"], "competitor": [{"name": "Rival", "domains": ["other.example.net"]}]},
+    ],
+)
+def test_seed_command_keeps_the_stored_config_when_a_reseed_is_rejected(
+    team: Team, tmp_path: Path, payload: object
+) -> None:
+    path = tmp_path / "aeo-config.json"
+    stored = {
+        "target_domains": ["brand.example.net"],
+        "competitors": [{"name": "Rival", "domains": ["rival.example.net"]}],
+    }
+    _seed(team.id, path, stored)
+
+    with pytest.raises(CommandError, match=r"[Uu]nknown key\(s\)"):
+        _seed(team.id, path, payload)
+
+    assert resolve_config(team.id).competitors == (Competitor(name="Rival", domains=("rival.example.net",)),)
 
 
 def test_seed_command_rejects_an_unknown_team(team: Team, tmp_path: Path) -> None:
