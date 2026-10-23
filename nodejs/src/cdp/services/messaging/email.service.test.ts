@@ -1,17 +1,22 @@
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
@@ -21,7 +26,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { emailStatusMissingRecipientHash } from './email-status.service'
+import { EmailStatusService, emailStatusMissingRecipientHash } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -503,15 +508,15 @@ describe('EmailService', () => {
         })
 
         describe('transactional email status', () => {
-            let record: jest.Mock
             let statusService: EmailService
             let statusSendSpy: jest.SpyInstance
 
-            const recordedStatuses = (): [string, string | undefined][] =>
-                record.mock.calls.map(([change]) => [change.status, change.reason])
+            const statusRows = (): Record<string, any>[] =>
+                mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS).map((row) => row.value)
+            const recordedStatuses = (): [string, string][] => statusRows().map((row) => [row.status, row.reason])
 
             beforeEach(() => {
-                record = jest.fn().mockResolvedValue(undefined)
+                mockProducerObserver.resetKafkaProducer()
                 statusService = new EmailService(
                     {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -531,10 +536,13 @@ describe('EmailService', () => {
                     undefined,
                     null,
                     null,
-                    { record, recordInBackground: jest.fn() }
+                    new EmailStatusService(
+                        createCdpOutputsRegistry().build(createCdpConsumerDeps(hub).cdpProducerRegistry, hub)
+                    )
                 )
                 statusSendSpy = jest.spyOn(statusService.sesV2Client!, 'send') as any
                 statusSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.id = new UUIDT().toString()
                 invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
                 invocation.state.emailRecipientHash = 'a1b2'
             })
@@ -545,20 +553,18 @@ describe('EmailService', () => {
                 const sentCommand = statusSendSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.EmailTags).toContainEqual({ Name: 'ph_recipient_hash', Value: 'a1b2' })
 
-                expect(record.mock.calls).toEqual([
-                    [
-                        {
-                            teamId: team.id,
-                            messageId: invocation.id,
-                            status: 'sent',
-                            at: expect.any(Date),
-                            recipientHash: 'a1b2',
-                        },
-                    ],
+                expect(statusRows()).toEqual([
+                    expect.objectContaining({
+                        team_id: team.id,
+                        message_id: invocation.id,
+                        status: 'sent',
+                        reason: '',
+                        recipient_hash: 'a1b2',
+                    }),
                 ])
             })
 
-            it.each<[string, () => void, [string, string | undefined][]]>([
+            it.each<[string, () => void, [string, string][]]>([
                 [
                     'a provider error as failed',
                     () =>
@@ -601,12 +607,12 @@ describe('EmailService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(statusSendSpy).toHaveBeenCalledTimes(1)
-                expect(record).not.toHaveBeenCalled()
+                expect(statusRows()).toEqual([])
                 expect(await missingHashCount()).toEqual(missingBefore + 1)
             })
 
             it('sends the email once when the status write fails', async () => {
-                record.mockRejectedValue(new Error('kafka is down'))
+                mockProducerObserver.produceSpy.mockRejectedValue(new Error('kafka is down'))
 
                 const result = await statusService.executeSendEmail(invocation)
 

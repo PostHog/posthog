@@ -9,7 +9,7 @@ import {
     deserializeResolverState,
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
-import { EmailStatusWriter } from '../messaging/email-status.service'
+import { EmailStatusService, EmailStatusWriter } from '../messaging/email-status.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
@@ -2836,14 +2836,8 @@ describe('Cyclotron V2', () => {
                     })
                 )
 
-            it.each<[string, string, string, number, [string, string | undefined][]]>([
-                [
-                    'a stalled transactional email as unknown',
-                    'email',
-                    '$transactional_email',
-                    0,
-                    [['unknown', undefined]],
-                ],
+            it.each<[string, string, string, number, [string, string][]]>([
+                ['a stalled transactional email as unknown', 'email', '$transactional_email', 0, [['unknown', '']]],
                 [
                     'a transactional email it gives up on as failed',
                     'email',
@@ -2864,22 +2858,20 @@ describe('Cyclotron V2', () => {
                     janitor_touch_count: touchCount,
                     state: jobState(triggerEvent),
                 })
-                const record = jest.fn().mockResolvedValue(undefined)
+                const produce = jest.fn().mockResolvedValue(undefined)
 
                 const janitor = createJanitor(
                     { stallTimeoutMs: 1_000, maxTouchCount: 2 },
                     createMockResults(true).service,
-                    {
-                        record,
-                        recordInBackground: jest.fn(),
-                    }
+                    new EmailStatusService({ produce } as any)
                 )
                 await janitor.runOnce()
                 await janitor.stop()
 
-                expect(record.mock.calls.map(([change]) => [change.status, change.reason])).toEqual(expected)
-                for (const [change] of record.mock.calls) {
-                    expect(change).toMatchObject({ teamId: 1, messageId: jobId, recipientHash: 'a1b2' })
+                const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString('utf-8')))
+                expect(rows.map((row) => [row.status, row.reason])).toEqual(expected)
+                for (const row of rows) {
+                    expect(row).toMatchObject({ team_id: 1, message_id: jobId, recipient_hash: 'a1b2' })
                 }
             })
         })

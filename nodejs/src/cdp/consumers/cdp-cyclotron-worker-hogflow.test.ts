@@ -1,9 +1,11 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -707,7 +709,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 'disableHogFlow'
             )
             ;(processor['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
-            const record = jest.spyOn(processor['emailStatus'], 'record').mockResolvedValue(undefined)
+            mockProducerObserver.resetKafkaProducer()
             const invocation = createSerializedHogFlowInvocation(hogFlow, {
                 event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_person_1', properties: {} } as any,
                 emailRecipientHash: 'a1b2',
@@ -715,14 +717,16 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
             await processor.processInvocations([invocation])
 
-            expect(record).toHaveBeenCalledWith(
+            expect(
+                mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS).map((row) => row.value)
+            ).toEqual([
                 expect.objectContaining({
-                    messageId: invocation.id,
+                    message_id: invocation.id,
                     status: 'skipped',
-                    recipientHash: 'a1b2',
+                    recipient_hash: 'a1b2',
                     reason: 'workflow_inactive',
-                })
-            )
+                }),
+            ])
         })
 
         it('attaches the live flow to a cancel-requested run so the terminal row keys as hog_flow', async () => {
