@@ -297,6 +297,8 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         # A lookup by trace id alone has no date bound. `to_query` finds its rows through a projection instead.
         if not self._unbounded_trace_lookup:
+            if self.query_date_range.date_to() <= self.query_date_range.date_from():
+                exprs.append(ast.Constant(value=False))
             exprs.append(
                 parse_expr(
                     TIME_BUCKET_DATE_RANGE_WHERE,

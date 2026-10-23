@@ -70,22 +70,25 @@ class TestTraceSpansSparkline(_TraceSpansTestBase):
 
     @parameterized.expand(
         [
-            ("sparkline", "UTC", True),
-            ("sparkline", "America/Los_Angeles", False),
-            ("latency-heatmap", "America/Los_Angeles", False),
+            ("relative_start_offset_end", "sparkline", "UTC", "-5m", "offset"),
+            ("relative_start_naive_end_non_utc_team", "sparkline", "America/Los_Angeles", "-5m", "naive"),
+            ("heatmap_naive_end_non_utc_team", "latency-heatmap", "America/Los_Angeles", "-5m", "naive"),
+            ("absolute_start_second_holds_spans", "sparkline", "UTC", "2026-06-02T08:00:00Z", "2026-06-02T07:30:00Z"),
         ]
     )
     def test_window_that_ends_before_it_starts_is_empty_not_an_error(
-        self, endpoint: str, team_timezone: str, date_to_has_offset: bool
+        self, _name: str, endpoint: str, team_timezone: str, date_from: str, date_to: str
     ):
         self.team.timezone = team_timezone
         self.team.save()
-        stale_date_to = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30)
-        if not date_to_has_offset:
-            stale_date_to = stale_date_to.replace(tzinfo=None)
+        if date_to in ("offset", "naive"):
+            stale_date_to = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30)
+            if date_to == "naive":
+                stale_date_to = stale_date_to.replace(tzinfo=None)
+            date_to = stale_date_to.isoformat()
         response = self.client.post(
             f"/api/projects/{self.team.id}/tracing/spans/{endpoint}/",
-            {"query": {"dateRange": {"date_from": "-5m", "date_to": stale_date_to.isoformat()}}},
+            {"query": {"dateRange": {"date_from": date_from, "date_to": date_to}}},
             format="json",
         )
 
