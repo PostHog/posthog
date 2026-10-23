@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -18,10 +18,16 @@ export function DashboardMetricLabelFilter({
     metricFilters,
     onChange,
     disabledReason = null,
+    addFilterTooltip,
+    addFilterDisabledReason,
+    actionsBeforeAddFilter,
 }: {
     metricFilters: MetricsQueryFilter[] | null | undefined
     onChange: (metricFilters: MetricsQueryFilter[] | null) => void
     disabledReason?: string | null
+    addFilterTooltip?: string | null
+    addFilterDisabledReason?: string | null
+    actionsBeforeAddFilter?: ReactNode
 }): JSX.Element {
     // A chip that is still being edited has no matcher yet, so the chips are kept here
     // and only complete matchers go to the dashboard filters.
@@ -52,8 +58,12 @@ export function DashboardMetricLabelFilter({
         >
             <MetricsClauseFilterBar
                 disabledReason={disabledReason}
-                addFilterTitle="Metrics Filter"
+                addFilterTitle="Add filter"
                 addFilterType="tertiary"
+                addFilterDataAttr="dashboard-metric-filters-add"
+                addFilterTooltip={addFilterTooltip}
+                addFilterDisabledReason={addFilterDisabledReason}
+                actionsBeforeAddFilter={actionsBeforeAddFilter}
             />
         </UniversalFilters>
     )
