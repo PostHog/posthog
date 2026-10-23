@@ -58,13 +58,10 @@ import {
 import { PostHogAPIClient } from "../posthog-api";
 import { attachmentFilePath } from "../utils/attachments";
 import { createEventIdSource } from "../utils/event-id";
+import { modelIdForGatewayRoute } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
-import {
-  buildPiProviderRoute,
-  type PiProviderRoute,
-  piModelIdForRoute,
-} from "./gateway-env";
+import { buildPiProviderRoute, type PiProviderRoute } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { readRunLaunch } from "./launch/run-launch";
 import { createRtkSavingsNotification } from "./rtk-savings";
@@ -1125,7 +1122,7 @@ export class PiAgentServer {
         ? {
             type: "set_model",
             provider: "posthog",
-            modelId: piModelIdForRoute(
+            modelId: modelIdForGatewayRoute(
               value,
               session.providerRoute.isAiGateway,
             ),

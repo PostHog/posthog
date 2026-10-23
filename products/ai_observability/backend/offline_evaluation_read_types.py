@@ -114,6 +114,7 @@ class OfflineScorerVersionRead:
     version: int
     kind: str
     name: str
+    short_name: str
     description: str
     archived: bool
     config: dict[str, JSONValue]

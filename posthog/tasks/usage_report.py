@@ -132,6 +132,9 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # artifact of using the product rather than customer instrumentation.
     LLM_PROMPT_FETCHED_EVENT,
     *CONVERSATIONS_EVENTS,
+    # Written by self-driving anomaly scoring, not sent by the customer.
+    "$anomaly_score",
+    "$anomaly_score_shadow",
 ]
 
 

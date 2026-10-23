@@ -21,7 +21,6 @@ from products.experiments.backend.health.context import (
     FlagHistoryNotCheckedReason,
     FlagKeyFilter,
     FlagState,
-    FlagVariant,
     HealthContext,
     MetricEvents,
 )
@@ -32,6 +31,7 @@ from products.experiments.backend.health.registry import (
     evaluate,
 )
 from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
+from products.feature_flags.backend.facade.edits import FlagVariant
 
 UNEVEN_SPLIT_TOTALS = ExposureTotals(
     total_exposures={"control": 800, "test": 200, "$multiple": 20},
@@ -211,6 +211,11 @@ class TestEvaluate(TestCase):
                 "flag_traffic_is_left_to_zero_exposures_after_launch",
                 {"flag_called": False},
                 {Key.NEW_FLAG_NO_TRAFFIC: Status.NOT_APPLICABLE},
+            ),
+            (
+                "early_significance_needs_the_primary_metrics_results",
+                {"primary_metric": None},
+                {Key.EARLY_SIGNIFICANCE: Status.NOT_CHECKED},
             ),
             (
                 "zero_exposures_finds_a_day_after_launch",

@@ -9,7 +9,12 @@ from temporalio.exceptions import CancelledError
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataJobPipelineVersion,
@@ -524,14 +529,15 @@ class TestUpdateExternalJobStatus:
 
 class TestFinalizeQueueSweep:
     @pytest.mark.parametrize(
-        "status",
+        "status,latest_error",
         [
-            ExternalDataJobStatus.FAILED,
-            ExternalDataJobStatus.BILLING_LIMIT_REACHED,
-            ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW,
+            (ExternalDataJobStatus.FAILED, "boom"),
+            (ExternalDataJobStatus.FAILED, "Sync cancelled by user"),
+            (ExternalDataJobStatus.BILLING_LIMIT_REACHED, "boom"),
+            (ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW, "boom"),
         ],
     )
-    def test_v3_risky_terminal_sweeps_queue_batches(self, status, django_capture_on_commit_callbacks):
+    def test_v3_risky_terminal_sweeps_queue_batches(self, status, latest_error, django_capture_on_commit_callbacks):
         # Any non-Completed terminal can leave enqueued batches behind; the sweep must fire
         # after commit or the batches stay claimable until the retention prune.
         team, _source, _schema, job = _create_org_team_source_schema_job(
@@ -553,26 +559,29 @@ class TestFinalizeQueueSweep:
                 team_id=team.pk,
                 status=status,
                 logger=MagicMock(),
-                latest_error="boom",
+                latest_error=latest_error,
             )
 
         mock_sweep.assert_called_once()
         assert mock_sweep.call_args.kwargs["job_id"] == str(job.id)
 
     @pytest.mark.parametrize(
-        "pipeline_version,status",
+        "pipeline_version,status,latest_error",
         [
             # A normally-completed v3 run has drained its queue by construction; the fleet's
             # hottest status write must not gain a cross-DB call.
-            (ExternalDataJobPipelineVersion.V3, ExternalDataJobStatus.COMPLETED),
+            (ExternalDataJobPipelineVersion.V3, ExternalDataJobStatus.COMPLETED, None),
+            # The next job continues the cursor of a run that worker restarts stopped, so the loader
+            # has to drain what that run queued.
+            (ExternalDataJobPipelineVersion.V3, ExternalDataJobStatus.FAILED, WORKER_RESTART_ERROR_MESSAGE),
             # v1/v2 have no batch queue at all.
-            (ExternalDataJobPipelineVersion.V2, ExternalDataJobStatus.FAILED),
-            (ExternalDataJobPipelineVersion.V1, ExternalDataJobStatus.FAILED),
-            (None, ExternalDataJobStatus.FAILED),
+            (ExternalDataJobPipelineVersion.V2, ExternalDataJobStatus.FAILED, "boom"),
+            (ExternalDataJobPipelineVersion.V1, ExternalDataJobStatus.FAILED, "boom"),
+            (None, ExternalDataJobStatus.FAILED, "boom"),
         ],
     )
     def test_no_queue_sweep_for_normal_completion_or_non_v3(
-        self, pipeline_version, status, django_capture_on_commit_callbacks
+        self, pipeline_version, status, latest_error, django_capture_on_commit_callbacks
     ):
         team, _source, _schema, job = _create_org_team_source_schema_job(pipeline_version=pipeline_version)
 
@@ -591,7 +600,7 @@ class TestFinalizeQueueSweep:
                 team_id=team.pk,
                 status=status,
                 logger=MagicMock(),
-                latest_error="boom" if status == ExternalDataJobStatus.FAILED else None,
+                latest_error=latest_error,
             )
 
         mock_sweep.assert_not_called()
