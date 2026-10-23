@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 class UnlayerError(Exception):
@@ -89,3 +90,8 @@ class QueuedEmail:
     message_id: str
     # True when an earlier request with the same idempotency key already queued this email.
     replayed: bool = False
+
+
+class TemplateManagedBy(LabeledStrEnum):
+    GUI = "gui", "GUI"
+    CODE = "code", "Code"
