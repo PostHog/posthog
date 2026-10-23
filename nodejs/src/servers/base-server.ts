@@ -2,7 +2,7 @@ import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
-import express from 'ultimate-express'
+import express, { NextFunction, Request, Response } from 'ultimate-express'
 
 import { SetupExpressAppOptions, setupCommonRoutes, setupExpressApp } from '~/common/api/router'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -24,6 +24,7 @@ export type BaseServerConfig = {
     INTERNAL_API_SECRET_FALLBACKS: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     HTTP_SERVER_PORT: number
+    HTTP_SERVER_DRAIN_TIMEOUT_MS: number
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
@@ -69,6 +70,7 @@ export class ServerLifecycle {
     private nodeInstrumentation: NodeInstrumentation
     private podTerminationTimer?: NodeJS.Timeout
     private processListeners: Map<string, (...args: any[]) => void> = new Map()
+    private inFlightResponses = new Set<Response>()
 
     constructor(
         private config: BaseServerConfig,
@@ -79,6 +81,9 @@ export class ServerLifecycle {
             internalApiSecretFallbacks: this.config.INTERNAL_API_SECRET_FALLBACKS,
             ...expressAppOptions,
         })
+        if (this.config.HTTP_SERVER_DRAIN_TIMEOUT_MS > 0) {
+            this.expressApp.use(this.trackInFlightResponse)
+        }
         this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         configureEventLoopYield(this.config.EVENT_LOOP_YIELD_THRESHOLD_MS)
         this.setupContinuousProfiling()
@@ -139,6 +144,7 @@ export class ServerLifecycle {
 
         logger.info('💤', ' Shutting down gracefully...')
 
+        await this.drainInFlightRequests()
         this.httpServer?.close()
         Object.values(schedule.scheduledJobs).forEach((job) => {
             job.cancel()
@@ -174,6 +180,42 @@ export class ServerLifecycle {
         logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
+    }
+
+    // uWebSockets close() terminates every open connection at once, so in-flight responses must finish first.
+    async drainInFlightRequests(): Promise<void> {
+        const timeoutMs = this.config.HTTP_SERVER_DRAIN_TIMEOUT_MS
+        if (timeoutMs <= 0) {
+            return
+        }
+        const deadline = Date.now() + timeoutMs
+        let remaining = this.countInFlightResponses()
+        if (remaining > 0) {
+            logger.info('💤', `Waiting for ${remaining} in-flight HTTP requests to finish...`)
+        }
+        while (remaining > 0 && Date.now() < deadline) {
+            await delay(100)
+            remaining = this.countInFlightResponses()
+        }
+        if (remaining > 0) {
+            logger.warn('⚠️', `Closing HTTP server with ${remaining} requests still in flight`)
+        }
+    }
+
+    private trackInFlightResponse = (_req: Request, res: Response, next: NextFunction): void => {
+        this.inFlightResponses.add(res)
+        res.once('close', () => this.inFlightResponses.delete(res))
+        next()
+    }
+
+    private countInFlightResponses(): number {
+        // ultimate-express marks an aborted response as finished but emits no 'close' for it.
+        for (const res of this.inFlightResponses) {
+            if (res.finished) {
+                this.inFlightResponses.delete(res)
+            }
+        }
+        return this.inFlightResponses.size
     }
 
     private setupPodTermination(getCleanupResources: () => CleanupResources): void {
