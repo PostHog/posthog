@@ -1,17 +1,19 @@
-//! Writes a flush: image packs and their index first, then one object of sealed session blocks.
+//! Writes a flush: image packs and their index first, then one object of sealed session blocks, then their index.
 //!
 //! The order matters for a crash between writes. A pack without its blocks is unreferenced, which is harmless. A block
 //! whose images were never stored would hold references that resolve to nothing.
 
 use std::collections::{BTreeMap, HashSet};
-use std::io::Write;
+use std::io::{self, Write};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use metrics::counter;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use rand::Rng;
 use replay_core_v4::bytescan::write_json_string;
 use replay_core_v4::envelope::{seal_frame, seal_json_envelope, Codec, Context, Version};
 use replay_core_v4::inspect::events::event_page_url;
+use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::inspect::stats::MAX_URL_FINGERPRINTS;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId, SessionKey as Key};
 use replay_core_v4::keys::rows::write_day;
@@ -19,6 +21,8 @@ use replay_core_v4::refs::url_fingerprint;
 use replay_core_v4::scan::cv::extract_event_images;
 use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
 use replay_core_v4::seal::{image_content_key, url_fingerprint_key};
+
+use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
 use crate::index::{
@@ -31,6 +35,7 @@ use crate::store::{BlobStore, StoreError};
 /// and reads them rarely, so it takes the smaller output for more CPU.
 const BLOCK_BROTLI_QUALITY: u8 = 9;
 const BLOCK_BROTLI_WINDOW_BITS: u8 = 22;
+const BLOCK_WRITE_BUFFER: usize = 256 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WriteError {
@@ -40,9 +45,11 @@ pub enum WriteError {
     Index(#[from] IndexError),
     #[error("sealing failed: {0}")]
     Seal(String),
+    #[error("sealing panicked: {0}")]
+    Panicked(String),
 }
 
-/// Where one session's block landed, for the block index.
+/// Where one block landed, for the block index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
     pub session: SessionKey,
@@ -53,31 +60,28 @@ pub struct Written {
     pub byte_end: u64,
 }
 
-/// A session's block, ready to seal: its key, and its lines with the images moved out.
-pub struct PreparedBlock {
+/// The columns of a block's stats that the writer fills.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WriterCounts {
+    pub extracted: u32,
+    pub bytes: u64,
+    pub inline: u32,
+    /// The bytes of the lines the writer gives the encoder, and the longest line.
+    pub jsonl_bytes: u64,
+    pub max_line_bytes: u64,
+    /// Why the block must not be stored, as the outcome of its drop: a URL the policy declines stays in it, or the
+    /// inspector did not name all its URLs.
+    pub dropped: Option<&'static str>,
+}
+
+/// A block sealed for one object, with the images it moved out.
+pub struct SealedBlock {
     pub session: SessionKey,
-    pub key: Key,
-    pub lines: Vec<u8>,
-}
-
-fn block_encoder() -> Result<brotlic::BrotliEncoder, WriteError> {
-    let seal_error = |e: brotlic::SetParameterError| WriteError::Seal(e.to_string());
-    brotlic::BrotliEncoderOptions::new()
-        .quality(brotlic::Quality::new(BLOCK_BROTLI_QUALITY).map_err(seal_error)?)
-        .window_size(brotlic::WindowSize::new(BLOCK_BROTLI_WINDOW_BITS).map_err(seal_error)?)
-        .build()
-        .map_err(seal_error)
-}
-
-pub struct Prepared {
-    pub blocks: Vec<PreparedBlock>,
-    /// The flush's new images by team, each stored once.
-    pub images: BTreeMap<i64, Vec<Image>>,
-    /// The frames the packs would hold if each session sealed its images under its own key: one per distinct
-    /// (session, reference) pair, where `images` holds one per reference.
-    pub session_frames: u64,
-    /// Which of the blocks it was given are stored. The fetch jobs come from these only.
-    pub kept: Vec<bool>,
+    pub key_month: String,
+    pub frame: Vec<u8>,
+    pub images: Vec<Image>,
+    pub counts: WriterCounts,
+    pub url_fingerprints: Vec<String>,
 }
 
 fn unique_suffix(at: DateTime<Utc>) -> String {
@@ -92,216 +96,316 @@ pub fn object_key(write_day: &str, at: DateTime<Utc>) -> String {
     format!("blocks/dt={write_day}/{}", unique_suffix(at))
 }
 
-/// Moves each kept session's images out and builds its lines in the main lane's format: one `["window_id",event]`
-/// line per event. Fills the image and written size columns of each block's stats. Every image goes into this
-/// flush's packs, even one an earlier flush stored: a pack expires by its own write time, so it must be no older than
-/// the blocks that reference it.
-pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepared {
-    let mut prepared = Prepared {
-        blocks: Vec::new(),
-        images: BTreeMap::new(),
-        session_frames: 0,
-        kept: vec![false; blocks.len()],
-    };
-    // A reference names its team, so it names one frame of the flush.
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut seen_in_session: HashSet<(String, String)> = HashSet::new();
-    for (index, block) in blocks.iter_mut().enumerate() {
-        let id = SessionId {
-            team_id: block.session.team_id,
-            session_id: block.session.session_id.clone(),
-        };
-        let (Some(key), Some(team_key)) = (
-            keys.sessions.get(&id),
-            keys.team_months.get(&block.session.team_id),
-        ) else {
-            continue;
-        };
-        // Fail closed: the inspector did not name every URL, so one it missed could be declined.
-        if let Some(limit) = block.url_limit {
-            counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => limit.label())
-                .increment(1);
-            continue;
-        }
-        let content_key = image_content_key(team_key);
-        let mut rewrite = UrlRewrite::new(
-            &block.remote_urls,
+/// Moves a block's images out and writes its lines to `out` in the main lane's format: one `["window_id",event]` line
+/// per event. Every image goes into this flush's packs, even one an earlier flush stored: a pack expires by its own
+/// write time, so it must be no older than the blocks that reference it.
+/// Expanded `cv` events can make a block far larger than its messages, so only one event is held at a time.
+pub fn prepare_block(
+    block: &Block,
+    team_key: &[u8; 32],
+    key_month: &str,
+    out: &mut impl Write,
+) -> io::Result<(Vec<Image>, WriterCounts)> {
+    // Fail closed: a URL the inspector did not name could be one the policy declines.
+    if let Some(limit) = block.url_limit {
+        let dropped = Some(limit.label());
+        return Ok((
+            Vec::new(),
+            WriterCounts {
+                dropped,
+                ..WriterCounts::default()
+            },
+        ));
+    }
+    let content_key = image_content_key(team_key);
+    let mut rewrite = UrlRewrite::new(
+        &block.remote_urls,
+        block.session.team_id,
+        key_month,
+        team_key,
+    );
+    let mut images = Vec::new();
+    let mut kept = HashSet::new();
+    let mut counts = WriterCounts::default();
+    for message in &block.messages {
+        let mut window = Vec::new();
+        write_json_string(
+            message.window_id.as_deref().unwrap_or_default(),
+            &mut window,
+        );
+        let mut sink = ImageSink::new(
+            &content_key,
             block.session.team_id,
             key_month,
-            team_key,
+            ImageLimits::default(),
         );
-        block.stats.url_fingerprints = url_fingerprints(&key.key, &block_urls(block));
-        let mut block_images = Vec::new();
-        let mut lines = Vec::with_capacity(
-            block.stats.byte_size as usize + block.stats.event_count as usize * 16,
+        for event in &message.events {
+            let extracted = extract_event_images(&message.inner, event, &mut sink);
+            out.write_all(b"[")?;
+            out.write_all(&window)?;
+            out.write_all(b",")?;
+            let canonical = canonical_strings(
+                extracted
+                    .as_deref()
+                    .unwrap_or(&message.inner[event.span.0..event.span.1]),
+            );
+            let event_bytes = rewrite.apply(&canonical);
+            out.write_all(&event_bytes)?;
+            out.write_all(b"]\n")?;
+            let line = (window.len() + event_bytes.len() + 4) as u64;
+            counts.jsonl_bytes += line;
+            counts.max_line_bytes = counts.max_line_bytes.max(line);
+        }
+        counts.extracted += sink.images.len() as u32;
+        counts.bytes += sink
+            .images
+            .iter()
+            .map(|i| i.bytes.len() as u64)
+            .sum::<u64>();
+        counts.inline += sink.left_inline;
+        images.extend(
+            sink.images
+                .into_iter()
+                .filter(|image| kept.insert(image.reference.clone())),
         );
-        for message in &block.messages {
-            let mut window = Vec::new();
-            write_json_string(
-                message.window_id.as_deref().unwrap_or_default(),
-                &mut window,
-            );
-            let mut sink = ImageSink::new(
-                &content_key,
-                block.session.team_id,
-                key_month,
-                ImageLimits::default(),
-            );
-            for event in &message.events {
-                let extracted = extract_event_images(&message.inner, event, &mut sink);
-                let line_start = lines.len();
-                lines.push(b'[');
-                lines.extend_from_slice(&window);
-                lines.push(b',');
-                let canonical = canonical_strings(
-                    extracted
-                        .as_deref()
-                        .unwrap_or(&message.inner[event.span.0..event.span.1]),
-                );
-                lines.extend_from_slice(&rewrite.apply(&canonical));
-                lines.extend_from_slice(b"]\n");
-                let line = (lines.len() - line_start) as u64;
-                block.stats.written_jsonl_bytes += line;
-                block.stats.max_written_event_bytes = block.stats.max_written_event_bytes.max(line);
-            }
-            block.stats.images_extracted += sink.images.len() as u32;
-            block.stats.image_bytes += sink
-                .images
-                .iter()
-                .map(|i| i.bytes.len() as u64)
-                .sum::<u64>();
-            block.stats.images_inline += sink.left_inline;
-            block_images.extend(sink.images);
-        }
-        // Fail closed: a declined URL, a credential or a private host, must not reach storage.
-        if !rewrite.finish() {
-            counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => "declined_unrewritten")
-                .increment(1);
-            continue;
-        }
-        let images = prepared.images.entry(block.session.team_id).or_default();
-        for image in block_images {
-            if seen_in_session.insert((id.session_id.clone(), image.reference.clone())) {
-                prepared.session_frames += 1;
-            }
-            if seen.insert(image.reference.clone()) {
-                images.push(image);
-            }
-        }
-        prepared.kept[index] = true;
-        prepared.blocks.push(PreparedBlock {
-            session: block.session.clone(),
-            key: key.clone(),
-            lines,
-        });
     }
-    prepared.images.retain(|_, images| !images.is_empty());
-    prepared
+    // Fail closed: the flush drops a block that still holds a declined URL, a credential or a private host.
+    if !rewrite.finish() {
+        counts.dropped = Some("declined_unrewritten");
+    }
+    Ok((images, counts))
 }
 
-/// Seals each team's images under its team month key into one pack, then writes the image index for the flush.
+fn block_encoder() -> Result<brotlic::BrotliEncoder, WriteError> {
+    let seal_error = |e: brotlic::SetParameterError| WriteError::Seal(e.to_string());
+    brotlic::BrotliEncoderOptions::new()
+        .quality(brotlic::Quality::new(BLOCK_BROTLI_QUALITY).map_err(seal_error)?)
+        .window_size(brotlic::WindowSize::new(BLOCK_BROTLI_WINDOW_BITS).map_err(seal_error)?)
+        .build()
+        .map_err(seal_error)
+}
+
+/// Builds, compresses and seals one block.
+pub fn seal_block(
+    block: &Block,
+    key: &Key,
+    team_key: &[u8; 32],
+    key_month: &str,
+) -> Result<SealedBlock, WriteError> {
+    let seal_error = |e: io::Error| WriteError::Seal(e.to_string());
+    // Lines go into the encoder as they are built, so memory follows the compressed block and not its plaintext.
+    // A brotli stream does not state its decompressed size, so a reader decompresses it as a stream.
+    let encoder = brotlic::CompressorWriter::with_encoder(block_encoder()?, Vec::new());
+    // The encoder works on each write it gets, so small writes cost far more CPU than the same bytes in one.
+    let mut lines = io::BufWriter::with_capacity(BLOCK_WRITE_BUFFER, encoder);
+    let (images, counts) =
+        prepare_block(block, team_key, key_month, &mut lines).map_err(seal_error)?;
+    let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
+    let compressed = encoder
+        .into_inner()
+        .map_err(|e| WriteError::Seal(e.to_string()))?;
+    let frame = seal_frame(
+        &key.key,
+        Version::V4,
+        &block_context(&block.session, &key.key_month),
+        &compressed,
+    )
+    .map_err(|e| WriteError::Seal(e.to_string()))?;
+    Ok(SealedBlock {
+        session: block.session.clone(),
+        key_month: key.key_month.clone(),
+        frame,
+        images,
+        counts,
+        url_fingerprints: url_fingerprints(&key.key, &block_urls(block)),
+    })
+}
+
+/// The authenticated data of a block frame.
+pub fn block_context(session: &SessionKey, key_month: &str) -> Context {
+    Context {
+        team_id: session.team_id,
+        session_id: Some(session.session_id.clone()),
+        key_month: Some(key_month.to_owned()),
+        kind: "rrweb".to_owned(),
+        codec: Some(Codec::Brotli),
+        ..Context::default()
+    }
+}
+
+/// The frames the flush's packs would hold if each session sealed its images under its own key: one per distinct
+/// (session, reference) pair, where [`new_images`] keeps one per reference.
+pub fn session_keyed_frames(sealed: &[SealedBlock]) -> u64 {
+    let pairs: HashSet<(&str, &str)> = sealed
+        .iter()
+        .flat_map(|block| {
+            let session = block.session.session_id.as_str();
+            block
+                .images
+                .iter()
+                .map(move |image| (session, image.reference.as_str()))
+        })
+        .collect();
+    pairs.len() as u64
+}
+
+/// The flush's new images by team, each once.
+pub fn new_images(sealed: &mut [SealedBlock]) -> BTreeMap<i64, Vec<Image>> {
+    let mut images: BTreeMap<i64, Vec<Image>> = BTreeMap::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for block in sealed {
+        for image in std::mem::take(&mut block.images) {
+            if seen.insert(image.reference.clone()) {
+                images.entry(block.session.team_id).or_default().push(image);
+            }
+        }
+    }
+    images
+}
+
+fn seal_pack(
+    team_id: i64,
+    team_images: &[Image],
+    team_key: &[u8; 32],
+    key_month: &str,
+    pack_key: &str,
+) -> Result<(Vec<u8>, Vec<ImageIndexRow>), WriteError> {
+    let mut pack = Vec::new();
+    let mut rows = Vec::with_capacity(team_images.len());
+    for image in team_images {
+        let context = Context {
+            team_id,
+            key_month: Some(key_month.to_owned()),
+            kind: "image".to_owned(),
+            codec: Some(Codec::None),
+            reference: Some(image.reference.clone()),
+            ..Context::default()
+        };
+        let frame = seal_frame(team_key, Version::V4, &context, &image.bytes)
+            .map_err(|e| WriteError::Seal(e.to_string()))?;
+        let byte_start = pack.len() as u64;
+        pack.extend_from_slice(&frame);
+        rows.push(ImageIndexRow {
+            team_id,
+            key_month: key_month.to_owned(),
+            image_ref: image.reference.clone(),
+            pack_s3_key: pack_key.to_owned(),
+            byte_start,
+            byte_end: pack.len() as u64 - 1,
+            mime: image.mime.to_owned(),
+            byte_size: image.bytes.len() as u64,
+        });
+    }
+    Ok((pack, rows))
+}
+
+/// Seals each team's images under its team month key into one pack, stores the packs concurrently, then writes the
+/// image index for the flush.
 #[allow(clippy::too_many_arguments)]
 pub async fn write_images(
-    images: &BTreeMap<i64, Vec<Image>>,
+    images: BTreeMap<i64, Vec<Image>>,
     keys: &FlushKeys,
     write_day: &str,
     key_month: &str,
     images_bucket: &str,
     rrweb_bucket: &str,
-    store: &dyn BlobStore,
+    store: &Arc<dyn BlobStore>,
     at: DateTime<Utc>,
+    concurrency: usize,
+    permits: &Arc<Semaphore>,
 ) -> Result<Vec<ImageIndexRow>, WriteError> {
-    let mut rows = Vec::new();
-    for (&team_id, team_images) in images {
-        let Some(team_key) = keys.team_months.get(&team_id) else {
-            continue;
-        };
-        let pack_key = format!(
-            "images/packs/dt={write_day}/{team_id}/{}",
-            unique_suffix(at)
-        );
-        let mut pack = Vec::new();
-        for image in team_images {
-            let context = Context {
-                team_id,
-                key_month: Some(key_month.to_owned()),
-                kind: "image".to_owned(),
-                codec: Some(Codec::None),
-                reference: Some(image.reference.clone()),
-                ..Context::default()
-            };
-            let frame = seal_frame(team_key, Version::V4, &context, &image.bytes)
-                .map_err(|e| WriteError::Seal(e.to_string()))?;
-            let byte_start = pack.len() as u64;
-            pack.extend_from_slice(&frame);
-            rows.push(ImageIndexRow {
-                team_id,
-                key_month: key_month.to_owned(),
-                image_ref: image.reference.clone(),
-                pack_s3_key: pack_key.clone(),
-                byte_start,
-                byte_end: pack.len() as u64 - 1,
-                mime: image.mime.to_owned(),
-                byte_size: image.bytes.len() as u64,
-            });
-        }
-        store.put_new(images_bucket, &pack_key, pack).await?;
-    }
+    let packs: Vec<_> = images
+        .into_iter()
+        .filter_map(|(team_id, team_images)| {
+            let team_key = *keys.team_months.get(&team_id)?;
+            let pack_key = format!(
+                "images/packs/dt={write_day}/{team_id}/{}",
+                unique_suffix(at)
+            );
+            let key_month = key_month.to_owned();
+            let store = store.clone();
+            Some(async move {
+                let key = pack_key.clone();
+                let (pack, rows) = seal_blocking(permits, move || {
+                    seal_pack(team_id, &team_images, &team_key, &key_month, &key)
+                })
+                .await?;
+                store.put_new(images_bucket, &pack_key, pack).await?;
+                Ok::<_, WriteError>(rows)
+            })
+        })
+        .collect();
+    let rows: Vec<ImageIndexRow> = stream::iter(packs)
+        .buffer_unordered(concurrency.max(1))
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
     if !rows.is_empty() {
         let index_key = format!("index/images/dt={write_day}/{}.parquet", unique_suffix(at));
-        store
-            .put_new(
-                rrweb_bucket,
-                &index_key,
-                write_parquet(&image_index(&rows)?)?,
-            )
-            .await?;
+        let batch = image_index(&rows)?;
+        let file = blocking(move || write_parquet(&batch).map_err(WriteError::from)).await?;
+        store.put_new(rrweb_bucket, &index_key, file).await?;
     }
     Ok(rows)
 }
 
-/// Seals each prepared block under its session key into one object.
+/// Writes the flush's sealed blocks as one object. Returns where each landed, in the same order.
 pub async fn write_blocks(
-    blocks: &[PreparedBlock],
+    blocks: &[SealedBlock],
+    object_key: &str,
     bucket: &str,
     store: &dyn BlobStore,
-    at: DateTime<Utc>,
 ) -> Result<Vec<Written>, WriteError> {
-    let object_key = object_key(&write_day(at), at);
-    let mut object = Vec::new();
-    let mut written = Vec::new();
+    let mut object = Vec::with_capacity(blocks.iter().map(|b| b.frame.len()).sum());
+    let mut written = Vec::with_capacity(blocks.len());
     for block in blocks {
-        let mut encoder = brotlic::CompressorWriter::with_encoder(block_encoder()?, Vec::new());
-        encoder
-            .write_all(&block.lines)
-            .map_err(|e| WriteError::Seal(e.to_string()))?;
-        let compressed = encoder
-            .into_inner()
-            .map_err(|e| WriteError::Seal(e.to_string()))?;
-        let context = Context {
-            team_id: block.session.team_id,
-            session_id: Some(block.session.session_id.clone()),
-            key_month: Some(block.key.key_month.clone()),
-            kind: "rrweb".to_owned(),
-            codec: Some(Codec::Brotli),
-            ..Context::default()
-        };
-        let frame = seal_frame(&block.key.key, Version::V4, &context, &compressed)
-            .map_err(|e| WriteError::Seal(e.to_string()))?;
         let byte_start = object.len() as u64;
-        object.extend_from_slice(&frame);
+        object.extend_from_slice(&block.frame);
         written.push(Written {
             session: block.session.clone(),
-            key_month: block.key.key_month.clone(),
-            object_key: object_key.clone(),
+            key_month: block.key_month.clone(),
+            object_key: object_key.to_owned(),
             byte_start,
             byte_end: object.len() as u64 - 1,
         });
     }
     if !written.is_empty() {
-        store.put_new(bucket, &object_key, object).await?;
+        store.put_new(bucket, object_key, object).await?;
     }
     Ok(written)
+}
+
+/// Runs CPU work off the async runtime.
+pub async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, WriteError> + Send + 'static,
+) -> Result<T, WriteError> {
+    tokio::task::spawn_blocking(work).await.map_err(|e| {
+        if e.is_panic() {
+            WriteError::Panicked(e.to_string())
+        } else {
+            WriteError::Seal(e.to_string())
+        }
+    })?
+}
+
+/// Runs a seal off the async runtime under one of `permits`. The seal holds its permit until it ends, so the seals of
+/// an attempt that timed out still count against the limit.
+pub async fn seal_blocking<T: Send + 'static>(
+    permits: &Arc<Semaphore>,
+    work: impl FnOnce() -> Result<T, WriteError> + Send + 'static,
+) -> Result<T, WriteError> {
+    let permit = permits
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| WriteError::Seal(e.to_string()))?;
+    blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await
 }
 
 /// The pages a block visited, from its Meta events, in order and without repeats in a row.
@@ -338,21 +442,16 @@ pub fn url_fingerprints(session_key: &[u8; 32], urls: &[String]) -> Vec<String> 
 }
 
 /// Writes one block index file for the flush, after its blocks, so no row points at a block that is not stored.
+/// Each entry is a block, its stats as this attempt filled them, and where it landed.
 pub async fn write_block_index(
-    blocks: &[Block],
-    written: &[Written],
+    entries: &[(&Block, &BlockStats, &Written)],
     keys: &FlushKeys,
     rrweb_bucket: &str,
     store: &dyn BlobStore,
     at: DateTime<Utc>,
 ) -> Result<usize, WriteError> {
-    let by_session: BTreeMap<&SessionKey, &Block> =
-        blocks.iter().map(|b| (&b.session, b)).collect();
-    let mut rows = Vec::with_capacity(written.len());
-    for written in written {
-        let Some(block) = by_session.get(&written.session) else {
-            continue;
-        };
+    let mut rows = Vec::with_capacity(entries.len());
+    for &(block, stats, written) in entries {
         let id = SessionId {
             team_id: written.session.team_id,
             session_id: written.session.session_id.clone(),
@@ -382,7 +481,7 @@ pub async fn write_block_index(
         let first = block.messages.first();
         rows.push(BlockIndexRow {
             written,
-            stats: &block.stats,
+            stats,
             moments: &block.moments,
             snapshot_source: first.and_then(|m| m.snapshot_source.as_deref()),
             snapshot_library: first.and_then(|m| m.library.as_deref()),
@@ -397,25 +496,22 @@ pub async fn write_block_index(
         write_day(at),
         unique_suffix(at)
     );
-    store
-        .put_new(
-            rrweb_bucket,
-            &index_key,
-            write_parquet(&block_index(&rows)?)?,
-        )
-        .await?;
-    Ok(rows.len())
+    let count = rows.len();
+    let batch = block_index(&rows)?;
+    let file = blocking(move || write_parquet(&batch).map_err(WriteError::from)).await?;
+    store.put_new(rrweb_bucket, &index_key, file).await?;
+    Ok(count)
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::io::{self, Read};
+    use std::io::Read;
     use std::sync::Mutex;
 
     use aes_gcm::aead::{Aead, KeyInit, Payload};
     use aes_gcm::{Aes256Gcm, Nonce};
-    use arrow_array::{Array, Int64Array, ListArray, StringArray, StructArray};
+    use arrow_array::{Array, Int64Array, ListArray, RecordBatch, StringArray, StructArray};
     use arrow_schema::DataType;
     use async_trait::async_trait;
     use base64::engine::general_purpose::STANDARD;
@@ -425,7 +521,6 @@ mod tests {
     use replay_core_v4::envelope::open_frame;
     use replay_core_v4::inspect::dom::MAX_REMOTE_URL_BYTES;
     use replay_core_v4::inspect::session::Moment;
-    use replay_core_v4::inspect::stats::BlockStats;
     use replay_core_v4::scan::message::read_message;
     use serde_json::{json, Value};
 
@@ -439,6 +534,29 @@ mod tests {
     impl MemoryStore {
         fn get(&self, bucket: &str, key: &str) -> Vec<u8> {
             self.objects.lock().unwrap()[&(bucket.to_owned(), key.to_owned())].clone()
+        }
+
+        fn keys(&self, prefix: &str) -> Vec<String> {
+            let mut keys: Vec<String> = self
+                .objects
+                .lock()
+                .unwrap()
+                .keys()
+                .filter(|(_, key)| key.starts_with(prefix))
+                .map(|(_, key)| key.clone())
+                .collect();
+            keys.sort();
+            keys
+        }
+
+        fn parquet(&self, key: &str) -> RecordBatch {
+            ParquetRecordBatchReaderBuilder::try_new(Bytes::from(self.get("rrweb-v4", key)))
+                .unwrap()
+                .build()
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
         }
     }
 
@@ -489,13 +607,6 @@ mod tests {
         }
     }
 
-    /// The length of each line, its line break included.
-    fn lines_of(lines: &[u8]) -> impl Iterator<Item = u64> + '_ {
-        lines
-            .split_inclusive(|&b| b == b'\n')
-            .map(|line| line.len() as u64)
-    }
-
     fn uri(bytes: &[u8]) -> String {
         format!("data:image/png;base64,{}", STANDARD.encode(bytes))
     }
@@ -514,25 +625,12 @@ mod tests {
         inspected
             .remote_urls
             .extend(extra.iter().map(|url| (*url).to_owned()));
-        let mut keys = FlushKeys::default();
-        keys.sessions.insert(
-            SessionId {
-                team_id: 7,
-                session_id: "kept".to_owned(),
-            },
-            Key {
-                key: [5; 32],
-                key_month: "2026-10".to_owned(),
-            },
-        );
-        keys.team_months.insert(7, [6; 32]);
-        let mut blocks = vec![inspected];
-        let prepared = prepare(&mut blocks, &keys, "2026-10");
-        prepared
-            .blocks
-            .first()
-            .map(|b| String::from_utf8(b.lines.clone()).unwrap())
-            .unwrap_or_default()
+        let mut lines = Vec::new();
+        let (_, counts) = prepare_block(&inspected, &[6; 32], "2026-10", &mut lines).unwrap();
+        if counts.dropped.is_some() {
+            return String::new();
+        }
+        String::from_utf8(lines).unwrap()
     }
 
     #[test]
@@ -606,31 +704,18 @@ mod tests {
             "https://cdn.example.com/a.png?token=secret",
         );
         let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x")}}}}]);
-        let mut blocks = vec![block("kept", events.clone()), block("dropped", events)];
-        for block in &mut blocks {
-            block.image_urls = vec![fetched.to_owned()];
-            block.remote_urls = vec![fetched.to_owned(), declined.to_owned()];
-        }
-        blocks[1].url_limit = Some(replay_core_v4::inspect::dom::UrlLimit::UrlLength);
+        let mut block = block("kept", events);
+        block.image_urls = vec![fetched.to_owned()];
+        block.remote_urls = vec![fetched.to_owned(), declined.to_owned()];
         let mut keys = FlushKeys::default();
-        for session in ["kept", "dropped"] {
-            keys.sessions.insert(
-                SessionId {
-                    team_id: 7,
-                    session_id: session.to_owned(),
-                },
-                Key {
-                    key: [5; 32],
-                    key_month: "2026-10".to_owned(),
-                },
-            );
-        }
+        let (id, key) = session_key("kept");
+        keys.sessions.insert(id, key);
         keys.team_months.insert(7, [6; 32]);
-        let prepared = prepare(&mut blocks, &keys, "2026-10");
-        // Only a stored block sends fetch jobs.
-        assert_eq!(prepared.kept, [true, false]);
-        let jobs = crate::urls::fetch_jobs(&mut blocks[..1], &keys, "2026-10", 1, &|_| false);
-        let lines = String::from_utf8(prepared.blocks[0].lines.clone()).unwrap();
+        let mut stats = BlockStats::default();
+        let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
+        let mut lines = Vec::new();
+        prepare_block(&block, &[6; 32], "2026-10", &mut lines).unwrap();
+        let lines = String::from_utf8(lines).unwrap();
         let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
         assert!(
             lines.contains(&format!(r#""src":"{reference}""#)),
@@ -643,6 +728,56 @@ mod tests {
         assert!(!lines.contains("cdn.example.com"));
     }
 
+    fn session_key(session: &str) -> (SessionId, Key) {
+        (
+            SessionId {
+                team_id: 7,
+                session_id: session.to_owned(),
+            },
+            Key {
+                key: [5; 32],
+                key_month: "2026-09".to_owned(),
+            },
+        )
+    }
+
+    fn at() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-10-15T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn keeps_one_copy_of_an_image_that_several_messages_repeat() {
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": uri(b"logo")}}}}]);
+        let mut repeated = block("s", events.clone());
+        repeated.messages.extend(block("s", events).messages);
+        let (images, counts) =
+            prepare_block(&repeated, &[6; 32], "2026-10", &mut io::sink()).unwrap();
+        assert_eq!((images.len(), counts.extracted), (1, 2));
+    }
+
+    #[tokio::test]
+    async fn a_seal_of_an_abandoned_attempt_keeps_its_permit() {
+        let permits = Arc::new(Semaphore::new(1));
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let abandoned = seal_blocking(&permits, move || {
+            wait.recv().ok();
+            Ok(())
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), abandoned)
+                .await
+                .is_err()
+        );
+        assert_eq!(permits.available_permits(), 0);
+        release.send(()).unwrap();
+        seal_blocking(&permits, || Ok(())).await.unwrap();
+        // The flush drops a block whose seal panicked and keeps the others, so a panic is told apart.
+        let panicked = seal_blocking(&permits, || -> Result<(), WriteError> { panic!("seal") });
+        assert!(matches!(panicked.await, Err(WriteError::Panicked(_))));
+    }
+
     #[tokio::test]
     async fn stores_images_once_and_blocks_that_point_at_them() {
         let events = json!([
@@ -652,108 +787,94 @@ mod tests {
             {"type": 5, "timestamp": 3, "data": {"tag": "$url_changed", "payload": {"href": "https://app.example.com/b"}}},
             {"type": 4, "timestamp": 4, "data": {"href": "https://app.example.com/a"}},
         ]);
-        let mut blocks = vec![block("kept", events.clone()), block("tombstoned", events)];
+        let mut blocks = [block("kept", events.clone()), block("again", events)];
         let mut keys = FlushKeys::default();
-        keys.sessions.insert(
-            SessionId {
-                team_id: 7,
-                session_id: "kept".to_owned(),
-            },
-            Key {
-                key: [5; 32],
-                key_month: "2026-09".to_owned(),
-            },
-        );
+        for session in ["kept", "again"] {
+            let (id, key) = session_key(session);
+            keys.sessions.insert(id, key);
+        }
         keys.team_months.insert(7, [6; 32]);
         let old_ref = replay_core_v4::refs::image_ref(
             7,
             "2026-10",
             &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), b"old"),
         );
-        let prepared = prepare(&mut blocks, &keys, "2026-10");
+        let object = object_key("2026-10-15", at());
+        let mut sealed: Vec<SealedBlock> = blocks
+            .iter()
+            .map(|b| {
+                seal_block(
+                    b,
+                    &keys.sessions[&session_key(&b.session.session_id).0],
+                    &[6; 32],
+                    "2026-10",
+                )
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            sealed[0].counts,
+            WriterCounts {
+                extracted: 2,
+                bytes: 6,
+                inline: 0,
+                ..sealed[0].counts
+            }
+        );
+        // The page the block sees again keeps its first place, under the session's own fingerprint key.
+        let fingerprint_key = url_fingerprint_key(&[5; 32]);
+        let fingerprint = |path: &str| {
+            url_fingerprint(&fingerprint_key, &format!("https://app.example.com{path}"))
+        };
+        assert_eq!(
+            sealed[0].url_fingerprints,
+            [fingerprint("/a"), fingerprint("/b")]
+        );
 
-        // The same image in two sessions of the team is one frame and one index row.
-        let same = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": uri(b"shared")}}}}]);
-        let mut two = vec![block("kept", same.clone()), block("other", same)];
-        let mut both = FlushKeys::default();
-        both.team_months.insert(7, [6; 32]);
-        for (session, key) in [("kept", [5; 32]), ("other", [4; 32])] {
-            both.sessions.insert(
-                SessionId {
-                    team_id: 7,
-                    session_id: session.to_owned(),
-                },
-                Key {
-                    key,
-                    key_month: "2026-10".to_owned(),
-                },
-            );
-        }
-        // A key per session would need a frame in each.
-        let shared = prepare(&mut two, &both, "2026-10");
-        assert_eq!((shared.images[&7].len(), shared.session_frames), (1, 2));
-
-        let store = MemoryStore::default();
-        let at = DateTime::parse_from_rfc3339("2026-10-15T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let session_frames = session_keyed_frames(&sealed);
+        let memory = Arc::new(MemoryStore::default());
+        let store: Arc<dyn BlobStore> = memory.clone();
         let rows = write_images(
-            &prepared.images,
+            new_images(&mut sealed),
             &keys,
             "2026-10-15",
             "2026-10",
             "images-v4",
             "rrweb-v4",
             &store,
-            at,
+            at(),
+            4,
+            &Arc::new(Semaphore::new(4)),
         )
         .await
         .unwrap();
-        let written = write_blocks(&prepared.blocks, "rrweb-v4", &store, at)
+        let written = write_blocks(&sealed, &object, "rrweb-v4", store.as_ref())
             .await
             .unwrap();
 
-        // The pack holds both images, also the one an earlier flush stored.
+        // Both blocks moved the same two images out, and the pack holds each once.
         assert_eq!(rows.len(), 2);
+        // A key per session would need each session's copy.
+        assert_eq!(session_frames, 4);
         assert!(rows.iter().any(|row| row.image_ref == old_ref));
-        assert_eq!(
-            (
-                blocks[0].stats.images_extracted,
-                blocks[0].stats.images_inline
-            ),
-            (2, 0)
-        );
-        let longest = lines_of(&prepared.blocks[0].lines).max().unwrap();
-        assert_eq!(
-            (
-                blocks[0].stats.written_jsonl_bytes,
-                blocks[0].stats.max_written_event_bytes
-            ),
-            (prepared.blocks[0].lines.len() as u64, longest)
-        );
-        assert_eq!(
-            written
-                .iter()
-                .map(|w| w.session.session_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["kept"]
-        );
+        assert_eq!(written.len(), 2);
 
         let block = &written[0];
-        let frame = &store.get("rrweb-v4", &block.object_key)
+        let frame = &memory.get("rrweb-v4", &block.object_key)
             [block.byte_start as usize..=block.byte_end as usize];
-        let context = Context {
-            team_id: 7,
-            session_id: Some("kept".to_owned()),
-            key_month: Some("2026-09".to_owned()),
-            kind: "rrweb".to_owned(),
-            codec: Some(Codec::Brotli),
-            ..Context::default()
-        };
+        let context = block_context(&blocks[0].session, "2026-09");
         let lines = String::from_utf8(
             decompress(&open_frame(&[5; 32], Version::V4, &context, frame).unwrap()).unwrap(),
         )
         .unwrap();
+        let longest = lines.split_inclusive('\n').map(str::len).max().unwrap();
+        assert_eq!(
+            (
+                sealed[0].counts.jsonl_bytes,
+                sealed[0].counts.max_line_bytes
+            ),
+            (lines.len() as u64, longest as u64)
+        );
         let first: Value = serde_json::from_str(lines.lines().nth(1).unwrap()).unwrap();
         let reference = first[1]["data"]["node"]["attributes"]["src"]
             .as_str()
@@ -763,7 +884,7 @@ mod tests {
 
         // The reference resolves through the index to the image's bytes in the pack.
         let row = &rows[0];
-        let pack = store.get("images-v4", &row.pack_s3_key);
+        let pack = memory.get("images-v4", &row.pack_s3_key);
         let image_context = Context {
             team_id: 7,
             key_month: Some("2026-10".to_owned()),
@@ -772,56 +893,40 @@ mod tests {
             reference: Some(row.image_ref.clone()),
             ..Context::default()
         };
-        let sealed = &pack[row.byte_start as usize..=row.byte_end as usize];
+        let sealed_image = &pack[row.byte_start as usize..=row.byte_end as usize];
         assert_eq!(
-            open_frame(&[6; 32], Version::V4, &image_context, sealed).unwrap(),
+            open_frame(&[6; 32], Version::V4, &image_context, sealed_image).unwrap(),
             b"new"
         );
-        // The team month key seals images, as the fetcher's, so the session key does not open them.
-        assert!(open_frame(&[5; 32], Version::V4, &image_context, sealed).is_err());
-        assert_eq!(
-            store
-                .objects
-                .lock()
-                .unwrap()
-                .keys()
-                .filter(|(_, key)| key.starts_with("index/images/dt=2026-10-15/"))
-                .count(),
-            1
-        );
+        // The team month key seals images, as the fetcher's, so a session key does not open them.
+        assert!(open_frame(&[5; 32], Version::V4, &image_context, sealed_image).is_err());
+        assert_eq!(memory.keys("index/images/dt=2026-10-15/").len(), 1);
 
         // The block index row points at the block, keeps the moments, and seals the visited pages.
-        blocks[0].stats.window_ids = vec!["w1".to_owned()];
         blocks[0].moments = vec![Moment {
             kind: "full_snapshot",
             window_id: "w1".into(),
             ts_ms: 1,
             event_index: 1,
         }];
+        let stats = BlockStats {
+            url_fingerprints: sealed[0].url_fingerprints.clone(),
+            window_ids: vec!["w1".to_owned()],
+            ..BlockStats::default()
+        };
         assert_eq!(
-            write_block_index(&blocks, &written, &keys, "rrweb-v4", &store, at)
-                .await
-                .unwrap(),
+            write_block_index(
+                &[(&blocks[0], &stats, &written[0])],
+                &keys,
+                "rrweb-v4",
+                store.as_ref(),
+                at()
+            )
+            .await
+            .unwrap(),
             1
         );
-        let index_key = store
-            .objects
-            .lock()
-            .unwrap()
-            .keys()
-            .find(|(_, key)| key.starts_with("index/blocks/"))
-            .unwrap()
-            .1
-            .clone();
-        let batch = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(
-            store.get("rrweb-v4", &index_key),
-        ))
-        .unwrap()
-        .build()
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap();
+        let batch = memory.parquet(&memory.keys("index/blocks/")[0]);
         let column = |name: &str| {
             batch
                 .column_by_name(name)
@@ -867,15 +972,7 @@ mod tests {
             let values = values.as_any().downcast_ref::<StringArray>().unwrap();
             values.iter().map(|v| v.unwrap().to_owned()).collect()
         };
-        // The page the block sees again keeps its first place, under the session's own fingerprint key.
-        let fingerprint_key = replay_core_v4::seal::url_fingerprint_key(&[5; 32]);
-        let fingerprint = |path: &str| {
-            url_fingerprint(&fingerprint_key, &format!("https://app.example.com{path}"))
-        };
-        assert_eq!(
-            strings("url_fingerprints"),
-            [fingerprint("/a"), fingerprint("/b")]
-        );
+        assert_eq!(strings("url_fingerprints"), stats.url_fingerprints);
         assert_eq!(strings("window_ids"), ["w1"]);
         let moments = column("moments");
         let moments = moments
@@ -898,7 +995,7 @@ mod tests {
             "full_snapshot"
         );
         let envelope: Value = serde_json::from_str(&text("urls")).unwrap();
-        let sealed = STANDARD
+        let sealed_urls = STANDARD
             .decode(envelope["ciphertext"].as_str().unwrap())
             .unwrap();
         let nonce = STANDARD
@@ -918,7 +1015,7 @@ mod tests {
             .decrypt(
                 Nonce::from_slice(&nonce),
                 Payload {
-                    msg: &sealed,
+                    msg: &sealed_urls,
                     aad: aad.as_bytes(),
                 },
             )

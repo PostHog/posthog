@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use common_kafka::config::KafkaConfig;
-use common_kafka::kafka_producer::KafkaContext;
 use futures::FutureExt;
 use lifecycle::Handle;
 use metrics::counter;
@@ -16,22 +15,11 @@ use rdkafka::error::KafkaError;
 use rdkafka::message::{BorrowedMessage, Headers as _, Message as _};
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
 
-use chrono::Utc;
-use replay_core_v4::keys::batch::{KeyStore, SessionId};
-use replay_core_v4::keys::kms::AwsKms;
-use replay_core_v4::keys::rows::{key_month, write_day};
-use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
-
 use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey, Tp};
+use crate::flush::{write_flush, FlushError, Writer};
 use crate::limits::{Restrictions, SessionLimiter};
 use crate::process::{admit, sampled, Admitted, Headers, Skip};
-use crate::store::BlobStore;
 use crate::teams::TeamCache;
-use crate::urls::{fetch_jobs, records};
-use crate::write::{prepare, write_block_index, write_blocks, write_images, WriteError};
-use rdkafka::message::{Header, OwnedHeaders};
-use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::util::Timeout;
 
 /// The most messages read before the limiter decides on their sessions.
 const POLL_BATCH: usize = 1000;
@@ -149,31 +137,11 @@ fn header<'m>(message: &'m BorrowedMessage<'_>, name: &str) -> Option<&'m str> {
         .and_then(|v| std::str::from_utf8(v).ok())
 }
 
-/// What a flush needs to store blocks. Without it the recorder runs dry.
-pub struct Writer {
-    pub keys: KeyStore<CachedKeyTable<AwsKeyTable>, AwsKms>,
-    pub store: Arc<dyn BlobStore>,
-    pub rrweb_bucket: String,
-    pub images_bucket: String,
-    pub producer: FutureProducer<KafkaContext>,
-    pub image_fetch_topic: String,
-    /// Remote image references this process sent to the fetcher, by UTC day. A reference goes out again each day, so
-    /// the fetcher sees it within every refresh interval and keeps the image as long as the blocks that reference it.
-    pub sent_urls: moka::sync::Cache<(String, String), ()>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum FlushError {
-    #[error(transparent)]
-    Keys(#[from] replay_core_v4::keys::batch::KeyError),
-    #[error(transparent)]
-    Write(#[from] WriteError),
-}
-
 pub struct Settings {
     pub sample_percentage: f64,
     pub flush_interval: Duration,
     pub flush_max_bytes: usize,
+    pub flush_concurrency: usize,
     pub session_idle: Duration,
     /// The main topic, when the main lane moves its force-overflow messages to the overflow topic.
     pub redirecting_topic: Option<String>,
@@ -239,8 +207,10 @@ pub async fn run(
             inspectors.drop_partitions(&revoked);
         }
         if batch.should_flush(settings.flush_interval, settings.flush_max_bytes) {
-            let (mut blocks, offsets) = inspectors.inspect(std::mem::take(&mut batch));
-            if let Err(error) = flush(&mut blocks, writer.as_ref()).await {
+            let (blocks, offsets) = inspectors
+                .inspect(std::mem::take(&mut batch), settings.flush_concurrency)
+                .await;
+            if let Err(error) = flush(blocks, writer.as_ref(), settings.flush_concurrency).await {
                 // Nothing of this flush is committed, so a restart reads it again from the last commit.
                 tracing::error!(%error, "flush failed");
                 handle.signal_failure(format!("flush failed: {error}"));
@@ -354,9 +324,13 @@ async fn admit_message(
 }
 
 /// Stores a flush's blocks, or only reports them when the recorder runs dry.
-async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), FlushError> {
+async fn flush(
+    blocks: Vec<Block>,
+    writer: Option<&Writer>,
+    concurrency: usize,
+) -> Result<(), FlushError> {
     counter!("ai_research_v4_recorder_blocks_total").increment(blocks.len() as u64);
-    for block in blocks.iter() {
+    for block in &blocks {
         counter!("ai_research_v4_recorder_block_events_total").increment(block.stats.event_count);
         if block.stats.cold_start {
             counter!("ai_research_v4_recorder_cold_start_blocks_total").increment(1);
@@ -366,108 +340,6 @@ async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), Flus
         }
     }
     let Some(writer) = writer else { return Ok(()) };
-    let now = Utc::now();
-    let day = write_day(now);
-    let month = key_month(&day);
-    let sessions: Vec<SessionId> = blocks
-        .iter()
-        .map(|b| SessionId {
-            team_id: b.session.team_id,
-            session_id: b.session.session_id.clone(),
-        })
-        .collect();
-    // Keys are stored before anything is sealed with them, as in v3.
-    let keys = writer.keys.keys_for_flush(&sessions, &day).await?;
-    counter!("ai_research_v4_recorder_dropped_sessions_total").increment(keys.dropped.len() as u64);
-    let prepared = prepare(blocks, &keys, month);
-    // Before the index is written: building the jobs counts each block's image URLs into its stats.
-    // A dropped block's images are not stored, so the fetcher does not fetch them.
-    let kept = blocks
-        .iter_mut()
-        .zip(&prepared.kept)
-        .filter_map(|(block, &kept)| kept.then_some(block));
-    let jobs = fetch_jobs(kept, &keys, month, now.timestamp_millis(), &|reference| {
-        writer
-            .sent_urls
-            .contains_key(&(day.clone(), reference.to_owned()))
-    });
-    let rows = write_images(
-        &prepared.images,
-        &keys,
-        &day,
-        month,
-        &writer.images_bucket,
-        &writer.rrweb_bucket,
-        writer.store.as_ref(),
-        now,
-    )
-    .await?;
-    counter!("ai_research_v4_recorder_stored_images_total").increment(rows.len() as u64);
-    // What sealing images under session keys would store, to compare with the frames above.
-    counter!("ai_research_v4_recorder_session_keyed_image_frames_total")
-        .increment(prepared.session_frames);
-    let written = write_blocks(
-        &prepared.blocks,
-        &writer.rrweb_bucket,
-        writer.store.as_ref(),
-        now,
-    )
-    .await?;
-    counter!("ai_research_v4_recorder_written_blocks_total").increment(written.len() as u64);
-    write_block_index(
-        blocks,
-        &written,
-        &keys,
-        &writer.rrweb_bucket,
-        writer.store.as_ref(),
-        now,
-    )
-    .await?;
-    produce_jobs(writer, jobs, &day, now.timestamp_millis()).await;
-    Ok(())
-}
-
-/// Sends the flush's fetch jobs and waits for their delivery before the flush commits, as the v3 mirror does. A send
-/// that fails does not fail the flush, because its blocks are stored by then. The references it did not send stay
-/// unmarked, so a later flush that sees them sends them again.
-async fn produce_jobs(
-    writer: &Writer,
-    jobs: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
-    day: &str,
-    now_ms: i64,
-) {
-    let captured_at = now_ms.to_string();
-    let records = records(jobs);
-    let total: usize = records
-        .iter()
-        .map(|(_, _, references)| references.len())
-        .sum();
-    let mut sent = Vec::new();
-    for (domain, payload, references) in records {
-        let headers = OwnedHeaders::new().insert(Header {
-            key: "capture-timestamp-ms",
-            value: Some(&captured_at),
-        });
-        let record = FutureRecord::to(&writer.image_fetch_topic)
-            .key(&domain)
-            .payload(&payload)
-            .headers(headers);
-        if let Err((error, _)) = writer
-            .producer
-            .send(record, Timeout::After(Duration::from_secs(30)))
-            .await
-        {
-            // The next record would wait as long on the same broker.
-            tracing::warn!(%error, "sending image fetch jobs failed");
-            break;
-        }
-        sent.extend(references);
-    }
-    counter!("ai_research_v4_recorder_image_fetch_jobs_total").increment(sent.len() as u64);
-    counter!("ai_research_v4_recorder_image_fetch_jobs_unsent_total")
-        .increment((total - sent.len()) as u64);
-    for reference in sent {
-        writer.sent_urls.insert((day.to_owned(), reference), ());
-    }
-    metrics::gauge!("ai_research_v4_recorder_sent_urls").set(writer.sent_urls.entry_count() as f64);
+    let blocks: Vec<Arc<Block>> = blocks.into_iter().map(Arc::new).collect();
+    write_flush(&blocks, writer, concurrency).await
 }
