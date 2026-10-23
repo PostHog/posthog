@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import type { ErrorTrackingIssueSummaryApi } from '../../generated/api.schemas'
+import type { ErrorTrackingStoredIssueSummaryApi } from '../../generated/api.schemas'
 import { IssueSummarySection, IssueSummarySectionProps } from './IssueSummary'
 
 const meta: Meta<typeof IssueSummarySection> = {
@@ -12,7 +12,7 @@ export default meta
 
 type Story = StoryObj<typeof IssueSummarySection>
 
-const SUMMARY: ErrorTrackingIssueSummaryApi = {
+const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     what_happened: 'A TypeError is thrown in the checkout page when the cart total is read before the cart has loaded.',
     likely_cause: 'The cart request can finish after the first render when the session token is refreshed.',
     who_is_affected: 'About 40 signed-in users a day, mostly on Safari, in the last 7 days.',

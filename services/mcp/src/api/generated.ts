@@ -42371,27 +42371,7 @@ export namespace Schemas {
       success: boolean;
     }
 
-    /**
-     * * `own_code` - Own Code
-     * * `third_party` - Third Party
-     * * `network` - Network
-     * * `bots` - Bots
-     * * `expected` - Expected
-     * * `unclear` - Unclear
-     */
-    export type IssueSummaryCategoryEnum = typeof IssueSummaryCategoryEnum[keyof typeof IssueSummaryCategoryEnum];
-
-
-    export const IssueSummaryCategoryEnum = {
-      OwnCode: 'own_code',
-      ThirdParty: 'third_party',
-      Network: 'network',
-      Bots: 'bots',
-      Expected: 'expected',
-      Unclear: 'unclear',
-    } as const;
-
-    export interface ErrorTrackingIssueSummary {
+    export interface ErrorTrackingStoredIssueSummary {
       /** What the exception is and where it happens. */
       what_happened: string;
       /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
@@ -42417,29 +42397,15 @@ export namespace Schemas {
       checked_at: string;
     }
 
-    /**
-     * * `ready` - ready
-     * * `generating` - generating
-     * * `unavailable` - unavailable
-     */
-    export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
-
-
-    export const IssueSummaryStatusEnum = {
-      Ready: 'ready',
-      Generating: 'generating',
-      Unavailable: 'unavailable',
-    } as const;
-
     export interface ErrorTrackingIssueSummaryResponse {
       /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
        *
-       * * `ready` - ready
-       * * `generating` - generating
-       * * `unavailable` - unavailable */
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `unavailable` - Unavailable */
       status: IssueSummaryStatusEnum;
       /** The stored summary, or null when none exists yet. */
-      summary: ErrorTrackingIssueSummary | null;
+      summary: ErrorTrackingStoredIssueSummary | null;
     }
 
     export interface ErrorTrackingIssueValue {

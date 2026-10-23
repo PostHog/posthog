@@ -5,13 +5,16 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { initKeaTests } from '~/test/init'
 
 import { errorTrackingIssuesSummaryRegenerateCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
-import type { ErrorTrackingIssueSummaryApi, ErrorTrackingIssueSummaryResponseApi } from '../../generated/api.schemas'
+import type {
+    ErrorTrackingStoredIssueSummaryApi,
+    ErrorTrackingIssueSummaryResponseApi,
+} from '../../generated/api.schemas'
 import { ISSUE_SUMMARY_POLL_INTERVAL_MS, ISSUE_SUMMARY_POLL_TIMEOUT_MS, issueSummaryLogic } from './issueSummaryLogic'
 
 jest.mock('../../generated/api')
 
 const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
-const SUMMARY: ErrorTrackingIssueSummaryApi = {
+const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     what_happened: 'A TypeError in checkout.',
     likely_cause: 'The cart is null after a session expires.',
     who_is_affected: 'Signed-in users on Safari.',
@@ -24,7 +27,7 @@ const SUMMARY: ErrorTrackingIssueSummaryApi = {
 const GENERATING: ErrorTrackingIssueSummaryResponseApi = { status: 'generating', summary: null }
 const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY }
 const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null }
-const NEW_SUMMARY: ErrorTrackingIssueSummaryApi = { ...SUMMARY, generated_at: '2026-10-22T12:00:00Z' }
+const NEW_SUMMARY: ErrorTrackingStoredIssueSummaryApi = { ...SUMMARY, generated_at: '2026-10-22T12:00:00Z' }
 
 describe('issueSummaryLogic', () => {
     const retrieve = jest.mocked(errorTrackingIssuesSummaryRetrieve)

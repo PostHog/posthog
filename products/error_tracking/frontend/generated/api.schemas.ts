@@ -1070,9 +1070,9 @@ export interface ErrorTrackingIssueSplitResponseApi {
 }
 
 /**
- * * `ready` - ready
- * * `generating` - generating
- * * `unavailable` - unavailable
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `unavailable` - Unavailable
  */
 export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
 
@@ -1101,7 +1101,7 @@ export const IssueSummaryCategoryEnumApi = {
     Unclear: 'unclear',
 } as const
 
-export interface ErrorTrackingIssueSummaryApi {
+export interface ErrorTrackingStoredIssueSummaryApi {
     /** What the exception is and where it happens. */
     what_happened: string
     /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
@@ -1130,12 +1130,12 @@ export interface ErrorTrackingIssueSummaryApi {
 export interface ErrorTrackingIssueSummaryResponseApi {
     /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
      *
-     * * `ready` - ready
-     * * `generating` - generating
-     * * `unavailable` - unavailable */
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `unavailable` - Unavailable */
     status: IssueSummaryStatusEnumApi
     /** The stored summary, or null when none exists yet. */
-    summary: ErrorTrackingIssueSummaryApi | null
+    summary: ErrorTrackingStoredIssueSummaryApi | null
 }
 
 /**
@@ -1362,25 +1362,6 @@ export interface ErrorTrackingIssueBreakdownApi {
     top_values: ErrorTrackingBreakdownTopValuesApi
 }
 
-/**
- * * `own_code` - Own Code
- * * `third_party` - Third Party
- * * `network` - Network
- * * `bots` - Bots
- * * `expected` - Expected
- * * `unclear` - Unclear
- */
-export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
-
-export const IssueSummaryCategoryEnumApi = {
-    OwnCode: 'own_code',
-    ThirdParty: 'third_party',
-    Network: 'network',
-    Bots: 'bots',
-    Expected: 'expected',
-    Unclear: 'unclear',
-} as const
-
 export interface ErrorTrackingIssueSummaryApi {
     /** What the error is and where it happens, in plain language. */
     what_happened: string
@@ -1402,19 +1383,6 @@ export interface ErrorTrackingIssueSummaryApi {
     /** When the summary was written. */
     generated_at: string
 }
-
-/**
- * * `ready` - Ready
- * * `generating` - Generating
- * * `unavailable` - Unavailable
- */
-export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
-
-export const IssueSummaryStatusEnumApi = {
-    Ready: 'ready',
-    Generating: 'generating',
-    Unavailable: 'unavailable',
-} as const
 
 export interface ErrorTrackingIssueDetailApi {
     /** Error tracking issue ID. */

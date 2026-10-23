@@ -16,13 +16,13 @@ import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
-import type { ErrorTrackingIssueSummaryApi } from '../../generated/api.schemas'
+import type { ErrorTrackingStoredIssueSummaryApi } from '../../generated/api.schemas'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueSummaryFeedback, IssueSummaryView, issueSummaryLogic } from './issueSummaryLogic'
 
 export interface IssueSummarySectionProps {
     view: IssueSummaryView
-    summary: ErrorTrackingIssueSummaryApi | null
+    summary: ErrorTrackingStoredIssueSummaryApi | null
     regenerating: boolean
     feedback: IssueSummaryFeedback | null
     onRegenerate: () => void

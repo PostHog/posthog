@@ -258,12 +258,12 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
 
 
 class IssueSummaryStatus(models.TextChoices):
-    READY = "ready", "ready"
-    GENERATING = "generating", "generating"
-    UNAVAILABLE = "unavailable", "unavailable"
+    READY = "ready"
+    GENERATING = "generating"
+    UNAVAILABLE = "unavailable"
 
 
-class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
+class ErrorTrackingStoredIssueSummarySerializer(serializers.Serializer):
     what_happened = serializers.CharField(help_text="What the exception is and where it happens.")
     likely_cause = serializers.CharField(
         help_text="The model's hypothesis about the cause. Not a confirmed finding. Can be empty."
@@ -292,7 +292,7 @@ class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
             "unavailable: no summary exists and none will be written, for example because the feature is off."
         ),
     )
-    summary = ErrorTrackingIssueSummarySerializer(
+    summary = ErrorTrackingStoredIssueSummarySerializer(
         allow_null=True, help_text="The stored summary, or null when none exists yet."
     )
 
@@ -315,7 +315,7 @@ def issue_summary_response(team_id: int, issue_id: UUID, *, user: User, regenera
         summary_status = IssueSummaryStatus.UNAVAILABLE
     return {
         "status": summary_status,
-        "summary": ErrorTrackingIssueSummarySerializer(summary).data if summary is not None else None,
+        "summary": ErrorTrackingStoredIssueSummarySerializer(summary).data if summary is not None else None,
     }
 
 

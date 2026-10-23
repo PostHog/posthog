@@ -7,7 +7,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { errorTrackingIssuesSummaryRegenerateCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
-import type { ErrorTrackingIssueSummaryApi, ErrorTrackingIssueSummaryResponseApi } from '../../generated/api.schemas'
+import type {
+    ErrorTrackingStoredIssueSummaryApi,
+    ErrorTrackingIssueSummaryResponseApi,
+} from '../../generated/api.schemas'
 import { IssueSummaryStatusEnumApi } from '../../generated/api.schemas'
 
 export interface IssueSummaryLogicProps {
@@ -29,7 +32,7 @@ export interface issueSummaryLogicValues {
     polling: boolean
     regenerating: boolean
     replacedGeneratedAt: string | null
-    summary: ErrorTrackingIssueSummaryApi | null
+    summary: ErrorTrackingStoredIssueSummaryApi | null
     summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
     summaryResponseLoading: boolean
     timedOut: boolean
@@ -89,14 +92,16 @@ export interface issueSummaryLogicActions {
 export interface issueSummaryLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        summary: (summaryResponse: ErrorTrackingIssueSummaryResponseApi | null) => ErrorTrackingIssueSummaryApi | null
+        summary: (
+            summaryResponse: ErrorTrackingIssueSummaryResponseApi | null
+        ) => ErrorTrackingStoredIssueSummaryApi | null
         awaitingSummary: (
             summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
             replacedGeneratedAt: string | null
         ) => boolean
         view: (
             summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
-            summary: ErrorTrackingIssueSummaryApi | null,
+            summary: ErrorTrackingStoredIssueSummaryApi | null,
             loadFailed: boolean,
             timedOut: boolean
         ) => IssueSummaryView
@@ -200,7 +205,7 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
     selectors({
         summary: [
             (s) => [s.summaryResponse],
-            (summaryResponse: ErrorTrackingIssueSummaryResponseApi | null): ErrorTrackingIssueSummaryApi | null =>
+            (summaryResponse: ErrorTrackingIssueSummaryResponseApi | null): ErrorTrackingStoredIssueSummaryApi | null =>
                 summaryResponse?.summary ?? null,
         ],
         awaitingSummary: [
@@ -216,7 +221,7 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
             (s) => [s.summaryResponse, s.summary, s.loadFailed, s.timedOut],
             (
                 summaryResponse: ErrorTrackingIssueSummaryResponseApi | null,
-                summary: ErrorTrackingIssueSummaryApi | null,
+                summary: ErrorTrackingStoredIssueSummaryApi | null,
                 loadFailed: boolean,
                 timedOut: boolean
             ): IssueSummaryView => {
