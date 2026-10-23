@@ -16722,6 +16722,10 @@ snapshots:
         hash: v1.k794b7964.b3793a018b9fc7d1019402ec5216189d26ae85000cbb9d91ede5b7ac7f6528c3.V-ICrhJc-LkfYh8MsK8Q2AoJxCcRhqLIDNvGQ0uyFug
     warehouse-suggestions-suggested-certifications--banner--light:
         hash: v1.k794b7964.4398ae40c8e28494481e73b72c49315fd5294380aaa8f4f579c53b120e95d2f3.qj1-k55d9dyizhho1p59SKxeUPeAKHr6ZRnFAkcZgIA
+    warehouse-suggestions-suggested-certifications--deprecate-dialog--dark:
+        hash: v1.k794b7964.379398a0bc13a5f75b341a3ea524b9ba0a640cbb3a97b0a93e4a79a9dbb980e2.xhvNtFSq3a9qkI9V2wIMnvaBeXCY3h8eXO2De84KhOU
+    warehouse-suggestions-suggested-certifications--deprecate-dialog--light:
+        hash: v1.k794b7964.966ef9d3e4d2e372c4540477ff29f30cf40cfa14fc00f8f20b3598daddb07bc2.Rtpa4Ja7OqI5c5VN5sETaXj1brjK8ejBUvxu1gsqMWQ
     warehouse-suggestions-suggested-certifications--review-dialog--dark:
         hash: v1.k794b7964.89802b93fe9b475b2c41505c82c562a9c805a3022fa7b0f31d792ee4e26aa356.12Jokr27QXDdzls30bzHiJBVcmY-YW7jGvpMdjl5qvs
     warehouse-suggestions-suggested-certifications--review-dialog--light:
@@ -16731,13 +16735,13 @@ snapshots:
     warehouse-suggestions-suggested-certifications--review-dialog-narrow--light:
         hash: v1.k794b7964.3b5047b043fe10ce37b2e876db33158911951f7f181f76826df4703d0cf4d9c0.ZMOGZUA32lzC4cpnm9eWc99cU9xXecUWujMH99JdztY
     warehouse-suggestions-suggested-models-strip--banner--dark:
-        hash: v1.k794b7964.a1241d74aaae9aea0f5e45387011a7763162621513f9bb21099a245dbff7fd6d.sfD4ZgK0pNrfUJtdRCHzaUb5hsvXUT-M-vEEy0YchW8
+        hash: v1.k794b7964.5eab43c7f6811e5ca0651c1dbe3fbe44dd21387f05d24d07de36a6603a24cf8d.ouJOT_N_8rEwDbxsI92aGh8Seefi1ctVoAgMybcFsV0
     warehouse-suggestions-suggested-models-strip--banner--light:
-        hash: v1.k794b7964.f901360c730423926c8f03c171ed72653a4ad9cca51a0c4b2c8d41879db12329.-zH-AESnALIR-goDxq8-fQm2GYyrYRuwi7mDhohukAY
+        hash: v1.k794b7964.33924e399de75936e19314e3aa0eb7dc1697570862cc893bae3b4cd062e0b360.tZ8DSfGDLOGG7Xc_kXI7uC_CyU5l7vOPkwNKxNu9o6I
     warehouse-suggestions-suggested-models-strip--banner-narrow--dark:
-        hash: v1.k794b7964.30f4b7b184abe2dd858911b325a9bf503c214eaee21e31a3e665da4c32f335ea.8U8nkSRsOV3wHn3_T5sO200i_4xFJrFUgiREzayHMU8
+        hash: v1.k794b7964.696f466f94d41f530c407436ba73a3eb523005e63e056605b3d457546d0ee045.isZjSiaKcjcu-ztNvw7lQeDodFOk4683ViotSunRT5w
     warehouse-suggestions-suggested-models-strip--banner-narrow--light:
-        hash: v1.k794b7964.cd9aeea41058c88127dd494c830742a0c2da503688b53373c332b9914328e912.v7ISXW4wB9RYbvIE2psrf1_tvfzalskv_LpFF8UjQZ4
+        hash: v1.k794b7964.f779330a9ab26a6d5ef120c66ae00f45d956d306abcf213688582cdadf375d61.LVyCJ00Z48VEVXdT1oQwMC6y_NGbdqhXAMxK_-yG448
     warehouse-suggestions-suggested-models-strip--load-failed--dark:
         hash: v1.k794b7964.d93ab3575b7bebf7f869bc5b41c0a8e0581679f22bd0251c31f031b0f43ee7c0.iXXukenkQJA0ayAlRoqei_RQx1XW-b9MLaTjdhxfkoM
     warehouse-suggestions-suggested-models-strip--load-failed--light:
@@ -16755,17 +16759,21 @@ snapshots:
     warehouse-suggestions-suggested-models-strip--not-eligible--light:
         hash: v1.k794b7964.a66ac5be916b459b6f8b15621e3bdeb12226d34c1e24feb15900940652fc238b.gzxwnKSQkZQfg5wdIMriKJO-aaxIteiXVzfSx1R7w8c
     warehouse-suggestions-suggested-models-strip--review-dialog--dark:
-        hash: v1.k794b7964.fac8a1182d36c5c9ef90d5a17d149bb3e218b046ffe7f917c369e3954c039fcc.pEMsRQk39ljc8qKDAgmUUQBro4CRoLU2VxwTMcmpeeE
+        hash: v1.k794b7964.d7a97db72786b603d2b91bc135306d9f209cb826b9a94ea60278e32a5b51c2b4.9SG-h8azE_3Dv6B0fRMypQwublXXHhEAhEtkTHy-ZPY
     warehouse-suggestions-suggested-models-strip--review-dialog--light:
-        hash: v1.k794b7964.f797a9daad6d21561b67394d20ab1c7da8a1e4ce651e021f1101514011ee5874.jEKDSp2q9QLcGC6thubqbgl1tK-Mw2kk7DIzHUUhKPg
+        hash: v1.k794b7964.395fbaf1ad8d74c5063132bfeafe6a3f8f9130129e65b08687517c22b7430f79.t1FqX63N7P6Gyob_yJGn4aGFbsk_sMOJaXct-oJe98s
     warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--dark:
-        hash: v1.k794b7964.2e7da69169592526ce9378325d2dd3203b28a2d3e3bbeca7c6e3e177c6b9023c.HDKIkJaZhht3usAHUBxe2fAoOvsayuvquu0fHucw2d4
+        hash: v1.k794b7964.1fb2c3524d2880a401435332be82e9d6a109699bb684e8d8a632e2c1d7262cce.E6wFW05wsOdqs4abb8a7sOrqAiSlZD_2HGrqLHw8QpA
     warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--light:
-        hash: v1.k794b7964.6f129a2ab4ddd288f150f992b3ce27c5529f2bf025195631c0defc0d4f82d2b0.ihDrvqWqeJZ9B1Jl8jToClzHvaxvhcvKBdsvEtlTQ_8
+        hash: v1.k794b7964.c441546b521c5286469dc57b0d4a1daedcceb71a1d1b77cc13a985d24a7bc0b2.RZP2_X7ud-iKHkrc4_5kNUPdG_Y7K9g_atrRdloUv9U
     warehouse-suggestions-suggested-models-strip--review-dialog-viewer-without-edit-access--dark:
         hash: v1.k794b7964.78818080e410c0639744c301e983042c6c5ce24e451eabe2c716df45d2988472.v_up3Pez-pWEw5UA_54ptbBwA470-3wcjOzaBOkOGk8
     warehouse-suggestions-suggested-models-strip--review-dialog-viewer-without-edit-access--light:
         hash: v1.k794b7964.62361ba9d4282173b78fc84a73210eb0b4df37902b6bd49ac341fdd520c3eaba.OPI08CUPtrsmvWyrvyjiojYy0k7xfjxGqLCkwbOP4_A
+    warehouse-suggestions-suggested-models-strip--stop-materializing-dialog--dark:
+        hash: v1.k794b7964.8a797fd358479a7be6614b6d85ebd369a80c839cf2d13f66458757bbb819772e.dG-gaGw-FHj4Gc2e68Y1vaLtxC1cfsC5ViVgLmLPNjk
+    warehouse-suggestions-suggested-models-strip--stop-materializing-dialog--light:
+        hash: v1.k794b7964.3fffc0e8f8756eeeb6073e1915247aa46a925e4cee1c15ddfbf15ceb188bbd8f.Gs-ybZLuvEAOo39xjwrpGnF-c8X-Zrjstj9gmTp3e1w
     warehouse-suggestions-suggested-models-strip--warming-up--dark:
         hash: v1.k794b7964.860407091149fedd6c4e056cda79d92213e59dd9e00886e0cedee320fc267c48.x5QcsRUSRT66uOc237oq_n4D-eQWpY2GzsTRTC-SL6w
     warehouse-suggestions-suggested-models-strip--warming-up--light:
