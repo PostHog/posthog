@@ -5,12 +5,14 @@ from typing import Any
 
 from rest_framework import serializers
 
+from products.messaging.backend.facade.transactional_email import SENDER_ADDRESS_MAX_LENGTH
+
 # A bare address with none of the characters that would let one entry of a comma-separated list name a second one.
 PLAIN_ADDRESS = re.compile(r"[^\s@\"<>,;:()\[\]\\]+@[^\s@\"<>,;:()\[\]\\]+\.[^\s@\"<>,;:()\[\]\\]+")
 
 
 def plain_address(value: str) -> None:
-    if not PLAIN_ADDRESS.fullmatch(value):
+    if len(value) > SENDER_ADDRESS_MAX_LENGTH or not PLAIN_ADDRESS.fullmatch(value):
         raise serializers.ValidationError(f"`{value}` is not a bare address. Send it as `jane@example.com`.")
 
 
