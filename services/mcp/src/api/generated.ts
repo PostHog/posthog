@@ -375,6 +375,8 @@ export namespace Schemas {
          * @maximum 2592000
          */
       lookback_seconds?: number;
+      /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
+      keep_materialized?: boolean;
     }
 
     export interface AccessControlResourceDefault {
@@ -12291,11 +12293,7 @@ export namespace Schemas {
     export interface LLMDetectorConfig {
       /** What counts as unusual or interesting for this metric, in your own words. Optional. */
       instructions?: string | null;
-      /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
-      threshold?: number | null;
       type: LLMDetectorConfigType;
-      /** How many recent points the model is shown (default: 90) */
-      window?: number | null;
     }
 
     /**
@@ -12500,6 +12498,11 @@ export namespace Schemas {
       date_from?: string | null;
       /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
       config?: AlertConfigUnion | null;
+      /**
+         * ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert.
+         * @nullable
+         */
+      alert?: string | null;
     }
 
     export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
@@ -12540,7 +12543,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -12557,6 +12560,13 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+      /** AI detector only: the model's reason for its verdict on the latest point. */
+      rationale?: string;
+      /**
+         * AI detector only: the shape the model saw at the latest point, or 'none'.
+         * @nullable
+         */
+      kind?: string | null;
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
     }
@@ -23292,6 +23302,32 @@ export namespace Schemas {
       initial_permission_mode?: InitialPermissionModeEnum;
     }
 
+    export interface CliAuthorize {
+      /**
+         * base64url SHA-256 of the CLI's PKCE code_verifier, without padding.
+         * @pattern ^[A-Za-z0-9_-]{43}$
+         */
+      code_challenge: string;
+    }
+
+    export interface CliAuthorized {
+      /** One-time code for the CLI to exchange within two minutes. */
+      code: string;
+    }
+
+    export interface CliExchange {
+      /**
+         * Code from the authorize step.
+         * @maxLength 128
+         */
+      code: string;
+      /**
+         * PKCE code_verifier whose S256 challenge was authorized.
+         * @pattern ^[A-Za-z0-9._~-]{43,128}$
+         */
+      code_verifier: string;
+    }
+
     export type ClickhouseEventProperties = { [key: string]: unknown };
 
     /**
@@ -27013,6 +27049,13 @@ export namespace Schemas {
       api_version?: string | null;
     }
 
+    export interface CronitorIncidentSignalExtra {
+      severity: string | null;
+      state: string | null;
+      created: string | null;
+      started: string | null;
+    }
+
     export interface CrossProjectDashboardTile {
       /** Id of the tile. */
       readonly id: string;
@@ -29286,6 +29329,8 @@ export namespace Schemas {
       /** @nullable */
       readonly saved_query_id: string | null;
       readonly status: DataModelingJobStatusEnum;
+      /** The engine that ran this materialization job. */
+      readonly engine: string;
       /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
        *
        * * `full_refresh` - Full refresh
@@ -29312,6 +29357,31 @@ export namespace Schemas {
          * @nullable
          */
       readonly rows_expected: number | null;
+      /**
+         * Bytes read by this run, including probes and retries.
+         * @nullable
+         */
+      readonly read_bytes: number | null;
+      /**
+         * Rows read by this run, including probes and retries.
+         * @nullable
+         */
+      readonly read_rows: number | null;
+      /**
+         * ClickHouse CPU time in microseconds.
+         * @nullable
+         */
+      readonly cpu_microseconds: number | null;
+      /**
+         * Number of ClickHouse queries measured for this run.
+         * @nullable
+         */
+      readonly query_count: number | null;
+      /**
+         * When usage was last measured. Null means unmeasured.
+         * @nullable
+         */
+      readonly usage_updated_at: string | null;
     }
 
     /**
@@ -36490,6 +36560,107 @@ export namespace Schemas {
     }
 
     /**
+     * * `web` - Web
+     * * `cli` - CLI
+     */
+    export type DevTokenClientEnum = typeof DevTokenClientEnum[keyof typeof DevTokenClientEnum];
+
+
+    export const DevTokenClientEnum = {
+      Web: 'web',
+      Cli: 'cli',
+    } as const;
+
+    /**
+     * * `live` - Live
+     * * `revoked` - Revoked
+     * * `expired` - Expired
+     */
+    export type DevTokenStatusEnum = typeof DevTokenStatusEnum[keyof typeof DevTokenStatusEnum];
+
+
+    export const DevTokenStatusEnum = {
+      Live: 'live',
+      Revoked: 'revoked',
+      Expired: 'expired',
+    } as const;
+
+    export interface DevToken {
+      /** Token id, used to revoke it. */
+      id: string;
+      /** Where the token was minted.
+       *
+       * * `web` - Web
+       * * `cli` - CLI */
+      client: DevTokenClientEnum;
+      /**
+         * Most the token can spend, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string;
+      /** When the token was minted. */
+      created_at: string;
+      /**
+         * When the gateway stops accepting the token.
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * When the token was revoked, if it was.
+         * @nullable
+         */
+      revoked_at: string | null;
+      /** Whether the token still works: live, revoked or expired.
+       *
+       * * `live` - Live
+       * * `revoked` - Revoked
+       * * `expired` - Expired */
+      status: DevTokenStatusEnum;
+    }
+
+    export interface DevTokenRefusal {
+      /** Stable refusal code, for example daily_limit or not_staff. */
+      code: string;
+      /** Human-readable reason. */
+      detail: string;
+    }
+
+    export interface DevTokenRevoke {
+      /**
+         * Token to revoke. Omit to revoke all of the user's live tokens.
+         * @nullable
+         */
+      id?: string | null;
+    }
+
+    export interface DevTokenRevoked {
+      /** How many tokens the gateway revoked. */
+      revoked_count: number;
+    }
+
+    export interface DevTokenUsage {
+      /**
+         * Most token caps one user can mint in 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      daily_cap_usd: string;
+      /**
+         * Token caps the user minted in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      used_usd: string;
+      /**
+         * Cap of each new token, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      token_cap_usd: string;
+      /** Lifetime of each new token, in seconds. */
+      ttl_seconds: number;
+      /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
+      tokens: DevToken[];
+    }
+
+    /**
      * * `Desktop` - Desktop
      * * `Mobile` - Mobile
      * * `Tablet` - Tablet
@@ -38786,6 +38957,16 @@ export namespace Schemas {
       casetypecode: string | null;
       statuscode: string | null;
       createdon: string | null;
+    }
+
+    export interface DynatraceIncidentSignalExtra {
+      display_id: string | null;
+      status: string | null;
+      severity_level: string | null;
+      impact_level: string | null;
+      start_time: string | null;
+      root_cause_entity: string | null;
+      affected_entities: string[];
     }
 
     /**
@@ -54233,6 +54414,12 @@ export namespace Schemas {
       Mobile: 'mobile',
     } as const;
 
+    export interface FormbricksFeedbackSignalExtra {
+      survey_id: string | null;
+      finished: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `allowed` - allowed
      * * `blocked` - blocked
@@ -62519,6 +62706,12 @@ export namespace Schemas {
       return_path?: string;
     }
 
+    export interface InstatusIncidentSignalExtra {
+      status: string | null;
+      started: string | null;
+      components: string[];
+    }
+
     /**
      * Counts this check was graded from, over the same window. Which counts appear depends on the check.
      */
@@ -68713,6 +68906,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream
+     */
+    export type MaterializationRunDirectionEnum = typeof MaterializationRunDirectionEnum[keyof typeof MaterializationRunDirectionEnum];
+
+
+    export const MaterializationRunDirectionEnum = {
+      Upstream: 'upstream',
+      Downstream: 'downstream',
+    } as const;
+
+    /**
      * Input for materializing the labeled training feature matrix into the run's sandbox.
      */
     export interface MaterializeFeaturesRequest {
@@ -69578,6 +69783,24 @@ export namespace Schemas {
       readonly last_seen_at: string | null;
     }
 
+    export interface MintedDevToken {
+      /** Token id, used to revoke it. */
+      id: string;
+      /** The phe_ bearer. Shown once; only its hash is stored. */
+      token: string;
+      /**
+         * Most the token can spend, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string;
+      /** When the gateway stops accepting the token. */
+      expires_at: string;
+      /** Base URL of the AI gateway the token is valid on. */
+      gateway_url: string;
+      /** Product the token's spend is attributed to. */
+      product: string;
+    }
+
     export interface MintlifyFeedbackSignalExtra {
       path: string | null;
       helpful: string | null;
@@ -69790,6 +70013,118 @@ export namespace Schemas {
       models: ModelChoice[];
     }
 
+    export interface ModelUsageTotals {
+      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      runs: number;
+      /** Runs with recorded usage. Other runs have unknown cost. */
+      measured_runs: number;
+      /**
+         * Measured bytes read, including probes and retries. Null if unmeasured.
+         * @nullable
+         */
+      read_bytes: number | null;
+      /**
+         * Measured rows read. Null if unmeasured.
+         * @nullable
+         */
+      read_rows: number | null;
+      /**
+         * Measured CPU microseconds. Null if unmeasured.
+         * @nullable
+         */
+      cpu_microseconds: number | null;
+      /**
+         * Measured ClickHouse query count. Null if unmeasured.
+         * @nullable
+         */
+      query_count: number | null;
+    }
+
+    export interface ModelUsageDay {
+      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      runs: number;
+      /** Runs with recorded usage. Other runs have unknown cost. */
+      measured_runs: number;
+      /**
+         * Measured bytes read, including probes and retries. Null if unmeasured.
+         * @nullable
+         */
+      read_bytes: number | null;
+      /**
+         * Measured rows read. Null if unmeasured.
+         * @nullable
+         */
+      read_rows: number | null;
+      /**
+         * Measured CPU microseconds. Null if unmeasured.
+         * @nullable
+         */
+      cpu_microseconds: number | null;
+      /**
+         * Measured ClickHouse query count. Null if unmeasured.
+         * @nullable
+         */
+      query_count: number | null;
+      /** UTC day on which the runs finished. */
+      day: string;
+    }
+
+    export interface ModelUsageRow {
+      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      runs: number;
+      /** Runs with recorded usage. Other runs have unknown cost. */
+      measured_runs: number;
+      /**
+         * Measured bytes read, including probes and retries. Null if unmeasured.
+         * @nullable
+         */
+      read_bytes: number | null;
+      /**
+         * Measured rows read. Null if unmeasured.
+         * @nullable
+         */
+      read_rows: number | null;
+      /**
+         * Measured CPU microseconds. Null if unmeasured.
+         * @nullable
+         */
+      cpu_microseconds: number | null;
+      /**
+         * Measured ClickHouse query count. Null if unmeasured.
+         * @nullable
+         */
+      query_count: number | null;
+      /**
+         * Model ID, or null if permanently deleted.
+         * @nullable
+         */
+      saved_query_id: string | null;
+      /** Model name. */
+      name: string;
+      /** Whether this model has been deleted. */
+      deleted: boolean;
+    }
+
+    export interface ModelUsage {
+      /** Inclusive UTC start date. */
+      date_from: string;
+      /** Exclusive UTC end date. Today's incomplete usage is excluded. */
+      date_to: string;
+      /** Totals over the whole date range. */
+      overview: ModelUsageTotals;
+      /** Daily usage, attributed to when each run finished. */
+      trends: ModelUsageDay[];
+      /** Model breakdown, highest measured bytes first. */
+      models: ModelUsageRow[];
+      /** Total number of models in the breakdown. */
+      count: number;
+      /**
+         * Latest usage collection timestamp in this range.
+         * @nullable
+         */
+      usage_updated_at: string | null;
+    }
+
     export interface MondayIssueSignalExtra {
       state: string | null;
       group: string | null;
@@ -69900,6 +70235,19 @@ export namespace Schemas {
     export interface NodeResume {
       /** False when the node was not suspended to begin with. */
       resumed: boolean;
+    }
+
+    export interface NodeRun {
+      /** Run this view with all upstream dependencies or all downstream dependents.
+       *
+       * * `upstream` - Upstream
+       * * `downstream` - Downstream */
+      direction: MaterializationRunDirectionEnum;
+    }
+
+    export interface NodeRunResponse {
+      /** The nodes included in the dependency run. */
+      node_ids: string[];
     }
 
     /**
@@ -71373,6 +71721,8 @@ export namespace Schemas {
       kind: ScoreDefinitionKindEnum;
       /** Current scorer display name. */
       name: string;
+      /** Current compact label. Blank uses the full name. */
+      short_name: string;
       /** Current scorer description. */
       description: string;
       /** Whether the scorer is archived. */
@@ -75993,6 +76343,8 @@ export namespace Schemas {
     export interface ScoreDefinition {
       readonly id: string;
       readonly name: string;
+      /** Optional compact label for table headers and other compact views. */
+      readonly short_name: string;
       readonly description: string;
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
@@ -80011,7 +80363,22 @@ export namespace Schemas {
       lookback_seconds?: number;
     }
 
-    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
+    export interface WarehouseSuggestionUnmaterializePayload {
+      /** Name of the rarely read materialized view to turn back into a plain view. */
+      subject_name: string;
+      /** Time its refreshes take in a month, in seconds. */
+      refresh_seconds_per_month: number;
+      /** Bytes its refreshes read in a month. */
+      refresh_bytes_per_month: number;
+      /** Estimated time its reads would take in a month if each read computed the view, in seconds. The estimate uses a full refresh per read, so it leans high. */
+      live_seconds_per_month: number;
+      /** Estimated bytes its reads would scan in a month if each read computed the view. */
+      live_bytes_per_month: number;
+      /** How long one read would take once the view is computed on read, in seconds. Nine in ten of its refreshes finished within this time. */
+      read_seconds: number;
+    }
+
+    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload | WarehouseSuggestionUnmaterializePayload;
 
     /**
      * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
@@ -80048,6 +80415,7 @@ export namespace Schemas {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `unmaterialize` - Unmaterialize
      */
     export type WarehouseSuggestionKindEnum = typeof WarehouseSuggestionKindEnum[keyof typeof WarehouseSuggestionKindEnum];
 
@@ -80056,6 +80424,7 @@ export namespace Schemas {
       Certify: 'certify',
       Deprecate: 'deprecate',
       Materialize: 'materialize',
+      Unmaterialize: 'unmaterialize',
     } as const;
 
     /**
@@ -80120,11 +80489,12 @@ export namespace Schemas {
       created_asset: WarehouseSuggestionCreatedAsset;
       /** Who accepted or dismissed this suggestion. Null while it is open. */
       reviewed_by: WarehouseSuggestionReviewer | null;
-      /** What the suggestion proposes: certify, deprecate or materialize the subject.
+      /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
        *
        * * `certify` - Certify
        * * `deprecate` - Deprecate
-       * * `materialize` - Materialize */
+       * * `materialize` - Materialize
+       * * `unmaterialize` - Unmaterialize */
       kind: WarehouseSuggestionKindEnum;
       /** Whether the subject is a saved query (view) or a warehouse table.
        *
@@ -87932,6 +88302,11 @@ export namespace Schemas {
          */
       name?: string;
       /**
+         * Updated compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
+      /**
          * Updated scorer description.
          * @nullable
          */
@@ -94753,6 +95128,12 @@ export namespace Schemas {
       pins: PulsePin[];
     }
 
+    export interface QualtricsFeedbackSignalExtra {
+      survey_id: string | null;
+      recorded_date: string | null;
+      finished: string | null;
+    }
+
     /**
      * * `run` - Run
      * * `skip` - Skip
@@ -99373,6 +99754,38 @@ export namespace Schemas {
       created_date: string | null;
     }
 
+    export interface UsersnapFeedbackSignalExtra {
+      feedback_number: string | null;
+      public_link: string | null;
+      status_type: string | null;
+      priority: string | null;
+      created_at: string | null;
+      labels: unknown[];
+    }
+
+    export interface TypeformFeedbackSignalExtra {
+      form_id: string | null;
+      submitted_at: string | null;
+    }
+
+    export interface SurveymonkeyFeedbackSignalExtra {
+      survey_id: string | null;
+      date_created: string | null;
+      response_status: string | null;
+    }
+
+    export interface SurvicateFeedbackSignalExtra {
+      survey_id: string | null;
+      collected_at: string | null;
+      url: string | null;
+    }
+
+    export interface SurveysparrowFeedbackSignalExtra {
+      survey_id: string | null;
+      completed: string | null;
+      completed_time: string | null;
+    }
+
     export interface ZohoCrmTicketSignalExtra {
       case_number: string | null;
       status: string | null;
@@ -99426,6 +99839,13 @@ export namespace Schemas {
       first_found: string | null;
     }
 
+    export interface StatuspageIncidentSignalExtra {
+      status: string | null;
+      impact: string | null;
+      shortlink: string | null;
+      created_at: string | null;
+    }
+
     export interface TriggerDevErrorSignalExtra {
       task_identifier: string | null;
       status: string | null;
@@ -99462,7 +99882,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -102286,6 +102706,16 @@ export namespace Schemas {
     export interface SavedQueryRun {
       /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
       full_refresh?: boolean;
+      /** Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.
+       *
+       * * `upstream` - Upstream
+       * * `downstream` - Downstream */
+      direction?: MaterializationRunDirectionEnum;
+    }
+
+    export interface SavedQueryRunResponse {
+      /** The data model nodes included in the run. */
+      node_ids: string[];
     }
 
     /**
@@ -102862,6 +103292,11 @@ export namespace Schemas {
          */
       name: string;
       /**
+         * Optional compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
+      /**
          * Optional human-readable description.
          * @nullable
          */
@@ -102879,6 +103314,11 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /**
+         * Updated compact label, saved with this version.
+         * @maxLength 40
+         */
+      short_name?: string;
       /**
          * Updated scorer name, saved with this version.
          * @maxLength 255
@@ -123789,6 +124229,7 @@ export namespace Schemas {
      *
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
+     * * `DevGatewayToken` - DevGatewayToken
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -123851,6 +124292,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -123901,6 +124343,7 @@ export namespace Schemas {
     export const ActivityLogListScope = {
       Cohort: 'Cohort',
       CrossProjectDashboard: 'CrossProjectDashboard',
+      DevGatewayToken: 'DevGatewayToken',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',
@@ -123963,6 +124406,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -123999,6 +124443,7 @@ export namespace Schemas {
     /**
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
+     * * `DevGatewayToken` - DevGatewayToken
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -124061,6 +124506,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -124099,6 +124545,7 @@ export namespace Schemas {
     export const ActivityLogListScopesItem = {
       Cohort: 'Cohort',
       CrossProjectDashboard: 'CrossProjectDashboard',
+      DevGatewayToken: 'DevGatewayToken',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',
@@ -124161,6 +124608,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -126670,6 +127118,10 @@ export namespace Schemas {
 
     export type DataModelingJobsListParams = {
     /**
+     * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
+     */
+    all_engines?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -126740,6 +127192,26 @@ export namespace Schemas {
      * Saved query to build lineage for, resolved to its node. Alternative to node_id.
      */
     saved_query_id?: string;
+    };
+
+    export type DataModelingUsageListParams = {
+    /**
+     * Number of complete UTC days, up to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * Model breakdown page, starting at 1.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Models per page, up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number;
     };
 
     export type DataQualityChecksListParams = {
@@ -131885,7 +132357,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Search scorers by name or description.
+     * Search scorers by name, short name, or description.
      */
     search?: string;
     /**
@@ -137101,6 +137573,7 @@ export namespace Schemas {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `unmaterialize` - Unmaterialize
      * @minLength 1
      */
     kind?: WarehouseSuggestionsListKind;
@@ -137136,6 +137609,7 @@ export namespace Schemas {
       Certify: 'certify',
       Deprecate: 'deprecate',
       Materialize: 'materialize',
+      Unmaterialize: 'unmaterialize',
     } as const;
 
     export type WarehouseSuggestionsListStatus = typeof WarehouseSuggestionsListStatus[keyof typeof WarehouseSuggestionsListStatus];

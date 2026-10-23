@@ -163,6 +163,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.checkly_error_groups import CHECKLY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
+    from products.signals.backend.emission.cronitor_issues import CRONITOR_CONFIG
     from products.signals.backend.emission.datadog_error_issues import DATADOG_ERROR_ISSUES_CONFIG
     from products.signals.backend.emission.datadog_error_logs import DATADOG_ERROR_LOGS_CONFIG
     from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
@@ -171,8 +172,10 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.discourse_posts import DISCOURSE_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.dynamics365_cases import DYNAMICS365_CONFIG
+    from products.signals.backend.emission.dynatrace_problems import DYNATRACE_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
+    from products.signals.backend.emission.formbricks_responses import FORMBRICKS_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
     from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
     from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
@@ -187,6 +190,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
+    from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
@@ -205,6 +209,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
     from products.signals.backend.emission.plane_work_items import PLANE_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
+    from products.signals.backend.emission.qualtrics_survey_responses import QUALTRICS_CONFIG
 
     # Tier-2 security scanners
     from products.signals.backend.emission.rapid7_insightvm_vulnerabilities import RAPID7_INSIGHTVM_CONFIG
@@ -222,11 +227,17 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
     from products.signals.backend.emission.sprig_responses import SPRIG_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
+    from products.signals.backend.emission.statuspage_incidents import STATUSPAGE_CONFIG
+    from products.signals.backend.emission.surveymonkey_survey_responses import SURVEYMONKEY_CONFIG
+    from products.signals.backend.emission.surveysparrow_responses import SURVEYSPARROW_CONFIG
+    from products.signals.backend.emission.survicate_responses import SURVICATE_CONFIG
     from products.signals.backend.emission.tenable_vulnerability_management_vulnerabilities import (
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
     )
     from products.signals.backend.emission.trigger_dev_errors import TRIGGER_DEV_CONFIG
     from products.signals.backend.emission.trustpilot_service_reviews import TRUSTPILOT_CONFIG
+    from products.signals.backend.emission.typeform_responses import TYPEFORM_CONFIG
+    from products.signals.backend.emission.usersnap_feedbacks import USERSNAP_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -300,6 +311,10 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GRAFANAIRM, "incidents", GRAFANA_IRM_CONFIG)
     register_signal_source(ExternalDataSourceType.XMATTERS, "incidents", XMATTERS_CONFIG)
     register_signal_source(ExternalDataSourceType.BETTERSTACK, "incidents", BETTERSTACK_CONFIG)
+    register_signal_source(ExternalDataSourceType.DYNATRACE, "problems", DYNATRACE_CONFIG)
+    register_signal_source(ExternalDataSourceType.STATUSPAGE, "incidents", STATUSPAGE_CONFIG)
+    register_signal_source(ExternalDataSourceType.CRONITOR, "issues", CRONITOR_CONFIG)
+    register_signal_source(ExternalDataSourceType.INSTATUS, "incidents", INSTATUS_CONFIG)
     # Work trackers (record kind: issue)
     register_signal_source(ExternalDataSourceType.ASANA, "tasks", ASANA_CONFIG)
     register_signal_source(ExternalDataSourceType.MONDAY, "items", MONDAY_CONFIG)
@@ -328,6 +343,14 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.LANGSMITH, "feedback", LANGSMITH_CONFIG)
     register_signal_source(ExternalDataSourceType.SPRIG, "Responses", SPRIG_CONFIG)
     register_signal_source(ExternalDataSourceType.GAINSIGHTPX, "survey_responses", GAINSIGHT_PX_CONFIG)
+    # Tier-2 surveys (record kind: feedback)
+    register_signal_source(ExternalDataSourceType.USERSNAP, "feedbacks", USERSNAP_CONFIG)
+    register_signal_source(ExternalDataSourceType.TYPEFORM, "responses", TYPEFORM_CONFIG)
+    register_signal_source(ExternalDataSourceType.QUALTRICS, "survey_responses", QUALTRICS_CONFIG)
+    register_signal_source(ExternalDataSourceType.SURVEYMONKEY, "survey_responses", SURVEYMONKEY_CONFIG)
+    register_signal_source(ExternalDataSourceType.FORMBRICKS, "responses", FORMBRICKS_CONFIG)
+    register_signal_source(ExternalDataSourceType.SURVICATE, "responses", SURVICATE_CONFIG)
+    register_signal_source(ExternalDataSourceType.SURVEYSPARROW, "responses", SURVEYSPARROW_CONFIG)
     # Business and product reviews (record kind: review)
     register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
     register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)

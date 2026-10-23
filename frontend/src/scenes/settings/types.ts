@@ -102,6 +102,7 @@ export type SettingSectionId =
     | 'user-profile'
     | 'user-api-keys'
     | 'user-connected-apps'
+    | 'user-ai-gateway-dev-mode'
     | 'user-customization'
     | 'user-feature-previews'
     | 'user-notifications'
@@ -137,6 +138,7 @@ export type SettingId =
     | 'changelog'
     | 'channel-type'
     | 'connected-apps'
+    | 'ai-gateway-dev-mode'
     | 'conversations-ai'
     | 'conversations-channels'
     | 'conversations-general'
@@ -357,6 +359,9 @@ export type Setting = {
      * Use it for an organization-scoped API, because a project admin can be an ordinary organization member.
      */
     organizationAdminOnly?: boolean
+
+    /** Shows the setting only to PostHog staff. The API it calls must enforce the same check. */
+    staffOnly?: boolean
 
     /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),

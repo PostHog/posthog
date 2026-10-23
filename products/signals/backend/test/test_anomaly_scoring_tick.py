@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -173,6 +173,23 @@ class TestScoreEvents(SimpleTestCase):
         ]
         assert emitted == [("scored", start.isoformat()) for start in starts[3:]] + [
             ("new", start.isoformat()) for start in starts
+        ]
+
+    def test_a_bucket_repeated_at_a_dst_fall_back_is_emitted_once(self) -> None:
+        # Trends returns the 01:00 bucket twice on the fall-back night, and both parse to the same instant.
+        starts = [datetime(2026, 11, 1, 0, tzinfo=NEW_YORK), datetime(2026, 11, 1, 1, tzinfo=NEW_YORK)]
+        starts.append(starts[-1])
+
+        events = score_events(
+            team_id=1,
+            insight_id=7,
+            scores=_scores(_series("hourly", starts)),
+            scored_through={},
+            scored_at=datetime(2026, 11, 2, tzinfo=UTC),
+        )
+
+        assert [event["properties"]["$anomaly_bucket_start"] for event in events] == [
+            start.isoformat() for start in starts[:2]
         ]
 
     def test_the_event_carries_the_bucket_start_and_null_score_and_flag_during_warm_up(self) -> None:
@@ -339,3 +356,35 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
         assert [pick.insight_id for pick in selection.picks] == [insights["never_scored"].id, insights["stale"].id]
         assert selection.picks[1].scored_through == {"stale": today - timedelta(days=3)}
+
+    @time_machine.travel(NOW, tick=False)
+    def test_select_insights_lets_each_project_pick_before_any_project_picks_twice(self) -> None:
+        small_team = Team.objects.create(organization=self.organization, name="Small")
+        viewers = [
+            User.objects.create_and_join(self.organization, f"viewer{index}@example.com", "password")
+            for index in range(5)
+        ]
+        large_insights = []
+        for index in range(3):
+            insight = Insight.objects.create(team=self.team, name=f"large_{index}", query=_trends(interval="day"))
+            for viewer in viewers:
+                record_insight_view(insight_id=insight.id, team_id=self.team.id, user_id=viewer.id)
+            large_insights.append(insight)
+        small_insight = Insight.objects.create(team=small_team, name="small", query=_trends(interval="day"))
+        small_dashboard = Dashboard.objects.create(team=small_team, name="Main")
+        DashboardTile.objects.create(dashboard=small_dashboard, insight=small_insight)
+        for insight in [*large_insights, small_insight]:
+            cache.delete(_cooldown_key(insight.id))
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=(self.team.id, small_team.id),
+        )
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.WEIGHTED), NOW, limit=2)
+
+        assert [pick.team_id for pick in selection.picks] == [self.team.id, small_team.id]
+        assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
+        assert selection.picks[1].insight_id == small_insight.id
+        assert selection.candidates == 4
