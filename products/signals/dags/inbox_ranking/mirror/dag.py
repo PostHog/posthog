@@ -24,7 +24,12 @@ from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageClient
 
-from products.signals.backend.ranking.serving_manifest import serving_engagement_key, serving_project_vectors_key
+from products.signals.backend.ranking.serving_manifest import (
+    PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
+    PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
+    serving_engagement_key,
+    serving_project_vectors_key,
+)
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking.common import (
     ROW_COUNT_METADATA_KEY,
@@ -52,7 +57,6 @@ MIRROR_PROJECT_VECTORS_ASSET = "inbox_mirror_project_vectors"
 # An older export only misses the newest engagement, so a late training-region run costs a little
 # history. Past this age the vectors drift too far from what training read, so the asset fails.
 ENGAGEMENT_EXPORT_MAX_AGE_DAYS = 2
-ENGAGEMENT_EXPORT_DATE_METADATA_KEY = "engagement-export-date"
 
 
 @frozen
@@ -131,8 +135,8 @@ def inbox_mirror_project_vectors(context: dagster.AssetExecutionContext) -> None
             "Metadata": {
                 ROW_COUNT_METADATA_KEY: str(table.num_rows),
                 SNAPSHOT_DATE_METADATA_KEY: partition_key,
-                SCHEMA_VERSION_METADATA_KEY: str(PROJECT_VECTORS_SCHEMA_VERSION),
-                ENGAGEMENT_EXPORT_DATE_METADATA_KEY: export.export_date,
+                PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(PROJECT_VECTORS_SCHEMA_VERSION),
+                PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY: export.export_date,
             }
         },
     )
