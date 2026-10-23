@@ -7,13 +7,18 @@ import httpx
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import TextContent
+from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, ClientRequest, TextContent
+from pydantic import ValidationError
 
 from products.mcp_store.backend.url_policy import trust_environment_proxy
 
 
 class MCPClientError(Exception):
     pass
+
+
+class MCPInvalidToolResultError(MCPClientError):
+    """The server answered, but the result does not match the MCP schema. A retry or an auth refresh does not help."""
 
 
 CLIENT_TIMEOUT = 60.0
@@ -86,9 +91,16 @@ class MCPClient:
         if self._session is None:
             raise MCPClientError("Client not initialized. Call initialize() first.")
         try:
-            result = await self._session.call_tool(tool_name, arguments or {})
-        except Exception:
-            raise MCPClientError("Failed to call tool")
+            # Skip `ClientSession.call_tool`: it fails the call when `structuredContent` does not match the
+            # tool's `outputSchema`, but we only read the text content.
+            result = await self._session.send_request(
+                ClientRequest(CallToolRequest(params=CallToolRequestParams(name=tool_name, arguments=arguments or {}))),
+                CallToolResult,
+            )
+        except ValidationError as e:
+            raise MCPInvalidToolResultError(f"Tool {tool_name} returned an invalid result") from e
+        except Exception as e:
+            raise MCPClientError("Failed to call tool") from e
 
         if result.isError:
             text_parts = [c.text for c in result.content if isinstance(c, TextContent)]
