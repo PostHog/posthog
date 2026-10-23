@@ -36,7 +36,7 @@ class SentryConnectionRequestSerializer(serializers.Serializer):
         required=False,
         default="https://sentry.io",
         max_length=2048,
-        help_text="Base URL of the Sentry instance. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.",
+        help_text="Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.",
     )
 
 

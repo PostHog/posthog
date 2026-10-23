@@ -73,6 +73,7 @@ export interface sentryMigrationLogicValues {
     isConnected: boolean
     items: SentryMigrationItemApi[] | null
     itemsLoading: boolean
+    previewFailed: boolean
     projects: SentryProjectApi[] | null
     projectsByOrganization: SentryOrganizationProjects[]
     projectsLoading: boolean
@@ -134,7 +135,7 @@ export interface sentryMigrationLogicActions {
         items: SentryMigrationItemApi[] | null
         payload?: void
     }
-    loadProjects: () => any
+    loadProjects: (_: void) => void
     loadProjectsFailure: (
         error: string,
         errorObject?: any
@@ -143,11 +144,11 @@ export interface sentryMigrationLogicActions {
         errorObject?: any
     }
     loadProjectsSuccess: (
-        projects: SentryProjectApi[],
-        payload?: any
+        projects: SentryProjectApi[] | null,
+        payload?: void
     ) => {
-        projects: SentryProjectApi[]
-        payload?: any
+        projects: SentryProjectApi[] | null
+        payload?: void
     }
     selectProject: (projectKey: string | null) => {
         projectKey: string | null
@@ -231,11 +232,17 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
         projects: [
             null as SentryProjectApi[] | null,
             {
-                loadProjects: async () => {
+                loadProjects: async (_: void, breakpoint) => {
+                    const authToken = values.authToken
                     const response = await errorTrackingSentryMigrationProjectsCreate(String(values.currentTeamId), {
-                        auth_token: values.authToken,
+                        auth_token: authToken,
                         base_url: values.baseUrl,
                     })
+                    breakpoint()
+                    // The user disconnected or changed the token while this request was in flight.
+                    if (values.authToken !== authToken) {
+                        return values.projects
+                    }
                     return response.projects
                 },
                 disconnect: () => null,
@@ -307,6 +314,15 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
                 selectProject: (_, { projectKey }) => projectKey,
                 loadProjects: () => null,
                 disconnect: () => null,
+            },
+        ],
+        previewFailed: [
+            false,
+            {
+                loadPreview: () => false,
+                loadPreviewFailure: () => true,
+                selectProject: () => false,
+                disconnect: () => false,
             },
         ],
         selectedItemIds: [

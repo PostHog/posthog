@@ -68,6 +68,33 @@ class TestSentryMigrationRuleMatching(BaseTest):
                 ],
             ),
             (
+                "type_prefix_ignores_case",
+                {"error_message_globs": ("typeerror: failed to fetch*",)},
+                [
+                    (
+                        {"$exception_types": ["TypeError"], "$exception_values": ["Failed to fetch (api.example.com)"]},
+                        True,
+                    ),
+                    ({"$exception_types": ["RangeError"], "$exception_values": ["Failed to fetch"]}, False),
+                ],
+            ),
+            (
+                "character_class",
+                {"error_message_globs": ("*code [45]??*",)},
+                [
+                    ({"$exception_types": ["Error"], "$exception_values": ["Request failed with code 404"]}, True),
+                    ({"$exception_types": ["Error"], "$exception_values": ["Request failed with code 304"]}, False),
+                ],
+            ),
+            (
+                "negated_character_class_with_range",
+                {"error_message_globs": ("status [!0-3]*",)},
+                [
+                    ({"$exception_types": ["Error"], "$exception_values": ["status 503"]}, True),
+                    ({"$exception_types": ["Error"], "$exception_values": ["status 204"]}, False),
+                ],
+            ),
+            (
                 "glob_matching_type_only",
                 {"error_message_globs": ("ChunkLoadError*",)},
                 [
@@ -232,6 +259,7 @@ class TestSentryMigrationPlanConversion(SimpleTestCase):
             ("daily_window", 10000, 86400, 417, 60, SentryMigrationFit.PARTIAL),
             ("tiny_daily_limit", 1, 86400, 1, 60, SentryMigrationFit.PARTIAL),
             ("twenty_minute_window", 200, 1200, 150, 15, SentryMigrationFit.PARTIAL),
+            ("too_large_for_posthog", 3_000_000, 1, None, None, SentryMigrationFit.UNSUPPORTED),
         ]
     )
     def test_rate_limit_window_converts_to_a_supported_bucket(
@@ -239,16 +267,19 @@ class TestSentryMigrationPlanConversion(SimpleTestCase):
         _name: str,
         count: int,
         window_seconds: int,
-        expected_value: int,
-        expected_bucket_minutes: int,
+        expected_value: int | None,
+        expected_bucket_minutes: int | None,
         expected_fit: SentryMigrationFit,
     ) -> None:
         rate_limit = SentryRateLimit(key_label="Default", key_id="abc", count=count, window_seconds=window_seconds)
         [item] = _planner().build(_config(rate_limits=(rate_limit,)))
 
-        assert item.rate_limit == SentryMigrationRateLimit(
-            value=expected_value, bucket_size_minutes=expected_bucket_minutes
+        expected_rate_limit = (
+            SentryMigrationRateLimit(value=expected_value, bucket_size_minutes=expected_bucket_minutes)
+            if expected_value is not None and expected_bucket_minutes is not None
+            else None
         )
+        assert item.rate_limit == expected_rate_limit
         assert item.fit == expected_fit
 
     @parameterized.expand(

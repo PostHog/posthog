@@ -2226,7 +2226,7 @@ export interface SentryMigrationApplyRequestApi {
      */
     auth_token: string
     /**
-     * Base URL of the Sentry instance. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+     * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
      * @maxLength 2048
      */
     base_url?: string
@@ -2268,7 +2268,7 @@ export interface SentryProjectRequestApi {
      */
     auth_token: string
     /**
-     * Base URL of the Sentry instance. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+     * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
      * @maxLength 2048
      */
     base_url?: string
@@ -2371,7 +2371,7 @@ export interface SentryConnectionRequestApi {
      */
     auth_token: string
     /**
-     * Base URL of the Sentry instance. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+     * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
      * @maxLength 2048
      */
     base_url?: string

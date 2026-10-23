@@ -16,7 +16,7 @@ export function SentryMigrationConnectForm(): JSX.Element {
             className="flex w-full max-w-sm flex-col gap-4"
             onSubmit={(event) => {
                 event.preventDefault()
-                if (!disabledReason) {
+                if (!disabledReason && !projectsLoading) {
                     loadProjects()
                 }
             }}
