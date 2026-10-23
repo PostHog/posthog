@@ -84,6 +84,15 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
 
 
+def insight_ids_with_enabled_alerts(*, team_id: int, insight_ids: Collection[int]) -> set[int]:
+    """Which of the team's given insights have at least one enabled alert, in one query."""
+    return set(
+        AlertConfiguration.objects.filter(team_id=team_id, insight_id__in=insight_ids, enabled=True).values_list(
+            "insight_id", flat=True
+        )
+    )
+
+
 def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     """Delete the alerts pointing at the given insights.
 

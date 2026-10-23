@@ -316,6 +316,20 @@ def handle_pull_request_event(payload: dict) -> None:
             _cancel_wizard_run_on_close(task_run)
 
     if action == "closed" and task_run and pr_url in claimed_pr_urls:
+        from products.tasks.backend.push_dispatcher import (
+            notify_task_pull_request_outcome,  # noqa: PLC0415 — keep push imports off the webhook import path
+        )
+
+        transaction.on_commit(
+            lambda: notify_task_pull_request_outcome(
+                task_id=str(task_run.task_id),
+                run_id=str(task_run.id),
+                team_id=task_run.team_id,
+                pr_url=pr_url,
+                merged=merged,
+            ),
+            robust=True,
+        )
         _notify_slack_thread_on_close(task_run, pr_url, merged=merged)
 
 

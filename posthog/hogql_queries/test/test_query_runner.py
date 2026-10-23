@@ -65,9 +65,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
 from posthog.api.services.query import _run_query_runner
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
 from posthog.event_usage import EventSource
@@ -2840,6 +2840,16 @@ class TestQuerySingleFlightRunner(BaseTest):
         return QuerySingleFlight(
             runner.get_cache_key(), budget_for_limit_context(runner.limit_context), runner.single_flight_variant()
         )
+
+    @parameterized.expand([("tagged", None), ("passed_to_the_runner", ClickHouseUser.ALERTS_PLATFORM_INSIGHT)])
+    def test_runs_as_another_clickhouse_user_do_not_share_a_flight(self, _name, runner_user):
+        runner_class = setup_test_query_runner_class()
+        default = self._flight_of(runner_class(query={"some_attr": "bla"}, team=self.team))
+        other = runner_class(query={"some_attr": "bla"}, team=self.team, ch_user=runner_user or ClickHouseUser.DEFAULT)
+        with tags_context(ch_user=None if runner_user else ClickHouseUser.ALERTS_PLATFORM_INSIGHT):
+            flight = self._flight_of(other)
+
+        assert flight.lock_key != default.lock_key
 
     @parameterized.expand([("success", None), ("failure", ClickHouseQueryTimeOut), ("interrupted", _LeaderInterrupted)])
     def test_leader_releases_the_flight(self, _name, error_class):

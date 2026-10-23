@@ -26,6 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     retire_companion_job,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    DurableProgress,
+    RideOutConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
@@ -95,6 +99,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
         kept_rows_synced: int | None = None,
+        continued_workflow_run_id: str | None = None,
+        continued_job_ids: tuple[str, ...] = (),
+        ride_out: RideOutConfig | None = None,
+        progress: DurableProgress | None = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -114,6 +122,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
             kept_rows_synced=kept_rows_synced,
+            continued_workflow_run_id=continued_workflow_run_id,
+            continued_job_ids=continued_job_ids,
+            ride_out=ride_out,
+            progress=progress,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.

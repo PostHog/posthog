@@ -7,6 +7,30 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
+    activity-summary-get:
+        operation: signals_activity_summary_list
+        enabled: true
+        title: Get your activity summary
+        description: >
+            Get a summary of what the current user has been working on in this project: a one-page markdown profile, a
+            short headline, the main focus areas with the day each was last seen, and the PostHog products they use. It
+            is built only from the user's own recent activity in PostHog, such as tasks they gave to PostHog AI and
+            things they created, changed or opened. It updates at most once a day, when there is enough new activity.
+            Use it to tailor answers and suggestions to what this person works on. `status: not_ready` means no summary
+            exists yet, which is normal for new or quiet users. `stale: true` means a newer version will replace it
+            soon. A 404 means activity summaries are not available for this project.
+        feature_flag: activity-summary
+    activity-summary-versions-list:
+        operation: signals_activity_summary_versions_retrieve
+        enabled: true
+        title: List your activity summary versions
+        description: >
+            List earlier versions of the current user's activity summary in this project, newest first, to see how their
+            focus changed over time. Each version has a headline, the focus areas and `recent_shift`, which says what
+            changed since the version before it. The list leaves out the profile to stay small. Pass `version` to get
+            one version with its full profile. A 404 means activity summaries are not available for this project, or
+            that the requested version does not exist.
+        feature_flag: activity-summary
     inbox-report-actions-list:
         operation: signals_reports_actions_list
         enabled: true
@@ -247,12 +271,12 @@ tools:
             for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids`
             (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss,
             'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report
-            tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and
-            `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it
-            has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect
-            `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` /
-            `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status
-            comes back as `skipped` (the single-report 409) while the rest still go through.
+            tool, including `wrong_assignee` and `wrong_repo`), `dismissal_note`, `corrected_repository` (only with
+            `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open
+            implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on
+            partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` /
+            `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its
+            current status comes back as `skipped` (the single-report 409) while the rest still go through.
     inbox-reports-claim:
         operation: signals_reports_claim
         enabled: true
@@ -505,17 +529,18 @@ tools:
             Dismissing or resolving closes the report's open implementation PR, if it has one; a resolved report never
             reopens, and a recurrence starts a fresh report linked to it. Optionally include a `dismissal_reason` — a
             canonical code from the inbox UI (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`,
-            `analysis_wrong`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a
-            labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog` when the fix
-            landed without a pull request, `pr_merged` when a pull request with the fix was merged but did not resolve
-            the report on its own, or `already_fixed` when it was fixed before the report was filed; the other codes
-            describe a dismissal. Use `wrong_repo` when the agent picked the wrong repository for this report, and pass
-            `corrected_repository` (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should
-            have used — the correction is recorded and fed into future repository selection for this project. Use
-            `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code.
-            Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions.
-            Returns 409 if the transition is not allowed from the report's current status. To transition several reports
-            at once, use `inbox-reports-bulk-set-state` instead of calling this per report.
+            `analysis_wrong`, `wrong_assignee`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so
+            it renders as a labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog`
+            when the fix landed without a pull request, `pr_merged` when a pull request with the fix was merged but did
+            not resolve the report on its own, or `already_fixed` when it was fixed before the report was filed; the
+            other codes describe a dismissal. Use `wrong_assignee` when the report reached the wrong person or team. Use
+            `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an
+            'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is
+            recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note`
+            (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL
+            artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
+            allowed from the report's current status. To transition several reports at once, use
+            `inbox-reports-bulk-set-state` instead of calling this per report.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true

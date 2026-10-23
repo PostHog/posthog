@@ -16,6 +16,47 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ActivitySummaryGetSchema = () => z.object({})
+
+const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSchema>, Schemas.ActivitySummary> => ({
+    name: 'activity-summary-get',
+    schema: ActivitySummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ActivitySummaryGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary/`,
+        })
+        return result
+    },
+})
+
+const ActivitySummaryVersionsListSchema = () => {
+    const SignalsActivitySummaryVersionsRetrieveQueryParams =
+        orvalSchemas.SignalsActivitySummaryVersionsRetrieveQueryParams()
+    return SignalsActivitySummaryVersionsRetrieveQueryParams
+}
+
+const activitySummaryVersionsList = (): ToolBase<
+    ReturnType<typeof ActivitySummaryVersionsListSchema>,
+    Schemas.ActivitySummaryVersion[]
+> => ({
+    name: 'activity-summary-versions-list',
+    schema: ActivitySummaryVersionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ActivitySummaryVersionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummaryVersion[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary/versions/`,
+            query: {
+                limit: params.limit,
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
 const InboxReportActionsListSchema = () => {
     const SignalsReportsActionsListParams = orvalSchemas.SignalsReportsActionsListParams()
     return z.preprocess(
@@ -416,6 +457,9 @@ const inboxReportsClaim = (): ToolBase<
         }
         if (params.takeover !== undefined) {
             body['takeover'] = params.takeover
+        }
+        if (params.takeover_claim_id !== undefined) {
+            body['takeover_claim_id'] = params.takeover_claim_id
         }
         if (params.pr_url !== undefined) {
             body['pr_url'] = params.pr_url
@@ -1351,6 +1395,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
@@ -1433,6 +1480,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
@@ -2788,6 +2838,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
@@ -2873,6 +2926,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
@@ -3226,6 +3282,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'activity-summary-get': activitySummaryGet,
+    'activity-summary-versions-list': activitySummaryVersionsList,
     'inbox-report-actions-list': inboxReportActionsList,
     'inbox-report-actions-run': inboxReportActionsRun,
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,

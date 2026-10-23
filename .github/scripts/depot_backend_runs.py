@@ -36,7 +36,6 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 REPO = "PostHog/posthog"
-# Both match .github/scripts/ci_backend_relay.py, which reads the same workflow for pull requests.
 WORKFLOW_NAME = "Backend CI on Depot"
 GATE_JOB_KEY = "ci-backend.yml:django_tests"
 GATE_CONCLUSIONS = {"finished": "success", "failed": "failure", "cancelled": "cancelled"}
