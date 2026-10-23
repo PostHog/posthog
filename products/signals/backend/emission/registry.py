@@ -227,10 +227,10 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
     from products.signals.backend.emission.sprig_responses import SPRIG_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
+    from products.signals.backend.emission.statuspage_incidents import STATUSPAGE_CONFIG
     from products.signals.backend.emission.surveymonkey_survey_responses import SURVEYMONKEY_CONFIG
     from products.signals.backend.emission.surveysparrow_responses import SURVEYSPARROW_CONFIG
     from products.signals.backend.emission.survicate_responses import SURVICATE_CONFIG
-    from products.signals.backend.emission.statuspage_incidents import STATUSPAGE_CONFIG
     from products.signals.backend.emission.tenable_vulnerability_management_vulnerabilities import (
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
     )
