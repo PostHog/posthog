@@ -6,7 +6,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
+import { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import {
     AnyResponseType,
     MarketingAnalyticsAggregatedQuery,
@@ -17,6 +17,7 @@ import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/Marketi
 
 import { adPerformanceMetricKey } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
 import { adPerformanceTrendsLogic } from 'products/marketing_analytics/frontend/adPerformanceTrendsLogic'
+import { AdPerformanceOverviewMetrics } from 'products/marketing_analytics/frontend/overview/AdPerformanceOverviewMetrics'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -113,28 +114,15 @@ export function MarketingAnalyticsOverview(props: {
     return (
         <>
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
-            <div className="flex flex-col gap-2">
-                {[
-                    overviewItems.filter((item) => adPerformanceMetricKey(item.key)),
-                    overviewItems.filter((item) => !adPerformanceMetricKey(item.key)),
-                ].map((items, index) =>
-                    (responseLoading && index === 0) || (!responseLoading && items.length > 0) ? (
-                        <OverviewMetricCardGrid
-                            key={index}
-                            sparklineTheme={sparklineTheme}
-                            className="grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
-                            items={items.filter(filterEmptyMetrics)}
-                            loading={responseLoading}
-                            numSkeletons={numSkeletons}
-                            emptyMessage="-"
-                            samplingRate={index === 0 ? samplingRate : undefined}
-                            labelFromKey={(key) => (
-                                <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>
-                            )}
-                        />
-                    ) : null
-                )}
-            </div>
+            <AdPerformanceOverviewMetrics
+                viewKey={dataNodeCollectionId ?? MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID}
+                items={overviewItems.filter(filterEmptyMetrics)}
+                loading={responseLoading}
+                numSkeletons={numSkeletons}
+                samplingRate={samplingRate}
+                sparklineTheme={sparklineTheme}
+                labelFromKey={(key) => <span className="[overflow-wrap:anywhere]">{labelFromKey(key)}</span>}
+            />
         </>
     )
 }

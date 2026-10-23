@@ -21,7 +21,6 @@ from products.experiments.backend.health.context import (
     FlagHistoryNotCheckedReason,
     FlagKeyFilter,
     FlagState,
-    FlagVariant,
     HealthContext,
     MetricEvents,
 )
@@ -32,6 +31,7 @@ from products.experiments.backend.health.registry import (
     evaluate,
 )
 from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
+from products.feature_flags.backend.facade.edits import FlagVariant
 
 UNEVEN_SPLIT_TOTALS = ExposureTotals(
     total_exposures={"control": 800, "test": 200, "$multiple": 20},

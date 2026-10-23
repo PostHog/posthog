@@ -33,10 +33,12 @@ from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, Metr
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.query_interval import resolve_query_interval
 from products.metrics.backend.variables import (
     filter_referenced_names,
     from_dashboard,
     from_query,
+    referenced_names,
     substitute_filters,
     to_query,
     unresolved_message,
@@ -130,7 +132,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 date_from=date_from,
                 date_to=date_to,
                 filters=filters,
-                interval=interval,
+                interval=resolve_query_interval(interval, from_query(self.query.variables), date_from, date_to),
                 quantile=0.5,  # unused by the grid query; required by the constructor
                 # One metric name can hold series of more than one OTel type; the
                 # heatmap must grid only the distribution the viewer picked.
@@ -224,6 +226,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         if dashboard_filter.metricVariables:
             # The values go into the query, so each selection has its own cache entry and reaches the async worker.
             self.query.variables = (
-                to_query(from_dashboard(dashboard_filter.metricVariables), filter_referenced_names(self.query.filters))
+                to_query(
+                    from_dashboard(dashboard_filter.metricVariables),
+                    [*referenced_names(self.query.interval), *filter_referenced_names(self.query.filters)],
+                )
                 or None
             )

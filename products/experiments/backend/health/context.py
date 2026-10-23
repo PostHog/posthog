@@ -32,68 +32,22 @@ from products.experiments.backend.metric_resolution import MetricRole, saved_met
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    ConditionsChange,
+    FlagVariant,
+    ReleaseCondition,
+    SplitChange,
+    parse_percentage,
+    parse_variants,
+)
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.filters import condition_aggregation, pinned_variant, reachable_conditions
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode, has_active_flags
 
-
-@frozen
-class FlagVariant:
-    key: str | None
-    rollout_percentage: float | None
-
-
-Split = tuple[FlagVariant, ...]
-
-
-@frozen
-class SplitChange:
-    changed_at: datetime
-    before: Split
-    after: Split
-
-
-class BucketingSetting(StrEnum):
-    # The flag settings besides the split that are inputs of the variant draw, in the order the findings name them.
-    KEY = "key"
-    AGGREGATION = "aggregation"
-    BUCKETING_IDENTIFIER = "bucketing_identifier"
-    EXPERIENCE_CONTINUITY = "experience_continuity"
-
-
-@frozen
-class BucketingChange:
-    changed_at: datetime
-    setting: BucketingSetting
-    # The key as a string, the aggregation as a group type index or None for persons, the identifier as
-    # "distinct_id" or "device_id", the continuity as a bool.
-    before: str | int | bool | None
-    after: str | int | bool | None
-
-
-@frozen
-class ReleaseCondition:
-    # The group type and property filters of the condition, as a signature that is equal for two conditions
-    # that match the same people under the flag-level aggregation of their save. The rollout is not part of it.
-    criteria: str
-    # The group type index that the condition matches, None for persons, and the keys of its property filters.
-    # The flag page's history pairs two conditions that share them as one condition edited.
-    aggregation: int | None
-    property_keys: frozenset[str]
-    rollout: float
-    variant: str | None
-
-
-@frozen
-class ConditionsChange:
-    changed_at: datetime
-    before: tuple[ReleaseCondition, ...]
-    after: tuple[ReleaseCondition, ...]
-
-
-# A change of the flag after launch that can move exposed people. A new kind needs its class here, an
-# `ExperimentHealthFlagChangeKind`, its read and its set-back question in `exposure_gate.py`, its row in
-# `inputs_payload.py`, and its check.
+# A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
+# (`facade/edits.py`), its member in this union, an `ExperimentHealthFlagChangeKind`, its read and its set-back
+# question in `exposure_gate.py`, its row in `inputs_payload.py`, and its check.
 FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
@@ -405,31 +359,9 @@ def _release_group(group: object) -> FlagReleaseGroup:
         return FlagReleaseGroup(rollout_percentage=None, property_count=None)
     properties = group.get("properties")
     return FlagReleaseGroup(
-        rollout_percentage=_percentage(group.get("rollout_percentage")),
+        rollout_percentage=parse_percentage(group.get("rollout_percentage")),
         property_count=len(properties) if isinstance(properties, list) else None,
     )
-
-
-def _variant(variant: object) -> FlagVariant:
-    if not isinstance(variant, dict):
-        return FlagVariant(key=None, rollout_percentage=None)
-    key = variant.get("key")
-    return FlagVariant(
-        key=key if isinstance(key, str) else None,
-        rollout_percentage=_percentage(variant.get("rollout_percentage")),
-    )
-
-
-def parse_variants(variants: object) -> Split:
-    return tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
-
-
-def _percentage(value: object) -> float | None:
-    # The page compares with `=== 0` and `=== 100`, so only a JSON number can match. A string or a
-    # boolean must not, and Python's `False == 0` would let a boolean through.
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value)
 
 
 def _load_flag_state(experiment: Experiment) -> FlagState | None:

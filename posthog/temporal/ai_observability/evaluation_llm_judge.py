@@ -79,6 +79,7 @@ from products.ai_observability.backend.llm.providers.openai_decisions import Ope
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
+    BooleanOutputConfig,
     CategoricalOutputConfig,
     NumericOutputConfig,
     NumericScoreOutOfBounds,
@@ -784,13 +785,16 @@ def call_llm_judge(
                 if not isinstance(verdict_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
                 probability = verdict_answer.probability
+                configured_threshold = BooleanOutputConfig.model_validate(output_config).decision_threshold
+                # Zero is a valid cutoff.
+                threshold = configured_threshold if configured_threshold is not None else 0.5
                 parsed = (
                     BooleanWithNAEvalResult(
                         reasoning="",
-                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+                        outcome="not_applicable" if not applicable else "pass" if probability >= threshold else "fail",
                     )
                     if allows_na
-                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+                    else BooleanEvalResult(reasoning="", verdict=probability >= threshold)
                 )
             response = CompletionResponse(
                 content="",

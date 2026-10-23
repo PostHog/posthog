@@ -104,11 +104,22 @@ from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
+    own_subscription_cloud_enabled as own_subscription_cloud_enabled,
     pi_cloud_runtime_enabled,
     run_stream_presence_gated,
 )
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
+)
+from products.tasks.backend.logic.log_slice import (
+    LogPart,
+    LogPartSummary,
+    log_entries,
+    slice_log_parts_from,
+    slice_log_parts_tail,
+    summarize_log_part,
+    summary_from_json,
+    summary_to_json,
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
@@ -131,6 +142,10 @@ from products.tasks.backend.logic.services.space_setup import (
     SpaceSetupUnavailableError as SpaceSetupUnavailableError,
     build_space_setup_prompt,
     space_setup_task_title,
+)
+from products.tasks.backend.logic.services.unattended_plan import (
+    can_bill_plan_unattended as can_bill_plan_unattended,
+    unattended_model_access_state as unattended_model_access_state,
 )
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
@@ -249,6 +264,10 @@ __all__ = [
     "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
     "ensure_subscription_owner",
+    "get_run_plan",
+    "own_subscription_cloud_enabled",
+    "can_bill_plan_unattended",
+    "unattended_model_access_state",
     "beacon_task_presence",
     "bootstrap_task_run",
     "SANDBOX_REPOSITORIES_ROOT",
@@ -338,6 +357,7 @@ __all__ = [
     "list_task_run_living_artifacts",
     "list_task_run_peers",
     "list_task_repositories",
+    "list_task_run_ids",
     "list_task_runs",
     "list_tasks",
     "list_workflow_last_runs",
@@ -356,6 +376,8 @@ __all__ = [
     "get_task_run_log_size",
     "read_task_run_log_content",
     "read_task_run_conversation_logs",
+    "thread_view_of_log_content",
+    "read_task_run_conversation_log_slice",
     "mark_task_run_stream_watched",
     "read_task_run_logs",
     "record_comment_activity",
@@ -2230,14 +2252,22 @@ def create_run(
     extra_state: dict | None = None,
     branch: str | None = None,
     acting_user_id: int | None = None,
+    subscription_owner_id: int | None = None,
 ) -> contracts.TaskRunDTO:
     """Create a new run for an existing task (e.g. resuming an interactive sandbox session).
 
     ``acting_user_id`` attributes the run to the user whose AI run preferences should apply
     when ``extra_state`` pins no runtime selection; it falls back to the task's creator.
+    ``subscription_owner_id`` names whose plan the run bills to, when that is not the acting user.
     """
     task = Task.objects.get(id=task_id)
-    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch, acting_user_id=acting_user_id)
+    run = task.create_run(
+        mode=mode,
+        extra_state=extra_state,
+        branch=branch,
+        acting_user_id=acting_user_id,
+        subscription_owner_id=subscription_owner_id,
+    )
     return _task_run_to_dto(run, task=task)
 
 
@@ -3189,6 +3219,11 @@ def task_accessible_for_run_view(
     return task is not None and bool(task["accessible"])
 
 
+def list_task_run_ids(task_id: str | UUID, team_id: int) -> list[UUID]:
+    """Ids of every run of a task, team-scoped. Caller enforces task visibility."""
+    return list(TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True))
+
+
 def list_task_runs(
     task_id: str | UUID,
     team_id: int,
@@ -4078,6 +4113,17 @@ def _delete_task_session_object(task_session_id: UUID, object_storage_key: str) 
                 "error": str(error),
             },
         )
+
+
+def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
+    """The plan a run bills to, or `None` for a run on PostHog credits."""
+    try:
+        access = resolve_model_access(state or {})
+    except InvalidModelAccess:
+        return None
+    if access.adapter is None:
+        return None
+    return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
 
 
 def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
@@ -5231,6 +5277,44 @@ def mark_task_run_stream_watched(run_id: str | UUID, task_id: str | UUID, team_i
         logger.warning("task_run_stream_mark_watched_failed run_id=%s", info.id, exc_info=True)
 
 
+_KEPT_TOOL_RESPONSE_FIELDS = ("decisionReason", "message")
+
+
+def _drop_tool_response_copy(entry: object) -> bool:
+    notification = entry.get("notification") if isinstance(entry, dict) else None
+    params = notification.get("params") if isinstance(notification, dict) else None
+    update = params.get("update") if isinstance(params, dict) else None
+    meta = update.get("_meta") if isinstance(update, dict) else None
+    claude_code = meta.get("claudeCode") if isinstance(meta, dict) else None
+    if not isinstance(claude_code, dict) or "toolResponse" not in claude_code:
+        return False
+    tool_response = claude_code["toolResponse"]
+    kept = (
+        {key: tool_response[key] for key in _KEPT_TOOL_RESPONSE_FIELDS if isinstance(tool_response.get(key), str)}
+        if isinstance(tool_response, dict)
+        else {}
+    )
+    if kept:
+        claude_code["toolResponse"] = kept
+    else:
+        del claude_code["toolResponse"]
+    return True
+
+
+def thread_view_of_log_content(log_content: str) -> str:
+    lines = log_content.split("\n")
+    for index, line in enumerate(lines):
+        if '"toolResponse"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if _drop_tool_response_copy(entry):
+            lines[index] = json.dumps(entry, separators=(",", ":"))
+    return "\n".join(lines)
+
+
 def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5251,6 +5335,103 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
         parts.append(json.dumps(marker) + "\n")
         parts.append(content)
     return "".join(parts)
+
+
+_LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
+
+
+def _conversation_log_part_summary(log_url: str, entries: Callable[[], list[str]]) -> LogPartSummary:
+    """A run log's summary, cached under one key per log with the object size it was made from. A log only grows,
+    so its size identifies its content, and a new size replaces the old summary. The cache is an optimization: a
+    cache error counts as a miss, and the summary comes from the log itself."""
+    from django.core.cache import cache  # noqa: PLC0415 — keep cache setup off the api import path
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    head = object_storage.head_object(log_url)
+    size = int(head.get("ContentLength", 0)) if head else 0
+    if not size:
+        return summarize_log_part(entries())
+    # The cache pickles values, so it holds only a JSON string: the object size, then the summary.
+    key = f"tasks:log-part-summary:v5:{hashlib.sha256(log_url.encode()).hexdigest()}"
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("task_log_part_summary_cache_read_failed", exc_info=True)
+        cached = None
+    if isinstance(cached, str) and cached.startswith(f"{size}:"):
+        summary_hit = summary_from_json(cached.removeprefix(f"{size}:"))
+        if summary_hit is not None:
+            return summary_hit
+    summary = summarize_log_part(entries())
+    try:
+        cache.set(key, f"{size}:{summary_to_json(summary)}", timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
+    except Exception:
+        logger.warning("task_log_part_summary_cache_write_failed", exc_info=True)
+    return summary
+
+
+def _conversation_log_parts(log_urls: list[str]) -> list[LogPart]:
+    """The run logs of a resume chain as slice parts. The summaries load in parallel, and a part's entries load
+    only when the slice needs them."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    def loader(log_url: str) -> Callable[[], list[str]]:
+        read: list[list[str]] = []
+
+        def entries() -> list[str]:
+            if not read:
+                read.append(log_entries(object_storage.read(log_url, missing_ok=True) or ""))
+            return read[0]
+
+        return entries
+
+    loaders = [loader(log_url) for log_url in log_urls]
+    pairs = list(zip(log_urls, loaders))
+    if len(pairs) == 1:
+        summaries = [_conversation_log_part_summary(*pairs[0])]
+    else:
+        summaries = list(_TASK_LOG_READ_EXECUTOR.map(lambda pair: _conversation_log_part_summary(*pair), pairs))
+    return [LogPart(summary=summary, entries=entries) for summary, entries in zip(summaries, loaders)]
+
+
+def read_task_run_conversation_log_slice(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    tail_bytes: int,
+    before: int | None = None,
+    start: int | None = None,
+) -> contracts.TaskRunLogSliceDTO | None:
+    """Part of the conversation log, read from the run logs that overlap it.
+
+    With ``start``, every entry from that index to the end, or the latest turns when they are too many. Else the
+    latest turns that end before index ``before``, at least ``tail_bytes`` long. A Pi chain puts run markers
+    between its runs, so its indexes change when the chain grows: it returns the full log, not sliced.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    if run.task.runtime == Task.Runtime.PI:
+        content = read_task_run_conversation_logs(run_id, task_id, team_id)
+        if content is None:
+            return None
+        return contracts.TaskRunLogSliceDTO(content=content, offset=0, count=0, sliced=False)
+    chain = run.get_history_chain()
+    parts = _conversation_log_parts([ancestor.log_url for ancestor in chain])
+    if start is not None:
+        sliced = slice_log_parts_from(parts, start, tail_bytes)
+    else:
+        sliced = slice_log_parts_tail(parts, tail_bytes, before)
+    return contracts.TaskRunLogSliceDTO(
+        content=sliced.content,
+        offset=sliced.offset,
+        count=sliced.count,
+        preamble=sliced.preamble,
+        turns_before=sliced.turns_before,
+        origin=str(chain[0].id),
+    )
 
 
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
@@ -5606,8 +5787,13 @@ def signal_task_run_user_message(
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
+    plan_owner_consented: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
+
+    ``plan_owner_consented`` lets someone other than the plan owner message a run on the owner's
+    plan. Only a caller that collected the owner's consent may set it, such as the Slack app,
+    where the thread creator chooses who may join their threads.
 
     Returns ``True`` on success, ``False`` when the target workflow is gone
     (completed or evicted — a terminal outcome), ``None`` when the run isn't
@@ -5627,7 +5813,8 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    ensure_subscription_owner(run.state, actor_user_id)
+    if not plan_owner_consented:
+        ensure_subscription_owner(run.state, actor_user_id)
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")

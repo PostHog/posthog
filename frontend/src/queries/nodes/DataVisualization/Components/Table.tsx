@@ -150,7 +150,6 @@ function ColumnHeaderTitle({
 
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
-    const virtualized = !!props.embedded && !!props.context?.dataVisualizationTableVirtualized
 
     const {
         tabularData,
@@ -171,6 +170,11 @@ export const Table = (props: TableProps): JSX.Element => {
         hogVm,
         hogVmLoadFailed,
     } = useValues(dataVisualizationLogic)
+    const virtualizationCellThreshold = props.context?.dataVisualizationTableVirtualizationCellThreshold ?? 0
+    const virtualized =
+        !!props.embedded &&
+        !!props.context?.dataVisualizationTableVirtualized &&
+        tabularData.length * tabularColumns.length > virtualizationCellThreshold
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))

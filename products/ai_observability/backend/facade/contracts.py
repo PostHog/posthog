@@ -109,3 +109,24 @@ class EvaluationPassFilters(Contract):
 
     graded: str  # The run counts toward a pass rate.
     passed: str  # The run passed. Implies `graded`.
+
+
+EvaluationOutcome = Literal["pass", "fail", "inconclusive", "unrated"]
+
+
+class TraceEvaluationResult(Contract):
+    id: str
+    evaluation_id: str | None
+    evaluation_name: str
+    target_node_id: str = Field(
+        description="The tree node the result grades: the generation's event uuid, or the trace id for a trace-level result."
+    )
+    outcome: EvaluationOutcome
+    label: str = Field(description='What the result says, such as "True", "0.82", "Positive" or "Skipped".')
+    reasoning: str | None
+    timestamp: datetime
+    is_backfill: bool
+
+
+class TraceEvaluationResults(Contract):
+    results: list[TraceEvaluationResult]

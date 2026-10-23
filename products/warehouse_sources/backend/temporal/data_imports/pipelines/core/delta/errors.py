@@ -212,6 +212,38 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     return "is older than the existing snapshot version" in text
 
 
+# A fourth shape of the same reset-vs-concurrent-read race, caught by the kernel's log-segment
+# listing instead of a single file lookup: `_purge_s3_prefix_once` lists the table's live
+# `_delta_log` files once and bulk-deletes them in one `_rm` call, which S3 does not guarantee to
+# apply in any particular order across keys. A concurrent open that lists the directory (or reads
+# `_last_checkpoint` and fetches the checkpoint it names) mid-delete can see an arbitrary subset of
+# that batch already gone — a run of consecutive commit files missing from the middle of the
+# sequence ("Expected contiguous commit files, but found gap"), or a `_last_checkpoint` hint whose
+# checkpoint file the same batch already removed ("Had a _last_checkpoint hint but didn't find any
+# checkpoints"). Moments later the purge finishes and the next reader opens a fresh, consistent log.
+#
+# Deliberately NOT folded into `is_transient_delta_maintenance_error` above: that function also backs
+# `DeltaTableRef.is_table_corrupted`, whose whole purpose is catching a log left genuinely broken by an
+# interrupted repartition swap or an OOM-crashed merge (see its docstring) so `handle_corrupted_delta_log`
+# can revive it — and unlike the single-file "not found" case, a missing *run* of commit files or a
+# dangling checkpoint hint is exactly the shape that kind of interrupted write leaves behind too. Folding
+# these in would make `is_table_corrupted` read a genuinely and permanently broken log as transient,
+# silently skip the revive, and loop the sync forever with nothing reported. Scoped instead to the one
+# call site (`DeltaTableRef._capture_unless_transient`) that only suppresses error-tracking noise on the
+# common race, while `is_table_corrupted`'s own independent open keeps classifying a log that is still in
+# this state on a later attempt as corrupt and reviving it.
+DELTA_LOG_LISTING_RACE_ERRORS = (
+    "Expected contiguous commit files",
+    "Had a _last_checkpoint hint but didn't find any checkpoints",
+)
+
+
+def is_transient_delta_log_listing_race(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in DELTA_LOG_LISTING_RACE_ERRORS
+    )
+
+
 # `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting
 # `target_size` bytes per bin, then reads every file in a bin into memory as Arrow batches before
 # writing them back out as one file. `Batcher` (pipelines/core/batcher.py) already keeps each

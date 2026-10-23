@@ -904,6 +904,8 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.alerts",
+    # Facade-only: anomaly scoring spreads insights over the window after each boundary like alert checks.
+    "products.alerts_platform",
     "products.cdp",
     "products.conversations",
     "products.dashboards",
@@ -1809,6 +1811,20 @@ expose = [
 ]
 from = [
     "products.account_audits",
+]
+
+[[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ai_gateway",
 ]
 
 [[modules]]

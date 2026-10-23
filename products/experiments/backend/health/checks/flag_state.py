@@ -27,7 +27,6 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     PauseHistory,
-    SplitChange,
 )
 from products.experiments.backend.health.skips import NO_FLAG, CheckSkip, not_applicable
 from products.experiments.backend.health.split_changes import (
@@ -36,6 +35,7 @@ from products.experiments.backend.health.split_changes import (
     format_change_time,
     net_effect,
 )
+from products.feature_flags.backend.facade.edits import SplitChange
 
 # pinned: the page's warning keys. The page sends them as `finding_variant` and
 # `warning_key` on its events, and picks the banner text by them.

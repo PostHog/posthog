@@ -5,15 +5,14 @@ from typing import TypedDict
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.health.context import (
     ChangeWindow,
-    ConditionsChange,
     ExposureEvents,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     HealthContext,
-    ReleaseCondition,
 )
+from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
 # Tests set what their check reads with `dataclasses.replace`, so a new field of the context changes only this file.
 RUNNING_CONTEXT = HealthContext(

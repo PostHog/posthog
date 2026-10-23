@@ -60,7 +60,7 @@ jobs:
                   sparse-checkout-cone-mode: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -79,6 +79,7 @@ jobs:
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
+                        - '.github/actions/setup-rust/**'
                         - '.github/actions/setup-sccache/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
@@ -118,11 +119,12 @@ jobs:
                       proto/
                       .github/rust-images.yml
                       .github/actions/rust-compute-affected/
+                      .github/actions/setup-rust/
                   sparse-checkout-cone-mode: false
                   clean: false
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -300,6 +302,7 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-rust/
                       .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
@@ -318,7 +321,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -418,7 +421,7 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -683,7 +686,7 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -915,6 +918,7 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-rust/
                       .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
@@ -933,7 +937,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
                   components: clippy,rustfmt

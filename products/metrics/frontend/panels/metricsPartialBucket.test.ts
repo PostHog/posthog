@@ -30,11 +30,16 @@ describe('partialBucketFraction', () => {
     const hourly = query([], { interval: 'hour' })
 
     it.each([
-        ['quarter into the last bucket', '2026-08-01T12:15:00Z', 0.25],
-        ['last bucket complete', '2026-08-01T13:00:00Z', null],
-        ['now before the last bucket', '2026-08-01T11:30:00Z', null],
-    ])('%s', (_, now, expected) => {
-        expect(partialBucketFraction(BUCKETS, hourly, 'UTC', dayjs(now))).toBe(expected)
+        ['quarter into the last bucket', 'hour', '1h', '2026-08-01T12:15:00Z', 0.25],
+        ['last bucket complete', 'hour', '1h', '2026-08-01T13:00:00Z', null],
+        ['now before the last bucket', 'hour', '1h', '2026-08-01T11:30:00Z', null],
+        ['hourly variable', '$window', '1h', '2026-08-01T12:15:00Z', 0.25],
+        ['braced variable', '${window}', '15m', '2026-08-01T12:05:00Z', 1 / 3],
+        ['formatted variable', '[[window:raw]]', '1m', '2026-08-01T12:00:15Z', 0.25],
+        ['variable bucket complete', '$window', '1h', '2026-08-01T13:00:00Z', null],
+    ])('%s', (_, interval, duration, now, expected) => {
+        const q = query([], { interval, variables: { window: { values: [duration] } } })
+        expect(partialBucketFraction(BUCKETS, q, 'UTC', dayjs(now))).toBe(expected)
     })
 
     it('uses the query interval, not the spacing of sparse buckets', () => {
@@ -58,6 +63,20 @@ describe('partialBucketFraction', () => {
     it.each([
         ['a fixed range end', query([], { interval: 'hour', dateRange: { date_to: '2026-08-01T12:15:00Z' } })],
         ['buckets closer than the query interval', query([], { interval: 'day' })],
+        ['missing interval variable', query([], { interval: '$window' })],
+        ['empty interval selection', query([], { interval: '$window', variables: { window: { values: [] } } })],
+        [
+            'multiple interval selections',
+            query([], { interval: '$window', variables: { window: { values: ['1h', '6h'] } } }),
+        ],
+        [
+            'All interval selection',
+            query([], { interval: '$window', variables: { window: { values: ['1h'], all: true } } }),
+        ],
+        [
+            'invalid interval duration',
+            query([], { interval: '$window', variables: { window: { values: ['invalid'] } } }),
+        ],
         ['no query', undefined],
     ])('stays solid for %s', (_, q) => {
         expect(partialBucketFraction(BUCKETS, q, 'UTC', dayjs('2026-08-01T12:15:00Z'))).toBeNull()

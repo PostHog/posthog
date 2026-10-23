@@ -13,14 +13,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
 )
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
-from products.experiments.backend.health.context import (
-    BucketingChange,
-    BucketingSetting,
-    FlagHistoryNotCheckedReason,
-    HealthContext,
-    parse_flag_state,
-)
+from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)

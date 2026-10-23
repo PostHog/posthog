@@ -21,6 +21,18 @@ const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
+export function booleanOutputConfigError(config: EvaluationOutputConfig): string | null {
+    const threshold = config.decision_threshold
+    if (threshold != null && (!Number.isFinite(threshold) || threshold < 0 || threshold > 1)) {
+        return 'Enter a decision threshold between 0% and 100%.'
+    }
+    return null
+}
+
+export function clearInvalidDecisionThreshold(config: EvaluationOutputConfig): EvaluationOutputConfig {
+    return booleanOutputConfigError(config) ? { ...config, decision_threshold: null } : config
+}
+
 export function numericOutputConfigError(config: EvaluationOutputConfig, requiresBounds = false): string | null {
     const { min, max, step } = config
     const passing_rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null

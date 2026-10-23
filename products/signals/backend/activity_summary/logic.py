@@ -37,7 +37,11 @@ MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
 # The `UserActivitySummaryVersion` rows kept per summary. An update deletes the older ones.
 MAX_VERSIONS = 30
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
+# Each further skip since the last good update doubles the wait, up to the `max_skip_backoff` of the update.
 RETRY_BACKOFF = datetime.timedelta(hours=6)
+MAX_SKIP_BACKOFF = datetime.timedelta(hours=72)
+# Enough doublings to pass any sane maximum, and a small enough exponent for `timedelta`.
+_MAX_SKIP_DOUBLINGS = 16
 # The error prefixes of an update that raised before it stored a result, before and after the model call.
 EXCEPTION_ERROR_PREFIX = "exception: "
 EXCEPTION_AFTER_MODEL_CALL_ERROR_PREFIX = "exception_after_model_call: "
@@ -99,22 +103,39 @@ def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datet
     return rebuild_before is not None and stored.generated_at < rebuild_before
 
 
+def skip_backoff(consecutive_skips: int, max_skip_backoff: datetime.timedelta) -> datetime.timedelta:
+    """The wait after a skip for too few units, when `consecutive_skips` skips came before it."""
+    return max(RETRY_BACKOFF, min(RETRY_BACKOFF * 2 ** min(consecutive_skips, _MAX_SKIP_DOUBLINGS), max_skip_backoff))
+
+
 def _input_start(watermark: datetime.datetime | None, now: datetime.datetime, window_days: int) -> datetime.datetime:
     earliest = now - datetime.timedelta(days=window_days)
     return earliest if watermark is None else max(earliest, watermark + _WATERMARK_STEP)
 
 
 def _back_off(
-    team_id: int, user_id: int, stored: UserActivitySummary | None, next_eligible_at: datetime.datetime
+    team_id: int,
+    user_id: int,
+    stored: UserActivitySummary | None,
+    now: datetime.datetime,
+    max_skip_backoff: datetime.timedelta,
 ) -> None:
+    skips = stored.consecutive_skips if stored is not None else 0
+    next_eligible_at = now + skip_backoff(skips, max_skip_backoff)
     # `update()` leaves `updated_at` alone, so the daily caps do not count a skip as a model call.
     if stored is not None:
-        UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(next_eligible_at=next_eligible_at)
+        UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(
+            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS)
+        )
         return
     UserActivitySummary.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         user_id=user_id,
-        defaults={"status": UserActivitySummary.Status.SKIPPED, "next_eligible_at": next_eligible_at},
+        defaults={
+            "status": UserActivitySummary.Status.SKIPPED,
+            "next_eligible_at": next_eligible_at,
+            "consecutive_skips": 1,
+        },
     )
 
 
@@ -218,6 +239,7 @@ def update_activity_summary(
     limits: RenderLimits = DEFAULT_LIMITS,
     rebuild_before: datetime.datetime | None = None,
     max_versions: int = MAX_VERSIONS,
+    max_skip_backoff: datetime.timedelta = MAX_SKIP_BACKOFF,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
@@ -225,7 +247,8 @@ def update_activity_summary(
     run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
     update records the error and keeps the stored summary and the watermark. With `dry_run`, the
     model is still called but nothing is written. `force` ignores `next_eligible_at`.
-    A skip for too few units and a failed update set `next_eligible_at` to `RETRY_BACKOFF` from now.
+    A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units sets it
+    to `skip_backoff` from now, which doubles with each skip until a good update resets it.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
@@ -253,7 +276,7 @@ def update_activity_summary(
     )
     if rendered is None or rendered.units < min_units:
         if not dry_run:
-            _back_off(team_id, user_id, stored, now + RETRY_BACKOFF)
+            _back_off(team_id, user_id, stored, now, max_skip_backoff)
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
             rendered_input=rendered.text if rendered else None,
@@ -332,6 +355,7 @@ def update_activity_summary(
                 "render_version": RENDER_VERSION,
                 "input_watermark": watermark,
                 "next_eligible_at": now + min_update_interval,
+                "consecutive_skips": 0,
             },
             max_versions,
         )

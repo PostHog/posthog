@@ -13,34 +13,85 @@ from django.db.models import Q
 
 from rest_framework import serializers
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.escape_sql import backquote_escape_chars_map
-from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import prepare_ast_for_printing
 
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
+from posthog.api.query_access_check import blocked_access_for_user
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.api import (
+    dashboard_has_active_full_subscription,
+    insight_has_active_subscription,
+)
 
 
-def check_can_add_insight_to_shared_dashboard(
+def dashboard_shared_or_subscribed(dashboard: Dashboard) -> str | None:
+    """How the dashboard's tiles reach readers who never pass a table-access check: through its
+    public link, or through a subscription that delivers the whole dashboard. None when neither
+    applies, so a tile write needs no access check."""
+    if is_publicly_shared(dashboard):
+        return "publicly shared"
+    if dashboard_has_active_full_subscription(dashboard.id):
+        return "delivered by a subscription"
+    return None
+
+
+def insight_shared_or_subscribed(insight: Insight) -> str | None:
+    """How the insight reaches readers who never pass a table-access check: through a public
+    link (its own, or a shared dashboard or notebook that shows it), or through a subscription
+    that delivers it. None when neither applies, so a query edit needs no access check."""
+    if is_publicly_shared(insight):
+        return "publicly shared"
+    if insight_has_active_subscription(insight.id):
+        return "delivered by a subscription"
+    return None
+
+
+def insight_query_access_error(
+    user: User,
+    insight: Insight,
+    query: Any,
+    user_access_control: UserAccessControl | None = None,
+) -> str | None:
+    """The validation message that stops saving this query on the insight, when the insight is
+    shared or subscribed and the editor can't run the query themselves. None when the save may
+    go ahead: nothing exposes the insight, the org lacks the access control entitlement, or the
+    editor is an org admin."""
+    if not isinstance(query, dict):
+        return None
+    if not insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return None
+    uac = user_access_control or UserAccessControl(user=user, team=insight.team)
+    # org admins have full access, so skip the gate for a faster save
+    if uac.is_organization_admin:
+        return None
+    exposure = insight_shared_or_subscribed(insight)
+    if exposure is None:
+        return None
+    blocked = blocked_access_for_user(user, insight.team, [query])
+    if not blocked:
+        return None
+    blocked_list = ", ".join(f"`{name}`" for name in blocked)
+    return f"Can't save this query: you don't have access to {blocked_list}, and this insight is {exposure}."
+
+
+def check_can_add_insight_to_dashboard(
     user: User,
     dashboard: Dashboard,
     query: Any,
     user_access_control: UserAccessControl | None = None,
 ) -> None:
     """Raise if binding an insight with this query to the dashboard would expose, through the
-    dashboard's public link, a query the editor can't run themselves. No-op when the dashboard
-    isn't shared, the org lacks the access control entitlement, or the editor is an org admin."""
+    dashboard's public link or a subscription that delivers it in full, a query the editor can't
+    run themselves. No-op when the dashboard reaches no such reader, the org lacks the access
+    control entitlement, or the editor is an org admin."""
     if not isinstance(query, dict):
         return
     if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -49,13 +100,14 @@ def check_can_add_insight_to_shared_dashboard(
     # org admins have full access, so skip the gate for a faster write
     if uac.is_organization_admin:
         return
-    if not is_publicly_shared(dashboard):
+    exposure = dashboard_shared_or_subscribed(dashboard)
+    if exposure is None:
         return
     blocked = blocked_access_for_user(user, dashboard.team, [query])
     if blocked:
         blocked_list = ", ".join(f"`{name}`" for name in blocked)
         raise serializers.ValidationError(
-            f"Can't add this insight: you don't have access to {blocked_list}, and this dashboard is publicly shared."
+            f"Can't add this insight: you don't have access to {blocked_list}, and this dashboard is {exposure}."
         )
 
 
@@ -123,41 +175,6 @@ def _breakdown_as_hogql(breakdown_type: str, key: str) -> str | None:
     # Every part is quoted, so a part that reads as a keyword, such as `null`, stays a field name,
     # and a part the printer would refuse does not raise here.
     return ".".join("`" + "".join(backquote_escape_chars_map.get(c, c) for c in part) + "`" for part in chain)
-
-
-def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
-    """Tables (and runner-level resources) the user can't access among everything the given
-    queries read - the compile core shared by the publish gate and the save-time block on
-    already-shared artifacts."""
-    if not queries:
-        return []
-
-    # One context for all queries: the publisher's schema is built on first prepare and reused.
-    context = HogQLContext(
-        team_id=team.pk,
-        team=team,
-        user=user,
-        enable_select_queries=True,
-        modifiers=create_default_modifiers_for_user(user, team),
-    )
-    blocked: set[str] = set()
-    for query in queries:
-        try:
-            # get_query_runner unwraps container nodes (DataTableNode, InsightVizNode, ...) itself.
-            runner = get_query_runner_or_none(query, team, user=user)
-            if runner is None:
-                continue
-            # Resource-level check first for product runners (logs, metrics, customer analytics, ...)
-            runner.validate_query_runner_access(user)
-            prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
-        except UserAccessControlError as e:
-            blocked.add(e.resource)
-        except TableAccessDeniedError as e:
-            blocked.add(e.table_name)
-        except Exception:
-            # Only access denials gate publishing; anything else is the query's own problem.
-            continue
-    return sorted(blocked)
 
 
 def _queries_exposed_by(config: SharingConfiguration) -> list[dict[str, Any]]:

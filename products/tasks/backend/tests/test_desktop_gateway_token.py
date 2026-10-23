@@ -747,17 +747,14 @@ class TestPosthogCodeTrusted(APIBaseTest):
     @parameterized.expand(
         [
             ("new org below 7", 2, {"posthog_code_credits": 6}, False),
-            ("6-day-old org needs 7", 6, {"posthog_code_credits": 6}, False),
-            ("8-day-old org needs 3", 8, {"posthog_code_credits": 3}, True),
-            ("29-day-old org needs 3", 29, {"posthog_code_credits": 2}, False),
             ("new org at 7", 2, {"posthog_code_credits": 7}, True),
             ("new org best score of any product", 2, {"ai_credits": 8, "posthog_code_credits": 0}, True),
             ("new org no score", 2, {}, False),
             ("new org malformed score", 2, {"posthog_code_credits": "9"}, False),
-            ("week-old org below 3", 10, {"posthog_code_credits": 2}, False),
-            ("week-old org at 3", 10, {"posthog_code_credits": 3}, True),
-            ("25-day-old org below 3", 25, {"posthog_code_credits": 2}, False),
-            ("month-old org no score", 31, {}, True),
+            ("week-old org subscribed never paid", 10, {"posthog_code_credits": 3}, False),
+            ("month-old org subscribed never paid", 32, {"posthog_code_credits": 3, "events": 3}, False),
+            ("month-old org no score", 31, {}, False),
+            ("month-old org paying", 31, {"posthog_code_credits": 7}, True),
         ]
     )
     def test_age_and_trust(self, _name, age_days, scores, expected) -> None:

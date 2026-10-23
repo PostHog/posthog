@@ -8,6 +8,100 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `ready` - Ready
+ * * `not_ready` - Not Ready
+ */
+export type ActivitySummaryStatusEnumApi =
+    (typeof ActivitySummaryStatusEnumApi)[keyof typeof ActivitySummaryStatusEnumApi]
+
+export const ActivitySummaryStatusEnumApi = {
+    Ready: 'ready',
+    NotReady: 'not_ready',
+} as const
+
+export interface ActivitySummaryFocusAreaApi {
+    /** A main thread of the user's work, in the words of their activity. */
+    topic: string
+    /**
+     * How much of the recent activity is about this thread: high, medium or low.
+     * @nullable
+     */
+    strength: string | null
+    /**
+     * The last day with activity on this thread, as YYYY-MM-DD.
+     * @nullable
+     */
+    last_seen: string | null
+}
+
+export interface ActivitySummaryApi {
+    /** `ready` when a summary exists. `not_ready` when no summary exists yet, which is normal for new or quiet users.
+     *
+     * * `ready` - Ready
+     * * `not_ready` - Not Ready */
+    status: ActivitySummaryStatusEnumApi
+    /**
+     * Two or three sentences that capture the profile.
+     * @nullable
+     */
+    headline: string | null
+    /**
+     * A one-page markdown profile of the user's work in this project. Null on summaries from before profiles existed.
+     * @nullable
+     */
+    profile: string | null
+    /** The main threads of the user's work. */
+    focus_areas: ActivitySummaryFocusAreaApi[]
+    /** The PostHog products the user works with, by name. */
+    products: string[]
+    /**
+     * What changed since the version before this one, or null when nothing changed.
+     * @nullable
+     */
+    recent_shift: string | null
+    /**
+     * When this version of the summary was written.
+     * @nullable
+     */
+    generated_at: string | null
+    /** The number of this version of the summary. 0 before the first. */
+    version: number
+    /**
+     * The version of the prompt that wrote this summary.
+     * @nullable
+     */
+    prompt_version: number | null
+    /** True when a newer version will replace this summary soon. */
+    stale: boolean
+}
+
+export interface ActivitySummaryVersionApi {
+    /** The number of this version. Higher numbers are newer. */
+    version: number
+    /** When this version was written. */
+    generated_at: string
+    /** The version of the prompt that wrote this version. */
+    prompt_version: number
+    /**
+     * Two or three sentences that capture the profile.
+     * @nullable
+     */
+    headline: string | null
+    /**
+     * What changed since the version before this one, or null when nothing changed.
+     * @nullable
+     */
+    recent_shift: string | null
+    /** The main threads of the user's work. */
+    focus_areas: ActivitySummaryFocusAreaApi[]
+    /**
+     * The one-page markdown profile. Set only when the request asks for one version with `version`.
+     * @nullable
+     */
+    profile: string | null
+}
+
+/**
  * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
  */
 export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
@@ -3317,6 +3411,50 @@ export interface RetentlyFeedbackSignalExtraApi {
     created_date: string | null
 }
 
+export interface UsersnapFeedbackSignalExtraApi {
+    feedback_number: string | null
+    public_link: string | null
+    status_type: string | null
+    priority: string | null
+    created_at: string | null
+    labels: unknown[]
+}
+
+export interface TypeformFeedbackSignalExtraApi {
+    form_id: string | null
+    submitted_at: string | null
+}
+
+export interface QualtricsFeedbackSignalExtraApi {
+    survey_id: string | null
+    recorded_date: string | null
+    finished: string | null
+}
+
+export interface SurveymonkeyFeedbackSignalExtraApi {
+    survey_id: string | null
+    date_created: string | null
+    response_status: string | null
+}
+
+export interface FormbricksFeedbackSignalExtraApi {
+    survey_id: string | null
+    finished: string | null
+    created_at: string | null
+}
+
+export interface SurvicateFeedbackSignalExtraApi {
+    survey_id: string | null
+    collected_at: string | null
+    url: string | null
+}
+
+export interface SurveysparrowFeedbackSignalExtraApi {
+    survey_id: string | null
+    completed: string | null
+    completed_time: string | null
+}
+
 export interface AppfiguresReviewSignalExtraApi {
     stars: string | null
     version: string | null
@@ -3483,6 +3621,35 @@ export interface BetterstackIncidentSignalExtraApi {
     started_at: string | null
 }
 
+export interface AsanaIssueSignalExtraApi {
+    url: string | null
+    resource_subtype: string | null
+    created_at: string | null
+    projects: string[]
+    tags: string[]
+}
+
+export interface MondayIssueSignalExtraApi {
+    state: string | null
+    group: string | null
+    board_id: string | null
+    created_at: string | null
+}
+
+export interface PlaneIssueSignalExtraApi {
+    identifier: string | null
+    sequence_id: string | null
+    priority: string | null
+    created_at: string | null
+}
+
+export interface AzureDevopsIssueSignalExtraApi {
+    work_item_type: string | null
+    state: string | null
+    priority: string | null
+    created_at: string | null
+}
+
 export interface MonteCarloAlertSignalExtraApi {
     type: string | null
     status: string | null
@@ -3496,6 +3663,124 @@ export interface BigeyeIssueSignalExtraApi {
     current_status: string | null
     priority: string | null
     opened_time_seconds: string | null
+}
+
+export interface DynatraceIncidentSignalExtraApi {
+    display_id: string | null
+    status: string | null
+    severity_level: string | null
+    impact_level: string | null
+    start_time: string | null
+    root_cause_entity: string | null
+    affected_entities: string[]
+}
+
+export interface StatuspageIncidentSignalExtraApi {
+    status: string | null
+    impact: string | null
+    shortlink: string | null
+    created_at: string | null
+}
+
+export interface CronitorIncidentSignalExtraApi {
+    severity: string | null
+    state: string | null
+    created: string | null
+    started: string | null
+}
+
+export interface InstatusIncidentSignalExtraApi {
+    status: string | null
+    started: string | null
+    components: string[]
+}
+
+export interface TriggerDevErrorSignalExtraApi {
+    task_identifier: string | null
+    status: string | null
+    count: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface ChecklyErrorGroupSignalExtraApi {
+    check_id: string | null
+    error_hash: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface RoarkIssueSignalExtraApi {
+    severity: string | null
+    status: string | null
+    event_count: string | null
+    created_at: string | null
+}
+
+export interface SleekplanFeedbackSignalExtraApi {
+    status: string | null
+    type: string | null
+    total_up: string | null
+    created: string | null
+}
+
+export interface BettermodeFeedbackSignalExtraApi {
+    status: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface DiscourseFeedbackSignalExtraApi {
+    topic_id: string | null
+    category_id: string | null
+    created_at: string | null
+}
+
+export interface MintlifyFeedbackSignalExtraApi {
+    path: string | null
+    helpful: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface LangsmithFeedbackSignalExtraApi {
+    key: string | null
+    score: string | null
+    value: string | null
+    run_id: string | null
+    trace_id: string | null
+    created_at: string | null
+}
+
+export interface SprigFeedbackSignalExtraApi {
+    question_type: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface GainsightPxFeedbackSignalExtraApi {
+    score: string | null
+    question_type: string | null
+    content_type: string | null
+    engagement_id: string | null
+    date: string | null
+}
+
+export interface TrustpilotReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface OkendoReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    product_name: string | null
+    is_recommended: string | null
+    date_created: string | null
 }
 
 export type SignalExtraApi =
@@ -3548,6 +3833,13 @@ export type SignalExtraApi =
     | CannyFeedbackSignalExtraApi
     | AsknicelyFeedbackSignalExtraApi
     | RetentlyFeedbackSignalExtraApi
+    | UsersnapFeedbackSignalExtraApi
+    | TypeformFeedbackSignalExtraApi
+    | QualtricsFeedbackSignalExtraApi
+    | SurveymonkeyFeedbackSignalExtraApi
+    | FormbricksFeedbackSignalExtraApi
+    | SurvicateFeedbackSignalExtraApi
+    | SurveysparrowFeedbackSignalExtraApi
     | AppfiguresReviewSignalExtraApi
     | AppfollowReviewSignalExtraApi
     | JudgemeReviewsReviewSignalExtraApi
@@ -3569,8 +3861,28 @@ export type SignalExtraApi =
     | OrcaSecurityScannerFindingSignalExtraApi
     | TenableVulnerabilityManagementScannerFindingSignalExtraApi
     | BetterstackIncidentSignalExtraApi
+    | AsanaIssueSignalExtraApi
+    | MondayIssueSignalExtraApi
+    | PlaneIssueSignalExtraApi
+    | AzureDevopsIssueSignalExtraApi
     | MonteCarloAlertSignalExtraApi
     | BigeyeIssueSignalExtraApi
+    | DynatraceIncidentSignalExtraApi
+    | StatuspageIncidentSignalExtraApi
+    | CronitorIncidentSignalExtraApi
+    | InstatusIncidentSignalExtraApi
+    | TriggerDevErrorSignalExtraApi
+    | ChecklyErrorGroupSignalExtraApi
+    | RoarkIssueSignalExtraApi
+    | SleekplanFeedbackSignalExtraApi
+    | BettermodeFeedbackSignalExtraApi
+    | DiscourseFeedbackSignalExtraApi
+    | MintlifyFeedbackSignalExtraApi
+    | LangsmithFeedbackSignalExtraApi
+    | SprigFeedbackSignalExtraApi
+    | GainsightPxFeedbackSignalExtraApi
+    | TrustpilotReviewSignalExtraApi
+    | OkendoReviewSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -8849,6 +9161,19 @@ export interface SignalUserAutonomyConfigCreateApi {
      * @nullable
      */
     github_open_pull_request_ready?: boolean | null
+}
+
+export type SignalsActivitySummaryVersionsRetrieveParams = {
+    /**
+     * The most versions to return, newest first. Capped at the number of versions kept.
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Return only this version, with its full profile. Returns 404 when the version does not exist.
+     * @minimum 1
+     */
+    version?: number
 }
 
 export type SignalsProcessingListParams = {
