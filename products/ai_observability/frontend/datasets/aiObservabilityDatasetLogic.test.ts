@@ -15,7 +15,12 @@ import type {
     DatasetItemReadApi as DatasetItem,
     DatasetReadApi as Dataset,
 } from '../generated/api.schemas'
-import { DatasetFormValues, DatasetLogicProps, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
+import {
+    DatasetFormValues,
+    DatasetLogicProps,
+    DatasetTab,
+    aiObservabilityDatasetLogic,
+} from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
 import { EMPTY_JSON } from './utils'
@@ -172,7 +177,7 @@ describe('aiObservabilityDatasetLogic', () => {
             })
         })
 
-        it('can create a new dataset with non-empty metadata', async () => {
+        it('creates a dataset inside Offline evals and preserves the return filters', async () => {
             const formValues: DatasetFormValues = {
                 name: 'New Dataset',
                 description: 'New description',
@@ -181,6 +186,7 @@ describe('aiObservabilityDatasetLogic', () => {
 
             mockDatasetsApi.createDataset.mockResolvedValue(mockDataset)
             const routerReplaceSpy = jest.spyOn(router.actions, 'replace')
+            router.actions.push(urls.aiObservabilityDataset('new'), { search: 'quality', datasets_page: '2' })
 
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
@@ -193,7 +199,12 @@ describe('aiObservabilityDatasetLogic', () => {
                 metadata: { test: 'value' },
             })
             expect(lemonToast.success).toHaveBeenCalledWith('Dataset created successfully')
-            expect(routerReplaceSpy).toHaveBeenCalledWith(urls.aiObservabilityDataset(mockDataset.id))
+            expect(routerReplaceSpy).toHaveBeenCalledWith(
+                `/ai-evals/evaluations/offline/datasets/${mockDataset.id}?search=quality&datasets_page=2`
+            )
+            expect(logic.values.breadcrumbs[0].path).toBe(
+                '/ai-evals/evaluations/offline/experiments?tab=datasets&search=quality&datasets_page=2'
+            )
             expect(logic.values.dataset).toEqual(mockDataset)
             expect(logic.values.isEditingDataset).toBe(false)
         })
@@ -1193,15 +1204,36 @@ describe('aiObservabilityDatasetLogic', () => {
                 })
             })
 
-            it('sets active tab from URL parameters via urlToAction', async () => {
+            it('opens and closes dataset details through URL state without reloading items or losing filters', async () => {
                 const datasetUrl = urls.aiObservabilityDataset(mockDataset.id)
 
                 await expectLogic(logic, () => {
-                    router.actions.push(datasetUrl, { tab: 'metadata', page: '1' })
+                    router.actions.push(datasetUrl, { tab: 'metadata', search: 'quality' }, { section: 'items' })
                 }).toFinishAllListeners()
 
-                // Verify tab is set from URL
                 expect(logic.values.activeTab).toBe('metadata')
+                mockDatasetsApi.listItems.mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setActiveTab(DatasetTab.Items)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams).toEqual({ search: 'quality' })
+                expect(router.values.hashParams).toEqual({ section: 'items' })
+                expect(logic.values.activeTab).toBe('items')
+
+                await expectLogic(logic, () => {
+                    logic.actions.setActiveTab(DatasetTab.Metadata)
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams).toEqual({ search: 'quality', tab: 'metadata' })
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { search: 'quality' })
+                }).toFinishAllListeners()
+
+                expect(logic.values.activeTab).toBe('items')
+                expect(mockDatasetsApi.listItems).not.toHaveBeenCalled()
             })
 
             it('closes modal and clears state when closeModalAndRefetchDatasetItems is called', async () => {

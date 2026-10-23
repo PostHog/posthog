@@ -48,9 +48,9 @@ export function BIFieldPill({
         setFieldDateBucket,
         setFieldDatePart,
         setFieldExpression,
+        setMeasureExpression,
         setSort,
         setValueAggregation,
-        setValueCustomExpression,
         renameField,
     } = useActions(biEditorLogic)
 
@@ -86,9 +86,10 @@ export function BIFieldPill({
                               ? 'This calculation needs a numeric field'
                               : undefined,
                       onClick: () => {
-                          setValueAggregation(index, option.value)
-                          if (option.value === 'custom' && !value.customExpression) {
+                          if (option.value === 'custom') {
                               setEditing('aggregation')
+                          } else {
+                              setValueAggregation(index, option.value)
                           }
                       },
                   })),
@@ -137,7 +138,10 @@ export function BIFieldPill({
                           onClick: () => editCalculatedField({ ...field, id: field.localFieldId ?? field.id }),
                       }
                     : !isCalculatedMeasure
-                      ? { label: 'Edit field expression', onClick: () => setEditing('field') }
+                      ? {
+                            label: isMeasure ? 'Edit measure expression' : 'Edit field expression',
+                            onClick: () => setEditing('field'),
+                        }
                       : null,
                 value?.aggregation === 'custom' && field.localDefinition?.kind !== 'expression'
                     ? { label: 'Edit calculated measure', onClick: () => editCalculatedMeasure(index) }
@@ -196,12 +200,17 @@ export function BIFieldPill({
             )}
             <BIExpressionPopover
                 visible={expressionTarget !== null}
-                value={expressionTarget === 'aggregation' ? (value?.customExpression ?? '') : field.expression}
+                value={
+                    expressionTarget === 'aggregation' || value?.aggregation === 'custom'
+                        ? (value?.customExpression ?? field.expression)
+                        : field.expression
+                }
                 source={field.source}
+                aggregation={expressionTarget === 'aggregation' ? 'custom' : value?.aggregation}
                 placeholder={expressionTarget === 'aggregation' ? 'For example: sum(amount) / count()' : undefined}
-                onChange={(nextExpression) =>
-                    expressionTarget === 'aggregation'
-                        ? setValueCustomExpression(index, nextExpression)
+                onChange={(nextExpression, aggregation) =>
+                    aggregation
+                        ? setMeasureExpression(index, nextExpression, aggregation)
                         : setFieldExpression(shelf, index, nextExpression)
                 }
                 onClose={() => {

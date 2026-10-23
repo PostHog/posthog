@@ -47,7 +47,12 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import { formatNumericEvaluationScore, numericOutputConfigError, categoricalOutputConfigError } from './constants'
+import {
+    formatNumericEvaluationScore,
+    booleanOutputConfigError,
+    numericOutputConfigError,
+    categoricalOutputConfigError,
+} from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -180,7 +185,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
                 ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
-                : undefined
+                : (booleanOutputConfigError(evaluation.output_config) ?? undefined)
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')

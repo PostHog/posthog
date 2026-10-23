@@ -45,18 +45,6 @@ _ACTIVE_MINTS_PER_WEEK: int = _active_mints
 class SetupWizardCloudRunTests(APIBaseTest):
     CLOUD_RUN_URL = "/api/wizard/cloud_run"
 
-    @patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=True)
-    def test_a_blocked_identity_cannot_start_a_cloud_run(self, mock_blocked):
-        # The sandbox mints its own gateway token.
-        response = self.client.post(
-            self.CLOUD_RUN_URL,
-            {"project_id": self.team.project_id, "repository": "PostHog/posthog"},
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
-        assert mock_blocked.call_args.kwargs["surface"] == "cloud_run"
-
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
     def test_returns_404_when_feature_not_configured(self):
         response = self.client.post(
@@ -271,9 +259,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         self.mock_flag_payload = payload_patch.start()
         self.addCleanup(payload_patch.stop)
-        blocklist_patch = patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=False)
-        self.mock_blocklist = blocklist_patch.start()
-        self.addCleanup(blocklist_patch.stop)
 
     def _flag_reads(self, key: str) -> list:
         return [call for call in self.mock_flag_payload.call_args_list if call.args[0] == key]
@@ -367,6 +352,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         check.assert_called_once()
         subject, surface = check.call_args.args
         assert surface == SecuritySurface.AI_GATEWAY
+        assert (subject.email, subject.user_uuid) == (self.user.email, str(self.user.uuid))
         assert subject.organization_ids == (str(self.team.organization_id),)
         assert check.call_args.kwargs == {"call_site": "wizard_gateway_token"}
         assert mock_mint.called is not refused
@@ -461,21 +447,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         assert (invalid.status_code, invalid.json()["code"]) == (status.HTTP_401_UNAUTHORIZED, "invalid_token")
 
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_blocked_identity_is_403_and_never_mints(self, mock_authentication, mock_mint, mock_authorized):
-        self._mock_oauth(mock_authentication)
-        self.mock_blocklist.return_value = True
-
-        response = self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
-        mock_mint.assert_not_called()
-
     @patch("posthog.api.email_verification.is_email_verification_disabled", return_value=False)
     @patch("posthog.api.email_verification.is_email_available", return_value=True)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
@@ -496,31 +467,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.json()["detail"] == WIZARD_EMAIL_UNVERIFIED_DETAIL
         mock_mint.assert_not_called()
 
+    @patch("posthog.api.wizard.http.security_access_refused", return_value=True)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_the_ban_is_asked_about_the_authenticated_identity(self, mock_authentication, mock_mint, mock_authorized):
+    def test_a_ban_is_counted(self, mock_authentication, mock_mint, mock_authorized, _rules):
         self._mock_oauth(mock_authentication)
-
-        self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
-        )
-
-        assert self.mock_blocklist.call_args.kwargs == {
-            "distinct_id": str(self.user.distinct_id),
-            "email": self.user.email,
-            "user_uuid": str(self.user.uuid),
-            "organization_ids": [str(self.team.organization_id)],
-            "team_ids": [self.team.id],
-            "surface": "gateway_token",
-        }
-
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_ban_is_counted(self, mock_authentication, mock_mint, mock_authorized):
-        self._mock_oauth(mock_authentication)
-        self.mock_blocklist.return_value = True
         before = _gateway_token_outcome("blocked")
 
         self.client.post(
@@ -948,15 +900,15 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG) == []
         mock_mint.assert_not_called()
 
+    @patch("posthog.api.wizard.http.security_access_refused", return_value=True)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_a_refusal_after_authentication_never_reads_the_policy(
-        self, mock_authentication, mock_mint, mock_authorized
+        self, mock_authentication, mock_mint, mock_authorized, _rules
     ):
         self._mock_oauth(mock_authentication)
 
-        self.mock_blocklist.return_value = True
         blocked = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
         )

@@ -25,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 
+RESUMABLE_STATE_TTL_SECONDS = 60 * 60 * 24
+
 
 class _WriteFence:
     """Stops the writes of a source that the pipeline abandoned.
@@ -70,8 +72,11 @@ class ResumableSourceManager(Generic[ResumableData]):
         pending: dict[str, str] | None = None,
         staged: dict[str, str] | None = None,
         write_fence: _WriteFence | None = None,
+        commit_listeners: list[collections.abc.Callable[[], None]] | None = None,
     ):
         self._inputs = inputs
+        # Shared with the siblings: a commit through any namespace is progress of the same run.
+        self._commit_listeners = commit_listeners if commit_listeners is not None else []
         self._data_class = data_class
         self._logger = inputs.logger
         self._namespace = namespace
@@ -99,6 +104,7 @@ class ResumableSourceManager(Generic[ResumableData]):
             pending=self._pending,
             staged=self._staged,
             write_fence=self._write_fence,
+            commit_listeners=self._commit_listeners,
         )
 
     def revoke_writes(self, timeout_seconds: float) -> bool:
@@ -123,9 +129,12 @@ class ResumableSourceManager(Generic[ResumableData]):
 
         yield redis
 
+    def _job_key(self, job_id: str) -> str:
+        return f"posthog:data_warehouse:resumable_source:{self._inputs.team_id}:{job_id}"
+
     @property
     def _key(self) -> str:
-        base = f"posthog:data_warehouse:resumable_source:{self._inputs.team_id}:{self._inputs.job_id}"
+        base = self._job_key(self._inputs.job_id)
         return f"{base}:{self._namespace}" if self._namespace else base
 
     def _dump_json(self, data: ResumableData) -> str:
@@ -202,18 +211,27 @@ class ResumableSourceManager(Generic[ResumableData]):
                 break
             self._staged[key] = json_data
 
+    def on_commit(self, listener: collections.abc.Callable[[], None]) -> None:
+        """Call `listener` after each commit that wrote a cursor, from whichever thread commits."""
+        self._commit_listeners.append(listener)
+
     def commit(self) -> None:
         """Persist every confirmed cursor, across namespaces."""
         if not self._staged:
             return
+        wrote = False
         with self._write_fence.writing(), self._get_redis() as redis_client:
             for key, json_data in list(self._staged.items()):
                 self._logger.debug(f"Saving resumable source state. key={key}")
                 self._write_with_stale_replica_retry(
                     redis_client,
-                    functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
+                    functools.partial(redis_client.set, key, json_data, ex=RESUMABLE_STATE_TTL_SECONDS),
                 )
                 del self._staged[key]
+                wrote = True
+        if wrote:
+            for listener in self._commit_listeners:
+                listener()
 
     @contextmanager
     def committing(self) -> collections.abc.Iterator[None]:
@@ -250,6 +268,37 @@ class ResumableSourceManager(Generic[ResumableData]):
         with self._write_fence.writing(), self._get_redis() as redis_client:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
+
+    def continue_from_job(self, job_id: str) -> bool:
+        """Copy the resume state that `job_id` committed to this job, and return whether `job_id` had any.
+
+        A cursor is keyed by job, and the run after an interrupted job is a new job. Without the copy
+        that run reads the source from the start again, so a table whose first load takes longer than
+        one job can run never finishes. The copy covers every namespace. It copies nothing once this
+        job has state of its own, in any namespace: every execution of this job calls it, and a
+        later one must not bring back a namespace that this job already cleared. The caller must
+        make sure that every row before the copied cursor reaches the table.
+        """
+        source_base = self._job_key(job_id)
+        target_base = self._job_key(self._inputs.job_id)
+        found = 0
+        with self._write_fence.writing(), self._get_redis() as redis_client:
+            if redis_client.exists(target_base) or next(iter(redis_client.scan_iter(match=f"{target_base}:*")), None):
+                self._logger.debug(f"Not continuing another job: this job has resume state. key={target_base}")
+                return False
+            for source_key in [source_base, *redis_client.scan_iter(match=f"{source_base}:*")]:
+                source_key = source_key.decode() if isinstance(source_key, bytes) else source_key
+                data = redis_client.get(source_key)
+                if not data:
+                    continue
+                target_key = target_base + source_key.removeprefix(source_base)
+                self._write_with_stale_replica_retry(
+                    redis_client,
+                    functools.partial(redis_client.set, target_key, data, ex=RESUMABLE_STATE_TTL_SECONDS, nx=True),
+                )
+                found += 1
+        self._logger.debug(f"Continuing the resumable source state of another job. key={source_base}, keys={found}")
+        return found > 0
 
     def can_resume(self) -> bool:
         with self._get_redis() as redis:

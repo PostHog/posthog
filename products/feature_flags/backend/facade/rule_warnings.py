@@ -13,17 +13,20 @@ Every detector reasons over one *population*: the people who satisfy a rule's wh
 predicate set. A rule provably applies to that population when its own predicate set is
 a subset (rules AND their properties, so fewer predicates means a wider audience); any
 other relation is inconclusive and stops the walk, so a warning is never derived from a
-guess about how two different predicates overlap. Within a population, percentage rules
-partition people by their assignment hash: the same seed reuses the same hash, and
-different seeds are modelled as independent dimensions. A rollout of ``p`` percent
-includes the hash interval ``(0, p/100]``; 0 percent includes nobody, 100 percent
-everybody. This is decision-level reasoning about who can reach which rule, not a second
-evaluator, and it never claims an exact affected percentage.
+guess about how two different predicates overlap. Within a population, randomized rules
+partition people by their hashes: the same seed reuses the same hash, and each distinct
+hash (a rollout, variant or holdout hash of a seed) is an independent dimension. A rollout
+of ``p`` percent includes the hash interval ``(0, p/100]``; 0 percent includes nobody, 100
+percent everybody. An experiment rule returns the default while paused, then to its
+holdout share, then splits its enrolled share across its variants by cumulative weight.
+This is decision-level reasoning about who can reach which rule, not a second evaluator,
+and it never claims an exact affected percentage.
 """
 
 from collections.abc import Iterator
+from decimal import Decimal
 from fractions import Fraction
-from itertools import product
+from typing import Literal
 
 from posthog.dataclasses import frozen
 
@@ -36,8 +39,9 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 from products.feature_flags.backend.facade.warnings import ManagementWarning
 
-_Interval = tuple[Fraction, Fraction]  # (lo, hi] of the assignment hash in (0, 1]
-_Box = dict[str, _Interval]  # per seed; an absent seed is unconstrained
+_Interval = tuple[Fraction, Fraction]  # (lo, hi] of a hash in (0, 1]
+_Dimension = tuple[Literal["rollout", "variant", "holdout"], str]  # (which of the rule's hashes, seed)
+_Box = dict[_Dimension, _Interval]  # an absent dimension is unconstrained
 _FULL: _Interval = (Fraction(0), Fraction(1))
 
 
@@ -76,36 +80,37 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
     or whose evaluated content changed, is an edit rather than a reorder, so a value change
     it causes is never attributed to the order.
     """
-    unchanged = set(current.rules) & set(proposed.rules)
+    current_index = {rule.id: index for index, rule in enumerate(current.rules)}
+    proposed_index = {rule.id: index for index, rule in enumerate(proposed.rules)}
+    unchanged = [rule.id for rule in set(current.rules) & set(proposed.rules)]
+    later_by_earlier: dict[str, list[str]] = {}
+    for earlier in unchanged:
+        for later in unchanged:
+            if current_index[earlier] < current_index[later] and proposed_index[later] < proposed_index[earlier]:
+                later_by_earlier.setdefault(earlier, []).append(later)
+    if not later_by_earlier:
+        return ()
     # A terminal miss serves the config default, so when the default is edited too those
     # outcomes differ because of the edit; only served rule values stay comparable.
     default_edited = current.default_value != proposed.default_value
-    current_index = {rule.id: index for index, rule in enumerate(current.rules)}
-    proposed_index = {rule.id: index for index, rule in enumerate(proposed.rules)}
+    # A population's walk settles a prefix of the walk every rule applies to, so populations
+    # that reach the same rules in both configs compare the same regions.
+    current_walk, proposed_walk = _walk(current, None, split_variants=True), _walk(proposed, None, split_variants=True)
+    compared: set[tuple[int, int]] = set()
     inversions: dict[tuple[str, str], int] = {}
     for population in {rule.predicates for rule in (*current.rules, *proposed.rules)}:
-        before = _walk(current, population)
-        after = _walk(proposed, population)
-        for (box_before, outcome_before), (box_after, outcome_after) in product(before.settled, after.settled):
-            earlier = current.rules[outcome_before.rule_index]
-            later = proposed.rules[outcome_after.rule_index]
-            values_differ = outcome_before.value != outcome_after.value
-            values_comparable = not default_edited or (outcome_before.served and outcome_after.served)
-            # Only a pair present in both configs has both indexes, so this covers "unchanged" too.
-            order_flipped = (
-                earlier in unchanged
-                and later in unchanged
-                and current_index[earlier.id] < current_index[later.id]
-                and proposed_index[later.id] < proposed_index[earlier.id]
-            )
-            if (
-                values_differ
-                and values_comparable
-                and order_flipped
-                and (earlier.id, later.id) not in inversions
-                and _intersects(box_before, box_after)
-            ):
-                inversions[(earlier.id, later.id)] = proposed_index[later.id]
+        reach = (_reach(current, population), _reach(proposed, population))
+        if reach in compared:
+            continue
+        compared.add(reach)
+        before = _regions_by_rule(current, current_walk, reach[0])
+        after = _regions_by_rule(proposed, proposed_walk, reach[1])
+        for earlier, laters in later_by_earlier.items():
+            for later in laters:
+                if (earlier, later) not in inversions and _value_changes(
+                    before.get(earlier, {}), after.get(later, {}), default_edited
+                ):
+                    inversions[(earlier, later)] = proposed_index[later]
     return tuple(
         ManagementWarning(
             code="RULE_ORDER_CHANGES_TRAFFIC",
@@ -135,9 +140,10 @@ def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarn
         if not _continues_after_partial_miss(upper):
             continue
         assert upper.rollout_percentage is not None
+        upper_values = _served_values(upper)
         for lower_index in range(upper_index + 1, len(config.rules)):
             lower = config.rules[lower_index]
-            if lower.value != upper.value:
+            if not upper_values & _served_values(lower):
                 continue
             population = _overlap(upper, lower)
             if population is None:
@@ -164,9 +170,14 @@ def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarn
             )
 
 
+def _served_values(rule: ValidatedRule) -> set[str | None]:
+    # A variant with weight 0 never serves its value.
+    return {variant.value for variant in rule.variants if variant.weight > 0} if rule.variants else {rule.value}
+
+
 def _continues_after_partial_miss(rule: ValidatedRule) -> bool:
     return (
-        rule.rule_type == "percentage_rollout"
+        not rule.paused
         and rule.on_rollout_miss == "continue"
         and rule.rollout_percentage is not None
         and 0 < rule.rollout_percentage < 100
@@ -184,8 +195,8 @@ def _overlap(a: ValidatedRule, b: ValidatedRule) -> frozenset[Predicate] | None:
 
 @frozen
 class _Outcome:
-    value: str | None  # canonical JSON of the value served: the rule's, or the config default on a terminal miss
-    served: bool  # True when the rule's own value was served, False for a terminal miss
+    value: str | None  # canonical JSON of the value served: the rule's or a variant's, or the config default
+    served: bool  # True when the rule served its own value, False when it returned the default
     rule_index: int
 
 
@@ -193,6 +204,37 @@ class _Outcome:
 class _Walk:
     settled: tuple[tuple[_Box, _Outcome], ...]  # regions with a definite outcome
     closed_by: int | None  # the rule after which nothing was left to evaluate
+
+
+_Regions = dict[tuple[str | None, bool], list[_Box]]  # one rule's settled boxes by (value, served)
+
+
+def _regions_by_rule(config: ValidatedConfig, walk: _Walk, reach: int) -> dict[str, _Regions]:
+    # Grouping by outcome compares two rules' equal outcomes once instead of box by box.
+    regions: dict[str, _Regions] = {}
+    for box, outcome in walk.settled:
+        if outcome.rule_index >= reach:
+            break  # regions settle in rule order
+        rule_id = config.rules[outcome.rule_index].id
+        regions.setdefault(rule_id, {}).setdefault((outcome.value, outcome.served), []).append(box)
+    return regions
+
+
+def _value_changes(before: _Regions, after: _Regions, default_edited: bool) -> bool:
+    return any(
+        value_before != value_after
+        and (not default_edited or (served_before and served_after))
+        and any(_intersects(box_before, box_after) for box_before in boxes_before for box_after in boxes_after)
+        for (value_before, served_before), boxes_before in before.items()
+        for (value_after, served_after), boxes_after in after.items()
+    )
+
+
+def _reach(config: ValidatedConfig, population: frozenset[Predicate]) -> int:
+    """How many leading rules ``_walk`` evaluates for ``population`` before it stops."""
+    if _has_contradictory_presence_checks(population):
+        return 0
+    return next((i for i, rule in enumerate(config.rules) if not rule.predicates <= population), len(config.rules))
 
 
 def _has_contradictory_presence_checks(population: frozenset[Predicate]) -> bool:
@@ -203,34 +245,53 @@ def _has_contradictory_presence_checks(population: frozenset[Predicate]) -> bool
     return any(len(states) > 1 for states in presence.values())
 
 
-def _walk(config: ValidatedConfig, population: frozenset[Predicate], *, until: int | None = None) -> _Walk:
+def _walk(
+    config: ValidatedConfig,
+    population: frozenset[Predicate] | None,
+    *,
+    until: int | None = None,
+    split_variants: bool = False,
+) -> _Walk:
     """Evaluate ``population`` through the rules before ``until`` (all rules when None).
 
+    A ``None`` population is one every rule applies to.
+
     Stops at the first rule that does not provably apply to the population; the regions
-    settled before it stay valid, the rest is unknown.
+    settled before it stay valid, the rest is unknown. Only value comparisons need an
+    experiment rule's served region split by variant; without ``split_variants`` it has value None.
     """
-    if _has_contradictory_presence_checks(population):
+    if population is not None and _has_contradictory_presence_checks(population):
         return _Walk(settled=(), closed_by=None)
     open_boxes: list[_Box] = [{}]
     settled: list[tuple[_Box, _Outcome]] = []
     for index, rule in enumerate(config.rules[:until]):
-        if not rule.predicates <= population:
+        if population is not None and not rule.predicates <= population:
             # Inconclusive: who passes this rule is unknown, so nothing below it can be settled
             # and the regions that were still open must not be reported as reaching anything.
             return _Walk(settled=tuple(settled), closed_by=None)
         next_open: list[_Box] = []
         for box in open_boxes:
+            if rule.paused:
+                settled.append((box, _Outcome(value=config.default_value, served=False, rule_index=index)))
+                continue
             if rule.rule_type == "targeted_release":
                 settled.append((box, _Outcome(value=rule.value, served=True, rule_index=index)))
                 continue
             assert rule.seed is not None and rule.rollout_percentage is not None
-            lo, hi = box.get(rule.seed, _FULL)
-            threshold = Fraction(rule.rollout_percentage) / 100
-            if lo < min(hi, threshold):
-                included = {**box, rule.seed: (lo, min(hi, threshold))}
-                settled.append((included, _Outcome(value=rule.value, served=True, rule_index=index)))
-            if max(lo, threshold) < hi:
-                missed = {**box, rule.seed: (max(lo, threshold), hi)}
+            enrolling: _Box | None = box
+            if rule.holdout is not None:
+                held = _split(box, ("holdout", rule.holdout.seed), _threshold(rule.holdout.exclusion_percentage))
+                enrolling = held.above
+                if held.below is not None:
+                    settled.append((held.below, _Outcome(value=config.default_value, served=False, rule_index=index)))
+            if enrolling is None:
+                continue
+            rollout = _split(enrolling, ("rollout", rule.seed), _threshold(rule.rollout_percentage))
+            included, missed = rollout.below, rollout.above
+            if included is not None:
+                for region, value in _served_regions(included, rule, split_variants):
+                    settled.append((region, _Outcome(value=value, served=True, rule_index=index)))
+            if missed is not None:
                 if rule.on_rollout_miss == "return_default":
                     settled.append((missed, _Outcome(value=config.default_value, served=False, rule_index=index)))
                 else:
@@ -241,10 +302,47 @@ def _walk(config: ValidatedConfig, population: frozenset[Predicate], *, until: i
     return _Walk(settled=tuple(settled), closed_by=None)
 
 
+def _threshold(percentage: Decimal) -> Fraction:
+    return Fraction(percentage) / 100
+
+
+@frozen
+class _Halves:
+    """The parts of a box at or below and above a threshold on one hash, None when empty."""
+
+    below: _Box | None
+    above: _Box | None
+
+
+def _split(box: _Box, dimension: _Dimension, threshold: Fraction) -> _Halves:
+    lo, hi = box.get(dimension, _FULL)
+    return _Halves(
+        below={**box, dimension: (lo, min(hi, threshold))} if lo < min(hi, threshold) else None,
+        above={**box, dimension: (max(lo, threshold), hi)} if max(lo, threshold) < hi else None,
+    )
+
+
+def _served_regions(box: _Box, rule: ValidatedRule, split_variants: bool) -> Iterator[tuple[_Box, str | None]]:
+    if not (split_variants and rule.variants):
+        yield box, rule.value
+        return
+    assert rule.seed is not None
+    rest: _Box | None = box
+    boundary = Fraction(0)
+    for variant in rule.variants:
+        boundary += _threshold(variant.weight)
+        if rest is None:
+            return
+        halves = _split(rest, ("variant", rule.seed), boundary)
+        rest = halves.above
+        if halves.below is not None:
+            yield halves.below, variant.value
+
+
 def _intersects(a: _Box, b: _Box) -> bool:
-    # Every stored interval is non-empty, so only seeds constrained on both sides can be disjoint.
-    for seed in a.keys() & b.keys():
-        (a_lo, a_hi), (b_lo, b_hi) = a[seed], b[seed]
+    # Every stored interval is non-empty, so only dimensions constrained on both sides can be disjoint.
+    for dimension in a.keys() & b.keys():
+        (a_lo, a_hi), (b_lo, b_hi) = a[dimension], b[dimension]
         if max(a_lo, b_lo) >= min(a_hi, b_hi):
             return False
     return True

@@ -24,7 +24,7 @@ import { SuggestedModelsStrip } from 'products/warehouse_suggestions/frontend/co
 import { endpointModelUrl, parseEndpointModelName } from './endpointModelName'
 import { NodeSuspensionApi } from './generated/api.schemas'
 import { statusBackgroundClass } from './lineage/nodeStyles'
-import { SEARCH_SYNTAX_HELP } from './lineage/SearchSyntaxHelp'
+import { MODELS_SEARCH_SYNTAX_HELP } from './lineage/SearchSyntaxHelp'
 import { StatusTag } from './lineage/StatusTag'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
 
@@ -313,13 +313,13 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                 <LemonInput
                     type="search"
                     size="small"
-                    placeholder="Search, or +name for upstream"
+                    placeholder="Search, +name, or status:failed"
                     value={searchTerm}
                     onChange={setSearchTerm}
                     className="w-72"
                     data-attr="views-search"
                 />
-                <Tooltip title={SEARCH_SYNTAX_HELP}>
+                <Tooltip title={MODELS_SEARCH_SYNTAX_HELP}>
                     <IconInfo className="text-base text-secondary" />
                 </Tooltip>
                 <LemonSelect

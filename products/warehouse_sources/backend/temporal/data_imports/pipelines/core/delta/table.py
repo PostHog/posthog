@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+    is_transient_delta_log_listing_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
@@ -275,13 +276,22 @@ class DeltaTableRef:
     async def _capture_unless_transient(self, e: Exception) -> None:
         """capture_exception unless `e` is already classified as something other than a defect.
 
-        A known-transient object-store blip (see is_transient_object_store_error) or a
-        concurrent-purge race on `_delta_log` (see is_transient_delta_maintenance_error, because the
-        open below can lose the same race a maintenance pass can) recovers on retry, so reporting it
-        to error tracking is just noise. Both are re-raised as TransientObjectStoreError instead of
-        letting the original propagate, because the activity interceptor reports any uncaught
-        activity exception unless it is a NonReportableError, which TransientObjectStoreError is, so
-        a bare re-raise here would still mint a fresh issue at that boundary.
+        A known-transient object-store blip (see is_transient_object_store_error), a concurrent-purge
+        race on `_delta_log` (see is_transient_delta_maintenance_error, because the open below can
+        lose the same race a maintenance pass can), or the same race caught by the kernel's log-segment
+        listing instead of a single file lookup (see is_transient_delta_log_listing_race) recovers on
+        retry, so reporting it to error tracking is just noise. All three are re-raised as
+        TransientObjectStoreError instead of letting the original propagate, because the activity
+        interceptor reports any uncaught activity exception unless it is a NonReportableError, which
+        TransientObjectStoreError is, so a bare re-raise here would still mint a fresh issue at that
+        boundary.
+
+        is_transient_delta_log_listing_race is deliberately not folded into
+        is_transient_delta_maintenance_error, and so does not affect `is_table_corrupted`'s own
+        classification of the same message shapes: unlike the other races here, a missing run of commit
+        files or a dangling checkpoint hint is also the signature an interrupted repartition swap leaves
+        behind, and `is_table_corrupted` must keep reading a log still in that state on a later attempt
+        as corrupt so it gets revived instead of retried forever.
 
         An object-store refusal (see is_object_store_permission_denied) is re-raised as
         ObjectStorePermissionDeniedError, which is not a NonReportableError: a refusal on our own
@@ -303,7 +313,11 @@ class DeltaTableRef:
             # hide it behind Temporal's retry policy until the activity gave up.
             await self._logger.aerror(f"get_delta_table: the object store denied the read ({type(e).__name__})")
             raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
-        if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
+        if (
+            is_transient_object_store_error(e)
+            or is_transient_delta_maintenance_error(e)
+            or is_transient_delta_log_listing_race(e)
+        ):
             await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
@@ -510,6 +524,14 @@ class DeltaTableRef:
         triggers a destructive revive. A recognized transient blip (see is_transient_object_store_error,
         is_transient_delta_maintenance_error) is excluded the same way — otherwise a concurrent purge
         racing this open would misread as corruption and trigger a needless destructive revive.
+
+        Deliberately does not exclude is_transient_delta_log_listing_race (a missing run of commit
+        files, or a dangling `_last_checkpoint` hint): that message shape is also what an interrupted
+        repartition swap leaves behind, so a log still raising it on this independent open must read as
+        corrupt and get revived, not retried forever as if it were the brief race the other classifiers
+        cover. `get_delta_table`'s own open suppresses reporting on it regardless (see
+        `_capture_unless_transient`), since a race that has already cleared by the time this runs never
+        reaches here in the first place.
 
         A table that opens stays on this ref as the cached handle, so the next `get_delta_table`
         call in the same run does not read the log again. A handle that this ref already holds is
