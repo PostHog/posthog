@@ -164,6 +164,7 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    MONITORING = 'monitoring',
     RESOLVED = 'resolved',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.

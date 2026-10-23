@@ -6,9 +6,12 @@ capabilities. Celery wiring is re-exported from facade/tasks.py.
 
 from __future__ import annotations
 
+import uuid
 import datetime as dt
+from collections import defaultdict
 
 from django.core.exceptions import ValidationError
+from django.db.models import Count
 
 from posthog.models.team import Team
 
@@ -17,11 +20,13 @@ from products.aeo.backend.facade.contracts import (
     CitationGap,
     CitationRunSummary,
     Prompt,
+    PromptEngineCheck,
     PromptImport,
     PromptImportResult,
     PromptNotFoundError,
+    PromptTopic,
 )
-from products.aeo.backend.models import AEOPrompt
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
 
@@ -38,22 +43,35 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     return gaps.list_citation_gaps(team_id, since=since)
 
 
-def list_prompts(team_id: int, *, limit: int, offset: int) -> tuple[list[Prompt], int]:
-    """One page of the team's prompt set and the total count, paged in SQL."""
+def list_prompts(
+    team_id: int, *, limit: int, offset: int, topic: str | None = None, active: bool | None = None
+) -> tuple[list[Prompt], int]:
+    """One page of the team's prompt set and the total count, paged in SQL.
+    A topic of "" selects the prompts that have no topic."""
     prompts = AEOPrompt.objects.for_team(team_id)
-    page = prompts.order_by("topic", "-rank", "created_at", "id")[offset : offset + limit]
-    return [_to_prompt(p) for p in page], prompts.count()
+    if topic is not None:
+        prompts = prompts.filter(topic=topic)
+    if active is not None:
+        prompts = prompts.filter(active=active)
+    page = list(prompts.order_by("topic", "-rank", "created_at", "id")[offset : offset + limit])
+    latest_checks = _latest_checks(team_id, [prompt.id for prompt in page])
+    return [_to_prompt(prompt, latest_checks.get(prompt.id, ())) for prompt in page], prompts.count()
+
+
+def list_prompt_topics(team_id: int) -> list[PromptTopic]:
+    rows = AEOPrompt.objects.for_team(team_id).values("topic").annotate(prompts=Count("id")).order_by("topic")
+    return [PromptTopic(topic=row["topic"], prompts=row["prompts"]) for row in rows]
 
 
 def get_prompt(team_id: int, prompt_id: str) -> Prompt:
-    return _to_prompt(_get_prompt_row(team_id, prompt_id))
+    return _with_latest_checks(team_id, _get_prompt_row(team_id, prompt_id))
 
 
 def set_prompt_active(team_id: int, prompt_id: str, active: bool) -> Prompt:
     prompt = _get_prompt_row(team_id, prompt_id)
     prompt.active = active
     prompt.save(update_fields=["active", "updated_at"])
-    return _to_prompt(prompt)
+    return _with_latest_checks(team_id, prompt)
 
 
 def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportResult:
@@ -81,7 +99,34 @@ def _get_prompt_row(team_id: int, prompt_id: str) -> AEOPrompt:
         raise PromptNotFoundError(prompt_id) from error
 
 
-def _to_prompt(prompt: AEOPrompt) -> Prompt:
+def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[PromptEngineCheck, ...]]:
+    if not prompt_ids:
+        return {}
+    rows = (
+        AEOCitationCheck.objects.for_team(team_id)
+        .filter(prompt_id__in=prompt_ids)
+        .order_by("prompt_id", "engine", "-created_at")
+        .distinct("prompt_id", "engine")
+        .values("prompt_id", "engine", "cited", "check_failed", "created_at")
+    )
+    checks: dict[uuid.UUID, list[PromptEngineCheck]] = defaultdict(list)
+    for row in rows:
+        checks[row["prompt_id"]].append(
+            PromptEngineCheck(
+                engine=row["engine"],
+                cited=row["cited"],
+                check_failed=row["check_failed"],
+                checked_at=row["created_at"],
+            )
+        )
+    return {prompt_id: tuple(engine_checks) for prompt_id, engine_checks in checks.items()}
+
+
+def _with_latest_checks(team_id: int, prompt: AEOPrompt) -> Prompt:
+    return _to_prompt(prompt, _latest_checks(team_id, [prompt.id]).get(prompt.id, ()))
+
+
+def _to_prompt(prompt: AEOPrompt, latest_checks: tuple[PromptEngineCheck, ...]) -> Prompt:
     visibility = (prompt.evidence or {}).get("external_visibility")
     return Prompt(
         id=str(prompt.id),
@@ -94,4 +139,5 @@ def _to_prompt(prompt: AEOPrompt) -> Prompt:
         external_visibility=float(visibility) if isinstance(visibility, int | float) else None,
         created_at=prompt.created_at,
         updated_at=prompt.updated_at,
+        latest_checks=latest_checks,
     )

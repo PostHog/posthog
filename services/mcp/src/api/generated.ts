@@ -13,7 +13,20 @@ export namespace Schemas {
     /**
      *
      */
+    export interface AEOPromptEngineCheck {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** Whether the answer cited a URL on one of the target domains. */
+      cited: boolean;
+      /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
+      check_failed: boolean;
+      /** When the check ran. */
+      checked_at: string;
+    }
+
     export interface AEOPrompt {
+      /** The most recent check for each answer engine that ran the prompt. Empty when the prompt never ran. */
+      latest_checks: AEOPromptEngineCheck[];
       /** Prompt id. */
       id: string;
       /** The question asked to the answer engines, as a user would phrase it. */
@@ -81,6 +94,13 @@ export namespace Schemas {
       updated: number;
       /** Prompts that were empty or too long for the answer engines. */
       skipped: number;
+    }
+
+    export interface AEOPromptTopic {
+      /** Topic name. Empty for prompts that have no topic. */
+      topic: string;
+      /** How many prompts in the set have this topic. */
+      prompts: number;
     }
 
     export interface AIContextAccountProperty {
@@ -6831,6 +6851,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -6921,7 +6943,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7986,7 +8012,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8019,6 +8049,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8104,7 +8136,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8142,7 +8178,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -9070,7 +9110,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -9176,7 +9220,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -36753,6 +36801,54 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
+    export interface DevUserUsage {
+      /**
+         * PostHog user id. Null when no user has this distinct_id.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * The user's email. Null when no user has this distinct_id.
+         * @nullable
+         */
+      email: string | null;
+      /** distinct_id pinned on the user's tokens as $ai_user. */
+      distinct_id: string;
+      /** Tokens minted in the last 24 hours. */
+      tokens_minted_24h: number;
+      /** Tokens minted in the last 30 days. */
+      tokens_minted_30d: number;
+      /** Tokens that are neither revoked nor expired. */
+      live_tokens: number;
+      /** Tokens minted in the last 30 days that were revoked. */
+      revoked_30d: number;
+      /**
+         * Token caps minted in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      reserved_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 7 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_7d: string;
+      /**
+         * Settled gateway spend in the last 30 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_30d: string;
+      /**
+         * When the user last minted a token.
+         * @nullable
+         */
+      last_minted_at: string | null;
+    }
+
     /**
      * * `web` - Web
      * * `cli` - CLI
@@ -36764,6 +36860,43 @@ export namespace Schemas {
       Web: 'web',
       Cli: 'cli',
     } as const;
+
+    export interface DevTokenActivity {
+      /** When the action happened. */
+      at: string;
+      /** What happened to the token: minted or revoked. */
+      activity: string;
+      /**
+         * Who did it. Null when the user was deleted.
+         * @nullable
+         */
+      actor_email: string | null;
+      /**
+         * Whose token it is. Null when the token row is gone, e.g. a refused mint.
+         * @nullable
+         */
+      owner_email: string | null;
+      /** Where the token was minted.
+       *
+       * * `web` - Web
+       * * `cli` - CLI */
+      client: DevTokenClientEnum | null;
+      /**
+         * Most the token can spend, in USD.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string | null;
+    }
+
+    export interface DevTeamUsage {
+      /** Project whose wallet pays for developer mode tokens. */
+      paying_team_id: number;
+      /** One row per user with tokens or spend, highest spend first. */
+      users: DevUserUsage[];
+      /** Mints and revokes in the last 30 days, newest first, at most 1000. */
+      activity: DevTokenActivity[];
+    }
 
     /**
      * * `live` - Live
@@ -36810,6 +36943,12 @@ export namespace Schemas {
        * * `revoked` - Revoked
        * * `expired` - Expired */
       status: DevTokenStatusEnum;
+      /**
+         * Budget left on a live token, net of in-flight requests, in USD. Null when not live or unknown.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      remaining_usd: string | null;
     }
 
     export interface DevTokenRefusal {
@@ -36830,6 +36969,14 @@ export namespace Schemas {
     export interface DevTokenRevoked {
       /** How many tokens the gateway revoked. */
       revoked_count: number;
+    }
+
+    export interface DevTokenStatusRequest {
+      /**
+         * The phe_ bearer to look up. Only its sha256 is compared.
+         * @pattern ^phe_[A-Za-z0-9_-]{1,252}$
+         */
+      token: string;
     }
 
     export interface DevTokenUsage {
@@ -38581,6 +38728,7 @@ export namespace Schemas {
      * * `wontfix_intentional` - Won't fix - intentional behavior
      * * `wontfix_irrelevant` - Not relevant to this project
      * * `fixed_outside_posthog` - Fixed outside PostHog
+     * * `verified_manually` - Verified manually
      * * `no_action_needed` - No action needed
      * * `pr_merged` - PR was merged
      * * `other` - Something else…
@@ -38597,6 +38745,7 @@ export namespace Schemas {
       WontfixIntentional: 'wontfix_intentional',
       WontfixIrrelevant: 'wontfix_irrelevant',
       FixedOutsidePosthog: 'fixed_outside_posthog',
+      VerifiedManually: 'verified_manually',
       NoActionNeeded: 'no_action_needed',
       PrMerged: 'pr_merged',
       Other: 'other',
@@ -88127,6 +88276,8 @@ export namespace Schemas {
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host?: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -93569,6 +93720,8 @@ export namespace Schemas {
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -96711,7 +96864,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -96744,6 +96901,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -96829,7 +96988,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -96856,7 +97019,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97260,7 +97427,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97293,6 +97464,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97378,7 +97551,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -97405,7 +97582,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -106514,6 +106695,7 @@ export namespace Schemas {
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
+     * * `monitoring` - monitoring
      */
     export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
@@ -106522,16 +106704,18 @@ export namespace Schemas {
       Suppressed: 'suppressed',
       Potential: 'potential',
       Resolved: 'resolved',
+      Monitoring: 'monitoring',
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
-       * * `resolved` - resolved */
+       * * `resolved` - resolved
+       * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -106541,6 +106725,7 @@ export namespace Schemas {
        * * `wontfix_intentional` - Won't fix - intentional behavior
        * * `wontfix_irrelevant` - Not relevant to this project
        * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `verified_manually` - Verified manually
        * * `no_action_needed` - No action needed
        * * `pr_merged` - PR was merged
        * * `other` - Something else… */
@@ -106876,13 +107061,14 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
-       * * `resolved` - resolved */
+       * * `resolved` - resolved
+       * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -106892,6 +107078,7 @@ export namespace Schemas {
        * * `wontfix_intentional` - Won't fix - intentional behavior
        * * `wontfix_irrelevant` - Not relevant to this project
        * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `verified_manually` - Verified manually
        * * `no_action_needed` - No action needed
        * * `pr_merged` - PR was merged
        * * `other` - Something else… */
@@ -125429,6 +125616,11 @@ export namespace Schemas {
 
     export type AeoPromptsListParams = {
     /**
+     * Only list prompts that are on (true) or off (false). Omit to list both.
+     * @nullable
+     */
+    active?: boolean | null;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -125436,6 +125628,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only list prompts with this topic. An empty value lists the prompts that have no topic.
+     * @maxLength 200
+     */
+    topic?: string;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {

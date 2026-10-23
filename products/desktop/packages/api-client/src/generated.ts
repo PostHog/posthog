@@ -3525,6 +3525,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -3608,9 +3609,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6742,9 +6745,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6775,6 +6780,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6853,9 +6859,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6888,9 +6896,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7815,9 +7825,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7919,9 +7931,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -20472,6 +20486,10 @@ export namespace Schemas {
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
+        /**
+         * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
+         */
+        api_host: string;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
