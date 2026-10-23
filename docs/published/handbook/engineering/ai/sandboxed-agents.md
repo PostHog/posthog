@@ -504,7 +504,9 @@ that landed since the last bake. The snapshot clones the migrated Postgres datab
 `test_posthog`, so pytest's default `--reuse-db` path also applies only newer migrations.
 The pnpm store and Playwright's Chromium are prewarmed too:
 `pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
-are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
+are no-ops. The image also has `ffmpeg`, because the lean VM base ships no codec tooling,
+and the CI-pinned `semgrep`, `actionlint` and `shellcheck`, so agents can run the repo's lint gates before they push.
+Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
 not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
 from the task's own source. The bake must run on the real VM runtime —
 dockerd cannot run inside Modal's gVisor image builder — which is why it is a sandbox filesystem

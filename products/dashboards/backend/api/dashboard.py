@@ -54,18 +54,20 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
+from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
-    check_can_add_insight_to_shared_dashboard,
+    check_can_add_insight_to_dashboard,
     dashboard_filter_leaves,
+    dashboard_shared_or_subscribed,
     is_publicly_shared,
 )
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.constants import GENERATED_DASHBOARD_PREFIX
+from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -2115,6 +2117,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:
+            self._check_restored_tiles_access(
+                instance, cast(User, self.context["request"].user), self.context["view"].user_access_control
+            )
             self._undo_delete_related_tiles(instance)
 
         being_deleted = not instance.deleted and validated_data.get("deleted", False)
@@ -2477,7 +2482,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         insight = existing.insight
         if became_live and insight is not None:
-            check_can_add_insight_to_shared_dashboard(user, instance, insight.query)
+            check_can_add_insight_to_dashboard(user, instance, insight.query)
 
         marking_changed = any(
             getattr(existing, field) != tile_defaults[field]
@@ -2702,6 +2707,35 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 DashboardSerializer._sync_filesystem_for_insights(insight_ids_to_delete, instance.team_id)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
+
+    @staticmethod
+    def _check_restored_tiles_access(instance: Dashboard, user: User, user_access_control: UserAccessControl) -> None:
+        """A dashboard restore brings every tile back without a tile write, so the check that
+        gates a single tile restore runs here, once over every insight the restore shows again.
+        An insight can be edited while its dashboard is deleted, so its query may have changed
+        since. The exposure is decided once and the queries compile against one schema, so a
+        restore costs one check rather than one per tile."""
+        if not instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return
+        if user_access_control.is_organization_admin:
+            return
+        exposure = dashboard_shared_or_subscribed(instance)
+        if exposure is None:
+            return
+        queries = [
+            query
+            for query in Insight.objects_including_soft_deleted.filter(
+                dashboard_tiles__dashboard_id=instance.id, dashboard_tiles__deleted=True
+            )
+            .distinct()
+            .values_list("query", flat=True)
+            if isinstance(query, dict)
+        ]
+        if blocked := blocked_access_for_user(user, instance.team, queries):
+            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            raise serializers.ValidationError(
+                f"Can't restore this dashboard: you don't have access to {blocked_list}, and this dashboard is {exposure}."
+            )
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
@@ -3338,7 +3372,7 @@ class DashboardsViewSet(
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
         if tile.insight is not None:
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
             )
         try:
@@ -3418,7 +3452,7 @@ class DashboardsViewSet(
                 raise exceptions.ValidationError("This insight is already on the destination dashboard.")
 
             # The destination's public link must not expose a query the editor can't run.
-            check_can_add_insight_to_shared_dashboard(
+            check_can_add_insight_to_dashboard(
                 cast(User, request.user), destination, tile.insight.query, user_access_control
             )
         elif tile.text is not None:

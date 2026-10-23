@@ -1513,6 +1513,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response(None, 304)
 
         read_source, source_props = classify_request_source(request)
+        if read_source == NotebookCreationSource.UI and instance.visibility == Notebook.Visibility.UNLISTED:
+            instance.visibility = Notebook.Visibility.DEFAULT
+            instance.save(update_fields=["visibility"])
         if read_source != NotebookCreationSource.UI:
             # Browser opens are the client-side `notebook opened` event; only count programmatic
             # (MCP / API) reads here so agent traffic doesn't inflate the human revisit numbers.

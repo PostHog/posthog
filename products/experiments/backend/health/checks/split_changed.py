@@ -27,20 +27,17 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     not_checked_finding,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
-from products.experiments.backend.health.context import (
-    FlagHistory,
-    FlagHistoryNotChecked,
-    FlagState,
-    HealthContext,
-    SplitChange,
-)
+from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, FlagState, HealthContext
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     SplitNetEffect,
-    added_variant_keys,
     describe_split,
     format_change_time,
     net_effect,
+)
+from products.feature_flags.backend.facade.edits import (
+    SplitChange,
+    added_variant_keys,
     removed_variant_keys,
     rolled_out_variant_key,
     zeroed_variant_keys,

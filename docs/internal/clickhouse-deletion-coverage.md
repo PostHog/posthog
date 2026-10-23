@@ -238,7 +238,7 @@ A flag row whose event the predicate does not name keeps its events copy and sta
 A row with no events copy needs the predicate itself.
 An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, and a deletion that skipped the table can leave a flag row whose event is gone.
 `DeletionTarget.uncopied_rows_hogql_table` names the HogQL table that compiles the predicate for those rows, `posthog.flag_evaluations` here.
-The compile adds that table even when the org flag hides it from queries.
+The compile adds that table even when the org's mode hides it from queries.
 The queue fill reads the uuids of the rows with no copy in `sharded_events` that the compiled predicate matches, shard-locally and in 7-day windows, and queues them with the rest.
 A row read this way already existed when its uuid was queued, so the drain's `inserted_at` bound cannot skip it.
 The check for an events copy reads `sharded_events` only.

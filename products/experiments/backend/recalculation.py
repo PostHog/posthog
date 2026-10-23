@@ -22,7 +22,7 @@ from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -61,6 +61,7 @@ _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
 RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
+RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG = "experiment-recalculation-clickhouse-user"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -345,6 +346,16 @@ def _activity_task_queue(organization_id: str) -> str | None:
         capture_exception(e)
         return None
     return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
+
+
+def recalculation_clickhouse_user(organization_id: str) -> ClickHouseUser | None:
+    # None keeps today's routing, also on a flag error, because that routing always works.
+    try:
+        enabled = _organization_flag_enabled(RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG, organization_id)
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return ClickHouseUser.EXPERIMENTS if enabled else None
 
 
 def _refresh_window_enforced(experiment: Experiment) -> bool:

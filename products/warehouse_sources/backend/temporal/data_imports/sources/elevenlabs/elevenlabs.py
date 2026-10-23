@@ -201,6 +201,12 @@ def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
     }
 
 
+_INVALID_API_KEY_MESSAGE = (
+    "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
+    "ElevenLabs account settings, then try again."
+)
+
+
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     """Probe the API key. 200 => valid. 401 => invalid key. 403 => valid key missing a scope.
 
@@ -233,11 +239,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     if status == 200:
         return True, None
     if status == 401:
-        return (
-            False,
-            "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
-            "ElevenLabs account settings, then try again.",
-        )
+        return False, _INVALID_API_KEY_MESSAGE
     if status == 403:
         if schema_name is None:
             return True, None
@@ -246,7 +248,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     # error: the key was rejected and retrying sends the same request, so treat it as an invalid key
     # rather than a transient "try again". 429 is a rate limit and stays retryable below.
     if 400 <= status < 500 and status != 429:
-        return False, "Invalid ElevenLabs API key"
+        return False, _INVALID_API_KEY_MESSAGE
     # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
     # can retry, rather than saving a source that only fails on its first sync.
     return False, f"Could not verify the ElevenLabs API key (status {status}). Please try again."

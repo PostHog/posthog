@@ -204,15 +204,17 @@ class TestConnect:
         host becomes reachable, then complete the connection."""
         attempts = {"n": 0}
 
-        def reachability_result(*_args, **_kwargs):
+        def resolution_result(*_args, **_kwargs):
             attempts["n"] += 1
             if attempts["n"] < 3:
                 raise socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
-            return MagicMock()
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("8.8.8.8", 443))]
 
-        with patch(
-            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
-            side_effect=reachability_result,
+        with (
+            patch("socket.getaddrinfo", side_effect=resolution_result),
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            ),
         ):
             async with client.connect():
                 pass
@@ -237,19 +239,16 @@ class TestConnect:
     ):
         """A hostname that does not exist is a config error, so we should fail fast with a targeted
         message instead of backing off for minutes."""
-        create_connection_mock = MagicMock(side_effect=socket.gaierror(errno, "Name or service not known"))
+        getaddrinfo_mock = MagicMock(side_effect=socket.gaierror(errno, "Name or service not known"))
 
         with (
-            patch(
-                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
-                new=create_connection_mock,
-            ),
+            patch("socket.getaddrinfo", new=getaddrinfo_mock),
             pytest.raises(DatabricksConnectionError, match=expected_match),
         ):
             async with client.connect():
                 pass
 
-        assert create_connection_mock.call_count == 1
+        assert getaddrinfo_mock.call_count == 1
         mock_sql_connect.sql_connect.assert_not_called()
 
     async def test_does_not_retry_invalid_credentials(
@@ -267,6 +266,60 @@ class TestConnect:
                 pass
 
         assert mock_sql_connect.sql_connect.call_count == 1
+
+    async def test_probe_connects_to_the_address_it_checked(
+        self, client: DatabricksClient, settings, mock_sql_connect: MockDatabricksSqlConnect
+    ):
+        settings.FORCE_URL_VALIDATION = True
+        client.server_hostname = "dbc.example.com"
+        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("8.8.8.8", 443))]
+
+        with (
+            patch("socket.getaddrinfo", return_value=addrinfo),
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            ) as create_connection_mock,
+        ):
+            async with client.connect():
+                pass
+
+        create_connection_mock.assert_called_once_with(("8.8.8.8", 443), timeout=client.connect_timeout_seconds)
+        mock_sql_connect.sql_connect.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "addresses",
+        [
+            ["127.0.0.1"],
+            ["169.254.169.254"],
+            ["8.8.8.8", "10.0.0.5"],
+        ],
+    )
+    async def test_probe_refuses_a_host_that_resolves_internal(
+        self,
+        client: DatabricksClient,
+        settings,
+        fast_backoff,
+        mock_sql_connect: MockDatabricksSqlConnect,
+        addresses: list[str],
+    ):
+        settings.FORCE_URL_VALIDATION = True
+        client.server_hostname = "dbc.example.com"
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 443)) for address in addresses
+        ]
+
+        with (
+            patch("socket.getaddrinfo", return_value=addrinfo),
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            ) as create_connection_mock,
+            pytest.raises(DatabricksConnectionError, match="Could not reach this host"),
+        ):
+            async with client.connect():
+                pass
+
+        create_connection_mock.assert_not_called()
+        mock_sql_connect.sql_connect.assert_not_called()
 
 
 class TestQueryBuilders:

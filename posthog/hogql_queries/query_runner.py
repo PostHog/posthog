@@ -1659,6 +1659,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "AccountUsersQuery":
+        from products.customer_analytics.backend.facade.queries import AccountUsersQueryRunner
+
+        return AccountUsersQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "AccountsTableQuery":
         from products.customer_analytics.backend.facade.queries import AccountsTableQueryRunner
 
@@ -3444,7 +3456,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def single_flight_variant(self) -> str:
         """Separates single flights of runs that share a cache key but not their limits or results.
         Runners add any input that changes either without reaching the cache key."""
-        return self.workload.value
+        # Each ClickHouse user has its own concurrency limit, and a leader that its user's limit
+        # refuses or cancels leaves a follower from another user nothing to serve. The runner's own
+        # user wins over the tagged one, as it does when the query executes.
+        ch_user = self.ch_user.value if self.ch_user != ClickHouseUser.DEFAULT else get_query_tag_value("ch_user")
+        return self.workload.value if ch_user is None else f"{self.workload.value}:ch_user={ch_user}"
 
     def requires_fresh_calculation(self) -> bool:
         """Runners whose results reflect live, mutable state that must never be served stale

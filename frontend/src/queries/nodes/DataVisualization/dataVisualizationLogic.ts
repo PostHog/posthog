@@ -1993,6 +1993,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             const rules = values.conditionalFormattingRules
             const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
 
+            if (values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('conditional_formatting_updated', values.query.config, {
+                    rule_count: saveableRules.length,
+                })
+            }
+
             actions.setQuery((query) => ({
                 ...query,
                 tableSettings: {
@@ -2012,6 +2018,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         },
     })),
     listeners(({ props, values, actions, sharedListeners }) => ({
+        setSideBarTab: ({ tab }) => {
+            if (tab === SideBarTab.ConditionalFormatting && values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('conditional_formatting_opened', values.query.config)
+            }
+        },
         loadHogVm: async () => {
             try {
                 actions.setHogVm(await retryImport(() => import('lib/hog')))

@@ -52,6 +52,7 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.file_uploads import HostedUpload, parse_hosted_upload
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -560,6 +561,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def csv_allow_double_quotes(self) -> bool | None:
         return self.options.get("csv_allow_double_quotes")
 
+    @property
+    def hosted_upload(self) -> HostedUpload | None:
+        """The file this team uploaded that a credential-less table reads in place, if it reads one."""
+        if self.credential_id is not None:
+            return None
+        return parse_hosted_upload(self.team_id, self.url_pattern or "")
+
     def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
         """Make a self-managed table one that `source` syncs. Returns the fields this changed.
 
@@ -574,13 +582,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
         return ["external_data_source", "credential", "options"]
 
-    def soft_delete(self):
+    def soft_delete(self, *, delete_joins: bool = True):
         from products.data_tools.backend.models.join import DataWarehouseJoin
 
-        for join in DataWarehouseJoin.objects.filter(
-            Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
-        ).exclude(deleted=True):
-            join.soft_delete()
+        if delete_joins:
+            for join in DataWarehouseJoin.objects.filter(
+                Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
+            ).exclude(deleted=True):
+                join.soft_delete()
 
         self.deleted = True
         self.deleted_at = timezone.now()

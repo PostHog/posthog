@@ -3075,6 +3075,8 @@ class SignalReportViewSet(
                 "organization_id": str(self.organization.id),
                 "report_id": result.survivor_id,
                 "actor_kind": attribution.kind,
+                "task_id": attribution.task_id,
+                "scout_skill_name": result.scout_skill_name,
                 "source_count": len(result.sources),
                 "released_claim_count": sum(1 for source in result.sources if source.released_claim),
                 "signals_moved": sum(source.signals_moved for source in result.sources),

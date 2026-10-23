@@ -3,11 +3,11 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Count, Min, Q
 from django.utils import timezone
 
 import dagster
@@ -29,6 +29,7 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
+from posthog.dags.common.deletion_run_log import record_run, record_run_failed, record_run_succeeded
 from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
@@ -37,7 +38,7 @@ from posthog.dags.common.staged_dictionary import (
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dataclasses import frozen
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     DEFAULT_DELETION_TARGETS,
@@ -469,8 +470,37 @@ def _targets_named(data_tables: Sequence[str]) -> tuple[DeletionTarget, ...]:
     return tuple(target for target in PERSONAL_DATA_TARGETS if target.data_table in wanted)
 
 
+# How long a person deletion waits for squash when nothing is wrong: squash runs weekly with a
+# cutoff two days before it starts.
+EXPECTED_PERSON_DELETION_DELAY = timedelta(days=9)
+WATERMARK_HOLDERS_LIMIT = 20
+
+
+def _as_utc(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _watermark_holders(cluster: ClickhouseCluster, older_than: datetime) -> list[dict[str, str | int]]:
+    query = Query(
+        f"""
+        SELECT team_id, count() AS rows, min(_timestamp) AS oldest
+        FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
+        WHERE _timestamp < %(older_than)s
+        GROUP BY team_id
+        ORDER BY oldest
+        LIMIT {WATERMARK_HOLDERS_LIMIT}
+        """,
+        {"older_than": older_than.astimezone(UTC).replace(tzinfo=None)},
+    )
+    return [
+        {"team_id": team_id, "rows": rows, "oldest": _as_utc(oldest).isoformat()}
+        for team_id, rows, oldest in cluster.any_host_by_role(query, NodeRole.DATA).result()
+    ]
+
+
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def get_oldest_person_override_timestamp(
+    context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> datetime:
     """Get the oldest person override timestamp from the person_distinct_id_overrides table."""
@@ -479,6 +509,14 @@ def get_oldest_person_override_timestamp(
     SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
     """
     [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.DATA).result()
+
+    # The holders only explain the watermark to staff, so a failed lookup must not stop the deletes.
+    try:
+        holders = _watermark_holders(cluster, timezone.now() - EXPECTED_PERSON_DELETION_DELAY)
+    except Exception as error:
+        context.log.warning(f"Could not list the teams that hold the watermark back: {error}")
+        holders = []
+    record_run(context, DeletionRunJob.DELETES, watermark=_as_utc(result), watermark_holders=holders)
     return result
 
 
@@ -518,6 +556,7 @@ def load_pending_deletions(
     )
     if create_pending_deletions_table.team_id:
         pending_deletions = pending_deletions.filter(team_id=create_pending_deletions_table.team_id)
+    _record_loaded_and_skipped(context, create_pending_deletions_table)
 
     # Process and insert in chunks
     total_rows = 0
@@ -550,6 +589,30 @@ def load_pending_deletions(
         }
     )
     return create_pending_deletions_table
+
+
+def _record_loaded_and_skipped(context: dagster.OpExecutionContext, table: PendingDeletesTable) -> None:
+    unverified = AsyncDeletion.objects.filter(delete_verified_at__isnull=True)
+    if table.team_id:
+        unverified = unverified.filter(team_id=table.team_id)
+    loaded = unverified.filter(
+        Q(deletion_type=DeletionType.Person, created_at__lte=table.timestamp)
+        | Q(deletion_type__in=[DeletionType.Team, DeletionType.Event])
+    )
+    skipped = unverified.filter(deletion_type=DeletionType.Person, created_at__gt=table.timestamp).aggregate(
+        count=Count("id"), oldest=Min("created_at")
+    )
+    record_run(
+        context,
+        DeletionRunJob.DELETES,
+        limited_to_team_id=table.team_id,
+        loaded_counts={
+            DeletionType(row["deletion_type"]).label: row["count"]
+            for row in loaded.values("deletion_type").annotate(count=Count("id")).order_by()
+        },
+        skipped_person_deletions=skipped["count"],
+        oldest_skipped_created_at=skipped["oldest"],
+    )
 
 
 @dagster.op
@@ -1158,14 +1221,25 @@ def cleanup_delete_assets(
     return True
 
 
+@dagster.op
+def record_deletes_run_succeeded(context: dagster.OpExecutionContext, cleaned_up: bool) -> None:
+    record_run_succeeded(context, DeletionRunJob.DELETES)
+
+
+@dagster.failure_hook
+def record_deletes_run_failure(context: dagster.HookContext) -> None:
+    record_run_failed(context, DeletionRunJob.DELETES)
+
+
 @dagster.job(
+    hooks={record_deletes_run_failure},
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
         # For a run-queue limit of 1 in Dagster deployment settings, so a second run queues
         # instead of racing the guard; clickhouse_deletion_sweep_concurrency is the matched
         # example. ensure_no_concurrent_deletes_run enforces mutual exclusion regardless.
         "deletes_job_concurrency": "v1",
-    }
+    },
 )
 def deletes_job():
     """Job that handles deletion of events."""
@@ -1207,7 +1281,7 @@ def deletes_job():
     )
 
     # Clean up
-    cleanup_delete_assets(swept_targets, verified_deletion_resources)
+    record_deletes_run_succeeded(cleanup_delete_assets(swept_targets, verified_deletion_resources))
 
 
 # What every sensor-launched deletes_job run carries. retry_max_attempts is raised because

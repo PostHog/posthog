@@ -8,10 +8,8 @@ from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
-from products.experiments.backend.health.condition_changes import parse_release_conditions
 from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
 from products.experiments.backend.health.context import (
-    ConditionsChange,
     ConditionSetTraffic,
     FlagHistory,
     FlagHistoryNotChecked,
@@ -26,6 +24,7 @@ from products.experiments.backend.health.test.factories import (
     Status,
     flag_history,
 )
+from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
 EVEN_SPLIT = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 SHIPPED_SPLIT = [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]

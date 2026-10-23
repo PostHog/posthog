@@ -16,6 +16,47 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ActivitySummaryGetSchema = () => z.object({})
+
+const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSchema>, Schemas.ActivitySummary> => ({
+    name: 'activity-summary-get',
+    schema: ActivitySummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ActivitySummaryGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary/`,
+        })
+        return result
+    },
+})
+
+const ActivitySummaryVersionsListSchema = () => {
+    const SignalsActivitySummaryVersionsRetrieveQueryParams =
+        orvalSchemas.SignalsActivitySummaryVersionsRetrieveQueryParams()
+    return SignalsActivitySummaryVersionsRetrieveQueryParams
+}
+
+const activitySummaryVersionsList = (): ToolBase<
+    ReturnType<typeof ActivitySummaryVersionsListSchema>,
+    Schemas.ActivitySummaryVersion[]
+> => ({
+    name: 'activity-summary-versions-list',
+    schema: ActivitySummaryVersionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ActivitySummaryVersionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummaryVersion[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary/versions/`,
+            query: {
+                limit: params.limit,
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
 const InboxReportActionsListSchema = () => {
     const SignalsReportsActionsListParams = orvalSchemas.SignalsReportsActionsListParams()
     return z.preprocess(
@@ -3226,6 +3267,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'activity-summary-get': activitySummaryGet,
+    'activity-summary-versions-list': activitySummaryVersionsList,
     'inbox-report-actions-list': inboxReportActionsList,
     'inbox-report-actions-run': inboxReportActionsRun,
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,

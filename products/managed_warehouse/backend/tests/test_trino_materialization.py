@@ -29,7 +29,11 @@ from products.managed_warehouse.backend.models import (
     ManagedWarehouseViewTranslationResult,
 )
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
-from products.managed_warehouse.backend.trino_materialization import DuplicateUniqueKeyError
+from products.managed_warehouse.backend.trino_execution import TrinoQueryControl
+from products.managed_warehouse.backend.trino_materialization import (
+    DuplicateUniqueKeyError,
+    execute_trino_shadow_materialization as execute_trino_model_statements,
+)
 from products.managed_warehouse.backend.view_translation_status import source_query_hash
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -377,7 +381,16 @@ class TestTrinoShadowMaterialization(BaseTest):
 class _ScriptedCursor:
     """Answers each statement by its leading words, and records every statement it ran."""
 
-    def __init__(self, *, table_exists: bool, staged: int, duplicate: bool = False, max_key: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        table_exists: bool,
+        staged: int,
+        duplicate: bool = False,
+        max_key: Any = None,
+        processed_bytes: int = 0,
+        unreachable_from: str | None = None,
+    ) -> None:
         self.table_exists = table_exists
         self.staged = staged
         self.duplicate = duplicate
@@ -385,11 +398,17 @@ class _ScriptedCursor:
         self.statements: list[tuple[str, Any]] = []
         self.rowcount = -1
         self.description: list[tuple[str]] | None = None
+        self.processed_bytes = processed_bytes
+        self.unreachable_from = unreachable_from
+        self.stats: dict[str, Any] | None = None
         self._rows: list[tuple[Any, ...]] = []
 
     def execute(self, statement: str, parameters: Any = None) -> None:
+        if self.unreachable_from and statement.startswith(self.unreachable_from):
+            raise ConnectionError("coordinator unreachable")
         self.statements.append((statement, parameters))
         self.rowcount, self._rows = -1, []
+        self.stats = {"processedBytes": self.processed_bytes}
         if "information_schema.tables" in statement:
             self._rows = [(1,)] if self.table_exists else []
         elif statement.startswith("CREATE OR REPLACE TABLE"):
@@ -416,7 +435,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
     since = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
 
     def run_build(
-        self, cursor: _ScriptedCursor, since: Any
+        self, cursor: _ScriptedCursor, since: Any, control: TrinoQueryControl | None = None
     ) -> tuple[DuckLakeTableResult | Exception, list[str], list[Any]]:
         compiled = TrinoCompiledQuery(sql="SELECT id, ts FROM orders", values={})
         connection = MagicMock(catalog="cat")
@@ -432,12 +451,13 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         ):
             connect.return_value.__enter__.return_value = connection
             try:
-                result: DuckLakeTableResult | Exception = execute_trino_shadow_materialization(
+                result: DuckLakeTableResult | Exception = execute_trino_model_statements(
                     organization_id=str(self.organization.pk),
                     team_id=self.team.pk,
                     saved_query_id=self.saved_query_id,
                     source_query=self.query,
                     incremental=TrinoIncrementalWrite(incremental_key="ts", unique_key=("id",), since=since),
+                    control=control,
                 )
             except Exception as error:
                 result = error
@@ -497,3 +517,28 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         assert f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders" in statements
         assert not any("__ph_incremental_stage" in statement for statement in statements)
         assert statements[-1] == f'SELECT max("ts") FROM {table}'
+
+    @parameterized.expand(
+        [
+            # Schema, table check, stage build, duplicate check, column read, merge and watermark read.
+            ("merge_succeeds", False, 7),
+            # The run stops at the duplicate check, and its statements still count.
+            ("duplicate_keys_fail_the_merge", True, 4),
+        ]
+    )
+    def test_reports_bytes_processed_by_every_statement(self, _name: str, duplicate: bool, statements: int) -> None:
+        processed: list[int] = []
+        cursor = _ScriptedCursor(table_exists=True, staged=3, duplicate=duplicate, processed_bytes=100)
+
+        self.run_build(cursor, self.since, TrinoQueryControl(on_processed_bytes=processed.append))
+
+        assert processed == [100] * statements
+
+    def test_a_statement_that_never_starts_does_not_recount_the_previous_one(self) -> None:
+        processed: list[int] = []
+        cursor = _ScriptedCursor(table_exists=True, staged=3, processed_bytes=100, unreachable_from="MERGE")
+
+        result, _, _ = self.run_build(cursor, self.since, TrinoQueryControl(on_processed_bytes=processed.append))
+
+        assert isinstance(result, ConnectionError)
+        assert processed == [100] * 5

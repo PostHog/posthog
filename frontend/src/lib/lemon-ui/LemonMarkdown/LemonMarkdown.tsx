@@ -224,7 +224,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     </code>
                 )
             },
-            table: ({ children }: any): JSX.Element => <table className="LemonMarkdown__table">{children}</table>,
             pre: ({ children }: any): JSX.Element => {
                 // In v9, block code renders as <pre><code>. We handle rendering
                 // in the code component, so just pass children through.
@@ -264,6 +263,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                       },
                   }
                 : {}),
+            table: ({ node, ...props }: any): JSX.Element => (
+                <div className="LemonMarkdown__table-wrapper">
+                    <table {...props} className="LemonMarkdown__table" />
+                </div>
+            ),
             span: ({ className, ...props }: any): JSX.Element => {
                 if (className === 'ph-mention') {
                     return <RichContentMention id={Number(props['data-mention-id'])} />
