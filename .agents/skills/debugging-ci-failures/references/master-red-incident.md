@@ -61,11 +61,12 @@ The alerter reads Depot when it opens the incident, so the alert identifies the 
 
 Depot posts a check for each job on the master commit that the run tested.
 Those checks give each job's conclusion and times, with no log text.
-Several hourly runs can test one commit, so keep the checks whose `details_url` holds the workflow ID from the alert's URL:
+Several hourly runs can test one commit, so the command keeps the checks whose `details_url` holds the workflow ID from the alert's URL.
+Depot posts these checks from more than one GitHub app, so do not filter them by app:
 
 ```bash
-gh api "repos/PostHog/posthog/commits/<sha>/check-runs?app_id=219785&filter=all&per_page=100" --paginate \
-  --jq '.check_runs[] | select(.conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at, details_url}'
+gh api "repos/PostHog/posthog/commits/<sha>/check-runs?filter=all&per_page=100" --paginate \
+  --jq '.check_runs[] | select(((.details_url // "") | contains("/workflows/<workflow-id>")) and .conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at, details_url}'
 ```
 
 The logs are in the warehouse once it has synced Depot, which can trail the run by hours.
@@ -81,11 +82,12 @@ With rows, pass that `run_id` and `"ci_engine": "depot_ci"` to the failure-log c
 It returns failed jobs only, so a job that Depot cancelled at its timeout is not in the answer.
 The failed gate job prints a `Failing backend & product tests` table.
 
-This query lists the gate checks of the hourly runs on the newest 100 master commits, newest first:
+This query lists the gate checks of the hourly runs on the newest 100 master commits, newest first.
+GraphQL filters check suites only by app, so the query reads every app in the `depot-ci` skill's [Which app posts a Depot check](../../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check) table. Keep the two in step.
 
 ```bash
-gh api graphql -f query='{repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:100){nodes{oid checkSuites(first:5,filterBy:{appId:219785}){nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}}}}}}}}}' \
-  --jq '[.data.repository.ref.target.history.nodes[] | {headSha: .oid} + (.checkSuites.nodes[].checkRuns.nodes[])] | sort_by(.startedAt) | reverse'
+gh api graphql -f query='fragment gate on CheckSuiteConnection{nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}} {repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:100){nodes{oid checks:checkSuites(first:5,filterBy:{appId:4964980}){...gate} checks2:checkSuites(first:5,filterBy:{appId:4968192}){...gate} codeAccess:checkSuites(first:5,filterBy:{appId:219785}){...gate}}}}}}}}' \
+  --jq '[.data.repository.ref.target.history.nodes[] | {headSha: .oid} + ((.checks.nodes + .checks2.nodes + .codeAccess.nodes)[].checkRuns.nodes[])] | sort_by(.startedAt) | reverse'
 ```
 
 The alerted run's gate check has the workflow ID from the alert's URL in its `detailsUrl`.
