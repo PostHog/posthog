@@ -17,7 +17,7 @@ import {
 import { LemonMenuItem, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isAccessDeniedError, readableErrorMessage } from 'lib/api-error'
+import { ApiError, isAccessDeniedError, readableErrorMessage } from 'lib/api-error'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -96,6 +96,24 @@ export interface RenameViewState {
     nameError?: string
     submitError?: string
     isSaving: boolean
+}
+
+function getRenameViewNameError(error: unknown): string | undefined {
+    if (!(error instanceof ApiError)) {
+        return undefined
+    }
+
+    const fieldErrors: unknown[] = Array.isArray(error.data?.errors) ? error.data.errors : []
+    const nameError = fieldErrors.find(
+        (fieldError): fieldError is { attr: string; detail: string } =>
+            typeof fieldError === 'object' &&
+            fieldError !== null &&
+            'attr' in fieldError &&
+            fieldError.attr === 'name' &&
+            'detail' in fieldError &&
+            typeof fieldError.detail === 'string'
+    )
+    return nameError?.detail ?? (error.attr === 'name' && error.detail ? error.detail : undefined)
 }
 
 export interface FuseSearchMatch {
@@ -2680,7 +2698,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 lemonToast.success('View renamed')
                 actions.closeRenameView()
             } catch (error) {
-                actions.setRenameViewSubmitError(readableErrorMessage(error) ?? 'Could not rename the view. Try again.')
+                const nameError = getRenameViewNameError(error)
+                if (nameError) {
+                    actions.setRenameViewNameError(nameError)
+                } else {
+                    actions.setRenameViewSubmitError(
+                        readableErrorMessage(error) ?? 'Could not rename the view. Try again.'
+                    )
+                }
             } finally {
                 actions.setRenameViewSaving(false)
             }

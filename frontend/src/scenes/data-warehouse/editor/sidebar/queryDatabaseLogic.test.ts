@@ -9,6 +9,7 @@ import {
 } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { propertyDefinitionsList } from '~/generated/core/api'
+import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -159,6 +160,44 @@ describe('queryDatabaseLogic', () => {
         expect(logic.values.renameView?.nameError).toBe(
             'A table or view with this name already exists. Choose a different name.'
         )
+        logic.unmount()
+    })
+
+    it('shows a structured name validation error on the rename field', async () => {
+        const nameError = 'This name is already in use.'
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
+                '/api/projects/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+            },
+            patch: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/': [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'invalid_input',
+                        detail: 'Invalid input.',
+                        attr: null,
+                        errors: [{ code: 'invalid', detail: nameError, attr: 'name' }],
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+
+        await expectLogic(viewsLogic, () => {
+            logic.actions.openRenameView({ id: 'view-1', name: 'orders_by_day' })
+        }).toDispatchActions(['loadDataWarehouseSavedQueryDownstreamReferencesSuccess'])
+
+        logic.actions.setRenameViewName('orders_by_week')
+        await expectLogic(logic, () => {
+            logic.actions.submitRenameView()
+        }).toFinishAllListeners()
+
+        expect(logic.values.renameView).toMatchObject({ nameError, submitError: undefined })
         logic.unmount()
     })
 
