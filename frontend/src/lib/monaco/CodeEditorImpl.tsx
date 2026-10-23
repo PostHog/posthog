@@ -194,11 +194,13 @@ export function CodeEditor({
     // diff (original editor, diff widget, decorations, view zones).
     const diffEditorRef = useRef<importedEditor.IStandaloneDiffEditor | null>(null)
 
+    // Re-applied when the baseline changes too: swapping the original model resets the option on
+    // the sub-editor, which would bring the second gutter back after a save.
     useEffect(() => {
         diffEditorRef.current
             ?.getOriginalEditor()
             .updateOptions({ lineNumbers: hideOriginalLineNumbers ? 'off' : 'on' })
-    }, [hideOriginalLineNumbers, monacoAndEditor])
+    }, [hideOriginalLineNumbers, monacoAndEditor, originalValue])
 
     const vimModeRef = useRef<{ dispose: () => void } | null>(null)
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
