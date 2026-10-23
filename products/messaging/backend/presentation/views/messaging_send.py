@@ -31,7 +31,11 @@ from products.messaging.backend.facade.transactional_email import (
     code_send_from,
     rendered_content,
 )
-from products.messaging.backend.presentation.views.send_email_attachments import attachments_field
+from products.messaging.backend.presentation.views.send_email_attachments import (
+    MAX_ATTACHMENTS,
+    MAX_ATTACHMENTS_BYTES,
+    attachments_field,
+)
 from products.messaging.backend.presentation.views.send_email_fields import (
     MAX_COPIES,
     MAX_HEADER_VALUE_LENGTH,
@@ -264,6 +268,9 @@ SEND_FIELD_WHY = {
     "other standard headers itself, so you can't set them here.",
     "tags": f"`tags` holds up to {MAX_TAGS} name and value pairs of letters, numbers, `_` and `-`, which PostHog "
     "adds to the email's engagement events.",
+    "attachments": f"`attachments` holds up to {MAX_ATTACHMENTS} files of {MAX_ATTACHMENTS_BYTES // 1024} KB in total, "
+    "each with a plain file name and base64 content. Mailbox providers block some file types, such as `.exe`, so "
+    "PostHog refuses them.",
     "capture_engagement": "`capture_engagement` turns the email's engagement events on or off, so it is true or false.",
 }
 

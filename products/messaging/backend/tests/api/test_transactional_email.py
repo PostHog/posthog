@@ -608,7 +608,7 @@ class TestTransactionalEmail(APIBaseTest):
                 },
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
-                    "from": {"integrationId": "sender"},
+                    "from": {"integrationId": "sender", "isDefault": True},
                     "attachments": [
                         {
                             "filename": "invite.ics",
@@ -657,6 +657,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "invalid_request", "scheduled_at"),
             ("header_posthog_sets", {"headers": {"From": "a@example.com"}}, "invalid_request", "headers"),
             ("bad_tag", {"tags": [{"name": "plan", "value": "pro.v2"}]}, "invalid_request", "tags__0__value"),
+            (
+                "blocked_attachment",
+                {"attachments": [{"filename": "setup.exe", "content": "aGk="}]},
+                "invalid_request",
+                "attachments__0__filename",
+            ),
         ]
     )
     def test_refuses_a_rendered_send_it_cannot_make_with_what_to_fix(
