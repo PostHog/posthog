@@ -13,6 +13,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded, bias_risk_skip
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
+from products.experiments.backend.health.checks.early_significance import early_significance, early_significance_skip
 from products.experiments.backend.health.checks.exposure_criteria import (
     exposure_criteria_cannot_match,
     exposure_criteria_skip,
@@ -121,6 +122,12 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         name="Exposure criteria",
         find=exposure_criteria_cannot_match,
         skip=exposure_criteria_skip,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,
+        name="Sample size behind significant results",
+        find=early_significance,
+        skip=early_significance_skip,
     ),
 )
 

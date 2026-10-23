@@ -26963,6 +26963,50 @@ export namespace Schemas {
     }
 
     /**
+     * * `GET` - GET
+     * * `HEAD` - HEAD
+     */
+    export type UptimeMonitorMethodEnum = typeof UptimeMonitorMethodEnum[keyof typeof UptimeMonitorMethodEnum];
+
+
+    export const UptimeMonitorMethodEnum = {
+      Get: 'GET',
+      Head: 'HEAD',
+    } as const;
+
+    export interface CreateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Display name for the monitor.
+         * @maxLength 255
+         */
+      name: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         */
+      interval_seconds?: number;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 10.
+         * @minimum 1
+         * @maximum 10
+         */
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
+    }
+
+    /**
      * Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB).
      */
     export type CreateVersionFromSourceInputFiles = {[key: string]: string};
@@ -45213,6 +45257,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -45235,6 +45280,7 @@ export namespace Schemas {
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
+      EarlySignificance: 'early_significance',
     } as const;
 
     /**
@@ -45299,7 +45345,8 @@ export namespace Schemas {
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-       * * `new_flag_no_traffic` - New Flag No Traffic */
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `early_significance` - Early Significance */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45339,6 +45386,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -45359,6 +45407,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -45395,6 +45444,7 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -77295,6 +77345,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetricList[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
@@ -79690,6 +79742,41 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: UploadedMedia[];
+    }
+
+    export interface UptimeMonitor {
+      /** Unique identifier of the monitor. */
+      id: string;
+      /** Project the monitor belongs to. */
+      team_id: number;
+      /** Display name for the monitor. */
+      name: string;
+      /** The http or https URL to check. */
+      url: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method: UptimeMonitorMethodEnum;
+      /** Seconds between checks, a whole number of minutes from 60 to 86400. */
+      interval_seconds: number;
+      /** Seconds to wait for a response before the check fails, from 1 to 10. */
+      timeout_seconds: number;
+      /** Whether checks run for this monitor. */
+      enabled: boolean;
+      /** When the monitor was created. */
+      created_at: string;
+      /** When the monitor was last changed. */
+      updated_at: string;
+    }
+
+    export interface PaginatedUptimeMonitorList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UptimeMonitor[];
     }
 
     export interface UserGitHubAccount {
@@ -90461,6 +90548,38 @@ export namespace Schemas {
       library_ids?: string[];
     }
 
+    export interface PatchedUpdateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Display name for the monitor.
+         * @maxLength 255
+         */
+      name?: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         */
+      interval_seconds?: number;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 10.
+         * @minimum 1
+         * @maximum 10
+         */
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
+    }
+
     /**
      * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
      */
@@ -99263,6 +99382,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetric[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
@@ -136723,6 +136844,17 @@ export namespace Schemas {
       image: Blob;
       /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
       purpose?: UploadedMediaCreateBodyPurpose;
+    };
+
+    export type UptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisionAlertsListParams = {
