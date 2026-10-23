@@ -7,6 +7,7 @@ below. Every call site wraps these in `safe_record`: a metric must never fail a 
 
 import datetime as dt
 from collections.abc import Callable
+from typing import Literal
 
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.metrics import get_metric_meter
@@ -18,6 +19,7 @@ logger = get_write_only_logger(__name__)
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS = (
     "alerts_platform_batch_duration_ms",
     "alerts_platform_scheduler_lag_ms",
+    "alerts_platform_delivery_lag_ms",
 )
 
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
@@ -192,6 +194,32 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
         description="Wall time for one batch key's evaluation, queries included",
         unit="ms",
     ).record(dt.timedelta(milliseconds=duration_ms))
+
+
+DeliveryOutcomeLabel = Literal["sent", "failed", "already_delivered", "busy", "no_transport"]
+
+
+def increment_deliveries(source: str, provider: str, path: str, outcome: DeliveryOutcomeLabel, count: int = 1) -> None:
+    """What happened to each transition a delivery carried, per destination provider.
+
+    `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
+    one holding the thread. Neither sent anything, so a rising `sent` with a flat `failed` is the
+    only reading that says alerts reach people.
+    """
+    get_metric_meter({"source": source, "provider": provider, "path": path, "outcome": outcome}).create_counter(
+        "alerts_platform_deliveries_total",
+        "Transitions a delivery handled, by provider, delivery path and outcome",
+    ).add(count)
+
+
+def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
+    """How long after the check decided a transition its message went out. Evaluation metrics
+    cannot see a delivery queue that stalls, so this is the one that does."""
+    get_metric_meter({"source": source, "provider": provider}).create_histogram_timedelta(
+        name="alerts_platform_delivery_lag_ms",
+        description="Delay between the check that decided a transition and the send that announced it",
+        unit="ms",
+    ).record(dt.timedelta(milliseconds=lag_ms))
 
 
 def record_scheduler_lag(source: str, lag_ms: int) -> None:

@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     SourceKind,
 )
+from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 TARGET = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-ENG"})
 FIRST_FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
@@ -249,12 +250,19 @@ class TestDeliveryDispatch(SimpleTestCase):
 
     def test_a_retried_evaluation_does_not_send_a_second_copy(self) -> None:
         store = RecordingThreadStore()
-        self._deliver(FakeTransport(), store, evaluation_key="eval-1")
-
         retry = FakeTransport()
-        self._deliver(retry, store, evaluation_key="eval-1")
+
+        with recorded_metrics() as metrics:
+            self._deliver(FakeTransport(), store, evaluation_key="eval-1")
+            self._deliver(retry, store, evaluation_key="eval-1")
 
         assert retry.sends == []
+        assert [(m.attributes, m.value) for m in metrics if m.name == "alerts_platform_deliveries_total"] == [
+            ({"source": "logs", "provider": "fake", "path": "native", "outcome": "sent"}, 1),
+            ({"source": "logs", "provider": "fake", "path": "native", "outcome": "already_delivered"}, 1),
+        ]
+        (lag,) = (m for m in metrics if m.name == "alerts_platform_delivery_lag_ms")
+        assert lag.attributes == {"source": "logs", "provider": "fake"} and lag.value > 0
 
     @parameterized.expand(
         [
@@ -282,7 +290,10 @@ class TestDeliveryDispatch(SimpleTestCase):
     def test_a_provider_outage_is_counted_as_a_failed_delivery(self) -> None:
         transport = FakeTransport(error=ConnectionError("slack unreachable"))
 
-        with patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded:
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded,
+            recorded_metrics() as metrics,
+        ):
             with pytest.raises(ConnectionError):
                 deliver(
                     transport=transport,
@@ -298,6 +309,7 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert recorded.call_args.kwargs["succeeded"] is False
         # Its text can carry a credential URL, so only the class reaches the person's log.
         assert recorded.call_args.kwargs["error"] == "ConnectionError"
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == ["failed"]
 
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()
