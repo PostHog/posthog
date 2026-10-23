@@ -16,7 +16,7 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions import (
@@ -69,6 +69,8 @@ STATUS_MISSING = "missing"
 STATUS_TOO_EXPENSIVE = "too_expensive"
 # The insight's creator cannot read a table of the query.
 STATUS_ACCESS_DENIED = "access_denied"
+# The saved query is invalid, for example it reads a warehouse table that no longer exists.
+STATUS_BROKEN_QUERY = "broken_query"
 # Any other failure. The activity raises it, and the workflow counts it as `errored`.
 STATUS_ERRORED = "errored"
 
@@ -154,8 +156,11 @@ def failure_status(error: Exception) -> str | None:
         ClickHouseQueryTimeOut | ClickHouseQueryMemoryLimitExceeded | ClickHouseEstimatedQueryExecutionTimeTooLong,
     ):
         return STATUS_TOO_EXPENSIVE
+    # A subclass of QueryError, so check it first.
     if isinstance(error, TableAccessDeniedError):
         return STATUS_ACCESS_DENIED
+    if isinstance(error, QueryError | ResolutionError):
+        return STATUS_BROKEN_QUERY
     return None
 
 
