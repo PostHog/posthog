@@ -70,12 +70,15 @@ def _sparkline(series: MetricSeries) -> list[float | None]:
     ]
 
 
-def _sort_key(row: dict[str, Any], column: int, descending: bool) -> tuple[bool, float, str]:
-    value = row["values"][column]
-    # Rows without a value go last in both directions.
-    if value is None:
-        return (True, 0.0, row["key"])
-    return (False, -value if descending else value, row["key"])
+def _order_rows(rows: list[dict[str, Any]], column: int, descending: bool) -> list[dict[str, Any]]:
+    # Python sorts are stable, so ties keep the key order. Rows without a value go last in both directions.
+    by_key = sorted(rows, key=lambda row: row["key"])
+    with_value = sorted(
+        (row for row in by_key if row["values"][column] is not None),
+        key=lambda row: row["values"][column],
+        reverse=descending,
+    )
+    return with_value + [row for row in by_key if row["values"][column] is None]
 
 
 def run_metrics_table_widget(
@@ -125,9 +128,8 @@ def run_metrics_table_widget(
         row["values"][index] = _mean([point.value for point in item.points if point.value is not None])
         row["sparklines"][index] = _sparkline(item)
 
-    ordered = sorted(
-        rows_by_key.values(),
-        key=lambda row: _sort_key(row, typed_config["orderByColumn"], typed_config["orderDirection"] == "DESC"),
+    ordered = _order_rows(
+        list(rows_by_key.values()), typed_config["orderByColumn"], typed_config["orderDirection"] == "DESC"
     )
     limit = typed_config["limit"]
     return {

@@ -3,8 +3,6 @@ import { useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonTable, type LemonTableColumns } from '@posthog/lemon-ui'
 
-import { formatMetricValue } from 'products/metrics/frontend/panels/metricsUnits'
-
 import {
     WidgetCardBodyMessage,
     WidgetCardContent,
@@ -13,12 +11,13 @@ import {
     WidgetLoadingState,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { MetricsTableDrilldownModal } from './MetricsTableDrilldownModal'
 import {
     type MetricsTableSparklineDomain,
+    metricsTableColumnFormatters,
     metricsTableSparklineCoordinates,
     metricsTableSparklineDomains,
-} from './metricsTableSparkline'
+} from './metricsTableColumnScales'
+import { MetricsTableDrilldownModal } from './MetricsTableDrilldownModal'
 import { parseMetricsTableWidgetConfig } from './metricsTableWidgetConfigValidation'
 
 export type MetricsTableResultColumn = {
@@ -98,6 +97,7 @@ export function MetricsTableView({
     selection?: MetricsTableSelection
 }): JSX.Element {
     const domains = metricsTableSparklineDomains(rows, columns.length)
+    const formatters = metricsTableColumnFormatters(rows, columns)
     const tableColumns: LemonTableColumns<MetricsTableResultRow> = [
         ...(selection
             ? [
@@ -144,7 +144,7 @@ export function MetricsTableView({
                     <div className="flex items-center justify-end gap-2">
                         <MetricsTableSparkline points={row.sparklines[index] ?? []} domain={domains[index]} />
                         <span className="tabular-nums min-w-24 shrink-0 whitespace-nowrap text-right">
-                            {value == null ? '–' : formatMetricValue(value, column.unit ?? undefined)}
+                            {value == null ? '–' : formatters[index](value)}
                         </span>
                     </div>
                 )

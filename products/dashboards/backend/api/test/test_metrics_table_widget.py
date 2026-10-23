@@ -12,6 +12,9 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.constants import METRICS_TABLE_SPARKLINE_POINTS
 from products.dashboards.backend.widget_registry import METRICS_TABLE_WIDGET_TYPE, validate_widget_config
@@ -117,7 +120,7 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
     def _create_tile(self, config: dict[str, Any]) -> tuple[int, int]:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Endpoints"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(
-            dashboard_id, widget_type=METRICS_TABLE_WIDGET_TYPE, config=config
+            dashboard_id, widget_type="metrics_table", config=config
         )
         return dashboard_id, dashboard_json["tiles"][0]["id"]
 
@@ -199,3 +202,30 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
 
         assert result["totalCount"] == 5
         assert all(len(row["sparklines"][0]) <= METRICS_TABLE_SPARKLINE_POINTS for row in result["rows"])
+
+    def test_widget_query_keeps_the_api_key_access_method_of_the_request(self) -> None:
+        dashboard_id, tile_id = self._create_tile({"groupBy": "route", "columns": [QUEUE_COLUMN]})
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="dashboard metrics",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["dashboard:read", "query:read", "metrics:read"],
+        )
+        seen_access_methods: list[str | None] = []
+
+        def record_access_method(**_kwargs: Any) -> list[Any]:
+            seen_access_methods.append(get_query_tag_value("access_method"))
+            return []
+
+        with patch(
+            "products.dashboards.backend.widgets.metrics_table.run_metric_query", side_effect=record_access_method
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
+                {"tile_ids": str(tile_id)},
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert seen_access_methods == ["personal_api_key"]

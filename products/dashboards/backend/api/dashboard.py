@@ -4,6 +4,7 @@ import re
 import json
 import uuid
 import builtins
+import contextvars
 from collections.abc import AsyncGenerator, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
@@ -3978,8 +3979,11 @@ class DashboardsViewSet(
         if query_work_items:
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Each worker gets a copy of the request context, so the query tags (such as the API key
+                # access method that the metrics concurrency limits read) reach the widget query.
                 futures = {
                     executor.submit(
+                        contextvars.copy_context().run,
                         _run_widget_query,
                         self.team,
                         work_item,

@@ -39,7 +39,7 @@ describe('buildMetricsTableDrilldownQueries', () => {
                     rangeFunction: 'rate',
                     filters: [
                         { key: 'http.response.status_code', op: 'regex', value: '5..' },
-                        { key: 'http.route', op: 'eq', value: 'GET /api/traces/{id}' },
+                        { key: 'http.route', op: 'regex', value: '^(?:GET /api/traces/\\{id\\})$' },
                     ],
                     groupBy: [{ key: 'http.route' }],
                 },
@@ -47,6 +47,30 @@ describe('buildMetricsTableDrilldownQueries', () => {
         })
         expect(latency.query.clauses[0]).toMatchObject({ aggregation: 'histogram_quantile', quantile: 0.5 })
         expect(latency.query.clauses[0].rangeFunction).toBeUndefined()
+    })
+
+    it('escapes a dollar sign so a single row is not read as a dashboard variable', () => {
+        const [errors] = buildMetricsTableDrilldownQueries(CONFIG, ['/api/$tenant'])
+
+        expect(errors.query.clauses[0].filters?.at(-1)).toEqual({
+            key: 'http.route',
+            op: 'regex',
+            value: '^(?:/api/\\$tenant)$',
+        })
+    })
+
+    it.each([
+        ['keeps the point spacing for one row', '-1h', 1, 'minute'],
+        ['coarsens the point spacing for many rows over a long range', '-14d', 50, 'hour_6'],
+    ])('%s', (_name, dateFrom, rowCount, expectedInterval) => {
+        const keys = Array.from({ length: rowCount }, (_, index) => `/api/${index}`)
+
+        const [errors] = buildMetricsTableDrilldownQueries(
+            { ...CONFIG, dateRange: { date_from: dateFrom as '-1h' } },
+            keys
+        )
+
+        expect(errors.query.interval).toEqual(expectedInterval)
     })
 
     it('matches several rows with one anchored regex that escapes the values', () => {

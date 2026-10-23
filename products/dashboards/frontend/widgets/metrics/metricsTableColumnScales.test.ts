@@ -1,8 +1,12 @@
-import { metricsTableSparklineCoordinates, metricsTableSparklineDomains } from './metricsTableSparkline'
+import {
+    metricsTableColumnFormatters,
+    metricsTableSparklineCoordinates,
+    metricsTableSparklineDomains,
+} from './metricsTableColumnScales'
 
 const HEIGHT = 24
 
-describe('metricsTableSparkline', () => {
+describe('metricsTableColumnScales', () => {
     it.each([
         ['mixed signs', [[-10, 10]]],
         ['all negative', [[-30, -10, -20]]],
@@ -28,5 +32,18 @@ describe('metricsTableSparkline', () => {
         )
 
         expect(domains).toEqual([{ min: -5, max: 8 }])
+    })
+
+    it('formats every value of a dimensionless column on one scale', () => {
+        const [format] = metricsTableColumnFormatters(
+            [
+                { key: 'a', values: [0.5], sparklines: [[]] },
+                { key: 'b', values: [2], sparklines: [[]] },
+                { key: 'c', values: [null], sparklines: [[]] },
+            ],
+            [{ label: 'Ratio', aggregation: 'avg', unit: '1' }]
+        )
+
+        expect([format(0.5), format(2)].map((text) => text.endsWith('%'))).toEqual([false, false])
     })
 })

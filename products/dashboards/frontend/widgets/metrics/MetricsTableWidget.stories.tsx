@@ -60,7 +60,12 @@ type Story = StoryObj<typeof StoryTile>
 
 export const Populated: Story = {}
 
-export const Loading: Story = { args: { loading: true, result: null } }
+export const Loading: Story = {
+    args: { loading: true, result: null },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+}
 
 export const Empty: Story = {
     args: { result: { ...metricsTableWidgetSampleResult, rows: [], totalCount: 0, hasMore: false } },
