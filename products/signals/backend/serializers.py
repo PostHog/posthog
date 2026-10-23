@@ -1563,7 +1563,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "The plan this report leads or is a step of, with every step in it. A report that other reports "
             "link to with `part_of` is a plan. Null when the report is in no plan, and always null in list "
-            "responses, because finding a plan's steps scans the project's report links."
+            "responses, because finding a plan's steps costs several queries per report."
         ),
     )
 
