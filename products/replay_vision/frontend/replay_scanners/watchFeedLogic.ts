@@ -339,7 +339,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     actions.setFeedPaging(response.has_more ?? false, response.as_of ?? null, response.results.length)
                     return response.results
                 },
-                loadMoreFeed: async () => {
+                loadMoreFeed: async (_, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     const load = values.feedLoad
                     if (!teamId || !load || !values.feedHasMore || !values.feedAsOf) {
@@ -362,6 +362,8 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                         }
                         throw error
                     }
+                    // A newer request for the next page supersedes this one, so the same page never appends twice.
+                    breakpoint()
                     // A filter change while this page was in flight started a new load, which owns the feed now.
                     if (cache.feedGeneration !== generation || values.feedLoad?.feedLoadId !== load.feedLoadId) {
                         return values.feedItems
