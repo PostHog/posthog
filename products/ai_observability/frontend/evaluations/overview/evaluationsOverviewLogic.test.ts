@@ -138,6 +138,8 @@ const FAILURES_QUERY = 'outcome=failed&limit=5'
 
 describe('evaluationsOverviewLogic', () => {
     let requests: URLSearchParams[]
+    /** Statuses the next overview reads fail with, one per read. */
+    let overviewFailures: number[]
     let detailRequests: string[]
     let logic: ReturnType<typeof evaluationsOverviewLogic.build>
 
@@ -163,6 +165,7 @@ describe('evaluationsOverviewLogic', () => {
             ],
         })
         requests = []
+        overviewFailures = []
         detailRequests = []
         useMocks({
             get: {
@@ -184,6 +187,10 @@ describe('evaluationsOverviewLogic', () => {
                 '/api/projects/:teamId/evaluations/overview/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     requests.push(params)
+                    const failure = overviewFailures.shift()
+                    if (failure) {
+                        return [failure, {}]
+                    }
                     // The backend buckets a day or two by hour.
                     const oneDay = params.get('date_from') === params.get('date_to')
                     return [200, { ...EMPTY_OVERVIEW, evaluations: ROWS, interval: oneDay ? 'hour' : 'day' }]
@@ -256,6 +263,11 @@ describe('evaluationsOverviewLogic', () => {
             expected: [lastHours(24)],
         },
         {
+            name: 'exact instants an evaluation links back with stay exact',
+            act: () => llmEvaluationsLogic.actions.setDates('2026-10-21T10:30:00Z', '2026-10-22T10:30:00Z'),
+            expected: [lastHours(24)],
+        },
+        {
             name: 'this month sends whole days from its first day',
             act: () => llmEvaluationsLogic.actions.setDates('mStart', null),
             expected: ['date_from=2026-10-01&date_to=2026-10-22'],
@@ -310,6 +322,16 @@ describe('evaluationsOverviewLogic', () => {
             expected: [`${PERIOD}&refresh=true`],
         },
         {
+            name: 'a retry after a failed reload still skips the cache',
+            act: async () => {
+                overviewFailures = [429]
+                logic.actions.reloadOverview()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.retryOverview()
+            },
+            expected: [`${PERIOD}&refresh=true`, `${PERIOD}&refresh=true`],
+        },
+        {
             name: 'returning after a save in the editor skips the cache',
             act: () => {
                 logic.unmount()
@@ -317,6 +339,18 @@ describe('evaluationsOverviewLogic', () => {
                 logic.mount()
             },
             expected: [`${PERIOD}&refresh=true`],
+        },
+        {
+            name: 'after a save in the editor, a retry after a failed read still skips the cache',
+            act: async () => {
+                logic.unmount()
+                markEvaluationsOverviewStale()
+                overviewFailures = [500]
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.retryOverview()
+            },
+            expected: [`${PERIOD}&refresh=true`, `${PERIOD}&refresh=true`],
         },
         {
             name: 'after a save in a directory, leaving the directory skips the cache too',
@@ -346,7 +380,7 @@ describe('evaluationsOverviewLogic', () => {
             expected: [`${PERIOD}&evaluation_ids=eval-b,eval-c`, PERIOD],
         },
     ])('$name', async ({ act, expected }) => {
-        act()
+        await act()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requests.map((params) => decodeURIComponent(params.toString()))).toEqual(expected)
@@ -424,11 +458,32 @@ describe('evaluationsOverviewLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation overview loaded')).toHaveLength(1)
     })
 
+    const DIRECTORY_RELOAD = `${PERIOD}&evaluation_ids=eval-b,eval-c&refresh=true`
     test.each([
-        { name: 'fails to reload', listFirst: true },
-        { name: 'fails on the first load', listFirst: false },
-    ])('offers a retry when the list an open directory waits for $name', async ({ listFirst }) => {
-        llmEvaluationsLogic.actions.selectDirectory('dir-1')
+        {
+            name: 'an open directory waits for fails to reload',
+            directory: 'dir-1',
+            listFirst: true,
+            failedReads: [],
+            retriedReads: [DIRECTORY_RELOAD],
+        },
+        {
+            name: 'an open directory waits for fails on the first load',
+            directory: 'dir-1',
+            listFirst: false,
+            failedReads: [],
+            retriedReads: [DIRECTORY_RELOAD],
+        },
+        // The results still load, so only the list loads again.
+        {
+            name: 'fails at the top level',
+            directory: null,
+            listFirst: true,
+            failedReads: [`${PERIOD}&refresh=true`],
+            retriedReads: [],
+        },
+    ])('offers a retry when the list $name', async ({ directory, listFirst, failedReads, retriedReads }) => {
+        llmEvaluationsLogic.actions.selectDirectory(directory)
         await expectLogic(logic).toFinishAllListeners()
         if (!listFirst) {
             llmEvaluationsLogic.actions.loadEvaluationsSuccess([])
@@ -441,9 +496,12 @@ describe('evaluationsOverviewLogic', () => {
         await expectLogic(llmEvaluationsLogic).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(requests).toEqual([])
+        expect(requests.map((params) => decodeURIComponent(params.toString()))).toEqual(failedReads)
         expect(logic.values.request.notice).toBeNull()
-        expect(logic.values.overviewFailure).toEqual('failed')
+        expect([logic.values.overviewFailure, logic.values.evaluationListFailed]).toEqual(
+            directory ? ['failed', false] : [null, true]
+        )
+        requests = []
 
         useMocks({
             get: {
@@ -458,9 +516,9 @@ describe('evaluationsOverviewLogic', () => {
         await expectLogic(llmEvaluationsLogic).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(requests.map((params) => decodeURIComponent(params.toString()))).toEqual([
-            `${PERIOD}&evaluation_ids=eval-b,eval-c&refresh=true`,
-        ])
+        expect(requests.map((params) => decodeURIComponent(params.toString()))).toEqual(retriedReads)
+        expect(logic.values.evaluationListFailed).toBe(false)
+        expect([...logic.values.configById.keys()]).toEqual(['eval-b', 'eval-c'])
     })
 
     test.each([
@@ -485,13 +543,21 @@ describe('evaluationsOverviewLogic', () => {
         expect(ids).toEqual(expected)
     })
 
-    it('keeps the selected dates on links to an evaluation', async () => {
-        llmEvaluationsLogic.actions.setDates('-30d', null)
+    // The evaluation page reads "-7d" as 8 days, so links send the days the overview counted.
+    test.each([
+        { dateFrom: '-7d', expected: 'date_from=2026-10-16&date_to=2026-10-22' },
+        { dateFrom: '-24h', expected: lastHours(24) },
+    ])('links to an evaluation with the period the overview shows for $dateFrom', async ({ dateFrom, expected }) => {
+        llmEvaluationsLogic.actions.selectDirectory('dir-1')
+        llmEvaluationsLogic.actions.setDates(dateFrom, null)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.evaluationUrl('eval-a', { evaluation_tab: 'backfills' })).toContain(
-            'date_from=-30d&evaluation_tab=backfills'
-        )
+        const url = logic.values.evaluationUrl('eval-a', { evaluation_tab: 'backfills' })
+        expect(Object.fromEntries(new URLSearchParams(url.split('?')[1]))).toEqual({
+            ...Object.fromEntries(new URLSearchParams(expected)),
+            directory: 'dir-1',
+            evaluation_tab: 'backfills',
+        })
     })
 
     it('moves a rolling period up to the present on reload', async () => {
@@ -509,9 +575,11 @@ describe('evaluationsOverviewLogic', () => {
     })
 
     test.each([
-        { name: 'after the first read lands', settleFirst: true },
-        { name: 'while the first read is still in flight', settleFirst: false },
-    ])('reads the open drawer again past the cache on reload $name', async ({ settleFirst }) => {
+        { name: 'after the first read lands', settleFirst: true, reloadFails: false },
+        { name: 'while the first read is still in flight', settleFirst: false, reloadFails: false },
+        // The failed reload clears the rows, so the drawer must wait for the retry instead of caching empty details.
+        { name: 'once a retry follows a failed reload', settleFirst: true, reloadFails: true },
+    ])('reads the open drawer again past the cache on reload $name', async ({ settleFirst, reloadFails }) => {
         const drawerLogic = evaluationResultDrawerLogic()
         drawerLogic.mount()
         drawerLogic.actions.openDrawer('eval-b')
@@ -519,9 +587,15 @@ describe('evaluationsOverviewLogic', () => {
             await expectLogic(drawerLogic).toFinishAllListeners()
         }
 
+        overviewFailures = reloadFails ? [500] : []
         logic.actions.reloadOverview()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(drawerLogic).toFinishAllListeners()
+        if (reloadFails) {
+            logic.actions.retryOverview()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(drawerLogic).toFinishAllListeners()
+        }
 
         expect(detailRequests).toEqual([
             `runs eval-b ${FAILURES_QUERY}`,

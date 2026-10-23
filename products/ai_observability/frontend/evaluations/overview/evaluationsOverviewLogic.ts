@@ -60,6 +60,8 @@ export const OVERVIEW_LIST_ANCHOR_ID = 'evaluations-overview-list'
 /** A rolling relative start such as "-24h", "-14d" or "-3w", without a Start or End clip. */
 const ROLLING_RANGE = /^-(\d+)([hdwmqy])$/
 const ROLLING_UNITS = { h: 'hour', d: 'day', w: 'week', m: 'month', q: 'quarter', y: 'year' } as const
+/** An exact UTC instant, the format the overview sends an hourly period in. */
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
 
 /** The date presets the overview can show: everything up to its maximum period. */
 export const OVERVIEW_DATE_OPTIONS: DateMappingOption[] = dateMapping.filter((option) => {
@@ -94,11 +96,7 @@ function needsRefreshAfterChange(requestKey: string): boolean {
     if (changedElsewhereAt === null || Date.now() - changedElsewhereAt > BACKEND_CACHE_MS) {
         return false
     }
-    if (refreshedSinceChange.has(requestKey)) {
-        return false
-    }
-    refreshedSinceChange.add(requestKey)
-    return true
+    return !refreshedSinceChange.has(requestKey)
 }
 
 export interface OverviewPeriod {
@@ -137,6 +135,11 @@ export function overviewPeriod(
 ): OverviewPeriod | null {
     if (!dateFilter.dateFrom || dateFilter.dateFrom === 'all') {
         return null
+    }
+    // An hourly period comes back as exact instants from an evaluation page, and whole days would widen it.
+    if (INSTANT.test(dateFilter.dateFrom) && dateFilter.dateTo && INSTANT.test(dateFilter.dateTo)) {
+        const [start, end] = [dayjs.utc(dateFilter.dateFrom), dayjs.utc(dateFilter.dateTo)]
+        return { dateFrom: dateFilter.dateFrom, dateTo: dateFilter.dateTo, days: end.diff(start, 'day', true) }
     }
     const rolling = ROLLING_RANGE.exec(dateFilter.dateFrom)
     if (rolling && !dateFilter.dateTo) {
@@ -274,6 +277,7 @@ export interface evaluationsOverviewLogicValues {
     comparedIds: string[] | null
     configById: Map<string, EvaluationConfig>
     directoryTiles: DirectoryTile[]
+    evaluationListFailed: boolean
     evaluationUrl: (id: string, params?: Record<string, string>) => string
     exploreUrl: string | null
     few: boolean
@@ -520,13 +524,21 @@ export interface evaluationsOverviewLogicMeta {
             search: string,
             attentionFilter: AttentionFilter
         ) => EvaluationResultApi[]
-        evaluationUrl: (searchParams: Record<string, any>) => (id: string, params?: Record<string, string>) => string
+        evaluationUrl: (
+            searchParams: Record<string, any>,
+            request: OverviewRequest
+        ) => (id: string, params?: Record<string, string>) => string
         exploreUrl: (
             evaluations: EvaluationConfig[],
             scopedIds: string[] | null,
             request: OverviewRequest,
             interval: BucketInterval
         ) => string | null
+        evaluationListFailed: (
+            evaluationsLoadFailed: boolean,
+            overviewFailure: OverviewFailure | null,
+            request: OverviewRequest
+        ) => boolean
     }
 }
 
@@ -615,9 +627,9 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                         }
                         return values.request.notice ? null : values.overview
                     }
-                    cache.requestKey = JSON.stringify(values.request)
-                    const refresh = needsRefreshAfterChange(cache.requestKey) || cache.forceRefresh === true
-                    cache.forceRefresh = false
+                    const requestKey = JSON.stringify(values.request)
+                    cache.requestKey = requestKey
+                    const refresh = needsRefreshAfterChange(requestKey) || cache.forceRefresh === true
                     const requestedAt = performance.now()
                     let overview: EvaluationsOverviewApi
                     try {
@@ -633,6 +645,11 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                     }
                     // Drops a response that a newer scope or date change has superseded.
                     breakpoint()
+                    // Only a response that lands consumes the refresh, so a retry after a failure skips the cache too.
+                    if (refresh) {
+                        refreshedSinceChange.add(requestKey)
+                        cache.forceRefresh = false
+                    }
                     // pinned: the event name and its properties, because renaming one breaks dashboards.
                     posthog.capture('llma evaluation overview loaded', {
                         load_ms: Math.round(performance.now() - requestedAt),
@@ -987,12 +1004,19 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 return tableOrder(matching)
             },
         ],
-        // Links keep the page's search params, so an evaluation opens on the same dates and returns to this directory.
+        // Links keep the page's search params, so an evaluation returns to this directory. They carry the period the
+        // overview resolved, because the evaluation page reads a relative range such as "-7d" with one more day.
         evaluationUrl: [
-            (s) => [s.searchParams],
-            (searchParams: Record<string, any>): ((id: string, params?: Record<string, string>) => string) =>
-                (id, params = {}) =>
-                    combineUrl(urls.aiObservabilityEvaluation(id), { ...searchParams, ...params }).url,
+            (s) => [s.searchParams, s.request],
+            (
+                searchParams: Record<string, any>,
+                request: OverviewRequest
+            ): ((id: string, params?: Record<string, string>) => string) => {
+                const { date_from, date_to } = request.params
+                const period = date_from && date_to ? { date_from, date_to } : {}
+                return (id, params = {}) =>
+                    combineUrl(urls.aiObservabilityEvaluation(id), { ...searchParams, ...period, ...params }).url
+            },
         ],
         exploreUrl: [
             (s) => [s.evaluations, s.scopedIds, s.request, s.interval],
@@ -1022,6 +1046,16 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 const query: InsightVizNode = { kind: NodeKind.InsightVizNode, source }
                 return urls.insightNew({ query })
             },
+        ],
+        // Results can load without the list, but row actions and the scope picker need it. When the results fail
+        // too, their own banner retries both.
+        evaluationListFailed: [
+            (s) => [s.evaluationsLoadFailed, s.overviewFailure, s.request],
+            (
+                evaluationsLoadFailed: boolean,
+                overviewFailure: OverviewFailure | null,
+                request: OverviewRequest
+            ): boolean => evaluationsLoadFailed && !overviewFailure && !request.notice,
         ],
     }),
     listeners(({ actions, values, cache }) => {
@@ -1120,7 +1154,10 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 if (values.evaluationsLoadFailed) {
                     actions.loadEvaluations()
                 }
-                actions.loadOverview()
+                // A failed list alone leaves the results current, so they load again only when they failed.
+                if (values.overviewFailure) {
+                    actions.loadOverview()
+                }
             },
             openDirectory: ({ directoryId }) => {
                 posthog.capture('llma evaluation overview directory opened', {

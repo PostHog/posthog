@@ -212,8 +212,10 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
             if (current && (current.status !== 'error' || trigger === 'prefetch')) {
                 return
             }
-            // Nothing was graded, so the drawer shows the paused or empty notice and needs no details.
-            if (values.rowsById.get(evaluationId)?.gradedCount === 0) {
+            // Without its row, for example after a failed refresh, the read would not know which endpoints apply. The next
+            // overview that lands loads the open drawer again. Nothing graded shows a notice that needs no details.
+            const row = values.rowsById.get(evaluationId)
+            if (!row || row.gradedCount === 0) {
                 return
             }
             if (trigger === 'prefetch') {
@@ -228,7 +230,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         },
         detailsRequested: async ({ key, evaluationId }) => {
             const { date_from, date_to } = values.request.params
-            const refresh = cache.refreshKeys?.delete(key) === true
+            const refresh = cache.refreshKeys?.has(key) === true
             const generation = cache.generation ?? 0
             const projectId = String(values.currentTeamId)
             const params = { date_from, date_to, ...(refresh ? { refresh: true } : {}) }
@@ -257,6 +259,10 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
                 cache.prefetchingKey = null
             }
             if (generation === (cache.generation ?? 0)) {
+                // A failed read keeps the key, so the retry skips the cache too.
+                if (load.status === 'ready') {
+                    cache.refreshKeys?.delete(key)
+                }
                 actions.detailsLoaded(key, load)
             }
         },

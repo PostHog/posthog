@@ -12,7 +12,8 @@ import { EvaluationScopePicker } from './EvaluationScopePicker'
 import { OVERVIEW_DATE_OPTIONS, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationsOverview(): JSX.Element {
-    const { dateFilter, request, overviewFailure, selectedDirectory } = useValues(evaluationsOverviewLogic)
+    const { dateFilter, request, overviewFailure, selectedDirectory, evaluationListFailed } =
+        useValues(evaluationsOverviewLogic)
     const { setDates, selectDirectory, retryOverview } = useActions(evaluationsOverviewLogic)
 
     return (
@@ -55,6 +56,18 @@ export function EvaluationsOverview(): JSX.Element {
                 </LemonBanner>
             ) : (
                 <>
+                    {evaluationListFailed && (
+                        <LemonBanner
+                            type="warning"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => retryOverview(),
+                                'data-attr': 'evaluation-overview-list-retry',
+                            }}
+                        >
+                            Couldn't load the evaluation list, so editing evaluations and picking them is unavailable.
+                        </LemonBanner>
+                    )}
                     <EvaluationOverviewTiles />
                     <EvaluationOverviewResults />
                 </>
