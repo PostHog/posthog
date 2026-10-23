@@ -47,7 +47,8 @@ _MAX_SCORED_SERIES = 50_000
 # An insight is not picked again in this time after an attempt. Events take a moment to reach
 # ClickHouse, and an insight that writes nothing would otherwise stay at the head of the queue.
 ATTEMPT_COOLDOWN = datetime.timedelta(hours=1)
-UNSUPPORTED_COOLDOWN = datetime.timedelta(days=1)
+# For a failure that the next hour does not fix: an unsupported shape, a query that is too expensive, or no access.
+SKIP_COOLDOWN = datetime.timedelta(days=1)
 
 _CALENDAR_INTERVALS = {
     IntervalType.HOUR: CalendarInterval.HOURLY,
@@ -89,6 +90,7 @@ class InsightPick:
     insight_id: int
     # The newest scored bucket start of each series, in UTC. Empty when the insight was never scored.
     scored_through: dict[str, datetime.datetime]
+    interval: IntervalType | None = None
 
 
 @frozen
@@ -159,7 +161,7 @@ def scored_buckets(
             "limit": ast.Constant(value=_MAX_SCORED_SERIES),
         },
         workload=Workload.OFFLINE,
-        ch_user=ClickHouseUser.SIGNALS,
+        ch_user=ClickHouseUser.DEFAULT,
     )
     state: dict[int, dict[str, datetime.datetime]] = {}
     for insight_id, series_key, newest_bucket in cast(list[tuple[Any, ...]], response.results or []):
@@ -253,7 +255,10 @@ def select_insights(
     ]
     picks = [
         InsightPick(
-            team_id=due_by_id[insight_id].team_id, insight_id=insight_id, scored_through=state.get(insight_id, {})
+            team_id=due_by_id[insight_id].team_id,
+            insight_id=insight_id,
+            scored_through=state.get(insight_id, {}),
+            interval=due_by_id[insight_id].interval,
         )
         for insight_id in order[:limit]
     ]
