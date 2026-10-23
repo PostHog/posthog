@@ -896,8 +896,8 @@ async def store_report_run_activity(
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
         # Mirror content.metrics into the legacy `metadata` JSONField for consumers that still read it.
-        # Strip NUL because the report agent can quote generation text that contains it, and Postgres rejects NUL in jsonb.
-        content = strip_null_bytes(normalize_report_content_payload(inputs.content or {}))
+        # The report agent can quote generation text, which can contain NUL.
+        content: dict[str, Any] = strip_null_bytes(normalize_report_content_payload(inputs.content or {}))
         evaluation_target = resolve_evaluation_target(content.get("evaluation_target", GENERATION_TARGET))
         generation_status = EvalReportGenerationStatus(content["generation_status"])
         metrics = content.get("metrics")
