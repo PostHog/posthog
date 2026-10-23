@@ -67,10 +67,11 @@ export function QuillSceneTitleSection({
     const backPath = !titleInPhoneHeader && backTo && 'path' in backTo ? backTo.path : undefined
     const resourceIcon = name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined
     const nameSuffixes = (
-        <>
+        // Lemon tags read --success and --warning, which quill redefines as pale fills
+        <span data-not-quill className="contents">
             {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
             {nameSuffix}
-        </>
+        </span>
     )
     const [menuBarSlot, setMenuBarSlot] = useState<HTMLDivElement | null>(null)
     useRegisterSceneMenuBarSlot(menuBarSlot)
@@ -101,6 +102,7 @@ export function QuillSceneTitleSection({
                                   : undefined
                         }
                         icon={resourceIcon}
+                        iconLeadsName={resourceType.iconLeadsName}
                         current={staticName ? { name, description: description || undefined } : undefined}
                     />
                 }
@@ -144,7 +146,7 @@ export function QuillSceneTitleSection({
                             the menus onto their own line, where the divider would lead the line, so it hides there. */}
                         <div
                             ref={setMenuBarSlot}
-                            className="flex min-w-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
+                            className="flex shrink-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
                         />
                     </>
                 }

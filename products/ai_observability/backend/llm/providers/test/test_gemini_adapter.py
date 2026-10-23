@@ -13,7 +13,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
 )
 from products.ai_observability.backend.llm.providers.gemini import GeminiAdapter, GeminiConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestGeminiRecommendedModels:
@@ -84,6 +84,33 @@ class TestGeminiAdapterErrorMapping:
         with patch("products.ai_observability.backend.llm.providers.gemini.genai.Client", return_value=mock_client):
             with pytest.raises(ProviderConnectionError):
                 adapter.complete(request, api_key="test-key", analytics=AnalyticsContext(capture=False))
+
+
+class TestGeminiStreamOutputSchema:
+    def _stream_config(self, output_schema: OutputSchema | None):
+        request = CompletionRequest(
+            model="gemini-2.0-flash-lite",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="gemini",
+            output_schema=output_schema,
+        )
+        mock_client = MagicMock()
+        mock_client.models.generate_content_stream.return_value = iter([])
+        with patch("products.ai_observability.backend.llm.providers.gemini.genai.Client", return_value=mock_client):
+            list(GeminiAdapter().stream(request, api_key="test-key", analytics=AnalyticsContext(capture=False)))
+        return mock_client.models.generate_content_stream.call_args.kwargs["config"]
+
+    def test_output_schema_is_sent_as_json_mime_type_and_schema(self):
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+        config = self._stream_config(OutputSchema(schema=schema))
+
+        assert config.response_mime_type == "application/json"
+        assert config.response_json_schema == schema
+        plain = self._stream_config(None)
+        assert plain.response_mime_type is None
+        assert plain.response_json_schema is None
 
 
 class TestGeminiStreamErrorSurfacing:

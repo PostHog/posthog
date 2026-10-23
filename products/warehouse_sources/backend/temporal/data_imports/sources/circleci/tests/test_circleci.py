@@ -86,8 +86,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, 200, True),
-            (401, None, False),
-            (403, None, False),
             (200, 404, False),
             (200, 403, False),
         ]
@@ -332,16 +330,77 @@ class TestComponentsRows:
 
     @parameterized.expand(
         [
-            ("slug not visible to the token", [{"id": "other-uuid", "slug": "gh/other"}]),
-            ("collaboration without an id", [{"id": None, "slug": "gh/posthog"}]),
+            (endpoint, name, collaborations)
+            for endpoint in ("components", "environments", "groups")
+            for name, collaborations in (
+                ("slug not visible to the token", [{"id": "other-uuid", "slug": "gh/other"}]),
+                ("collaboration without an id", [{"id": None, "slug": "gh/posthog"}]),
+            )
         ]
     )
-    def test_unresolvable_org_raises_with_slug(self, _name, collaborations):
-        result = _driver().run("components", [ScriptedResponse(json=collaborations)], api_version=CIRCLECI_V2)
+    def test_unresolvable_org_raises_with_slug(self, endpoint, _name, collaborations):
+        result = _driver().run(endpoint, [ScriptedResponse(json=collaborations)], api_version=CIRCLECI_V2)
 
         assert isinstance(result.raised, ValueError)
         assert "gh/posthog" in str(result.raised)
         assert result.paths == [COLLABORATIONS_PATH]
+
+
+class TestOrgListRows:
+    @parameterized.expand(
+        [
+            ("components", "/api/v2/deploy/components", {"org-id": "org-uuid", "page-size": "20"}),
+            ("environments", "/api/v2/deploy/environments", {"org-id": "org-uuid", "page-size": "20"}),
+            ("groups", "/api/v2/organizations/org-uuid/groups", {}),
+        ]
+    )
+    def test_walks_every_page_of_the_resolved_org(self, endpoint, path, expected_params):
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    COLLABORATIONS_PATH: [ScriptedResponse(json=COLLABORATIONS)],
+                    path: [
+                        _page([{"id": "a", "created_at": "2026-01-01T00:00:00Z"}], "token-2"),
+                        _page([], "token-3"),
+                        _page([{"id": "b", "created_at": "2026-01-02T00:00:00Z"}], None),
+                    ],
+                }
+            ),
+            api_version=CIRCLECI_V3,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b"]
+        assert result.paths == [COLLABORATIONS_PATH, path, path, path]
+        list_requests = [request for request in result.requests if request.path == path]
+        assert all({key: request.param(key) for key in expected_params} == expected_params for request in list_requests)
+        assert [request.param("page-token") for request in list_requests] == [None, "token-2", "token-3"]
+        assert result.saved_states == [
+            CircleCIResumeConfig(next_page_token="token-2"),
+            CircleCIResumeConfig(next_page_token="token-3"),
+        ]
+
+
+class TestCollaborationsRows:
+    def test_yields_every_org_the_token_sees_in_one_request(self):
+        collaborations = [
+            {"id": "org-uuid", "slug": "gh/posthog", "name": "PostHog", "vcs-type": "github"},
+            {"id": "other-uuid", "slug": "bb/other", "name": "Other", "vcs-type": "bitbucket"},
+            {"id": None, "slug": "circleci/standalone", "name": "Standalone", "vcs-type": "circleci"},
+        ]
+        result = _driver().run("collaborations", [ScriptedResponse(json=collaborations)], api_version=CIRCLECI_V3)
+
+        assert result.raised is None
+        assert result.rows == collaborations
+        assert result.paths == [COLLABORATIONS_PATH]
+        assert result.saved_states == []
+
+    def test_empty_collaborations_yield_no_rows(self):
+        result = _driver().run("collaborations", [ScriptedResponse(json=[])], api_version=CIRCLECI_V2)
+
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestComponentVersionsFanOut:

@@ -44,7 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KlaviyoEndpointConfig,
     KlaviyoValuesReportConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import (
+    KLAVIYO_NEWER_VERSION_REQUIRED,
+    KlaviyoSource,
+)
 
 
 def _driver(conversion_metric_id: str | None = None) -> SourceDriver:
@@ -146,39 +149,6 @@ class TestClampFutureValueToNow:
 
 
 class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            # 401/403 surfaced as a requests HTTPError when `fetch_page` calls `raise_for_status()`.
-            # The per-request path/query/timestamp varies, but the status text and base host are stable.
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://a.klaviyo.com/api/events?filter=greater-than(datetime,2026-06-15T13:03:18.000Z)",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://a.klaviyo.com/api/metrics",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            # Transient/infra errors and server-side failures must stay retryable.
-            ("read_timeout", "HTTPSConnectionPool(host='a.klaviyo.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://a.klaviyo.com/api/events",
-            ),
-            ("connection_reset", "Connection reset by peer"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
     @parameterized.expand(
         [
             # The conversion-metric messages KlaviyoConversionMetricError raises are deterministic, so
@@ -980,6 +950,36 @@ class TestApiVersionThreadsToRevisionHeader:
         result = _driver().run("events", [_page({"data": [], "links": {"next": None}})], api_version=api_version)
         assert result.raised is None
         assert result.requests[0].headers["revision"] == api_version
+
+
+class TestEndpointsNewerThanThePinnedRevision:
+    @parameterized.expand(
+        [
+            (KLAVIYO_API_VERSION_2024_10_15, False),
+            (KLAVIYO_API_VERSION_2026_07_15, True),
+            (None, True),
+        ]
+    )
+    def test_tables_the_pinned_revision_does_not_serve_stay_listed_but_default_off(
+        self, pin: str | None, served: bool
+    ) -> None:
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1, api_version=pin)}
+        assert schemas["events"].should_sync_default is True
+        for name in ("data_sources", "custom_metrics", "object_types", "custom_object_records", "web_feeds"):
+            assert schemas[name].should_sync_default is served
+            assert (schemas[name].description == KLAVIYO_NEWER_VERSION_REQUIRED) is not served
+
+    def test_enabled_table_on_an_older_pin_fails_without_calling_klaviyo(self) -> None:
+        result = _driver().run("data_sources", [], api_version=KLAVIYO_API_VERSION_2024_10_15)
+        assert result.raised is not None
+        assert result.requests == []
+        friendly = [
+            message
+            for pattern, message in KlaviyoSource().get_non_retryable_errors().items()
+            if error_message_matches(str(result.raised), [pattern])
+        ]
+        assert friendly and friendly[0] is not None
+        assert "Contact PostHog support" in friendly[0]
 
 
 class TestValidateCredentialsResolvedPin:

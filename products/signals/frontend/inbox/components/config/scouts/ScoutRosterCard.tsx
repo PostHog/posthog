@@ -18,6 +18,7 @@ import { ScoutCostLine } from './ScoutCostLine'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
+import { ScoutToolsTag } from './ScoutToolsTag'
 import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
 const SUBTITLE_TONE_CLASS = {
@@ -69,6 +70,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                             {scoutDisplayName(config)}
                         </span>
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
+                        <ScoutToolsTag allowedTools={config.allowed_mcp_tools} />
                         <ScoutExemptionBadge config={config} group={group} />
                         <ScoutLifecycleBadge config={config} />
                         <ScoutDeprecationBadge config={config} />

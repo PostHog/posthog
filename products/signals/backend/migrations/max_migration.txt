@@ -1,1 +1,1 @@
-0178_signalscoutconfig_autovacuum_scale_factor
+0197_signalscratchpad_trgm_fastupdate_off

@@ -17,6 +17,9 @@ import type {
     RecordWizardScanRequestApi,
     UpdateWizardRunTaskListApi,
     UpsertWizardSessionRequestApi,
+    WizardInstallStartApi,
+    WizardInstallStartRequestApi,
+    WizardInstallStatusApi,
     WizardRegistryListParams,
     WizardRunApi,
     WizardRunCreateRequestApi,
@@ -30,6 +33,46 @@ import type {
     WizardSessionsStreamRetrieveParams,
     WizardToolCatalogApi,
 } from './api.schemas'
+
+export const getWizardInstallsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/installs/`
+}
+
+/**
+ * Start the setup agent in the cloud on a GitHub repository of this project. It adds PostHog to the code and opens a pull request. Each user can have one setup run active per project at a time.
+ * @summary Start a setup run
+ */
+export const wizardInstallsCreate = async (
+    projectId: string,
+    wizardInstallStartRequestApi: WizardInstallStartRequestApi,
+    options?: RequestInit
+): Promise<WizardInstallStartApi> => {
+    return apiMutator<WizardInstallStartApi>(getWizardInstallsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(wizardInstallStartRequestApi),
+    })
+}
+
+export const getWizardInstallsRetrieveUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/wizard/installs/${runId}/`
+}
+
+/**
+ * Get the status of a cloud setup run, its task list, the pull request link once it exists, and a next step to relay to the user.
+ * @summary Get a setup run's status
+ */
+export const wizardInstallsRetrieve = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<WizardInstallStatusApi> => {
+    return apiMutator<WizardInstallStatusApi>(getWizardInstallsRetrieveUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getWizardRegistryListUrl = (projectId: string, params?: WizardRegistryListParams) => {
     const normalizedParams = new URLSearchParams()

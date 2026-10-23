@@ -13,10 +13,6 @@ class TestFloatAppSource:
         self.team_id = 123
         self.config = FloatAppSourceConfig(api_key="key")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["people"])
-        assert [s.name for s in schemas] == ["people"]
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

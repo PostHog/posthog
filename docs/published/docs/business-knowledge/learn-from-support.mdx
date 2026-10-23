@@ -71,6 +71,9 @@ Private notes, customer messages, deleted replies, and AI replies are not used.
 
 Each reply is checked for reusable information, personal data, secrets, and overlap with existing Business knowledge.
 Accepted answers are added as their own learned sources, named after the topic.
+Each new learned source also joins a library named Learned.
+If you take a source out of Learned, it stays out.
+Deleting Learned does not delete the sources. The next new learned source creates the library again and joins only itself.
 You can open, edit, or delete a learned source.
 PostHog does not change a source that already exists when it analyzes the same ticket again.
 

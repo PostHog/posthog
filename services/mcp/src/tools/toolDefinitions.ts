@@ -1,6 +1,7 @@
 import z from 'zod'
 
 import { hasScope, hasScopes } from '@/lib/api'
+import { INGESTED_DATA_KINDS, type IngestedDataKind } from '@/lib/no-data-guard'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
@@ -30,6 +31,8 @@ export const ToolDefinitionSchema = z
          * flag while the tool keeps its own gating flag.
          */
         hidden_when_flag_on: z.string().optional(),
+        /** Ingested data the tool reads. A project without events gets install guidance from these tools. */
+        reads_ingested_data: z.enum(INGESTED_DATA_KINDS).optional(),
         /**
          * Tool names that took over this tool's job. Declared next to the gate
          * that retires the tool, so a call to the retired name can name its
@@ -38,6 +41,11 @@ export const ToolDefinitionSchema = z
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
+        /**
+         * The Django endpoints the handler calls, as `METHOD /path` with OpenAPI path templates.
+         * A narrowed scout run is refused a non-GET call when no tool it holds lists the endpoint.
+         */
+        api_operations: z.array(z.string()).optional(),
         /**
          * AvailableFeature the org's plan must include for this tool to be
          * advertised (e.g. `'audit_logs'`), matching the backend's
@@ -160,6 +168,10 @@ export function getToolDefinition(toolName: string): ToolDefinition {
  */
 export function getToolCategory(toolName: string): string | undefined {
     return getToolDefinitions()[toolName]?.category
+}
+
+export function getToolIngestedData(toolName: string): IngestedDataKind | undefined {
+    return getToolDefinitions()[toolName]?.reads_ingested_data
 }
 
 /**

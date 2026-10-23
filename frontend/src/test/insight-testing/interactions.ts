@@ -126,12 +126,10 @@ export const legend = {
     async toggle(label: string): Promise<void> {
         const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
         const logic = trendsDataLogic(props)
-        const dataset = (logic.values.indexedResults as IndexedTrendResult[]).find(
-            (d) => (d.label ?? d.action?.name) === label
-        )
+        const dataset = (logic.values.indexedResults as IndexedTrendResult[]).find((d) => d.label === label)
         if (!dataset) {
             const available = (logic.values.indexedResults as IndexedTrendResult[])
-                .map((d) => `"${d.label ?? d.action?.name}"`)
+                .map((d) => `"${d.label}"`)
                 .join(', ')
             throw new Error(`No series labeled "${label}". Available: ${available}`)
         }

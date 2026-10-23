@@ -7,6 +7,110 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AEOPromptEngineCheckApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    engine: string
+    /** Whether the answer cited a URL on one of the target domains. */
+    cited: boolean
+    /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
+    check_failed: boolean
+    /** When the check ran. */
+    checked_at: string
+}
+
+export interface AEOPromptApi {
+    /** The most recent check for each answer engine that ran the prompt. Empty when the prompt never ran. */
+    latest_checks: AEOPromptEngineCheckApi[]
+    /** Prompt id. */
+    id: string
+    /** The question asked to the answer engines, as a user would phrase it. */
+    prompt: string
+    /** Theme the prompt belongs to. The runner alternates between topics on each run. */
+    topic: string
+    /** Where the prompt came from: 'imported' or 'manual'. */
+    prompt_source: string
+    /** Seeding score. Within a topic, higher runs first. */
+    rank: number
+    /** Only active prompts are run against the answer engines. */
+    active: boolean
+    /**
+     * When the runner last ran this prompt. Null when it never ran.
+     * @nullable
+     */
+    last_checked_at: string | null
+    /**
+     * Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate. Null when the import carried none.
+     * @nullable
+     */
+    external_visibility: number | null
+    /** When the prompt was added. */
+    created_at: string
+    /**
+     * When the prompt last changed.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface PaginatedAEOPromptListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AEOPromptApi[]
+}
+
+export interface PatchedAEOPromptUpdateRequestApi {
+    /** Turn the prompt on or off for future runs. */
+    active?: boolean
+}
+
+export interface AEOPromptImportApi {
+    /**
+     * The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.
+     * @maxLength 10000
+     */
+    prompt: string
+    /**
+     * Theme the prompt belongs to. The runner alternates between topics on each run.
+     * @maxLength 200
+     */
+    topic?: string
+    /**
+     * Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+    external_visibility?: number | null
+}
+
+export interface AEOPromptBulkImportRequestApi {
+    /**
+     * Prompts to add or update, at most 2000 per request.
+     * @minItems 1
+     * @maxItems 2000
+     */
+    prompts: AEOPromptImportApi[]
+}
+
+export interface AEOPromptImportResultApi {
+    /** Prompts added to the set. */
+    created: number
+    /** Existing prompts that were updated. They keep their active state. */
+    updated: number
+    /** Prompts that were empty or too long for the answer engines. */
+    skipped: number
+}
+
+export interface AEOPromptTopicApi {
+    /** Topic name. Empty for prompts that have no topic. */
+    topic: string
+    /** How many prompts in the set have this topic. */
+    prompts: number
+}
+
 export interface HeatmapCapturePageApi {
     /** A page URL that currently sends heatmap data. */
     url: string
@@ -1366,6 +1470,8 @@ export interface ContentAutopilotProposalListApi {
     validation_report: ContentAutopilotValidationReportApi
     /** Repository-relative export path. */
     readonly file_path: string
+    /** Existing or intended public URL. */
+    readonly target_url: string
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1637,6 +1743,27 @@ export interface GeneratePathCleaningSuggestionResponseApi {
     status: string
     /** The stored suggestion when status is generated, else null. */
     suggestion?: PathCleaningSuggestionIssueApi | null
+}
+
+export type AeoPromptsListParams = {
+    /**
+     * Only list prompts that are on (true) or off (false). Omit to list both.
+     * @nullable
+     */
+    active?: boolean | null
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only list prompts with this topic. An empty value lists the prompts that have no topic.
+     * @maxLength 200
+     */
+    topic?: string
 }
 
 export type HeatmapScreenshotsContentRetrieveParams = {

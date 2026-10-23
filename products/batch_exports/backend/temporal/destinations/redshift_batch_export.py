@@ -38,14 +38,16 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
     AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
     IAMRole,
     IntegrationID,
     RedshiftBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -303,8 +305,8 @@ class RedshiftClient(PostgreSQLClient):
         final_table_name: str,
         stage_table_name: str,
         schema: str,
-        merge_key: Fields,
-        update_key: Fields,
+        merge_key: collections.abc.Sequence[str],
+        update_key: collections.abc.Sequence[str],
         final_table_fields: Fields,
         stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
         remove_duplicates: bool = True,
@@ -326,8 +328,8 @@ class RedshiftClient(PostgreSQLClient):
         and_separator = sql.SQL("AND")
         merge_condition = and_separator.join(
             sql.SQL("{final_field} = {stage_field}").format(
-                final_field=sql.Identifier(schema, final_table_name, field[0]),
-                stage_field=sql.Identifier("stage", field[0]),
+                final_field=sql.Identifier(schema, final_table_name, field),
+                stage_field=sql.Identifier("stage", field),
             )
             for field in merge_key
         )
@@ -338,8 +340,8 @@ class RedshiftClient(PostgreSQLClient):
         # versions back.
         delete_condition = and_separator.join(
             sql.SQL("{final_field} = {stage_field}").format(
-                final_field=sql.Identifier("final", field[0]),
-                stage_field=sql.Identifier(schema, stage_table_name, field[0]),
+                final_field=sql.Identifier("final", field),
+                stage_field=sql.Identifier(schema, stage_table_name, field),
             )
             for field in merge_key
         )
@@ -347,8 +349,8 @@ class RedshiftClient(PostgreSQLClient):
         or_separator = sql.SQL(" OR ")
         delete_extra_conditions = or_separator.join(
             sql.SQL("{stage_field} < {final_field}").format(
-                final_field=sql.Identifier("final", field[0]),
-                stage_field=sql.Identifier(schema, stage_table_name, field[0]),
+                final_field=sql.Identifier("final", field),
+                stage_field=sql.Identifier(schema, stage_table_name, field),
             )
             for field in update_key
         )
@@ -428,7 +430,7 @@ class RedshiftClient(PostgreSQLClient):
                     self.logger.info("Table locked")
 
                 try:
-                    if not skip_delete:
+                    if update_key and not skip_delete:
                         await cursor.execute(delete_query)
                 except psycopg.errors.UndefinedFunction:
                     self.logger.exception(
@@ -810,7 +812,7 @@ class TableSchemas(typing.NamedTuple):
 
 
 def _get_table_schemas(
-    model: BatchExportModel | None,
+    model: AnyBatchExportModel,
     record_batch_schema: pa.Schema,
     properties_data_type: str,
 ) -> TableSchemas:
@@ -824,7 +826,7 @@ def _get_table_schemas(
         properties_type = "VARCHAR(65535)"
         use_super = False
 
-    if model is None or model.name == "events":
+    if model.name == "events":
         table_schema: Fields = [
             ("uuid", "VARCHAR(200)"),
             ("event", "VARCHAR(200)"),
@@ -862,9 +864,9 @@ def _get_table_schemas(
 
 class RequiredMergeSettings(typing.NamedTuple):
     requires_merge: typing.Literal[True]
-    merge_key: Fields
-    update_key: Fields
-    primary_key: Fields
+    merge_key: collections.abc.Sequence[str]
+    update_key: collections.abc.Sequence[str]
+    primary_key: collections.abc.Sequence[str]
 
 
 class NotRequiredMergeSettings(typing.NamedTuple):
@@ -875,49 +877,20 @@ MergeSettings = RequiredMergeSettings | NotRequiredMergeSettings
 
 
 def _get_merge_settings(
-    model: BatchExportModel | None,
+    model: AnyBatchExportModel,
     use_super: bool = False,
 ) -> MergeSettings:
     """Return merge settings for models that require merging."""
-    merge_key: Fields
-    update_key: Fields
-    primary_key: Fields
-
-    if isinstance(model, BatchExportModel) and model.name == "persons":
-        merge_key = [
-            ("team_id", "INT"),
-            ("distinct_id", "TEXT"),
-        ]
-        update_key = [
-            ("person_version", "INT"),
-            ("person_distinct_id_version", "INT"),
-        ]
-        primary_key = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
-
+    if model.incremental_mode == IncrementalMode.MERGE:
         return RequiredMergeSettings(
-            requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
+            requires_merge=True,
+            merge_key=model.primary_key,
+            update_key=model.version_key,
+            primary_key=model.primary_key,
         )
-
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
-        merge_key = [
-            ("team_id", "INT"),
-            ("session_id", "TEXT"),
-        ]
-        update_key = [
-            ("end_timestamp", "TIMESTAMP"),
-        ]
-        primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
-
+    elif model.name == "events" and use_super is True:
         return RequiredMergeSettings(
-            requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
-        )
-    elif (model is None or model.name == "events") and use_super is True:
-        merge_key = [("uuid", "TEXT")]
-        update_key = [("timestamp", "TIMESTAMP")]
-        primary_key = [("uuid", "TEXT")]
-
-        return RequiredMergeSettings(
-            requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
+            requires_merge=True, merge_key=("uuid",), update_key=("timestamp",), primary_key=("uuid",)
         )
     else:
         return NotRequiredMergeSettings(requires_merge=False)
@@ -1302,7 +1275,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
     )
 
     async with Heartbeater():
-        model = inputs.batch_export.batch_export_model
+        model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1818,7 +1791,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
     )
 
     async with Heartbeater():
-        model = inputs.batch_export.batch_export_model
+        model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -2035,7 +2008,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             update_key=merge_settings.update_key,
                             stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
                             remove_duplicates=remove_duplicates,
-                            skip_delete=isinstance(model, BatchExportModel)
+                            skip_delete=inputs.batch_export.batch_export_model is not None
                             and model.name == "events"
                             and str(inputs.batch_export.team_id) in settings.BATCH_EXPORT_REDSHIFT_SKIP_DELETE_TEAM_IDS,
                         )

@@ -19,7 +19,7 @@ import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { getContrastingTextClass } from '../colorUtils'
-import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { TableDataCell, TableRow, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
 
 interface TableProps {
@@ -152,10 +152,12 @@ export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const {
-        tabularData,
+        tableRows,
+        tableResults,
+        getTableCell,
+        getSourceTableCell,
         tabularColumns,
         sourceTabularColumns,
-        sourceTabularData,
         conditionalFormattingRules,
         responseLoading,
         responseError,
@@ -170,197 +172,209 @@ export const Table = (props: TableProps): JSX.Element => {
         hogVm,
         hogVmLoadFailed,
     } = useValues(dataVisualizationLogic)
+    const virtualizationCellThreshold = props.context?.dataVisualizationTableVirtualizationCellThreshold ?? 0
+    const virtualized =
+        !!props.embedded &&
+        !!props.context?.dataVisualizationTableVirtualized &&
+        tableRows.length * tabularColumns.length > virtualizationCellThreshold
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
-    const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
-        ({ column, settings }, index) => {
-            const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
-            const columnTitle = settings?.display?.label || title || column.name
-            const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
-            const fullColumnTitle = typeof columnTitle === 'string' ? columnTitle : undefined
+    const tableColumns = tabularColumns.map<LemonTableColumn<TableRow, any>>(({ column, settings }, index) => {
+        const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
+        const columnTitle = settings?.display?.label || title || column.name
+        const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
+        const fullColumnTitle = typeof columnTitle === 'string' ? columnTitle : undefined
 
-            const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
-                const cell = data[index]
-
-                if (cell.isTransposedHeader || !hogVm) {
-                    return undefined
-                }
-
-                const sourceColumnName = cell.sourceColumnName ?? column.name
-                const sourceColumnType = sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-                const conditionalFormattingMatches = conditionalFormattingRules
-                    .filter((n) => n.columnName === sourceColumnName)
-                    .filter((n) => {
-                        const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                        if (!isValidHog) {
-                            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                                formatRule: n,
-                            })
-                        }
-
-                        return isValidHog
-                    })
-                    .map((n) => ({
-                        rule: n,
-                        result: hogVm.execHog(n.bytecode, {
-                            globals: {
-                                value: cell.value,
-                                input: convertTableValue(n.input, sourceColumnType),
-                            },
-                            functions: {},
-                            maxAsyncSteps: 0,
-                        }).result,
-                    }))
-                    .find((n) => Boolean(n.result))
-
-                if (!conditionalFormattingMatches) {
-                    return undefined
-                }
-
-                const ruleColor = conditionalFormattingMatches.rule.color
-                const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
-
-                // If the color mode matches the current theme, use the color as it was saved
-                if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                    return ruleColor
-                }
-
-                // If the color mode is dark, but we're in light mode - then lighten the color
-                if (colorMode === 'dark' && !isDarkModeOn) {
-                    return lightenDarkenColor(ruleColor, 30)
-                }
-
-                // If the color mode is light, but we're in dark mode - then darken the color
-                return lightenDarkenColor(ruleColor, -30)
+        const computeConditionalFormattingBackground = (rowIndex: number): string | undefined => {
+            if (!hogVm) {
+                return undefined
+            }
+            const cell = getTableCell(rowIndex, index)
+            if (cell.isTransposedHeader) {
+                return undefined
             }
 
-            // The `style` and `className` cell callbacks are invoked independently for the same cell,
-            // so memoize per row record to run the HogVM rules (and any captureException) only once.
-            // The cache lives in this per-render closure, so it can't go stale across theme/rule changes.
-            const backgroundByRecord = new WeakMap<TableDataCell<any>[], string | undefined>()
-            const resolveConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
-                if (backgroundByRecord.has(data)) {
-                    return backgroundByRecord.get(data)
-                }
-                const backgroundColor = computeConditionalFormattingBackground(data)
-                backgroundByRecord.set(data, backgroundColor)
-                return backgroundColor
+            const sourceColumnName = cell.sourceColumnName ?? column.name
+            const sourceColumnType = sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
+            const conditionalFormattingMatches = conditionalFormattingRules
+                .filter((n) => n.columnName === sourceColumnName)
+                .filter((n) => {
+                    const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
+                    if (!isValidHog) {
+                        posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
+                            formatRule: n,
+                        })
+                    }
+
+                    return isValidHog
+                })
+                .map((n) => ({
+                    rule: n,
+                    result: hogVm.execHog(n.bytecode, {
+                        globals: {
+                            value: cell.value,
+                            input: convertTableValue(n.input, sourceColumnType),
+                        },
+                        functions: {},
+                        maxAsyncSteps: 0,
+                    }).result,
+                }))
+                .find((n) => Boolean(n.result))
+
+            if (!conditionalFormattingMatches) {
+                return undefined
             }
 
-            return {
-                ...columnMeta,
-                key: column.name,
-                // Sorting reorders rows, which doesn't make sense once the table is transposed
-                // (rows become the original columns), so only offer it in the normal orientation.
-                sorter: isTransposed ? undefined : (a, b) => compareTableCells(a[index], b[index]),
-                title: (
-                    <ColumnHeaderTitle formattedTitle={formattedTitle} fullTitle={fullColumnTitle}>
-                        {isPinningEnabled && (
-                            <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
-                                <span
-                                    className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        toggleColumnPin(column.name)
-                                    }}
-                                >
-                                    {isColumnPinned(column.name) ? (
-                                        <IconPinFilled className="text-sm" />
-                                    ) : (
-                                        <IconPin className="text-sm" />
-                                    )}
-                                </span>
-                            </Tooltip>
-                        )}
-                    </ColumnHeaderTitle>
-                ),
-                render: (_, data, recordIndex: number, rowCount: number) => {
-                    const cell = data[index]
+            const ruleColor = conditionalFormattingMatches.rule.color
+            const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
 
-                    if (cell.isTransposedHeader) {
-                        const sourceColumnTitle = cell.sourceColumnName
-                            ? getDisplayedColumnTitle(
-                                  cell.sourceColumnName,
-                                  sourceTabularColumnsByName.get(cell.sourceColumnName)?.settings?.display?.label,
-                                  props.query,
-                                  props.context
-                              )
-                            : cell.formattedValue
-                        const renderedSourceColumnTitle =
-                            typeof sourceColumnTitle === 'string'
-                                ? formatColumnTitle(sourceColumnTitle)
-                                : React.isValidElement(sourceColumnTitle) ||
-                                    sourceColumnTitle == null ||
-                                    typeof sourceColumnTitle === 'number'
-                                  ? sourceColumnTitle
-                                  : String(sourceColumnTitle)
+            // If the color mode matches the current theme, use the color as it was saved
+            if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
+                return ruleColor
+            }
 
-                        return (
-                            <div
-                                className="truncate"
-                                title={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
+            // If the color mode is dark, but we're in light mode - then lighten the color
+            if (colorMode === 'dark' && !isDarkModeOn) {
+                return lightenDarkenColor(ruleColor, 30)
+            }
+
+            // If the color mode is light, but we're in dark mode - then darken the color
+            return lightenDarkenColor(ruleColor, -30)
+        }
+
+        // The style and class callbacks run separately. Cache the last row to avoid a second HogVM call
+        // without retaining offscreen rows. A new column closure invalidates the cache when the theme or rules change.
+        let backgroundRowIndex: number | undefined
+        let backgroundColor: string | undefined
+        const resolveConditionalFormattingBackground = (rowIndex: number): string | undefined => {
+            if (backgroundRowIndex !== rowIndex) {
+                backgroundColor = computeConditionalFormattingBackground(rowIndex)
+                backgroundRowIndex = rowIndex
+            }
+            return backgroundColor
+        }
+
+        let sortCells: TableDataCell<any>[] | undefined
+
+        return {
+            ...columnMeta,
+            key: column.name,
+            // Sorting reorders rows, which doesn't make sense once the table is transposed
+            // (rows become the original columns), so only offer it in the normal orientation.
+            sorter: isTransposed
+                ? undefined
+                : (a, b) => {
+                      sortCells ??= tableRows.map((row) => getTableCell(row.rowIndex, index))
+                      return compareTableCells(sortCells[a.rowIndex], sortCells[b.rowIndex])
+                  },
+            title: (
+                <ColumnHeaderTitle formattedTitle={formattedTitle} fullTitle={fullColumnTitle}>
+                    {isPinningEnabled && (
+                        <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
+                            <span
+                                className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleColumnPin(column.name)
+                                }}
                             >
-                                {renderedSourceColumnTitle}
-                            </div>
-                        )
-                    }
+                                {isColumnPinned(column.name) ? (
+                                    <IconPinFilled className="text-sm" />
+                                ) : (
+                                    <IconPin className="text-sm" />
+                                )}
+                            </span>
+                        </Tooltip>
+                    )}
+                </ColumnHeaderTitle>
+            ),
+            render: (_, data, recordIndex: number, rowCount: number) => {
+                const cell = getTableCell(data.rowIndex, index)
 
-                    if (props.onInspect) {
-                        const sourceRow = isTransposed ? sourceTabularData[index - 1] : data
-                        const sourceColumns = isTransposed ? sourceTabularColumns : tabularColumns
-                        return (
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                className="max-w-full !text-inherit"
-                                tooltip="Explore this result"
-                                onClick={() =>
-                                    props.onInspect?.(
-                                        Object.fromEntries(
-                                            sourceColumns.map((column, index) => [
-                                                column.column.name,
-                                                sourceRow[index]?.value,
-                                            ])
-                                        )
-                                    )
-                                }
-                            >
-                                <span className="truncate">{String(cell.formattedValue ?? '—')}</span>
-                            </LemonButton>
-                        )
-                    }
+                if (cell.isTransposedHeader) {
+                    const sourceColumnTitle = cell.sourceColumnName
+                        ? getDisplayedColumnTitle(
+                              cell.sourceColumnName,
+                              sourceTabularColumnsByName.get(cell.sourceColumnName)?.settings?.display?.label,
+                              props.query,
+                              props.context
+                          )
+                        : cell.formattedValue
+                    const renderedSourceColumnTitle =
+                        typeof sourceColumnTitle === 'string'
+                            ? formatColumnTitle(sourceColumnTitle)
+                            : React.isValidElement(sourceColumnTitle) ||
+                                sourceColumnTitle == null ||
+                                typeof sourceColumnTitle === 'number'
+                              ? sourceColumnTitle
+                              : String(sourceColumnTitle)
 
                     return (
-                        <div className="truncate" title={getCellTitle(cell)}>
-                            {renderColumn(
-                                cell.sourceColumnName ?? column.name,
-                                cell.formattedValue,
-                                data,
-                                recordIndex,
-                                rowCount,
-                                {
-                                    kind: NodeKind.DataTableNode,
-                                    source: props.query.source,
-                                }
-                            )}
+                        <div
+                            className="truncate"
+                            title={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
+                        >
+                            {renderedSourceColumnTitle}
                         </div>
                     )
-                },
-                style: (_, data) => {
-                    const backgroundColor = resolveConditionalFormattingBackground(data)
-                    return backgroundColor ? { backgroundColor } : undefined
-                },
-                className: (_, data) => {
-                    const backgroundColor = resolveConditionalFormattingBackground(data)
-                    // Pin the text color to the cell background rather than inheriting the theme's text
-                    // color, which is near-white in dark mode and unreadable on light backgrounds
-                    return backgroundColor ? getContrastingTextClass(backgroundColor) : ''
-                },
-            }
+                }
+
+                if (props.onInspect) {
+                    const sourceRowIndex = isTransposed ? index - 1 : data.rowIndex
+                    const sourceColumns = isTransposed ? sourceTabularColumns : tabularColumns
+                    return (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            // The negative margin cancels the button padding, so the value lines up with the header text
+                            className="-mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
+                            tooltip="Explore this result"
+                            onClick={() =>
+                                props.onInspect?.(
+                                    Object.fromEntries(
+                                        sourceColumns.map((column, index) => [
+                                            column.column.name,
+                                            getSourceTableCell(sourceRowIndex, index).value,
+                                        ])
+                                    )
+                                )
+                            }
+                        >
+                            <span className="truncate">{String(cell.formattedValue ?? '—')}</span>
+                        </LemonButton>
+                    )
+                }
+
+                return (
+                    <div className="truncate" title={getCellTitle(cell)}>
+                        {renderColumn(
+                            cell.sourceColumnName ?? column.name,
+                            cell.formattedValue,
+                            tableResults[isTransposed ? index - 1 : data.rowIndex],
+                            recordIndex,
+                            rowCount,
+                            {
+                                kind: NodeKind.DataTableNode,
+                                source: props.query.source,
+                            }
+                        )}
+                    </div>
+                )
+            },
+            style: (_, data) => {
+                const backgroundColor = resolveConditionalFormattingBackground(data.rowIndex)
+                return backgroundColor ? { backgroundColor } : undefined
+            },
+            className: (_, data) => {
+                const backgroundColor = resolveConditionalFormattingBackground(data.rowIndex)
+                // Pin the text color to the cell background rather than inheriting the theme's text
+                // color, which is near-white in dark mode and unreadable on light backgrounds
+                return backgroundColor ? getContrastingTextClass(backgroundColor) : ''
+            },
         }
-    )
+    })
 
     return (
         <>
@@ -381,7 +395,8 @@ export const Table = (props: TableProps): JSX.Element => {
             )}
             <LemonTable
                 className="DataVisualizationTable"
-                dataSource={tabularData}
+                rowKey="rowIndex"
+                dataSource={tableRows}
                 columns={tableColumns}
                 pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
                 loading={responseLoading}
@@ -414,10 +429,14 @@ export const Table = (props: TableProps): JSX.Element => {
                         />
                     )
                 }
-                footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
+                footer={tableRows.length > 0 ? <LoadNext query={props.query} /> : null}
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
+                virtualized={virtualized}
+                virtualizedColumnWidth={(virtualized || isTransposed) && tabularColumns.length > 50 ? 192 : undefined}
+                tableLayout={virtualized ? 'fixed' : 'auto'}
+                tableStyle={virtualized ? { minWidth: `${tabularColumns.length * 12}rem` } : undefined}
             />
         </>
     )

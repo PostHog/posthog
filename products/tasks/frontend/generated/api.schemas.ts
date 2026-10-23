@@ -4446,6 +4446,12 @@ export interface TasksTaskDefaultsApi {
      * @nullable
      */
     auto_publish_cloud_runs: boolean | null
+    /**
+     * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+     * @nullable
+     * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+     */
+    default_cloud_target: string | null
 }
 
 /**
@@ -4481,6 +4487,12 @@ export interface TasksTaskDefaultsUpdateApi {
     start_in_plan_mode?: boolean
     /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
     auto_publish_cloud_runs?: boolean
+    /**
+     * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+     * @nullable
+     * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+     */
+    default_cloud_target?: string | null
 }
 
 /**
@@ -5024,7 +5036,7 @@ export interface SlackThreadContextRunApi {
      */
     task_processing_workflow_url: string | null
     /**
-     * Temporal workflow id of the Slack mention that dispatched this run (`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs created before this field was persisted.
+     * Temporal workflow id of the Slack mention that dispatched this run (`slack-app-mention-processing-<workspace>:<event_id_or_channel:ts>`). Null for runs created before this field was persisted.
      * @nullable
      */
     mention_workflow_id: string | null
@@ -5056,6 +5068,68 @@ export interface SlackThreadContextResponseApi {
     task: SlackThreadContextTaskApi | null
     /** All runs on the task, oldest first. Empty when no mapping was found. */
     runs: SlackThreadContextRunApi[]
+}
+
+/**
+ * * `autoresearch` - autoresearch
+ * * `error_tracking` - error_tracking
+ * * `eval_clusters` - eval_clusters
+ * * `experiments` - experiments
+ * * `hogdesk` - hogdesk
+ * * `image_builder` - image_builder
+ * * `loop` - loop
+ * * `mcp_analytics` - mcp_analytics
+ * * `onboarding` - onboarding
+ * * `posthog_ai` - posthog_ai
+ * * `posthog_desktop` - posthog_desktop
+ * * `posthog_mobile` - posthog_mobile
+ * * `posthog_web` - posthog_web
+ * * `review_hog` - review_hog
+ * * `scout_suggestions` - scout_suggestions
+ * * `session_summaries` - session_summaries
+ * * `signal_report` - signal_report
+ * * `signals_chat` - signals_chat
+ * * `signals_scout` - signals_scout
+ * * `slack` - slack
+ * * `space_setup` - space_setup
+ * * `support_queue` - support_queue
+ * * `support_reply` - support_reply
+ * * `task_analysis` - task_analysis
+ * * `workflow` - workflow
+ */
+export type TaskListSourceEnumApi = (typeof TaskListSourceEnumApi)[keyof typeof TaskListSourceEnumApi]
+
+export const TaskListSourceEnumApi = {
+    Autoresearch: 'autoresearch',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    Experiments: 'experiments',
+    Hogdesk: 'hogdesk',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    Onboarding: 'onboarding',
+    PosthogAi: 'posthog_ai',
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    ReviewHog: 'review_hog',
+    ScoutSuggestions: 'scout_suggestions',
+    SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
+    SignalsChat: 'signals_chat',
+    SignalsScout: 'signals_scout',
+    Slack: 'slack',
+    SpaceSetup: 'space_setup',
+    SupportQueue: 'support_queue',
+    SupportReply: 'support_reply',
+    TaskAnalysis: 'task_analysis',
+    Workflow: 'workflow',
+} as const
+
+export interface TaskSourcesResponseApi {
+    /** Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task list `sources` filter. Each value filters the task list back to at least one task. */
+    sources: TaskListSourceEnumApi[]
 }
 
 export interface TaskSummariesRequestApi {
@@ -5211,7 +5285,71 @@ export type SandboxCustomImagesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     *
+     * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
+     * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
+     * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
+     * @minLength 1
+     */
+    origin_product?: SandboxCustomImagesListOriginProduct
 }
+
+export type SandboxCustomImagesListOriginProduct =
+    (typeof SandboxCustomImagesListOriginProduct)[keyof typeof SandboxCustomImagesListOriginProduct]
+
+export const SandboxCustomImagesListOriginProduct = {
+    Onboarding: 'onboarding',
+    AccountAudit: 'account_audit',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+    PosthogAi: 'posthog_ai',
+    Experiments: 'experiments',
+    SignalReport: 'signal_report',
+    Autoresearch: 'autoresearch',
+    SignalsScout: 'signals_scout',
+    ScoutSuggestions: 'scout_suggestions',
+    SupportReply: 'support_reply',
+    Hogdesk: 'hogdesk',
+    ReviewHog: 'review_hog',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
+    TaskAnalysis: 'task_analysis',
+    Workflow: 'workflow',
+    SpaceSetup: 'space_setup',
+    BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
+} as const
 
 export type SandboxListParams = {
     /**
@@ -5431,6 +5569,10 @@ export type TasksListParams = {
      */
     search?: string
     /**
+     * Only tasks from any of these sources. Repeat the parameter for each source, or send one comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client that created them, and a user-created task from no other known client counts as desktop. 'posthog_web' also matches PostHog AI tasks. Any other value matches the task's origin product.
+     */
+    sources?: TasksListSourcesItem[]
+    /**
      * Filter by task run stage
      * @minLength 1
      */
@@ -5528,6 +5670,63 @@ export const TasksListPrState = {
     Draft: 'draft',
     Merged: 'merged',
     Closed: 'closed',
+} as const
+
+/**
+ * * `autoresearch` - autoresearch
+ * * `error_tracking` - error_tracking
+ * * `eval_clusters` - eval_clusters
+ * * `experiments` - experiments
+ * * `hogdesk` - hogdesk
+ * * `image_builder` - image_builder
+ * * `loop` - loop
+ * * `mcp_analytics` - mcp_analytics
+ * * `onboarding` - onboarding
+ * * `posthog_ai` - posthog_ai
+ * * `posthog_desktop` - posthog_desktop
+ * * `posthog_mobile` - posthog_mobile
+ * * `posthog_web` - posthog_web
+ * * `review_hog` - review_hog
+ * * `scout_suggestions` - scout_suggestions
+ * * `session_summaries` - session_summaries
+ * * `signal_report` - signal_report
+ * * `signals_chat` - signals_chat
+ * * `signals_scout` - signals_scout
+ * * `slack` - slack
+ * * `space_setup` - space_setup
+ * * `support_queue` - support_queue
+ * * `support_reply` - support_reply
+ * * `task_analysis` - task_analysis
+ * * `workflow` - workflow
+ */
+export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof TasksListSourcesItem]
+
+export const TasksListSourcesItem = {
+    Autoresearch: 'autoresearch',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    Experiments: 'experiments',
+    Hogdesk: 'hogdesk',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    Onboarding: 'onboarding',
+    PosthogAi: 'posthog_ai',
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    ReviewHog: 'review_hog',
+    ScoutSuggestions: 'scout_suggestions',
+    SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
+    SignalsChat: 'signals_chat',
+    SignalsScout: 'signals_scout',
+    Slack: 'slack',
+    SpaceSetup: 'space_setup',
+    SupportQueue: 'support_queue',
+    SupportReply: 'support_reply',
+    TaskAnalysis: 'task_analysis',
+    Workflow: 'workflow',
 } as const
 
 export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]

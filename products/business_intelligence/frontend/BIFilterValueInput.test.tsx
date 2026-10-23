@@ -16,6 +16,41 @@ describe('BI filter value input', () => {
         jest.restoreAllMocks()
     })
 
+    it.each(['contains', 'greater_than', 'less_than'] as const)(
+        'keeps the %s operand raw despite a saved alias',
+        (operator) => {
+            const props = { tabId: 'raw-filter-operand' }
+            const logic = biEditorLogic(props)
+            const unmount = logic.mount()
+            const field = {
+                id: 'amount',
+                name: 'amount',
+                expression: 'amount',
+                type: operator === 'contains' ? ('string' as const) : ('integer' as const),
+                source: { table: 'orders' },
+            }
+            logic.actions.setAutoUpdate(false)
+            logic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: {
+                    ...DEFAULT_BI_CONFIG,
+                    source: field.source,
+                    filters: [{ field, operator, value: '10' }],
+                    memberAliases: [{ field, aliases: [{ value: '10', label: 'Ten' }] }],
+                },
+            })
+            render(
+                <BindLogic logic={biEditorLogic} props={props}>
+                    <BIFilterValueInput index={0} />
+                </BindLogic>
+            )
+            expect(screen.getByText('10')).toBeTruthy()
+            expect(screen.queryByText('Ten')).toBeNull()
+            cleanup()
+            unmount()
+        }
+    )
+
     it.each(['equals', 'not_equals', 'in'] as const)('offers searchable suggestions for %s', async (operator) => {
         jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({ results: [['pending'], ['paid'], ['']] } as never)
         const props = { tabId: 'filter-input-test' }

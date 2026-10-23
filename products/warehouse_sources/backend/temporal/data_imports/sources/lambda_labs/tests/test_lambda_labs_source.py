@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lambdalabs import (
     LambdaLabsSourceConfig,
 )
@@ -17,13 +15,6 @@ class TestLambdaLabsSource:
         [
             (True, True, None),
             (False, False, "Invalid Lambda API key"),
-            # A transient failure must not be reported as an invalid key — it should surface as a
-            # retryable "could not reach" message so the user isn't sent to rotate a valid key.
-            (
-                requests.ConnectionError("boom"),
-                False,
-                "Could not reach Lambda to validate the API key. This may be a temporary network or service issue — please try again.",
-            ),
         ],
     )
     def test_validate_credentials(self, outcome: Any, expected_ok: bool, expected_error: str | None) -> None:

@@ -50,7 +50,7 @@ export function BroadcastsEmptyState(): JSX.Element {
                 {!senderReady && (
                     <LemonButton
                         type="primary"
-                        to={onboardingWizardUrl('broadcast')}
+                        to={onboardingWizardUrl('broadcast', { entry: 'broadcasts_empty_state' })}
                         disabledReason={editorDisabledReason}
                         onClick={() => capture('set-up-email')}
                         data-attr="broadcasts-empty-state-set-up-email"

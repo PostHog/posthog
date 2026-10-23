@@ -16,9 +16,19 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
-# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
+
+class IssueTrendDirection(LabeledStrEnum):
+    NEW = "new"
+    INCREASING = "increasing"
+    DECREASING = "decreasing"
+    STABLE = "stable"
+
+
+# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/sourceMapsFixWizardLogic.ts.
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
 
@@ -302,6 +312,8 @@ class ErrorTrackingIssueBasics:
     description: str | None
     status: str
     severity: str | None
+    # Earliest across all fingerprints, merged ones included.
+    first_seen: datetime | None
 
 
 @dataclass(frozen=True)
@@ -315,6 +327,83 @@ class ErrorTrackingRecommendation:
     dismissed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class SymbolsPlatform(LabeledStrEnum):
+    JAVASCRIPT = "javascript", "JavaScript"
+    JAVA = "java", "Android"
+    NATIVE = "native", "iOS and native"
+
+
+class MissingSymbolsReason(LabeledStrEnum):
+    CHUNK_NOT_UPLOADED = "chunk_not_uploaded", "Source map not uploaded"
+    NO_SOURCE_MAP_LINKED = "no_source_map_linked", "Script links no source map"
+    FILE_NOT_REACHABLE = "file_not_reachable", "Script or source map not reachable"
+    INVALID_SOURCE_MAP = "invalid_source_map", "Source map URL returns something else"
+    TOO_LARGE_TO_FETCH = "too_large_to_fetch", "Too large to fetch"
+    BUNDLE_NOT_INJECTED = "bundle_not_injected", "Bundle not processed by the PostHog CLI"
+    MAPPING_NOT_UPLOADED = "mapping_not_uploaded", "Mapping file not uploaded"
+    DSYM_NOT_UPLOADED = "dsym_not_uploaded", "dSYM not uploaded"
+    DEBUG_SYMBOLS_NOT_UPLOADED = "debug_symbols_not_uploaded", "Debug symbols not uploaded"
+
+
+@dataclass(frozen=True)
+class MissingSymbolsIssue:
+    """An issue whose recent exceptions contain frames from one missing-symbols example."""
+
+    id: UUID
+    name: str | None
+    description: str | None
+    occurrences: int
+
+
+@dataclass(frozen=True)
+class MissingSymbolsStackFrame:
+    function: str | None
+    source: str | None
+    line: int | None
+    column: int | None
+    in_app: bool
+    missing_symbols: bool
+
+
+@dataclass(frozen=True)
+class MissingSymbolsExampleException:
+    # The issue page opens this event from the issue ID, the fingerprint and the timestamp.
+    issue_id: UUID | None
+    fingerprint: str
+    timestamp: datetime
+    type: str | None
+    value: str | None
+    # Most recent call first, the order the issue page shows.
+    frames: list[MissingSymbolsStackFrame]
+
+
+@dataclass(frozen=True)
+class MissingSymbolsExample:
+    """Frames from one file or build that miss the same symbols, for the same reason."""
+
+    reason: MissingSymbolsReason
+    location: str | None
+    symbol_id: str | None
+    http_status: int | None
+    frames: int
+    # The issues with the most occurrences. `issue_count` counts them all.
+    issues: list[MissingSymbolsIssue]
+    issue_count: int
+    # True when the scan searched only a sample of the frames or stopped at its fingerprint limit,
+    # so `issue_count` is a lower bound.
+    issue_count_capped: bool
+    example_exception: MissingSymbolsExampleException | None
+
+
+@dataclass(frozen=True)
+class MissingSymbolsExamples:
+    platform: SymbolsPlatform
+    lookback_hours: int
+    # False when the exception lookup failed, so the issues and examples are unknown rather than absent.
+    exceptions_loaded: bool
+    results: list[MissingSymbolsExample]
 
 
 @dataclass(frozen=True)
@@ -342,3 +431,28 @@ class ErrorTrackingAlert:
     destinations: list[ErrorTrackingAlertDestination]
     created_at: datetime
     updated_at: datetime
+
+
+class IssueSummaryCategory(LabeledStrEnum):
+    OWN_CODE = "own_code"
+    THIRD_PARTY = "third_party"
+    NETWORK = "network"
+    BOTS = "bots"
+    EXPECTED = "expected"
+    UNCLEAR = "unclear"
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueSummary:
+    issue_id: UUID
+    what_happened: str
+    # A hypothesis, never a finding.
+    likely_cause: str
+    who_is_affected: str
+    suggested_next_step: str
+    # None when the category model did not answer.
+    category: IssueSummaryCategory | None
+    model: str
+    generated_at: datetime
+    # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
+    checked_at: datetime

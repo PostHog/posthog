@@ -82,7 +82,8 @@ ReviewIssueCategory = Literal[
 # finding (anchor), or a finding of its own session or lens (sibling). Only records from before Flash
 # stopped reading PR comments carry `dedup_comment`. `cap` is the cut in `compose_flash_findings`, and
 # `budget` the cut the pull request's finding budget adds on top (`finding_budget.py`).
-# `old_code` is a follow-up turn's P3 finding on code that did not change since the last reviewed head.
+# `old_code` is a follow-up turn's finding on code that did not change since the last reviewed head: P2 and P3
+# on an automatic turn from run 2 on, P3 only on a requested turn. A first review drops nothing this way.
 DropDisposition = Literal[
     "old_code",
     "dedup_prior",
@@ -365,6 +366,10 @@ class ReviewRepositoryOverviewPage:
     entries: Sequence[ReviewRepositoryOverviewEntry]
     # Entries that match the search and the view, on every page.
     total: int
+    # The repositories the 'differs' view leaves out. Empty for a search and for the views other than 'differs' and 'all'.
+    folded: int
+    folded_preview: Sequence[str]
+    folded_result: AutomaticReviewDecision | None
     my_choices_unlike_default: int
 
 
@@ -444,6 +449,7 @@ class ReviewProgress:
     review_stage: str
     done: int | None
     total: int | None
+    review_mode: str | None = None
 
 
 @frozen

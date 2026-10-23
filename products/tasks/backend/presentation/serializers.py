@@ -17,6 +17,7 @@ from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
@@ -76,6 +77,7 @@ from products.tasks.backend.facade.run_config import (
     get_reasoning_effort_error,
     get_runtime_adapter_for_model,
 )
+from products.tasks.backend.facade.task_defaults import CLOUD_TARGET_PATTERN
 
 logger = logging.getLogger(__name__)
 
@@ -2332,6 +2334,32 @@ class TaskSummarySerializer(DataclassSerializer):
         ]
 
 
+class TaskSourcesListField(RepeatedOrCommaSeparatedListField, JSONTolerantListField):
+    """Repeated keys, one comma-joined value (the generated frontend client) or one JSON array (the MCP client).
+
+    The base order matters: JSONTolerantListField reads a JSON array before
+    RepeatedOrCommaSeparatedListField splits on commas. Blank values are dropped, so an empty
+    value means no source filter, as an empty source list does in the desktop filter.
+    """
+
+    def get_value(self, dictionary: Any) -> Any:
+        value = super().get_value(dictionary)
+        if isinstance(value, list):
+            return [source for source in value if source != ""]
+        return value
+
+
+class SandboxCustomImageListQuerySerializer(serializers.Serializer):
+    origin_product = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskOriginProduct.choices,
+        help_text=(
+            "Return 403 unless tasks from this origin product can run on custom images. "
+            "Leave it out to only check that custom images are enabled."
+        ),
+    )
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
@@ -2345,6 +2373,17 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text="Exclude tasks with this origin product from the results",
+    )
+    sources = TaskSourcesListField(
+        required=False,
+        child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
+        help_text=(
+            "Only tasks from any of these sources. Repeat the parameter for each source, or send one "
+            "comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' "
+            "match user-created tasks by the client that created them, and a user-created task from no "
+            "other known client counts as desktop. 'posthog_web' also matches PostHog AI tasks. "
+            "Any other value matches the task's origin product."
+        ),
     )
     stage = serializers.CharField(required=False, help_text="Filter by task run stage")
     organization = serializers.CharField(required=False, help_text="Filter by repository organization")
@@ -3139,6 +3178,16 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
     )
 
 
+class TaskSourcesResponseSerializer(serializers.Serializer):
+    sources = serializers.ListField(
+        child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
+        help_text=(
+            "Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task "
+            "list `sources` filter. Each value filters the task list back to at least one task."
+        ),
+    )
+
+
 class TaskArtifactSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable artifact id used to filter task comments.")
     type = serializers.CharField(help_text="Artifact type: artifact or canvas.")
@@ -3397,6 +3446,64 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token for direct sandbox connection"""
 
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class TaskRunLogsView(models.TextChoices):
+    FULL = "full", "full"
+    THREAD = "thread", "thread"
+
+
+class TaskRunLogsQuerySerializer(serializers.Serializer):
+    """Query parameters for reading part of a task run log"""
+
+    view = serializers.ChoiceField(
+        choices=TaskRunLogsView.choices,
+        default=TaskRunLogsView.FULL,
+        required=False,
+        help_text=(
+            "'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in "
+            "_meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that "
+            "render the conversation. It applies to the full log and to every slice."
+        ),
+    )
+
+    tail_bytes = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text=(
+            "Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at "
+            "least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry "
+            "and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run "
+            "state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before "
+            "counts the user turns before the slice, so a client numbers turns the way the full log does."
+        ),
+    )
+    before = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "With tail_bytes, end the window before this entry index, so a client can page back through older "
+            "turns: pass the X-Log-Offset of the oldest page it holds."
+        ),
+    )
+    start = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "With tail_bytes, return every entry from this index to the end, with no preamble, so a client that "
+            "holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. "
+            "When those entries are too large, the response holds the latest turns as tail_bytes alone returns "
+            "them, and X-Log-Offset is greater than start."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        for field in ("before", "start"):
+            if field in attrs and "tail_bytes" not in attrs:
+                raise serializers.ValidationError(f"Use {field} together with tail_bytes.")
+        if "before" in attrs and "start" in attrs:
+            raise serializers.ValidationError("Use before or start, not both.")
+        return attrs
 
 
 class StreamReadTokenQuerySerializer(serializers.Serializer):
@@ -4979,7 +5086,7 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Temporal workflow id of the Slack mention that dispatched this run "
-            "(`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs "
+            "(`slack-app-mention-processing-<workspace>:<event_id_or_channel:ts>`). Null for runs "
             "created before this field was persisted."
         ),
     )
@@ -5029,6 +5136,17 @@ class AgentProxyProcessKilledSerializer(serializers.Serializer):
     memory_limit_bytes = serializers.IntegerField(min_value=0, help_text="Sandbox memory limit, in bytes.")
 
 
+class AgentProxyCallbackKind(models.TextChoices):
+    HEARTBEAT = "heartbeat", "Heartbeat"
+    AWAITING_INPUT = "awaiting_input", "Awaiting input"
+    PERMISSION_REQUESTED = "permission_requested", "Permission requested"
+    TURN_FAILED = "turn_failed", "Turn failed"
+    COMMAND_DISPATCHED = "command_dispatched", "Command dispatched"
+    AGENT_ACTIVITY = "agent_activity", "Agent activity"
+    BUDGET_STEER = "budget_steer", "Budget steer"
+    PROCESS_KILLED = "process_killed", "Process killed"
+
+
 class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """Request body for the agent-proxy side-effect callback.
 
@@ -5039,19 +5157,13 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=[
-            "heartbeat",
-            "awaiting_input",
-            "turn_failed",
-            "command_dispatched",
-            "agent_activity",
-            "budget_steer",
-            "process_killed",
-        ],
+        choices=AgentProxyCallbackKind.choices,
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
-            "interactive run finishes a turn and is waiting for user input. 'turn_failed' fails "
+            "interactive run finishes a turn and is waiting for user input. 'permission_requested' fires a "
+            "'needs your input' push when an interactive run waits on a permission request or a question. "
+            "'turn_failed' fails "
             "the run outright when a pi turn ends in a runtime error. 'command_dispatched' "
             "and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. "
             "'process_killed' captures a sandbox memory watchdog kill."
@@ -5095,7 +5207,15 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     sequence = serializers.IntegerField(
         required=False,
         min_value=1,
-        help_text="Event sequence used to deduplicate a budget steer or a process kill.",
+        help_text=(
+            "Event sequence used to deduplicate a budget steer or a process kill. "
+            "Also sent with 'permission_requested' to identify the event."
+        ),
+    )
+    request_id = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="ID of the pending permission request that 'permission_requested' reports.",
     )
     timestamp = serializers.DateTimeField(required=False, help_text="Original event time, preserved across retries.")
     stage = serializers.CharField(required=False, help_text="Budget stage: warn or critical.")
@@ -5249,6 +5369,15 @@ class TasksTaskDefaultsSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.",
     )
+    default_cloud_target = serializers.RegexField(
+        regex=CLOUD_TARGET_PATTERN,
+        allow_null=True,
+        help_text=(
+            "The cloud target new tasks start on, as `environment:<sandbox environment id>` or "
+            "`image:<custom image id>`. Null means the default sandbox. Clients fall back to the default "
+            "sandbox when the target no longer exists."
+        ),
+    )
 
 
 class TasksTaskDefaultsUpdateSerializer(TasksTaskDefaultsSerializer):
@@ -5259,6 +5388,7 @@ class TasksTaskDefaultsUpdateSerializer(TasksTaskDefaultsSerializer):
         for field in self.fields.values():
             field.required = False
             field.allow_null = False
+        self.fields["default_cloud_target"].allow_null = True
 
 
 class TasksUserConfigResponseSerializer(serializers.Serializer):

@@ -39,11 +39,14 @@ from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
     DeletePersonsMode,
     DeletePersonsRequest,
+    DistinctIdRow,
     EnsurePersonVersionFloorsRequest,
+    GetDistinctIdRowsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
     GetPersonByDistinctIdRequest,
@@ -52,7 +55,9 @@ from posthog.personhog_client.proto import (
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonTombstonesRequest,
+    ListPersonsForTeamRequest,
     ListPersonTombstoneQueueRequest,
+    PersonListEntry,
     PersonVersionFloor as PersonVersionFloorProto,
     ReadOptions,
     SetPersonDistinctIdVersionFloorRequest,
@@ -772,6 +777,40 @@ def get_person_tombstones(team_id: int, person_uuids: list[UUID]) -> list[Person
         return tombstones
 
     return personhog_call("get_person_tombstones", personhog_fn)
+
+
+def get_distinct_id_rows(team_id: int, distinct_ids: list[str], *, strong: bool = False) -> list[DistinctIdRow]:
+    """Mapping rows, live or tombstoned, with their owner's state. `strong` reads the primary."""
+
+    def personhog_fn() -> list[DistinctIdRow]:
+        read_options = ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG) if strong else None
+        rows: list[DistinctIdRow] = []
+        for i in range(0, len(distinct_ids), 1000):
+            response = _get_client().get_distinct_id_rows(
+                GetDistinctIdRowsRequest(
+                    team_id=team_id, distinct_ids=distinct_ids[i : i + 1000], read_options=read_options
+                )
+            )
+            rows.extend(response.rows)
+        return rows
+
+    return personhog_call("get_distinct_id_rows", personhog_fn)
+
+
+def list_persons_for_team(
+    team_id: int, after_person_id: int, *, before_person_id: int | None = None, limit: int = 1000
+) -> tuple[list[PersonListEntry], int | None]:
+    """One id-ordered page of a team's persons, live and tombstoned, and the cursor for the next page."""
+
+    def personhog_fn() -> tuple[list[PersonListEntry], int | None]:
+        request = ListPersonsForTeamRequest(team_id=team_id, after_person_id=after_person_id, limit=limit)
+        if before_person_id is not None:
+            request.before_person_id = before_person_id
+        response = _get_client().list_persons_for_team(request)
+        next_after = response.next_after_person_id if response.HasField("next_after_person_id") else None
+        return list(response.persons), next_after
+
+    return personhog_call("list_persons_for_team", personhog_fn)
 
 
 def list_person_tombstone_queue(

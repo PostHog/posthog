@@ -26,7 +26,6 @@ from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyti
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
 from products.endpoints.backend.logic.execution import EndpointExecutionService
@@ -492,29 +491,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn("Unresolved placeholder", str(response.json()))
-
-    def test_compare_mode_materialization_requires_rollout_flag(self):
-        endpoint = create_endpoint_with_version(
-            name="test_compare_mode_rollout",
-            team=self.team,
-            query=self._trends_query(compareFilter={"compare": True}),
-            created_by=self.user,
-        )
-
-        with mock.patch(
-            "products.endpoints.backend.models.posthoganalytics.feature_enabled",
-            return_value=False,
-        ) as feature_enabled_mock:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-                {"is_materialized": True, "data_freshness_seconds": 86400},
-                format="json",
-            )
-
-        feature_enabled_mock.assert_called_once()
-        self.assertEqual(feature_enabled_mock.call_args.args[0], "endpoints-materialized-compare-mode")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Compare mode is not supported", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -1749,11 +1725,26 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": False},
-            format="json",
-        )
+        with (
+            mock.patch.object(DataWarehouseSavedQuery, "revert_materialization", side_effect=RuntimeError("boom")),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            failed_response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": False},
+                format="json",
+            )
+
+        self.assertEqual(failed_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": False},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
@@ -2456,8 +2447,6 @@ class TestEndpointMaterializationTemporal:
         )
         saved_query.columns = await sync_to_async(saved_query.get_columns)()
         await sync_to_async(saved_query.save)()
-
-        await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(saved_query)
 
         # Link saved_query to version instead of endpoint
         version.saved_query = saved_query

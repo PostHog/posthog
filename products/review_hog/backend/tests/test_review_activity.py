@@ -751,8 +751,9 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
     "trigger_source,run_index,expected_budget_left,expected_changed_code_only",
     [
         pytest.param("automatic", 1, 2, False, id="first_review"),
-        pytest.param("automatic", 2, 2, False, id="second_automatic_turn_reviews_the_whole_pr"),
+        pytest.param("automatic", 2, 2, True, id="second_automatic_turn_reviews_the_push"),
         pytest.param("automatic", 3, 2, True, id="later_automatic_turn_reviews_the_push"),
+        pytest.param("comment", 2, None, False, id="requested_second_review"),
         pytest.param("comment", 3, None, False, id="requested_review"),
         pytest.param(None, 3, None, False, id="payload_from_before_the_field"),
     ],
@@ -761,7 +762,7 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
     trigger_source: str | None, run_index: int, expected_budget_left: int | None, expected_changed_code_only: bool
 ) -> None:
     # Automatic reviews are the safeguard that stops at must-fix findings once the budget is spent, and after
-    # the first whole-PR turns they only comment on what a push changed. A review someone asks for surfaces
+    # the first review they only comment on what a push changed. A review someone asks for surfaces
     # everything the turn keeps, across the pull request.
     dedupe = AsyncMock(return_value=FlashSelection(kept=[], dropped=[], cap=4, lens_part_count=1))
     with (
@@ -792,15 +793,18 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
 
 
 @pytest.mark.parametrize(
-    "trigger_source,commands_on,expected_hint",
+    "trigger_source,commands_on,review_mode,expected_hint,note_names_deep",
     [
-        pytest.param("label", True, "@posthog review --deep", id="label_with_commands"),
-        pytest.param("label", False, None, id="label_without_commands"),
-        pytest.param("automatic", True, None, id="other_trigger"),
+        # The label footer names the Deep command, so the first review note does not repeat it.
+        pytest.param("label", True, REVIEW_MODE_FLASH, "@posthog review --deep", False, id="label_with_commands"),
+        pytest.param("label", False, REVIEW_MODE_FLASH, None, False, id="label_without_commands"),
+        pytest.param("automatic", True, REVIEW_MODE_FLASH, None, True, id="automatic_standard"),
+        pytest.param("automatic", False, REVIEW_MODE_FLASH, None, False, id="automatic_without_commands"),
+        pytest.param("comment", True, REVIEW_MODE_FULL, None, False, id="deep_review"),
     ],
 )
-def test_a_label_review_points_to_the_comment_commands(
-    trigger_source: str, commands_on: bool, expected_hint: str | None
+def test_a_review_points_to_the_review_ui_and_the_comment_commands(
+    trigger_source: str, commands_on: bool, review_mode: str, expected_hint: str | None, note_names_deep: bool
 ) -> None:
     # The hint advertises `@posthog` commands, so it must not appear where they do not run or where nobody used the label.
     publish = MagicMock(return_value=PublishOutcome(posted=True))
@@ -819,10 +823,13 @@ def test_a_label_review_points_to_the_comment_commands(
                 owner="o",
                 repo="r",
                 pr_number=1,
-                review_mode=REVIEW_MODE_FLASH,
+                review_mode=review_mode,
                 trigger_source=trigger_source,
             )
         )
 
     footer = publish.call_args.kwargs["footer"]
     assert (expected_hint in footer) if expected_hint else footer == ""
+    note = publish.call_args.kwargs["first_review_note"]
+    assert "/project/1/code-review?review=rep-1" in note
+    assert ("@posthog review --deep" in note) is note_names_deep

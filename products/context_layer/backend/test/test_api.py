@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
@@ -20,7 +20,9 @@ from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle
 from posthog.storage.object_storage import UnavailableStorage
+from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import safe_cache_set
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -1251,3 +1253,71 @@ class TestContextLayerAPI(APIBaseTest):
                     check=True,
                 )
                 return Path(bundle_file.name).read_bytes()
+
+
+class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("burst", ContextSelectionBurstThrottle, "1/minute"),
+            ("sustained", ContextSelectionSustainedThrottle, "1/hour"),
+        ]
+    )
+    def test_selection_rate_limit_covers_sandbox_oauth(
+        self,
+        name: str,
+        throttle: type[ContextSelectionBurstThrottle | ContextSelectionSustainedThrottle],
+        rate: str,
+    ) -> None:
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Question", origin_product="posthog_ai"
+        )
+        run = apps.get_model("tasks", "TaskRun").objects.create(
+            team=self.team, task=task, environment="cloud", status="in_progress"
+        )
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        application, _ = OAuthApplication.objects.get_or_create(
+            client_id=POSTHOG_AI_APP_CLIENT_ID_DEV,
+            defaults={
+                "name": "Selection test sandbox",
+                "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "algorithm": "RS256",
+                "redirect_uris": "https://example.com/callback",
+                "organization": self.organization,
+                "user": self.user,
+            },
+        )
+        tokens = [
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=f"pha_{uuid4().hex}",
+                scope="task:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+                sandbox_task_id=task.id,
+            ).token
+            for _ in range(2)
+        ]
+        self.client.logout()
+        url = f"/api/projects/{self.team.id}/context_layer/selection/prepare/"
+        payload = {"run_id": str(run.id), "message_id": "m", "prompt": "activation"}
+        with (
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+            patch.object(throttle, "rate", rate),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("products.context_layer.backend.selection.get_feature_flag_or_none", return_value="treatment"),
+            patch("products.context_layer.backend.selection.httpx.Client") as source,
+            patch("products.context_layer.backend.selection.build_system_one_client") as model,
+        ):
+            model.return_value.decide.side_effect = RuntimeError("test provider unavailable")
+            allowed = self.client.post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {tokens[0]}")
+            assert allowed.status_code == 200, allowed.content
+            assert model.call_count == 1
+            limited = self.client.post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {tokens[1]}")
+            assert limited.status_code == 429, limited.content
+            assert model.call_count == 1
+            source.assert_not_called()

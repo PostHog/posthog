@@ -38,6 +38,7 @@ export const INGESTION_WARNING_TYPES = {
     person_upsert_message_size_too_large: { category: 'size', severity: 'error' },
     group_upsert_message_size_too_large: { category: 'size', severity: 'error' },
     group_key_too_long: { category: 'size', severity: 'error' },
+    group_type_too_long: { category: 'size', severity: 'error' },
 
     // Person merges — rejected $identify / $create_alias / $merge_dangerously operations
     cannot_merge_already_identified: { category: 'merge', severity: 'warning' },

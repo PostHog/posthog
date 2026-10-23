@@ -320,6 +320,8 @@ export const commonConfig = {
             polyfills: {
                 buffer: false,
                 crypto: false,
+                // The plugin stubs out fs by default but not fs/promises, which would pull in the whole fs polyfill.
+                'fs/promises': 'empty',
                 process: true,
                 stream: false,
             },

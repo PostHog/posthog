@@ -139,6 +139,13 @@ describe('GroupTypeManager()', () => {
     })
 
     describe('lookupGroupTypeIndex()', () => {
+        it('returns null for a type object whose toString is not callable', async () => {
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g0', 0, TEST_TIMESTAMP)
+
+            const groupType = { toString: null } as unknown as string
+            expect(await groupTypeManager.lookupGroupTypeIndex(projectId, groupType)).toBeNull()
+        })
+
         it.each([
             ['an existing group type', 'g0', 0],
             ['an unknown group type', 'brand-new', null],
@@ -156,6 +163,35 @@ describe('GroupTypeManager()', () => {
     })
 
     describe('fetchGroupTypeIndex()', () => {
+        it('stores and resolves a type with a NUL byte as its sanitized form', async () => {
+            jest.mocked(hub.groupRepository.insertGroupType).mockClear()
+
+            expect(
+                await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'comp\u0000any', TEST_TIMESTAMP)
+            ).toEqual(0)
+
+            expect(hub.groupRepository.insertGroupType).toHaveBeenCalledWith(
+                teamId,
+                projectId,
+                'comp\uFFFDany',
+                0,
+                TEST_TIMESTAMP
+            )
+            expect(
+                await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'comp\u0000any', TEST_TIMESTAMP)
+            ).toEqual(0)
+            expect(hub.groupRepository.insertGroupType).toHaveBeenCalledTimes(1)
+        })
+
+        it('returns null without inserting when the type exceeds the column length', async () => {
+            jest.mocked(hub.groupRepository.insertGroupType).mockClear()
+
+            const groupType = 'a'.repeat(401)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, TEST_TIMESTAMP)).toBeNull()
+
+            expect(hub.groupRepository.insertGroupType).not.toHaveBeenCalled()
+        })
+
         it('fetches an already existing value', async () => {
             await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
             await hub.groupRepository.insertGroupType(teamId, projectId, 'bar', 1, TEST_TIMESTAMP)

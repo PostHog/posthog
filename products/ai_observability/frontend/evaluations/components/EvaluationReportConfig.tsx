@@ -28,8 +28,8 @@ const GUIDANCE_PLACEHOLDER =
     "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
 
 const FREQUENCY_OPTIONS = [
-    { value: 'every_n' as const, label: 'Every N evaluations' },
-    { value: 'scheduled' as const, label: 'On a schedule' },
+    { value: 'every_n' as const, label: <span className="whitespace-normal">Every N evaluations</span> },
+    { value: 'scheduled' as const, label: <span className="whitespace-normal">On a schedule</span> },
 ]
 
 const SCHEDULE_OPTIONS = [
@@ -283,9 +283,9 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
     const { setDraftEnabled } = useActions(evaluationReportLogic({ evaluationId }))
 
     return (
-        <div className="bg-bg-light border rounded p-6">
-            <div className="flex items-center justify-between mb-4">
-                <div>
+        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                <div className="flex-1 basis-64 min-w-0">
                     <h3 className="text-lg font-semibold mb-1">Scheduled reports</h3>
                     <p className="text-muted text-sm">
                         AI-generated analysis of evaluation results. Reports are always available in the Reports tab.
@@ -317,10 +317,10 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
     const isEnabled = configDraft.enabled
 
     return (
-        <div className="bg-bg-light border rounded p-6">
-            <div className="flex items-center justify-between mb-4">
-                <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                <div className="flex-1 basis-64 min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-lg font-semibold m-0">Scheduled reports</h3>
                         {isConfigDirty && <LemonTag type="warning">Unsaved changes</LemonTag>}
                     </div>

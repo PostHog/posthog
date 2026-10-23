@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EvaluationQuickStart } from '../evaluations/EvaluationQuickStart'
+import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { EvaluationsPreview } from './EvaluationsPreview'
 import { evaluationsSetupLogic } from './evaluationsSetupLogic'
 
@@ -15,9 +17,12 @@ const HedgehogJudge = pngHoggie(judgePng)
 
 export const evaluationsEmptyState: SceneProductEmptyState = {
     statusLogic: evaluationsSetupLogic,
+    SceneNav: function EvaluationsEmptyStateNav(): JSX.Element {
+        return <EvaluationsTabs activeTab="online-evals" />
+    },
     config: {
         productKey: ProductKey.LLM_EVALUATIONS,
-        productName: 'Evaluations',
+        productName: 'Online evaluations',
         icon: <IconListCheck />,
         accentColor: 'var(--color-product-llm-evaluations-light)',
         accentColorDark: 'var(--color-product-llm-analytics-dark)',
@@ -37,6 +42,7 @@ export const evaluationsEmptyState: SceneProductEmptyState = {
             },
             dataAttr: 'create-evaluation-button',
         },
+        SetupActions: EvaluationQuickStart,
         docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
         skippable: false,
         previewLabel: 'Example: how your evaluations will score',
