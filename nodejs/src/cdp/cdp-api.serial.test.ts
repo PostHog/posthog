@@ -2449,24 +2449,21 @@ describe('CDP API', () => {
             })
 
             it('sends a keyed send that was refused once the refusal is fixed', async () => {
-                // An address of its own, because suppression lookups stay cached for the whole suite.
-                const to = `lifted-${new UUIDT().toString()}@example.com`
-                await suppress(to)
-                const keyed = { ...body, to, idempotency_key: `key-${new UUIDT().toString()}` }
-                const sendKeyed = () =>
-                    send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, keyed)
+                const { flowId } = await pausedWorkflow()
+                const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+                const sendKeyed = () => send(flowId, { Authorization: `Bearer ${mintToken(team.id, flowId)}` }, keyed)
 
                 const refused = await sendKeyed()
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
-                    `DELETE FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
-                    [team.id, to],
-                    'lift-suppression'
+                    `UPDATE posthog_hogflow SET email_sending_paused_at = NULL WHERE id = $1`,
+                    [flowId],
+                    'resume-sending'
                 )
-                api['emailTrackingService']['emailSuppressionService'].clear()
+                api['hogFlowManager']['onHogFlowsReloaded'](team.id, [flowId])
                 const retried = await sendKeyed()
 
-                expect([refused.status, refused.body.code]).toEqual([400, 'recipient_suppressed'])
+                expect([refused.status, refused.body.code]).toEqual([400, 'template_paused'])
                 expect(retried.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
