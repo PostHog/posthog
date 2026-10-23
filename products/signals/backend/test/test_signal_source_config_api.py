@@ -450,6 +450,106 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["config"]["linear_team_ids"] == ["team-1", "team-2"]
 
+    @parameterized.expand(
+        [
+            (
+                "nested_groups",
+                "linear",
+                {
+                    "operator": "AND",
+                    "rules": [
+                        {"field": "labels", "operator": "none", "value": ["chore"]},
+                        {
+                            "operator": "OR",
+                            "rules": [
+                                {"field": "priority", "operator": "in", "value": [1, 2]},
+                                {"field": "state_type", "operator": "eq", "value": "triage"},
+                            ],
+                        },
+                    ],
+                },
+                True,
+            ),
+            ("empty_group", "linear", {"operator": "AND", "rules": []}, True),
+            ("null_clears", "linear", None, True),
+            (
+                "unknown_field",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "team", "operator": "eq", "value": "x"}]},
+                False,
+            ),
+            (
+                "list_op_on_scalar",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "priority", "operator": "any", "value": [1]}]},
+                False,
+            ),
+            (
+                "scalar_op_on_labels",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "labels", "operator": "eq", "value": "bug"}]},
+                False,
+            ),
+            (
+                "eq_with_list",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "state_name", "operator": "eq", "value": ["Todo"]}]},
+                False,
+            ),
+            (
+                "in_with_scalar",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "state_name", "operator": "in", "value": "Todo"}]},
+                False,
+            ),
+            (
+                "bool_priority",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "priority", "operator": "eq", "value": True}]},
+                False,
+            ),
+            (
+                "string_priority",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "priority", "operator": "eq", "value": "1"}]},
+                False,
+            ),
+            (
+                "empty_value_list",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "labels", "operator": "any", "value": []}]},
+                False,
+            ),
+            ("bad_group_operator", "linear", {"operator": "XOR", "rules": []}, False),
+            ("extra_key", "linear", {"operator": "AND", "rules": [], "limit": 5}, False),
+            (
+                "too_deep",
+                "linear",
+                {
+                    "operator": "AND",
+                    "rules": [
+                        {"operator": "AND", "rules": [{"operator": "AND", "rules": [{"operator": "AND", "rules": []}]}]}
+                    ],
+                },
+                False,
+            ),
+            (
+                "too_many_rules",
+                "linear",
+                {"operator": "OR", "rules": [{"field": "priority", "operator": "eq", "value": i} for i in range(21)]},
+                False,
+            ),
+            ("unsupported_source", "github", {"operator": "AND", "rules": []}, False),
+        ]
+    )
+    def test_admission_rules(self, _name, source_product, rules, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": "issue", "config": {"admission_rules": rules}}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "admission_rules" in str(serializer.errors["config"])
+
 
 class TestScoutSourceCanonicalization(APIBaseTest):
     """The scout source config is a project-level singleton: the scout fleet canonicalizes child
