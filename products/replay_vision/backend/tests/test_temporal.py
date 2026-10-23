@@ -3310,12 +3310,13 @@ def _classifier_output() -> ClassifierOutput:
 _EMBED = "products.replay_vision.backend.temporal.activities.embed_observation"
 
 
-def _store_endpoint_down() -> Any:
-    return patch(f"{_EMBED}.async_generate_and_store_embedding", AsyncMock(side_effect=httpx.ConnectError("down")))
+def _store_endpoint() -> Any:
+    # No vector back, so the activity stops after storing and the test needs no database.
+    return patch(f"{_EMBED}.async_generate_and_store_embedding", AsyncMock(return_value={}))
 
 
 @pytest.mark.asyncio
-async def test_embed_observation_emits_title_and_summary_as_one_document() -> None:
+async def test_embed_observation_stores_title_and_summary_as_one_document() -> None:
     out = SummarizerOutput(
         title="Investigation",
         summary="User browsed dashboards and clicked through several insights.",
@@ -3325,19 +3326,14 @@ async def test_embed_observation_emits_title_and_summary_as_one_document() -> No
     inputs = EmbedObservationInputs(
         team_id=99, session_id="sess-abc", observation_id=uuid.uuid4(), scanner_id=scanner_id, model_output=out
     )
-    with (
-        _store_endpoint_down(),
-        patch(
-            "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
-        ) as mock_emit,
-    ):
+    with _store_endpoint() as mock_store:
         await embed_observation_activity(inputs)
 
-    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["summary"]
-    assert mock_emit.call_args.kwargs["content"] == (
+    assert [call.kwargs["rendering"] for call in mock_store.call_args_list] == ["summary"]
+    assert mock_store.call_args.args[0] == (
         "Investigation\n\nUser browsed dashboards and clicked through several insights."
     )
-    for call in mock_emit.call_args_list:
+    for call in mock_store.call_args_list:
         assert call.kwargs["team_id"] == 99
         assert call.kwargs["product"] == "replay-vision"
         assert call.kwargs["document_type"] == "replay-observation"
@@ -3366,22 +3362,17 @@ async def test_embed_observation_emits_title_and_summary_as_one_document() -> No
     ]
 )
 @pytest.mark.asyncio
-async def test_embed_observation_emits_reasoning_for_non_summarizer(_name, model_output, expected_metadata) -> None:
+async def test_embed_observation_stores_reasoning_for_non_summarizer(_name, model_output, expected_metadata) -> None:
     scanner_id = uuid.uuid4()
     inputs = EmbedObservationInputs(
         team_id=99, session_id="sess-r", observation_id=uuid.uuid4(), scanner_id=scanner_id, model_output=model_output
     )
-    with (
-        _store_endpoint_down(),
-        patch(
-            "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
-        ) as mock_emit,
-    ):
+    with _store_endpoint() as mock_store:
         await embed_observation_activity(inputs)
 
-    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["reasoning"]
-    call = mock_emit.call_args_list[0]
-    assert call.kwargs["content"] == model_output.reasoning
+    assert [call.kwargs["rendering"] for call in mock_store.call_args_list] == ["reasoning"]
+    call = mock_store.call_args_list[0]
+    assert call.args[0] == model_output.reasoning
     assert call.kwargs["document_id"] == str(inputs.observation_id)
     metadata = call.kwargs["metadata"]
     assert metadata["scanner_id"] == str(scanner_id)
@@ -3399,14 +3390,10 @@ async def test_embed_observation_raises_propagates_failure() -> None:
         scanner_id=uuid.uuid4(),
         model_output=_summarizer_output(),
     )
-    with (
-        _store_endpoint_down(),
-        patch(
-            "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
-            side_effect=RuntimeError("kafka down"),
-        ),
+    with patch(
+        f"{_EMBED}.async_generate_and_store_embedding", AsyncMock(side_effect=httpx.ConnectError("worker down"))
     ):
-        with pytest.raises(RuntimeError, match="kafka down"):
+        with pytest.raises(httpx.ConnectError, match="worker down"):
             await embed_observation_activity(inputs)
 
 
@@ -3445,11 +3432,9 @@ class TestEmbedObservationWatchRank:
             ) as store,
             patch(f"{_EMBED}.anchor_vectors", AsyncMock(return_value=anchors)),
             patch(f"{_EMBED}.nearest_earlier_observation", nearest),
-            patch(f"{_EMBED}.emit_embedding_request") as emit,
         ):
             async_to_sync(embed_observation_activity)(inputs)
 
-        emit.assert_not_called()
         store.assert_awaited_once()
         observation.refresh_from_db()
         if expected_duplicate_of is None:
@@ -3458,17 +3443,8 @@ class TestEmbedObservationWatchRank:
             assert observation.watch_rank["category"] == "failure"
             assert observation.watch_rank["duplicate_of"] == expected_duplicate_of
 
-    @parameterized.expand(
-        [
-            # The worker refuses an organization without AI data processing, and Kafka would drop it too.
-            ("not_opted_in", 403, False),
-            ("endpoint_not_deployed", 404, True),
-            ("endpoint_errored", 500, True),
-        ]
-    )
-    def test_falls_back_to_kafka_only_when_the_endpoint_fails(
-        self, _name: str, status_code: int, expect_kafka: bool
-    ) -> None:
+    @parameterized.expand([("not_opted_in", 403, False), ("endpoint_errored", 500, True)])
+    def test_only_a_refusal_for_ai_opt_in_is_not_retried(self, _name: str, status_code: int, raises: bool) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, session_id="sess-new")
         request = httpx.Request("POST", "http://embedding-worker/generate/stored")
@@ -3480,13 +3456,13 @@ class TestEmbedObservationWatchRank:
             scanner_id=scanner.id,
             model_output=MonitorOutput(verdict="no", reasoning="the payment form errored", confidence=0.9),
         )
-        with (
-            patch(f"{_EMBED}.async_generate_and_store_embedding", AsyncMock(side_effect=error)),
-            patch(f"{_EMBED}.emit_embedding_request") as emit,
-        ):
-            async_to_sync(embed_observation_activity)(inputs)
+        with patch(f"{_EMBED}.async_generate_and_store_embedding", AsyncMock(side_effect=error)):
+            if raises:
+                with pytest.raises(httpx.HTTPStatusError):
+                    async_to_sync(embed_observation_activity)(inputs)
+            else:
+                async_to_sync(embed_observation_activity)(inputs)
 
-        assert emit.called is expect_kafka
         observation.refresh_from_db()
         assert observation.watch_rank is None
 
@@ -3536,28 +3512,6 @@ async def test_emit_classifier_tags_raises_when_metadata_missing() -> None:
     ):
         with pytest.raises(ApplicationError, match="No persisted session metadata"):
             await emit_classifier_tags_activity(inputs)
-
-
-@pytest.mark.asyncio
-async def test_embed_observation_raises_when_kafka_delivery_fails() -> None:
-    inputs = EmbedObservationInputs(
-        team_id=99,
-        session_id="sess-x",
-        observation_id=uuid.uuid4(),
-        scanner_id=uuid.uuid4(),
-        model_output=_summarizer_output(),
-    )
-    failed_result = MagicMock()
-    failed_result.get.side_effect = RuntimeError("broker timeout")
-    with (
-        _store_endpoint_down(),
-        patch(
-            "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
-            return_value=failed_result,
-        ),
-    ):
-        with pytest.raises(RuntimeError, match="broker timeout"):
-            await embed_observation_activity(inputs)
 
 
 @pytest.mark.asyncio
