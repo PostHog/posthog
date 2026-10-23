@@ -14,6 +14,8 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.presentation.views.table import (
     CreateTableFromUploadSerializer,
@@ -336,6 +338,19 @@ class TestTable(APIBaseTest):
         assert columns is not None
         assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
+        log = ActivityLog.objects.get(scope="DataWarehouseTable", item_id=str(table.id))
+        assert (log.activity, log.user) == ("updated", self.user)
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "DataWarehouseTable",
+                "field": "columns",
+                "action": "changed",
+                "before": "masked",
+                "after": "masked",
+            }
+        ]
+
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
         table = DataWarehouseTable.objects.create(
@@ -472,17 +487,22 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert DataWarehouseTable.objects.count() == 1
 
-    def test_delete_table(self):
+    @parameterized.expand([("delete_endpoint", "delete", 204), ("patch_deleted_flag", "patch", 200)])
+    def test_delete_table(self, _name: str, method: str, expected_status: int):
         table = DataWarehouseTable.objects.create(
             name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
         )
-        response = self.client.delete(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}")
+        url = f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}"
+        response = self.client.delete(url) if method == "delete" else self.client.patch(url, {"deleted": True})
 
-        assert response.status_code == 204
+        assert response.status_code == expected_status
 
         table.refresh_from_db()
 
         assert table.deleted is True
+        assert ActivityLog.objects.filter(
+            scope="DataWarehouseTable", item_id=str(table.id), activity="deleted", user=self.user
+        ).exists()
 
     def test_delete_table_with_source(self):
         source = ExternalDataSource.objects.create(team=self.team, team_id=self.team.pk)
@@ -1170,13 +1190,15 @@ class TestTable(APIBaseTest):
                 DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
                 DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
             ):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
-                    {"file": test_file, "name": "existing_table", "format": "CSVWithNames"},
-                    format="multipart",
-                )
-
-        assert response.status_code == 201
+                # The second upload changes no metadata and must still be logged.
+                for _ in range(2):
+                    test_file.seek(0)
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                        {"file": test_file, "name": "existing_table", "format": "CSVWithNames"},
+                        format="multipart",
+                    )
+                    assert response.status_code == 201
 
         # Verify the table was updated
         existing_table.refresh_from_db()
@@ -1193,8 +1215,15 @@ class TestTable(APIBaseTest):
         }
 
         # Verify S3 client was called to upload the file
-        mock_s3.upload_fileobj.assert_called_once_with(
+        mock_s3.upload_fileobj.assert_called_with(
             ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/updated_file.csv"
+        )
+
+        assert (
+            ActivityLog.objects.filter(
+                scope="DataWarehouseTable", item_id=str(existing_table.id), activity="updated", user=self.user
+            ).count()
+            == 2
         )
 
     @parameterized.expand(
