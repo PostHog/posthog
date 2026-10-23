@@ -83,7 +83,7 @@ It returns failed jobs only, so a job that Depot cancelled at its timeout is not
 The failed gate job prints a `Failing backend & product tests` table.
 
 This query lists the gate checks of the hourly runs on the newest 100 master commits, newest first.
-GraphQL filters check suites only by app, so the query reads every app in the `depot-ci` skill's [Which app posts a Depot check](../../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check) table. Keep the two in step.
+GraphQL filters check suites only by app, so the query reads every app in the `depot-ci` skill's [Which app posts a Depot check](../../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check) table. When that table changes, update this query too.
 
 ```bash
 gh api graphql -f query='fragment gate on CheckSuiteConnection{nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}} {repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:100){nodes{oid checks:checkSuites(first:5,filterBy:{appId:4964980}){...gate} checks2:checkSuites(first:5,filterBy:{appId:4968192}){...gate} codeAccess:checkSuites(first:5,filterBy:{appId:219785}){...gate}}}}}}}}' \
