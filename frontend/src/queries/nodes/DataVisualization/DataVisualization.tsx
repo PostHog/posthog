@@ -448,7 +448,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             onInspect: canDrill ? inspect : undefined,
         }
         component = isBIPivotTable(query.config) ? (
-            <BIPivotTable {...resultProps} />
+            <BIPivotTable {...resultProps} embedded={props.embedded} />
         ) : (
             <BIComparisonSummary {...resultProps} card={effectiveVisualizationType !== ChartDisplayType.ActionsTable} />
         )

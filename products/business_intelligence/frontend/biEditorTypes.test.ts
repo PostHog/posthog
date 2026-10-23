@@ -252,16 +252,23 @@ describe('BI editor query generation', () => {
         expect(ambiguous.query).not.toContain("AS 'plan.tier'")
     })
 
-    it('maps warehouse dates and dashboard properties to unbucketed worksheet fields', () => {
+    it('keeps direct connection tables flat and maps dashboard filters to unbucketed worksheet fields', () => {
         const source = { table: 'orders', connectionId: 'example-connection' }
         const result = buildBIQuery({
             ...DEFAULT_BI_CONFIG,
             source,
             dateField: { ...timestampField, source, expression: 'created_at', dateBucket: 'month' },
             dateRange: { date_from: '-30d' },
-            rows: [{ ...eventField, source, name: 'plan', expression: 'subscription_plan' }],
+            chartType: ChartDisplayType.ActionsTable,
+            rows: [
+                { ...eventField, source, name: 'plan', expression: 'subscription_plan' },
+                { ...eventField, source, name: 'region', expression: 'region' },
+            ],
+            columns: [{ ...eventField, source, name: 'channel', expression: 'channel' }],
         })!
-        expect(result.query).toContain("{filters((created_at) AS 'timestamp', (subscription_plan) AS 'plan')}")
+        expect(result.query).toContain("(created_at) AS 'timestamp', (subscription_plan) AS 'plan'")
+        expect(result.query).not.toContain('toJSONString')
+        expect(result.query).not.toContain('GROUPING SETS')
         expect(result.node.source.connectionId).toBe(source.connectionId)
         expect(result.node.source.filters?.dateRange?.date_from).toBe('-30d')
     })

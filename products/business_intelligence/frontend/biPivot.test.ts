@@ -114,6 +114,7 @@ it.each([
     { rows: [] },
     { columns: [field('   ')] },
     { compareFilter: { compare: true } },
+    { source: { table: 'orders', connectionId: 'example-connection' } },
     { querySnapshot: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' } },
 ] satisfies Partial<BIConfig>[])('keeps non-pivot presentations for %j', (overrides) => {
     expect(
