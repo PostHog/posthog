@@ -25,10 +25,14 @@ operations = [
     run_sql_with_exceptions(
         ADD_TOOL_COLUMN_TO_ASSIGNMENTS_SQL(MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE),
         node_roles=[NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
         ADD_TOOL_COLUMN_TO_ASSIGNMENTS_SQL(MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE),
         node_roles=[NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
 ]
 
