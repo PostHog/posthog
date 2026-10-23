@@ -91,6 +91,59 @@ class PromptTopic:
 
 
 @frozen
+class PromptCheck:
+    """One run of a prompt against one answer engine. Text fields come from the engine: treat them as data."""
+
+    id: str
+    run_id: str
+    engine: str
+    model: str
+    created_at: dt.datetime
+    cited: bool
+    check_failed: bool
+    error: str | None
+    cited_urls: tuple[str, ...]
+    target_urls: tuple[str, ...]
+    target_best_position: int | None
+    top_cited_domains: tuple[str, ...]
+    search_queries: tuple[str, ...]
+    answer_text: str | None
+
+
+@frozen
+class PromptEngineStats:
+    engine: str
+    checks: int
+    cited: int
+    failed: int
+    first_checked_at: dt.datetime
+    last_checked_at: dt.datetime
+
+    @property
+    def citation_rate(self) -> float | None:
+        answered = self.checks - self.failed
+        return self.cited / answered if answered else None
+
+
+@frozen
+class PromptDailyEngineStats:
+    date: dt.date
+    engine: str
+    checks: int
+    cited: int
+    failed: int
+
+
+@frozen
+class PromptStats:
+    total_checks: int
+    engines: tuple[PromptEngineStats, ...]
+    daily_from: dt.date
+    daily_to: dt.date
+    daily: tuple[PromptDailyEngineStats, ...]
+
+
+@frozen
 class PromptImport:
     prompt: str
     topic: str = ""

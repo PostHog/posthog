@@ -6,6 +6,35 @@ import * as orvalSchemas from '@/generated/aeo/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AeoPromptsChecksListSchema = () => {
+    const AeoPromptsChecksParams = orvalSchemas.AeoPromptsChecksParams()
+    const AeoPromptsChecksQueryParams = orvalSchemas.AeoPromptsChecksQueryParams()
+    return AeoPromptsChecksParams.omit({ project_id: true })
+        .extend(AeoPromptsChecksQueryParams.shape)
+        .extend({ id: AeoPromptsChecksParams.shape['id'].describe('The prompt id (a UUID), from `aeo-prompts-list`.') })
+}
+
+const aeoPromptsChecksList = (): ToolBase<
+    ReturnType<typeof AeoPromptsChecksListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAEOPromptCheckList>
+> => ({
+    name: 'aeo-prompts-checks-list',
+    schema: AeoPromptsChecksListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsChecksListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAEOPromptCheckList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/checks/`,
+            query: {
+                engine: params.engine,
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/web/content-autopilot')
+    },
+})
+
 const AeoPromptsGetSchema = () => {
     const AeoPromptsRetrieveParams = orvalSchemas.AeoPromptsRetrieveParams()
     return AeoPromptsRetrieveParams.omit({ project_id: true }).extend({
@@ -76,6 +105,26 @@ const aeoPromptsList = (): ToolBase<
     },
 })
 
+const AeoPromptsStatsGetSchema = () => {
+    const AeoPromptsStatsParams = orvalSchemas.AeoPromptsStatsParams()
+    return AeoPromptsStatsParams.omit({ project_id: true }).extend({
+        id: AeoPromptsStatsParams.shape['id'].describe('The prompt id (a UUID), from `aeo-prompts-list`.'),
+    })
+}
+
+const aeoPromptsStatsGet = (): ToolBase<ReturnType<typeof AeoPromptsStatsGetSchema>, Schemas.AEOPromptStats> => ({
+    name: 'aeo-prompts-stats-get',
+    schema: AeoPromptsStatsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsStatsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOPromptStats>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/stats/`,
+        })
+        return result
+    },
+})
+
 const AeoPromptsTopicsListSchema = () => z.object({})
 
 const aeoPromptsTopicsList = (): ToolBase<ReturnType<typeof AeoPromptsTopicsListSchema>, Schemas.AEOPromptTopic[]> => ({
@@ -120,9 +169,11 @@ const aeoPromptsUpdate = (): ToolBase<ReturnType<typeof AeoPromptsUpdateSchema>,
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'aeo-prompts-checks-list': aeoPromptsChecksList,
     'aeo-prompts-get': aeoPromptsGet,
     'aeo-prompts-import': aeoPromptsImport,
     'aeo-prompts-list': aeoPromptsList,
+    'aeo-prompts-stats-get': aeoPromptsStatsGet,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
     'aeo-prompts-update': aeoPromptsUpdate,
 }

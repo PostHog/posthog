@@ -1,6 +1,8 @@
+import { dayjs } from 'lib/dayjs'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
+    AEOPromptStatsApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
@@ -21,6 +23,48 @@ export const sortEngines = (engines: Iterable<string>): string[] => {
     const known = Object.keys(ENGINE_LABELS)
     const rank = (engine: string): number => (known.includes(engine) ? known.indexOf(engine) : known.length)
     return [...new Set(engines)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+}
+
+export type PromptHistoryCellStatus = 'cited' | 'not_cited' | 'failed' | 'no_run'
+
+export interface PromptHistoryCell {
+    date: string
+    status: PromptHistoryCellStatus
+    checks: number
+    cited: number
+    failed: number
+}
+
+export interface PromptHistoryGrid {
+    dates: string[]
+    rows: { engine: string; cells: PromptHistoryCell[] }[]
+}
+
+const historyCellStatus = ({
+    checks,
+    cited,
+    failed,
+}: Omit<PromptHistoryCell, 'date' | 'status'>): PromptHistoryCellStatus =>
+    checks === 0 ? 'no_run' : cited > 0 ? 'cited' : failed === checks ? 'failed' : 'not_cited'
+
+/** One cell per day and engine across the stats window, with days the engine did not run filled in. */
+export const promptHistoryGrid = (stats: AEOPromptStatsApi, engines: string[]): PromptHistoryGrid => {
+    const dates: string[] = []
+    for (let day = dayjs(stats.daily_from); !day.isAfter(dayjs(stats.daily_to), 'day'); day = day.add(1, 'day')) {
+        dates.push(day.format('YYYY-MM-DD'))
+    }
+    const byKey = new Map(stats.daily.map((row) => [`${row.engine}|${row.date}`, row]))
+    return {
+        dates,
+        rows: engines.map((engine) => ({
+            engine,
+            cells: dates.map((date) => {
+                const row = byKey.get(`${engine}|${date}`)
+                const counts = { checks: row?.checks ?? 0, cited: row?.cited ?? 0, failed: row?.failed ?? 0 }
+                return { date, status: historyCellStatus(counts), ...counts }
+            }),
+        })),
+    }
 }
 
 export type ContentAutopilotPageTarget =

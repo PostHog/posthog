@@ -41,7 +41,7 @@ python manage.py run_aeo_citation_checks --team-id <id>
 
 ### Import over the API
 
-`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=` and `?active=true|false`; each prompt carries `latest_checks`, its newest check per engine), lists topics with `GET topics/`, turns a prompt on or off (`PATCH {"active": false}`), and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=` and `?active=true|false`; each prompt carries `latest_checks`, its newest check per engine), lists topics with `GET topics/`, returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, turns a prompt on or off (`PATCH {"active": false}`), and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
 
 ```bash
 curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
@@ -51,7 +51,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 
 - A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
 - A re-import matches prompts by normalized text. It updates the topic and the evidence, and keeps each prompt's on/off state.
-- The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-import` and `aeo-prompts-topics-list`.
+- The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list` and `aeo-prompts-stats-get`.
 - `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
 
 ### Which prompts a run takes
@@ -99,7 +99,7 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
 
 ## Content autopilot
 
-Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. Clicking a prompt opens its detail: citation rate per engine, a 30-day grid of results, the latest answer per engine, and the full check history. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
 
 ## Cost
 
