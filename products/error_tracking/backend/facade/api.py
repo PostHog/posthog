@@ -17,7 +17,8 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import EMBEDDING_TABLES
-from ..logic import external_references, github_external_references, rules
+from ..logic import external_references, github_external_references, rules, sentry_migration
+from ..logic.sentry_migration import client as sentry_client
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -37,6 +38,8 @@ ExternalReferenceValidationError = external_references.ErrorTrackingExternalRefe
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
+SentryApiError = sentry_client.SentryApiError
+SentryMigrationSelectionError = sentry_migration.SentryMigrationSelectionError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -565,6 +568,25 @@ def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
 
 def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
     return rules.get_client_safe_suppression_rules(team_id)
+
+
+def list_sentry_projects(connection: contracts.SentryConnection) -> list[contracts.SentryProject]:
+    return sentry_migration.list_sentry_projects(connection)
+
+
+def preview_sentry_migration(
+    team_id: int, connection: contracts.SentryConnection, project: contracts.SentryProjectRef
+) -> list[contracts.SentryMigrationItem]:
+    return sentry_migration.preview_sentry_migration(team_id, connection, project)
+
+
+def apply_sentry_migration(
+    team_id: int,
+    connection: contracts.SentryConnection,
+    project: contracts.SentryProjectRef,
+    item_ids: list[str],
+) -> contracts.SentryMigrationResult:
+    return sentry_migration.apply_sentry_migration(team_id, connection, project, item_ids)
 
 
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
