@@ -51,18 +51,6 @@ Status = MCPIntentClusteringRun.Status
 Kind = MCPIntentClusteringRun.Kind
 
 
-@dataclass(frozen=True)
-class RunOutcome:
-    run_id: str
-    kind: str
-    status: str
-    n_intents: int = 0
-    n_topics: int = 0
-    n_outliers: int = 0
-    n_embeddings_requested: int = 0
-    error_message: str = ""
-
-
 def _query_tags(team: Team):  # noqa: ANN202
     """Every ClickHouse read and write of a run carries the product tags, as the query runners do."""
     return tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.pk, kind="temporal")
