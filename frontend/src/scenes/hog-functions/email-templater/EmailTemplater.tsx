@@ -512,7 +512,7 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
             <div className="flex flex-wrap gap-3">
                 <LemonCard
                     className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
-                    onClick={onClose}
+                    onClick={handleClose}
                     data-attr="template-picker-blank"
                 >
                     <IconPlus className="text-2xl" />
