@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.types import OpenApiTypes
@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
@@ -16,6 +17,7 @@ from ..facade.contracts import CreateUptimeMonitorInput, UpdateUptimeMonitorInpu
 from .serializers import CreateUptimeMonitorInputSerializer, UpdateUptimeMonitorInputSerializer, UptimeMonitorSerializer
 
 _ID_PARAMETER = OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH)
+DEFAULT_PAGE_SIZE = 100
 
 
 def _parse_id(pk: str) -> UUID:
@@ -30,6 +32,7 @@ class UptimeMonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     # Session access only until the product is released and has its own API scope.
     scope_object = "INTERNAL"
+    pagination_class = PrecountedLimitOffsetPagination
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -39,11 +42,13 @@ class UptimeMonitorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: UptimeMonitorSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
         """List the project's uptime monitors, newest first."""
-        monitors = api.list_monitors(self.team_id)
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        monitors, count = api.list_monitors(
+            self.team_id, limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE, offset=paginator.get_offset(request)
+        )
+        paginator.set_count(count)
         page = self.paginate_queryset(monitors)
-        if page is not None:
-            return self.get_paginated_response(UptimeMonitorSerializer(instance=page, many=True).data)
-        return Response(UptimeMonitorSerializer(instance=monitors, many=True).data)
+        return self.get_paginated_response(UptimeMonitorSerializer(instance=page, many=True).data)
 
     @validated_request(
         request_serializer=CreateUptimeMonitorInputSerializer,
