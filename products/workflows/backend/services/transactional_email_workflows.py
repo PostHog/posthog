@@ -13,6 +13,7 @@ from posthog.models.scoping import with_team_scope
 from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSender,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -32,6 +33,55 @@ RECIPIENT_EXPRESSION = "{{ event.properties.to | raw }}"
 
 
 def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int) -> list[dict]:
+    return _actions(
+        name=content.name,
+        step_config={
+            # Provenance only: the body below is set, so a save never re-reads the template.
+            "template_uuid": str(content.message_template_id),
+            "message_category_id": str(content.message_category_id) if content.message_category_id else None,
+            "sensitive": content.sensitive,
+        },
+        sender_integration_id=from_integration_id,
+        from_email=content.from_email,
+        from_name=content.from_name,
+        reply_to=content.reply_to,
+        subject=content.subject,
+        preheader=content.preheader,
+        text=content.text,
+        html=content.html,
+    )
+
+
+def code_email_actions(key: str) -> list[dict]:
+    # Every code send carries its content and its sender. A worker that can't read them finds no sender and
+    # fails the send, so this empty step is never delivered.
+    return _actions(
+        name=key,
+        step_config={"message_category_id": None, "utm_tags_enabled": True, "sensitive": False},
+        sender_integration_id=None,
+        from_email="",
+        from_name="",
+        reply_to="",
+        subject="",
+        preheader="",
+        text="",
+        html="",
+    )
+
+
+def _actions(
+    *,
+    name: str,
+    step_config: dict,
+    sender_integration_id: int | None,
+    from_email: str,
+    from_name: str,
+    reply_to: str,
+    subject: str,
+    preheader: str,
+    text: str,
+    html: str,
+) -> list[dict]:
     return [
         {
             "id": TRIGGER_ACTION_ID,
@@ -42,36 +92,33 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
         },
         {
             "id": EMAIL_ACTION_ID,
-            "name": content.name,
+            "name": name,
             "description": "",
             "type": "function_email",
             # Nothing comes after the email, so a failed send must fail the run.
             "on_error": "abort",
             "config": {
                 "template_id": "template-email",
-                # Provenance only: the body below is set, so a save never re-reads the template.
-                "template_uuid": str(content.message_template_id),
-                "message_category_id": str(content.message_category_id) if content.message_category_id else None,
+                **step_config,
                 # Puts the send on the email queue's fast lane and skips marketing opt-outs.
                 "message_category_type": "transactional",
-                "sensitive": content.sensitive,
                 "inputs": {
                     "email": {
                         "templating": "liquid",
                         "value": {
                             "to": {"email": RECIPIENT_EXPRESSION, "name": ""},
                             "from": {
-                                "integrationId": from_integration_id,
-                                **({"email": content.from_email} if content.from_email else {}),
-                                **({"name": content.from_name} if content.from_name else {}),
+                                "integrationId": sender_integration_id,
+                                **({"email": from_email} if from_email else {}),
+                                **({"name": from_name} if from_name else {}),
                             },
-                            "replyTo": content.reply_to,
+                            "replyTo": reply_to,
                             "cc": "",
                             "bcc": "",
-                            "subject": content.subject,
-                            "preheader": content.preheader,
-                            "text": content.text,
-                            "html": content.html,
+                            "subject": subject,
+                            "preheader": preheader,
+                            "text": text,
+                            "html": html,
                         },
                     }
                 },
@@ -90,9 +137,12 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
 def _content_fields(content: TransactionalEmailContent, from_integration_id: int) -> dict:
     if not content.subject or not (content.html or content.text):
         raise TransactionalEmailContentInvalid()
-    actions = transactional_email_actions(content, from_integration_id)
+    return _flow_fields(content.name, transactional_email_actions(content, from_integration_id))
+
+
+def _flow_fields(name: str, actions: list[dict]) -> dict:
     return {
-        "name": content.name,
+        "name": name,
         "actions": actions,
         "edges": [
             {"from": TRIGGER_ACTION_ID, "to": EMAIL_ACTION_ID, "type": "continue"},
@@ -115,6 +165,33 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
     if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
     return sender.id
+
+
+def _sender_on_domain(team_id: int, email: str) -> int:
+    address = email.lower()
+    domain = address.rpartition("@")[2]
+    on_domain: list[int] = []
+    for sender in Integration.objects.filter(team_id=team_id, kind="email").order_by("id"):
+        if not sender.config.get("verified"):
+            continue
+        own = str(sender.config.get("email") or sender.integration_id or "").lower()
+        if own == address:
+            return sender.id
+        # Verification covers the whole domain, as the email worker checks it.
+        if str(sender.config.get("domain") or own.rpartition("@")[2]).lower() == domain:
+            on_domain.append(sender.id)
+    if not on_domain:
+        raise TransactionalEmailSenderUnavailable()
+    return on_domain[0]
+
+
+def code_send_sender(*, team_id: int, email: str | None, name: str | None) -> TransactionalEmailSender:
+    """The verified sender for a code send from `email`, or the project's default sender without one."""
+    if email is None:
+        return TransactionalEmailSender(
+            integration_id=resolve_transactional_email_sender(team_id, None), email=None, name=None
+        )
+    return TransactionalEmailSender(integration_id=_sender_on_domain(team_id, email), email=email, name=name)
 
 
 def _current_sender(flow: HogFlow) -> int | None:
@@ -174,3 +251,19 @@ def update_transactional_email_workflow(
             validated_status=flow.status,
             keeps_live_sensitivity=False,
         )
+
+
+@with_team_scope()
+def create_code_email_workflow(*, team_id: int, key: str) -> UUID:
+    """The workflow a code send's key runs when the key names no template. Each send brings its own content."""
+    result = create_workflow(
+        team_id=team_id,
+        user_id=None,
+        validated_data={
+            **_flow_fields(key, code_email_actions(key)),
+            "status": HogFlow.State.ACTIVE,
+            "origin_product": HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS,
+            "exit_condition": "exit_only_at_end",
+        },
+    )
+    return UUID(str(result.current["id"]))

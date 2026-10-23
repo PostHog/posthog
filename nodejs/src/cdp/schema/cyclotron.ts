@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { EmailHeaderSchema, EmailTagSchema, MAX_EMAIL_HEADERS, MAX_EMAIL_TAGS } from './emailFields'
 import { PushNotificationPayloadSchema } from './pushNotification'
 
 export const CyclotronInputSchema = z.object({
@@ -165,6 +166,9 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     }),
     cc: z.string().optional(),
     bcc: z.string().optional(),
+    // Set only by a code send of the transactional email API.
+    headers: z.array(EmailHeaderSchema).max(MAX_EMAIL_HEADERS).optional(),
+    tags: z.array(EmailTagSchema).max(MAX_EMAIL_TAGS).optional(),
     subject: z.string(),
     preheader: z.string().optional(),
     // Emails authored through the API or MCP often carry html only.

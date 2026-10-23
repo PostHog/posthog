@@ -240,6 +240,7 @@ def _list_queryset(
 ) -> QuerySet:
     queryset = (
         HogFlow.objects.filter(team_id=team_id)
+        .exclude(origin_product=HogFlow.OriginProduct.TRANSACTIONAL_EMAIL_KEYS)
         .select_related("created_by")
         # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
         .prefetch_related(

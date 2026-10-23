@@ -1,4 +1,4 @@
-import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
+import { AppMetricsOutput, EmailStatusOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -34,6 +34,7 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
@@ -61,6 +62,7 @@ export type CdpOutput =
     | AppMetricsOutput
     | LogEntriesOutput
     | HogInvocationResultsOutput
+    | EmailStatusOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
 
@@ -98,6 +100,7 @@ export interface CdpCoreServices {
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
+    emailValidationService: EmailValidationService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
     /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
     cohortMembershipRepository: CohortMembershipRepository
@@ -115,6 +118,7 @@ export interface CdpCoreServices {
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
     emailService: EmailService
+    emailStatus: EmailStatusService
     /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
     messageAssetsService: MessageAssetsService
 }
@@ -187,6 +191,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
+        | 'EMAIL_STATUS_TOPIC'
+        | 'EMAIL_STATUS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
         | 'CDP_DLQ_ENABLED'
@@ -434,6 +440,7 @@ export function createCdpCoreServices(
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres, deps.pubSub)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
+    const emailStatus = new EmailStatusService(outputs)
     // Constructed here (rather than below with the other messaging services) so it can be threaded
     // into EmailService — the pre-send suppression check lives there so every send path shares one
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
@@ -473,7 +480,8 @@ export function createCdpCoreServices(
         recipientsManager,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter
+        teamEmailRateLimiter,
+        emailStatus
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -558,7 +566,7 @@ export function createCdpCoreServices(
         deps.integrationManager,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
-        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
+        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED, emailStatus }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
@@ -596,6 +604,7 @@ export function createCdpCoreServices(
         recipientsManager,
         recipientPreferencesService,
         emailSuppressionService,
+        emailValidationService,
         teamWorkflowsConfigService,
         cohortMembershipRepository,
         hogFlowExecutor,
@@ -609,6 +618,7 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
+        emailStatus,
         messageAssetsService,
     }
 }

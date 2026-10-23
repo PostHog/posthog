@@ -181,6 +181,25 @@ describe('HogInvocationResultsService', () => {
             expect(globals.variables).toEqual(variables)
         })
 
+        it("keeps a code send's attachments in a workflow snapshot as a file list without their content", async () => {
+            const content = Buffer.from('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n').toString('base64')
+            const invocation = createExampleHogFlowInvocation({ id: 'flow-1' } as any)
+            invocation.state.send = {
+                tracking: { captureEngagement: true },
+                attachments: [{ filename: 'invite.ics', content, contentType: 'text/calendar' }],
+            }
+            await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
+
+            const globals = (await decodeInvocationGlobals(parseProducedRows(outputs)[0].invocation_globals)) as Record<
+                string,
+                any
+            >
+            expect(globals.send.attachments).toEqual([
+                { filename: 'invite.ics', contentType: 'text/calendar', size: 32 },
+            ])
+            expect(JSON.stringify(globals)).not.toContain(content)
+        })
+
         it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {
             const invocation = createExampleInvocation({}, {
                 groups: {
