@@ -29,11 +29,16 @@ from products.signals.backend.activity_summary.config import ActivitySummaryConf
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
+    ActivitySummaryTierStats,
     DailyUsage,
     daily_usage,
     enrolled_team_ids,
+    enrollment,
     feed_queue,
+    is_team_enrolled_for_generation,
+    is_team_enrolled_for_read,
     max_update_cost_usd,
+    organization_rollout_bucket,
     seed_queue,
     select_pairs,
 )
@@ -43,8 +48,10 @@ from products.signals.backend.activity_summary.schedule import (
     create_activity_summary_tick_schedule,
 )
 from products.signals.backend.activity_summary.tick import (
+    STOP_ERROR_RATE,
     STOP_GATEWAY_NOT_CONFIGURED,
     STOP_MAX_COST_USD_PER_DAY,
+    STOP_MAX_ORG_SHARE,
     STOP_MAX_PAIRS_PER_DAY,
     STOP_MAX_PAIRS_PER_TICK,
     ActivitySummaryPairInput,
@@ -53,10 +60,11 @@ from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickPlan,
     ActivitySummaryTickResult,
     ActivitySummaryTickWorkflow,
+    EnrollmentCounts,
     plan_tick,
     run_pair,
 )
-from products.signals.backend.models import UserActivitySummary, UserActivitySummaryQueueState
+from products.signals.backend.models import SignalSourceConfig, UserActivitySummary, UserActivitySummaryQueueState
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 
@@ -93,9 +101,18 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_versions": -3,
             "emit_embeddings": "no",
             "rebuild_before": "not a time",
+            "max_org_share": 2,
             "rebuild_budget_share": 2,
+            "max_error_rate": 0,
+            "self_driving_organization_percentage": 101,
+            "deny_organization_ids": "org-b",
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
+    ),
+    (
+        "a boolean percentage falls back to the default",
+        {"enabled": True, "self_driving_organization_percentage": True},
+        ActivitySummaryConfig(enabled=True),
     ),
     (
         "valid fields",
@@ -109,6 +126,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "rebuild_before": "2026-10-01T00:00:00",
             "enroll_all_approved": True,
             "count_views": True,
+            "target_interval_days_free": 7,
+            "max_org_share": 0.3,
+            "self_driving_organization_percentage": 12.5,
+            "deny_organization_ids": ["org-b", 4],
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -120,6 +141,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
             enroll_all_approved=True,
             count_views=True,
+            target_interval_days_free=7.0,
+            max_org_share=0.3,
+            self_driving_organization_percentage=12.5,
+            deny_organization_ids=("org-b",),
         ),
     ),
     (
@@ -154,8 +179,35 @@ def test_parse_config(_name: str, payload: Any, expected: ActivitySummaryConfig)
     assert parse_config(payload) == expected
 
 
+@parameterized.expand(
+    [
+        ("canonical", "0188f3a2-5b7c-7d1e-9f00-123456789abc", 3211),
+        ("upper case without hyphens", "0188F3A25B7C7D1E9F00123456789ABC", 3211),
+        ("other organization", "00000000-0000-0000-0000-000000000001", 8554),
+    ]
+)
+def test_the_rollout_bucket_of_an_organization_does_not_change(_name: str, organization_id: str, bucket: int) -> None:
+    assert organization_rollout_bucket(uuid.UUID(organization_id)) == bucket
+
+
+@parameterized.expand([(10.0, 40.0), (40.0, 100.0)])
+def test_a_higher_percentage_keeps_the_organizations_of_a_lower_one(lower: float, higher: float) -> None:
+    organization_ids = [uuid.UUID(int=index * 7919) for index in range(500)]
+
+    def members(percentage: float) -> set[uuid.UUID]:
+        return {o for o in organization_ids if organization_rollout_bucket(o) < percentage * 100}
+
+    assert members(lower) < members(higher)
+
+
 @time_machine.travel(NOW, tick=False)
 class TestActivitySummaryQueue(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        dispatch_config = patch.object(tick, "read_config", side_effect=lambda: self._config())
+        dispatch_config.start()
+        self.addCleanup(dispatch_config.stop)
+
     def _config(self, **overrides: Any) -> ActivitySummaryConfig:
         return ActivitySummaryConfig(enabled=True, organization_ids=(str(self.organization.id),), **overrides)
 
@@ -199,33 +251,72 @@ class TestActivitySummaryQueue(BaseTest):
     ):
         if seed:
             self._seed(config, tasks)
-        return [(pair.team_id, pair.user_id) for pair in select_pairs(config or self._config(), now, 10)]
+        return [(pair.team_id, pair.user_id) for pair in select_pairs(config or self._config(), now, 10).pairs]
 
-    def test_orders_cold_starts_then_most_new_rows_then_oldest_summary(self) -> None:
-        stale, fresh, busy, cold = (self._user(f"{name}@example.com") for name in ("stale", "fresh", "busy", "cold"))
-        self._summary(
-            stale, generated_at=NOW - datetime.timedelta(days=5), input_watermark=NOW - datetime.timedelta(days=3)
+    def test_ranks_by_new_units_times_staleness_with_a_cold_start_bonus(self) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.save()
+        cold, recent_busy, old_quiet, recent_quiet = (
+            self._user(f"{name}@example.com") for name in ("cold", "recent_busy", "old_quiet", "recent_quiet")
         )
-        self._summary(
-            fresh, generated_at=NOW - datetime.timedelta(days=2), input_watermark=NOW - datetime.timedelta(days=3)
-        )
-        self._summary(
-            busy, generated_at=NOW - datetime.timedelta(days=1), input_watermark=NOW - datetime.timedelta(days=3)
-        )
-        self._changes(stale, 1)
-        self._changes(fresh, 1)
-        # Rows at or before the watermark are not new.
-        self._changes(busy, 2, days_ago=4)
-        self._changes(busy, 2)
-        self._changes(cold, 1)
-        tasks = [UserTaskTime(team_id=self.team.id, user_id=busy.id, created_at=NOW - datetime.timedelta(hours=1))]
+        for user, days, units in ((recent_busy, 1, 20), (old_quiet, 3, 1), (recent_quiet, 1, 2)):
+            summarized = NOW - datetime.timedelta(days=days)
+            self._summary(user, generated_at=summarized, input_watermark=summarized)
+            self._changes(user, units, days_ago=0.5)
+        self._changes(cold, 3, days_ago=0.5)
 
-        assert self._select(self._config(min_units=1), tasks=tasks) == [
+        assert self._select(self._config(min_units=1, max_org_share=1.0)) == [
             (self.team.id, cold.id),
-            (self.team.id, busy.id),
-            (self.team.id, stale.id),
-            (self.team.id, fresh.id),
+            (self.team.id, recent_busy.id),
+            (self.team.id, old_quiet.id),
+            (self.team.id, recent_quiet.id),
         ]
+
+    @parameterized.expand([("the whole tick", 1.0, 2, 1), ("half the tick", 0.5, 1, 1)])
+    def test_paying_pairs_and_overdue_free_pairs_come_first_and_one_org_takes_at_most_its_share(
+        self, _name: str, paying_budget_share: float, paying_picked: int, fresh_picked: int
+    ) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.save()
+        free_org = Organization.objects.create(name="Free")
+        free_team = Team.objects.create(organization=free_org, name="Free")
+        paying_users = [self._user(f"paying{index}@example.com") for index in range(3)]
+        overdue, *fresh = (
+            User.objects.create_and_join(free_org, f"{name}@example.com", None)
+            for name in ("overdue", "free1", "free2")
+        )
+        for user in paying_users:
+            self._summary(user, generated_at=NOW - datetime.timedelta(hours=20))
+            self._changes(user, 3, days_ago=0.1)
+        for user, summarized, due in (
+            (overdue, NOW - datetime.timedelta(days=20), NOW - datetime.timedelta(hours=10)),
+            *((user, NOW - datetime.timedelta(days=2), None) for user in fresh),
+        ):
+            UserActivitySummary.objects.for_team(free_team.id).create(
+                team_id=free_team.id,
+                user_id=user.id,
+                status=UserActivitySummary.Status.OK,
+                generated_at=summarized,
+                next_eligible_at=due,
+            )
+            self._changes(user, 3, days_ago=0.1, team=free_team)
+        config = ActivitySummaryConfig(
+            enabled=True, enroll_all_approved=True, max_org_share=0.5, paying_budget_share=paying_budget_share
+        )
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 4)
+
+        assert [(pair.team_id, pair.user_id) for pair in selection.pairs] == [
+            (free_team.id, overdue.id),
+            *((self.team.id, user.id) for user in paying_users[:paying_picked]),
+            *((free_team.id, user.id) for user in fresh[:fresh_picked]),
+        ]
+        assert selection.due_pairs == 6
+        assert [
+            (tier.tier, tier.due_pairs, round(tier.oldest_due_hours or 0, 3), round(tier.fresh_share or 0, 3))
+            for tier in selection.tiers
+        ] == [("paying", 3, 0.0, 1.0), ("free", 3, 10.0, round(2 / 3, 3))]
 
     @parameterized.expand([("every stale pair fits the share", 0.3, 2), ("the share caps the rebuilds", 0.1, 1)])
     def test_a_stale_summary_is_due_without_new_rows_and_ranks_with_cold_starts(
@@ -246,7 +337,9 @@ class TestActivitySummaryQueue(BaseTest):
             self._changes(user, 1, days_ago=5)
         self._changes(busy, 3)
 
-        config = self._config(rebuild_before=NOW - datetime.timedelta(days=2, hours=12), rebuild_budget_share=share)
+        config = self._config(
+            rebuild_before=NOW - datetime.timedelta(days=2, hours=12), rebuild_budget_share=share, max_org_share=1
+        )
         assert self._select(config) == [
             *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
@@ -290,6 +383,176 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert self._select() == []
 
+    @parameterized.expand(
+        [
+            ("listed", {}, True, False, True, True),
+            ("disabled", {"enabled": False}, True, False, False, False),
+            ("not_listed", {"organization_ids": ("00000000-0000-0000-0000-000000000001",)}, True, False, False, False),
+            ("invalid_listed_id", {"organization_ids": ("not-a-uuid",)}, True, False, False, False),
+            ("team_skipped", {"skip_team_ids": ("own",)}, True, False, False, False),
+            ("not_approved", {}, False, False, False, False),
+            ("all_approved", {"organization_ids": (), "enroll_all_approved": True}, True, False, True, True),
+            (
+                "all_approved_not_approved",
+                {"organization_ids": (), "enroll_all_approved": True},
+                False,
+                False,
+                False,
+                False,
+            ),
+            (
+                "all_approved_team_skipped",
+                {"enroll_all_approved": True, "skip_team_ids": ("own",)},
+                True,
+                False,
+                False,
+                False,
+            ),
+            ("listed_and_denied", {"deny_organization_ids": ("own",)}, True, True, True, False),
+            (
+                "all_approved_and_denied",
+                {"enroll_all_approved": True, "deny_organization_ids": ("own",)},
+                True,
+                True,
+                True,
+                False,
+            ),
+            (
+                "rollout",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0},
+                True,
+                True,
+                False,
+                True,
+            ),
+            (
+                "rollout_without_source",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0},
+                True,
+                False,
+                False,
+                False,
+            ),
+            (
+                "rollout_at_zero",
+                {"organization_ids": (), "self_driving_organization_percentage": 0.0},
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_disabled",
+                {"enabled": False, "organization_ids": (), "self_driving_organization_percentage": 100.0},
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_denied",
+                {
+                    "organization_ids": (),
+                    "self_driving_organization_percentage": 100.0,
+                    "deny_organization_ids": ("own",),
+                },
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_team_skipped",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0, "skip_team_ids": ("own",)},
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_not_approved",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0},
+                False,
+                True,
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_read_and_generation_checks(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        approved: bool,
+        has_source: bool,
+        readable: bool,
+        generated: bool,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        if overrides.get("skip_team_ids") == ("own",):
+            overrides = {**overrides, "skip_team_ids": (self.team.id,)}
+        if overrides.get("deny_organization_ids") == ("own",):
+            overrides = {**overrides, "deny_organization_ids": (str(self.organization.id).upper(),)}
+        if has_source:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+            )
+        sourceless = Team.objects.create(organization=self.organization, name="No source")
+        config = dataclasses.replace(self._config(), **overrides)
+        team = Team.objects.get(id=self.team.id)
+
+        assert is_team_enrolled_for_read(config, team) is readable
+        assert is_team_enrolled_for_generation(config, team) is generated
+        assert (self.team.id in enrolled_team_ids(config)) is generated
+        if config.self_driving_organization_percentage and not config.organization_ids:
+            assert sourceless.id not in enrolled_team_ids(config)
+
+    @parameterized.expand([("percentage_0", 0.0, 0), ("percentage_100", 100.0, 1)])
+    def test_enrollment_counts_qualifying_organizations_apart_from_enrolled_ones(
+        self, _name: str, percentage: float, enrolled: int
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+        )
+        Team.objects.create(organization=self.organization, name="No source")
+        sourceless_organization = Organization.objects.create(name="No source", is_ai_data_processing_approved=True)
+        Team.objects.create(organization=sourceless_organization, name="No source")
+
+        result = enrollment(
+            dataclasses.replace(self._config(), organization_ids=(), self_driving_organization_percentage=percentage)
+        )
+
+        assert result.qualifying_organization_ids == [self.organization.id]
+        assert result.organization_ids == [self.organization.id][:enrolled]
+        assert result.team_ids == [self.team.id][:enrolled]
+
+    def test_a_pair_is_not_updated_when_the_team_leaves_the_enrollment_before_dispatch(self) -> None:
+        self._changes(self.user, 3)
+        assert self._select() == [(self.team.id, self.user.id)]
+        denied = self._config(deny_organization_ids=(str(self.organization.id),))
+
+        with (
+            patch.object(tick, "read_config", return_value=denied),
+            patch("products.signals.backend.activity_summary.logic.gateway_client") as gateway,
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=True,
+                    capture_events=True,
+                )
+            )
+
+        assert (result.status, result.called_model) == ("skipped_not_enrolled", False)
+        gateway.assert_not_called()
+        assert not UserActivitySummary.objects.for_team(self.team.id).exists()
+
     def test_daily_usage_counts_model_calls_and_prices_a_missing_cost_at_the_bound(self) -> None:
         priced, unpriced, skipped = (self._user(f"{name}@example.com") for name in ("priced", "unpriced", "skipped"))
         self._summary(priced, cost_usd=0.25)
@@ -312,6 +575,7 @@ class TestActivitySummaryQueue(BaseTest):
             ("the tick cap", {"max_pairs_per_tick": 1}, "phs_test", STOP_MAX_PAIRS_PER_TICK, 1),
             ("the daily pair cap", {"max_pairs_per_day": 1}, "phs_test", STOP_MAX_PAIRS_PER_DAY, 0),
             ("the daily cost cap", {"max_cost_usd_per_day": 0.1}, "phs_test", STOP_MAX_COST_USD_PER_DAY, 0),
+            ("the org share", {"max_pairs_per_tick": 2, "max_org_share": 0.5}, "phs_test", STOP_MAX_ORG_SHARE, 1),
             ("no cap", {}, "phs_test", None, 2),
             ("no gateway", {}, "", STOP_GATEWAY_NOT_CONFIGURED, 0),
         ]
@@ -479,7 +743,7 @@ class TestActivitySummaryQueue(BaseTest):
                 )
             )
 
-        assert (result.status, result.called_model) == ("ok", True)
+        assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
         assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nFocus areas: signup funnel"
         event = capture.call_args.kwargs
@@ -521,13 +785,16 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "emit_embeddings": True,
         "capture_events": True,
         "limits": DEFAULT_LIMITS,
+        "max_error_rate": 0.5,
+        "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
+        "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
 
 
 async def _run_tick(
-    plan: ActivitySummaryTickPlan, pair_cost: float | None
+    plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str = "ok"
 ) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult]]:
     running = peak = 0
     captured: list[ActivitySummaryTickResult] = []
@@ -543,7 +810,9 @@ async def _run_tick(
         peak = max(peak, running)
         await asyncio.sleep(0.01)
         running -= 1
-        return ActivitySummaryPairResult(status="ok", cost_usd=pair_cost, called_model=True)
+        return ActivitySummaryPairResult(
+            status=pair_status, cost_usd=pair_cost, called_model=True, new_summary=input.user_id % 2 == 0
+        )
 
     @activity.defn(name="capture_activity_summary_tick_activity")
     async def fake_capture(result: ActivitySummaryTickResult) -> None:
@@ -568,21 +837,31 @@ async def _run_tick(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "plan,pair_cost,picked,stop_reason",
+    "plan,pair_cost,pair_status,picked,stop_reason,builds",
     [
-        (_plan(5), 0.01, 5, None),
-        (_plan(5, updates_left=3), 0.01, 3, STOP_MAX_PAIRS_PER_DAY),
+        (_plan(5), 0.01, "ok", 5, None, (3, 2)),
+        (_plan(5, updates_left=3), 0.01, "ok", 3, STOP_MAX_PAIRS_PER_DAY, (2, 1)),
         # A missing cost counts at the bound, so the second wave spends the last of the budget.
-        (_plan(6, cost_left_usd=3.0), None, 4, STOP_MAX_COST_USD_PER_DAY),
+        (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY, (2, 2)),
+        # The breaker waits for a sample of 10 model calls, which is five waves.
+        (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE, (0, 0)),
     ],
 )
-async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps(
-    plan: ActivitySummaryTickPlan, pair_cost: float | None, picked: int, stop_reason: str | None
+async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
+    plan: ActivitySummaryTickPlan,
+    pair_cost: float | None,
+    pair_status: str,
+    picked: int,
+    stop_reason: str | None,
+    builds: tuple[int, int],
 ) -> None:
-    result, peak, captured = await _run_tick(plan, pair_cost)
+    result, peak, captured = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
-    assert (result.picked, result.statuses, result.stop_reason) == (picked, {"ok": picked}, stop_reason)
+    assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
+    assert result.tiers == plan.tiers
+    assert (result.new_builds, result.refresh_builds) == builds
+    assert result.enrollment == plan.enrollment
     assert captured == [result]
 
 

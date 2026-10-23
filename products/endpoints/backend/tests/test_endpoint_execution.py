@@ -619,43 +619,85 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # MATERIALIZED HOGQL ENDPOINTS
     # =========================================================================
 
-    def test_materialized_hogql_endpoint_filters_by_variable(self):
+    @parameterized.expand(
+        [
+            ("number", 424242),
+            ("string", "424242"),
+        ]
+    )
+    def test_materialized_hogql_endpoint_filters_by_variable_type(self, _name: str, capture_id: object):
+        stored_capture_id = "424242"
+        _create_event(
+            event="capture",
+            distinct_id="user1",
+            team=self.team,
+            timestamp="2026-01-05 12:00:00",
+            properties={"capture_id": stored_capture_id},
+        )
+        flush_persons_and_events()
+        capture_id_var = InsightVariable.objects.create(
+            team=self.team,
+            name="Capture ID",
+            code_name="capture_id",
+            type=InsightVariable.Type.STRING,
+            default_value=stored_capture_id,
+        )
+
         endpoint = create_endpoint_with_version(
-            name="mat_hogql_var",
+            name=f"mat-hogql-var-{_name}",
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "query": "SELECT count() FROM events WHERE properties.capture_id = {variables.capture_id}",
                 "variables": {
-                    str(self.event_name_var.id): {
-                        "variableId": str(self.event_name_var.id),
-                        "code_name": "event_name",
-                        "value": "$pageview",
+                    str(capture_id_var.id): {
+                        "variableId": str(capture_id_var.id),
+                        "code_name": "capture_id",
+                        "value": stored_capture_id,
                     }
                 },
             },
             created_by=self.user,
             is_active=True,
         )
-        self._materialize_endpoint(endpoint)
+        inline_response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"capture_id": stored_capture_id}},
+            format="json",
+        )
+        self.assertEqual(inline_response.status_code, status.HTTP_200_OK, inline_response.json())
 
-        # Execute with variable filter - should filter materialized table by event_name
-        with mock.patch.object(
-            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
-        ) as mock_exec:
+        saved_query = self._materialize_endpoint(endpoint)
+        saved_query.columns = {
+            "count()": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64", "valid": True},
+            "capture_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+        }
+        saved_query.save(update_fields=["columns"])
+
+        def run_query(_team, query, **_kwargs):
+            if (
+                query.modifiers
+                and query.modifiers.useMaterializedViews
+                and stored_capture_id in query.query
+                and f"'{stored_capture_id}'" not in query.query
+            ):
+                raise CHQueryErrorNoCommonType(
+                    "There is no supertype for types String, UInt64",
+                    code=386,
+                    code_name="no_common_type",
+                )
+            return {"results": inline_response.json()["results"], "columns": ["count()"]}
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=run_query):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-                {"variables": {"event_name": "$pageleave"}},
+                {"variables": {"capture_id": capture_id}},
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            mock_exec.assert_called()
-            # Verify the query has WHERE clause filtering by event_name
-            query_request_data = mock_exec.call_args[0][0]
-            query_sql = query_request_data["query"]["query"].lower()
-            self.assertIn("event_name", query_sql)
-            self.assertIn("$pageleave", query_sql)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIs(response.json()["endpoint_materialized"], True)
+        self.assertEqual(response.json()["results"], inline_response.json()["results"])
 
     def test_materialized_hogql_endpoint_selects_only_original_columns(self):
         endpoint = create_endpoint_with_version(

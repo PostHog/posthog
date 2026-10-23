@@ -20,6 +20,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import INSIGHT_QUERY_FANOUT_CONCURRENCY
+
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
@@ -27,15 +29,18 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
 from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
+    buckets_to_score,
+    fetch_buckets,
+    query_cost,
     score_insight,
     score_series,
     trends_query_for,
 )
+from products.signals.backend.anomaly_scores.tick import _INSIGHT_TIMEOUT
 
 NEW_YORK = ZoneInfo("America/New_York")
 DAY_SCORING = DEFAULT_PROFILE.intervals[IntervalType.DAY]
 ZSCORE_OR_KNN = IntervalScoring(
-    lookback="-365d",
     min_points=56,
     detector={
         "type": "ensemble",
@@ -114,6 +119,49 @@ class TestScoreSeries(SimpleTestCase):
 
         assert points[-1].bucket_start == buckets[last_completed]
 
+    @parameterized.expand(
+        [
+            ("first_score", None, DEFAULT_LIMITS.max_backfill_buckets, None),
+            ("revisit", 3, 3, None),
+            ("chart_smoothing", 3, 3, 7),
+        ]
+    )
+    def test_the_fetched_buckets_score_like_the_full_history(
+        self, _name: str, scored_days_ago: int | None, to_score: int, smoothing: int | None
+    ) -> None:
+        values = list(np.random.default_rng(1).normal(100, 20, size=365))
+        buckets = _buckets(datetime(2025, 10, 1, tzinfo=UTC), IntervalType.DAY, 365)
+        now = buckets[-1] + timedelta(days=1, hours=1)
+        after = None if scored_days_ago is None else buckets[-1 - scored_days_ago]
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")], trendsFilter=TrendsFilter(smoothingIntervals=smoothing)
+        )
+
+        assert buckets_to_score(IntervalType.DAY, now=now, after=after, timezone=ZoneInfo("UTC")) == to_score
+        fetched = fetch_buckets(query, DAY_SCORING, to_score)
+
+        def score(start: int) -> list[float | None]:
+            fetched_values = values[start:]
+            if smoothing:
+                # Trends averages the trailing buckets that the query fetched, so the fetch start shifts the average.
+                fetched_values = [
+                    float(np.floor(np.mean(fetched_values[max(0, i - smoothing + 1) : i + 1])))
+                    for i in range(len(fetched_values))
+                ]
+            points = score_series(
+                fetched_values,
+                buckets[start:],
+                scoring=DAY_SCORING,
+                interval=IntervalType.DAY,
+                now=now,
+                after=after,
+            )
+            return [point.score for point in points]
+
+        assert fetched < 100
+        assert score(-fetched) == score(0)
+        assert None not in score(-fetched)
+
     def test_warm_up_points_have_no_score_and_no_flag(self) -> None:
         buckets = _buckets(datetime(2026, 1, 1, tzinfo=UTC), IntervalType.DAY, 10)
 
@@ -140,10 +188,8 @@ def _result(order: int, label: str) -> dict[str, Any]:
 
 class TestScoreInsight(SimpleTestCase):
     def _keys(self, insight: Insight, results: list[dict[str, Any]]) -> dict[str, str]:
-        with patch(
-            "products.signals.backend.anomaly_scores.scoring.calculate_for_query_based_insight",
-            return_value=MagicMock(result=results),
-        ):
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=results)
             scores = score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
         return {series.label: series.series_key for series in scores.series}
 
@@ -162,6 +208,48 @@ class TestScoreInsight(SimpleTestCase):
         assert swapped == original
         assert filtered["signup"] == original["signup"]
         assert filtered["pageview"] != original["pageview"]
+
+    def test_series_that_differ_only_by_name_get_unique_keys_and_the_first_keeps_its_key(self) -> None:
+        single = self._keys(_insight([EventsNode(event="$pageview")]), [_result(0, "web")])
+        named = self._keys(
+            _insight(
+                [EventsNode(event="$pageview", custom_name="web"), EventsNode(event="$pageview", custom_name="app")]
+            ),
+            [_result(0, "web"), _result(1, "app")],
+        )
+
+        assert named["web"] == single["web"]
+        assert named["app"] != named["web"]
+
+    @parameterized.expand([("one_query", 1), ("one_full_wave", 10), ("two_waves", 11), ("many_waves", 120)])
+    def test_every_query_wave_of_an_insight_stops_before_the_activity_timeout(self, _name: str, queries: int) -> None:
+        limits: list[int] = []
+        insight = _insight([EventsNode(event=f"event_{index}") for index in range(queries)])
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.series = [object()] * queries
+
+            def run(**_kwargs: Any) -> MagicMock:
+                limits.append(runner.return_value.hogql_settings.max_execution_time)
+                return MagicMock(results=[])
+
+            runner.return_value.run.side_effect = run
+            score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
+
+        waves = -(-queries // INSIGHT_QUERY_FANOUT_CONCURRENCY)
+        # Each wave can run to the time limit, and the activity still needs time to classify the timeout.
+        assert timedelta(seconds=waves * limits[0]) <= _INSIGHT_TIMEOUT - timedelta(minutes=1)
+        if waves == 1:
+            assert limits[0] == 150
+
+
+class TestFetchBuckets(SimpleTestCase):
+    def test_unbounded_smoothing_is_not_scored(self) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")], trendsFilter=TrendsFilter(smoothingIntervals=10_000_000)
+        )
+
+        with self.assertRaises(UnsupportedInsightError):
+            fetch_buckets(query, DAY_SCORING, 1)
 
 
 class TestTrendsQueryFor(SimpleTestCase):
@@ -183,6 +271,13 @@ class TestTrendsQueryFor(SimpleTestCase):
                 ).model_dump(exclude_none=True),
             ),
             (
+                "calendar_heatmap",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    trendsFilter=TrendsFilter(display=ChartDisplayType.CALENDAR_HEATMAP),
+                ).model_dump(exclude_none=True),
+            ),
+            (
                 "minute_interval",
                 TrendsQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.MINUTE).model_dump(
                     exclude_none=True
@@ -193,3 +288,53 @@ class TestTrendsQueryFor(SimpleTestCase):
     def test_unsupported_shapes_raise(self, _name: str, query: dict[str, Any]) -> None:
         with self.assertRaises(UnsupportedInsightError):
             trends_query_for(Insight(id=1, query=query), DEFAULT_PROFILE)
+
+
+def _events(count: int) -> list[dict[str, Any]]:
+    return [{"kind": "EventsNode", "event": f"event_{i}"} for i in range(count)]
+
+
+class TestQueryCost(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("one_per_series", {"kind": "TrendsQuery", "series": _events(3)}, 3),
+            ("wrapped", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": _events(2)}}, 2),
+            (
+                "breakdown_and_formula_add_none",
+                {
+                    "kind": "TrendsQuery",
+                    "series": _events(2),
+                    "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                    "trendsFilter": {"formulas": ["A/B", "A+B"]},
+                },
+                2,
+            ),
+            # The scoring query keeps every series, so the charge has no series cap.
+            ("more_series_than_max_series", {"kind": "TrendsQuery", "series": _events(30)}, 30),
+            (
+                "one_per_cohort",
+                {
+                    "kind": "TrendsQuery",
+                    "series": _events(2),
+                    "breakdownFilter": {"breakdown": ["all", 1, 2], "breakdown_type": "cohort"},
+                },
+                6,
+            ),
+            # The scoring query drops the previous period.
+            ("compare_adds_none", {"kind": "TrendsQuery", "series": _events(2), "compareFilter": {"compare": True}}, 2),
+            ("not_scored", {"kind": "FunnelsQuery", "series": _events(4)}, 1),
+            (
+                "empty_series_with_breakdown",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [],
+                    "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                },
+                1,
+            ),
+        ]
+    )
+    def test_a_pick_costs_the_queries_the_scoring_runner_sends(
+        self, _name: str, query: dict[str, Any], expected: int
+    ) -> None:
+        assert query_cost(Insight(id=1, query=query), MagicMock(spec=Team)) == expected

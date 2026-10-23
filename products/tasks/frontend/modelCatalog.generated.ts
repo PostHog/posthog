@@ -148,6 +148,19 @@ export const MODELS: readonly CatalogModel[] = [
         retired: true,
     },
     {
+        id: 'zai-org/glm-5.2',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: ['high', 'max'],
+        label: 'GLM-5.2',
+        cost: {
+            inputPerMtok: 1.4,
+            outputPerMtok: 4.4,
+        },
+        costMultiplier: '≈0.57×',
+        costSummary: 'Input $1.40 · Output $4.40 per 1M tokens',
+        retired: true,
+    },
+    {
         id: 'zai-org/glm-5.3',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['high', 'max'],

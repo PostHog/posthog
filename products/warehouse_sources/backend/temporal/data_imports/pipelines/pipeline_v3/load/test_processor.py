@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
+    _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
@@ -83,10 +84,16 @@ def _no_close_old_connections():
 @pytest.fixture(autouse=True)
 def _unfinished_earlier_batches() -> Iterator[MagicMock]:
     # The completion check reads the queue DB, which these unit tests do not have.
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
-        return_value=_COMPLETE_RUN,
-    ) as check:
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
+            return_value=_COMPLETE_RUN,
+        ) as check,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_batches_of_jobs_sync",
+            return_value=_COMPLETE_RUN,
+        ),
+    ):
         yield check
 
 
@@ -589,6 +596,32 @@ class TestMarkJobCompleted:
         mock_schema_objects.get.return_value.promote_staged_incremental_values.assert_not_called()
         # The consumer fails the run on this error, and its fail path releases the lock.
         mock_release.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_continued_job_batch_failed", ["job-stopped"], 1, True),
+            ("every_continued_job_batch_loaded", ["job-stopped"], 0, False),
+            ("no_continued_job", [], 1, False),
+        ]
+    )
+    def test_a_run_that_continues_a_stopped_job_completes_only_once_that_job_loaded(
+        self, _case: str, continued_job_ids: list[str], unfinished_count: int, refused: bool
+    ) -> None:
+        signal = self._make_signal()
+        signal.continued_job_ids = continued_job_ids
+        unfinished = UnfinishedEarlierBatches(count=unfinished_count, first_batch_index=0, states=("failed",))
+
+        with patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_batches_of_jobs_sync", return_value=unfinished) as check:
+            if refused:
+                with pytest.raises(IncompleteRunError, match=INCOMPLETE_RUN_ERROR):
+                    _refuse_incomplete_run(signal)
+            else:
+                _refuse_incomplete_run(signal)
+
+        if continued_job_ids:
+            assert check.call_args.kwargs == {"team_id": 1, "schema_id": "schema-1", "job_ids": ["job-stopped"]}
+        else:
+            check.assert_not_called()
 
 
 class TestRedeliveredFinalBatchPostLoad:

@@ -221,8 +221,13 @@ DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
 # an image rebuild.
 RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
+AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
 CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-claude-own-subscription-cloud"
 CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription-cloud"
+OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS: dict[str, str] = {
+    "claude": CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+    "codex": CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+}
 # The plan name a person reads when a subscription run is refused. Every layer that gates,
 # refuses, or explains one of these runs takes the name from here.
 SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
