@@ -645,7 +645,7 @@ class TestTransactionalEmail(APIBaseTest):
                 },
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
-                    "from": {"integrationId": "default"},
+                    "from": {"integrationId": "default", "isDefault": True},
                     "cc": ["jane@example.com"],
                     "bcc": ["audit@example.com"],
                     "headers": [{"name": "X-Entity-Ref-ID", "value": "order-123"}],
@@ -731,10 +731,10 @@ class TestTransactionalEmail(APIBaseTest):
         assert error["why"] and error["fix"]
         if expected_code == "invalid_request":
             # The why explains the field that failed, not what a send needs in general.
-            named = {"reply_to__0": "reply_to", "identifiers__email": "identifiers.email"}.get(
-                expected_attr, expected_attr
-            )
+            named = {"identifiers__email": "identifiers.email"}.get(expected_attr, expected_attr.split("__")[0])
             assert f"`{named}`" in error["why"], error["why"]
+            unknown = expected_attr in ("scheduled_at", "identifiers__email")
+            assert ("doesn't know" in error["why"]) == unknown, error["why"]
         if expected_attr == "to":
             assert error["detail"] == f"to: `{fields['to']}` is not a bare address. Send it as `jane@example.com`."
         mock_post.assert_not_called()
