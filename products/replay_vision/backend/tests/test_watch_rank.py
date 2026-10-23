@@ -6,7 +6,13 @@ from django.test import SimpleTestCase
 import numpy as np
 from parameterized import parameterized
 
-from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, classify, rank_watch_feed_by_embedding
+from products.replay_vision.backend.watch_rank import (
+    ANCHOR_VERSION,
+    WatchCategory,
+    classify,
+    duplicate_root,
+    rank_watch_feed_by_embedding,
+)
 from products.replay_vision.backend.watch_rank_backfill import _rank_scanner
 
 _NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
@@ -52,7 +58,7 @@ class TestClassify(SimpleTestCase):
     def test_routine_wins_over_the_closest_issue_when_it_is_closer(
         self, _name: str, vector: list[float], category: str, positive: bool
     ) -> None:
-        anchors = {
+        anchors: dict[WatchCategory, np.ndarray] = {
             "failure": np.array([[1.0, 0.0, 0.0]]),
             "struggle": np.array([[0.0, 1.0, 0.0]]),
             "revenue": np.array([[0.0, -1.0, 0.0]]),
@@ -63,12 +69,33 @@ class TestClassify(SimpleTestCase):
         assert (contrast > 0) is positive
 
 
+class TestDuplicateRoot(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unranked_smaller_neighbour_is_the_root", "obs-b", "obs-a", None, "obs-a"),
+            ("unranked_larger_neighbour_defers_to_this_one", "obs-a", "obs-b", None, None),
+            ("ranked_neighbour_passes_on_its_root", "obs-a", "obs-b", {"duplicate_of": "obs-0"}, "obs-0"),
+            ("ranked_root_neighbour_is_the_root", "obs-a", "obs-b", {"duplicate_of": None}, "obs-b"),
+        ]
+    )
+    def test_two_concurrent_copies_agree_on_one_root(
+        self,
+        _name: str,
+        observation_id: str,
+        neighbour_id: str,
+        neighbour_rank: dict[str, Any] | None,
+        expected: str | None,
+    ) -> None:
+        assert duplicate_root(observation_id, neighbour_id, neighbour_rank) == expected
+
+
 class TestRankWatchFeedByEmbedding(SimpleTestCase):
     def test_picks_the_scanner_top_issues_once_per_duplicate_group(self) -> None:
         rows = [
             # scanner-a has enough ranked rows for a percentile; its top two are one duplicate group.
             _row("dup-root", 0.30),
             _row("dup-copy", 0.32, duplicate_of="dup-root", minutes_ago=50),
+            _row("dup-low", -0.01, duplicate_of="dup-root"),
             _row("routine-top", 0.40, category="routine", minutes_ago=50),
             *[_row(f"a-{index}", 0.01 * index, minutes_ago=index + 1) for index in range(10)],
             # A rank from older anchors does not compare with current scores.
@@ -80,11 +107,11 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
         ranked = rank_watch_feed_by_embedding(rows)
 
         assert ranked[0].observation_id == "dup-copy"
-        assert ranked[0].reason == {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 1}
+        assert ranked[0].reason == {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 2}
         picks = [entry.observation_id for entry in ranked if entry.reason["kind"] == "embedding_pick"]
         assert picks == ["dup-copy"]
-        # The newest row is the collapsed copy, which must not come back as filler.
-        assert "dup-root" not in {entry.observation_id for entry in ranked}
+        # Collapsed copies, even those below the cutoff, must not come back as filler.
+        assert {"dup-root", "dup-low"}.isdisjoint(entry.observation_id for entry in ranked)
 
     def test_rows_without_a_rank_fall_back_to_the_filler_floor(self) -> None:
         rows = [_row(f"row-{index}", None, minutes_ago=index, viewed=index == 0) for index in range(20)]
@@ -96,7 +123,7 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
 
 class TestBackfillRankScanner(SimpleTestCase):
     def test_walks_oldest_first_so_a_copy_joins_the_group_of_an_already_ranked_row(self) -> None:
-        anchors = {
+        anchors: dict[WatchCategory, np.ndarray] = {
             "failure": np.array([[1.0, 0.0, 0.0]]),
             "struggle": np.array([[0.0, 1.0, 0.0]]),
             "revenue": np.array([[0.0, -1.0, 0.0]]),
@@ -104,7 +131,7 @@ class TestBackfillRankScanner(SimpleTestCase):
         }
         error = np.array([1.0, 0.0, 0.0])
         current = {"category": "failure", "contrast": 1.0, "duplicate_of": "root", "anchor_version": ANCHOR_VERSION}
-        rows = [
+        rows: list[dict[str, Any]] = [
             {"id": "ranked", "watch_rank": current},
             {"id": "no-vector", "watch_rank": None},
             {"id": "copy", "watch_rank": None},

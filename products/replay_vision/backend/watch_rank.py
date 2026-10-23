@@ -7,6 +7,7 @@ The feed turns scores into a percentile within each scanner when it loads, so a 
 errors all the time does not fill the feed.
 """
 
+import asyncio
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -126,13 +127,15 @@ async def anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
     vectors: dict[WatchCategory, list[list[float]]] | None = await cache.aget(key)
     if vectors is None:
         team = await Team.objects.aget(id=team_id)
-        vectors = {
-            category: [
-                (await async_generate_embedding(team, text, model=OBSERVATION_EMBEDDING_MODEL.value)).embedding
+        embedded = await asyncio.gather(
+            *(
+                async_generate_embedding(team, text, model=OBSERVATION_EMBEDDING_MODEL.value)
+                for texts in ANCHORS.values()
                 for text in texts
-            ]
-            for category, texts in ANCHORS.items()
-        }
+            )
+        )
+        rows = iter(response.embedding for response in embedded)
+        vectors = {category: [next(rows) for _ in texts] for category, texts in ANCHORS.items()}
         await cache.aset(key, vectors, _ANCHOR_CACHE_TTL_S)
     anchors = {category: normalize(np.array(rows, dtype=float)) for category, rows in vectors.items()}
     _anchors_in_process[key] = anchors
@@ -152,18 +155,34 @@ def classify(vector: list[float] | np.ndarray, anchors: dict[WatchCategory, np.n
     return (category if contrast > 0 else "routine"), contrast
 
 
+# Caps the vectors one duplicate lookup reads to the scanner's newest rows, so a busy scanner stays cheap.
+_DUPLICATE_CANDIDATE_ROWS = 5_000
+
+
 def nearest_earlier_observation(
     *, team_id: int, scanner_id: str, observation_id: str, vector: list[float], now: datetime
 ) -> tuple[str, float] | None:
     """The scanner's closest other observation in the lookback window, with its cosine distance."""
     with tags_context(product=Product.REPLAY_VISION, query_type="replay_vision_watch_rank_duplicate"):
+        # nosemgrep: clickhouse-fstring-param-audit - table name and scope are module constants
         rows = sync_execute(
-            # nosemgrep: clickhouse-fstring-param-audit -- table name and scope are module constants
             f"""
             SELECT document_id, min(cosineDistance(embedding, %(embedding)s)) AS distance
             FROM {OBSERVATION_EMBEDDINGS_TABLE}
             PREWHERE {OBSERVATION_SCOPE_PREWHERE}
-              AND timestamp >= %(since)s
+              AND timestamp >= ifNull(
+                (
+                    SELECT minOrNull(timestamp)
+                    FROM (
+                        SELECT timestamp
+                        FROM {OBSERVATION_EMBEDDINGS_TABLE}
+                        PREWHERE {OBSERVATION_SCOPE_PREWHERE} AND timestamp >= %(since)s
+                        ORDER BY timestamp DESC
+                        LIMIT %(candidate_cap)s
+                    )
+                ),
+                %(since)s
+              )
             WHERE document_id != %(observation_id)s
             GROUP BY document_id
             ORDER BY distance ASC
@@ -174,6 +193,7 @@ def nearest_earlier_observation(
                 "embedding": vector,
                 "since": now - DUPLICATE_LOOKBACK,
                 "observation_id": observation_id,
+                "candidate_cap": _DUPLICATE_CANDIDATE_ROWS,
             },
             team_id=team_id,
             readonly=True,
@@ -186,9 +206,15 @@ def nearest_earlier_observation(
     return str(document_id), float(distance)
 
 
-def duplicate_root(neighbour_id: str, neighbour_rank: dict[str, Any] | None) -> str:
-    """The first observation of a duplicate group, so the group shares one id however long it grows."""
-    root = (neighbour_rank or {}).get("duplicate_of")
+def duplicate_root(observation_id: str, neighbour_id: str, neighbour_rank: dict[str, Any] | None) -> str | None:
+    """The first observation of a duplicate group, so the group shares one id however long it grows.
+
+    An unranked neighbour can be ranking at the same moment and pick this observation in turn, so the
+    smaller id roots the pair and the two never point at each other.
+    """
+    if neighbour_rank is None:
+        return neighbour_id if neighbour_id < observation_id else None
+    root = neighbour_rank.get("duplicate_of")
     return root if isinstance(root, str) and root else neighbour_id
 
 
@@ -229,33 +255,32 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     filler, trimmed to the same floor as the other rankers.
     """
     percentiles = _scanner_percentiles(rows)
-    best_in_group: dict[str, tuple[float, dict[str, Any]]] = {}
-    group_sizes: dict[str, int] = {}
-    grouped_ids: set[str] = set()
+    best_in_group: dict[str, tuple[float, float, dict[str, Any]]] = {}
+    group_members: dict[str, list[str]] = {}
     for row in rows:
         rank = current_rank(row)
         observation_id = str(row["id"])
         percentile = percentiles.get(observation_id)
         if rank is None or percentile is None or rank.get("category") not in ISSUE_CATEGORIES:
             continue
-        if percentile < WATCH_PICK_MIN_PERCENTILE:
-            continue
+        # Group before the cutoff, so duplicates below it still count toward the group and never return as filler.
         group = rank.get("duplicate_of") or observation_id
-        group_sizes[group] = group_sizes.get(group, 0) + 1
-        grouped_ids.add(observation_id)
+        group_members.setdefault(group, []).append(observation_id)
         score = percentile * CATEGORY_WEIGHT[rank["category"]]
         if row.get("feed_viewed"):
             score -= WATCH_PICK_SEEN_PENALTY
         if group not in best_in_group or score > best_in_group[group][0]:
-            best_in_group[group] = (score, row)
+            best_in_group[group] = (score, percentile, row)
+    best_in_group = {group: best for group, best in best_in_group.items() if best[1] >= WATCH_PICK_MIN_PERCENTILE}
+    grouped_ids = {member for group in best_in_group for member in group_members[group]}
 
     picks: list[tuple[float, Any, Any, WatchFeedEntry]] = []
-    for group, (score, row) in best_in_group.items():
+    for group, (score, _, row) in best_in_group.items():
         rank = row["watch_rank"]
         reason = {
             "kind": "embedding_pick",
             "watch_category": rank["category"],
-            "similar_count": group_sizes[group] - 1,
+            "similar_count": len(group_members[group]) - 1,
         }
         picks.append(
             (score, row["created_at"], row.get("scanner_id"), WatchFeedEntry(observation_id=row["id"], reason=reason))

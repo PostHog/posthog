@@ -12,6 +12,7 @@ search can filter by exact outcome inside the same ClickHouse ranking query, wit
 The endpoint also returns the vector, and the activity ranks the observation from it (see `watch_rank`).
 """
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
@@ -47,6 +48,9 @@ from products.replay_vision.backend.watch_rank import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Bounds ranking so it cannot use up the activity's timeout after the embedding is stored.
+_RANK_TIMEOUT_S = 20
 
 
 def _renderings_for(model_output: AnyScannerOutput) -> list[tuple[str, str]]:
@@ -89,7 +93,7 @@ async def _rank(*, team_id: int, scanner_id: UUID, observation_id: UUID, vector:
             .values_list("watch_rank", flat=True)
             .afirst()
         )
-        duplicate_of = duplicate_root(nearest[0], neighbour_rank)
+        duplicate_of = duplicate_root(str(observation_id), nearest[0], neighbour_rank)
     rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
     await ReplayObservation.objects.filter(team_id=team_id, id=observation_id).aupdate(watch_rank=rank.to_json())
 
@@ -114,8 +118,9 @@ async def _store_and_rank(
                 metadata=metadata,
             )
         except httpx.HTTPStatusError as e:
-            # The worker refuses an organization without AI data processing, so a retry cannot succeed.
-            if e.response.status_code == 403:
+            # The worker refuses an organization without AI data processing, and a document too large to
+            # publish, so a retry cannot succeed.
+            if e.response.status_code in (403, 413):
                 return
             raise
         vector = vector or vectors.get(OBSERVATION_EMBEDDING_MODEL.value)
@@ -124,7 +129,8 @@ async def _store_and_rank(
     # The embedding is stored by now, so a ranking failure must not fail the activity: a retry
     # would embed and store the text again.
     try:
-        await _rank(team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
+        async with asyncio.timeout(_RANK_TIMEOUT_S):
+            await _rank(team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
     except Exception:
         logger.exception("replay_vision.embed_observation.rank_failed", observation_id=str(observation_id))
 

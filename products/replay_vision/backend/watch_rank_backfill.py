@@ -70,8 +70,8 @@ def _stored_vectors(
     vectors: dict[str, np.ndarray] = {}
     for chunk in batched(observation_ids, _VECTOR_CHUNK, strict=False):
         with tags_context(product=Product.REPLAY_VISION, query_type="replay_vision_watch_rank_backfill"):
+            # nosemgrep: clickhouse-fstring-param-audit - table name and scope are module constants
             rows = sync_execute(
-                # nosemgrep: clickhouse-fstring-param-audit -- table name and scope are module constants
                 f"""
                 SELECT document_id, any(embedding)
                 FROM {OBSERVATION_EMBEDDINGS_TABLE}
@@ -111,7 +111,7 @@ def _rank_scanner(
                 distances = 1.0 - matrix[:index] @ matrix[index]
                 nearest = int(np.argmin(distances))
                 if distances[nearest] <= DUPLICATE_MAX_DISTANCE:
-                    duplicate_of = duplicate_root(ids[nearest], ranks.get(ids[nearest]))
+                    duplicate_of = duplicate_root(ids[index], ids[nearest], ranks.get(ids[nearest]))
             rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of).to_json()
             written[observation_id] = rank
         ranks[observation_id] = rank

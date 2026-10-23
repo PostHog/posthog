@@ -3440,11 +3440,13 @@ class TestEmbedObservationWatchRank:
         if expected_duplicate_of is None:
             assert observation.watch_rank is None
         else:
-            assert observation.watch_rank["category"] == "failure"
-            assert observation.watch_rank["duplicate_of"] == expected_duplicate_of
+            rank = observation.watch_rank
+            assert rank is not None
+            assert rank["category"] == "failure"
+            assert rank["duplicate_of"] == expected_duplicate_of
 
-    @parameterized.expand([("not_opted_in", 403, False), ("endpoint_errored", 500, True)])
-    def test_only_a_refusal_for_ai_opt_in_is_not_retried(self, _name: str, status_code: int, raises: bool) -> None:
+    @parameterized.expand([("not_opted_in", 403, False), ("too_large", 413, False), ("endpoint_errored", 500, True)])
+    def test_only_a_permanent_refusal_is_not_retried(self, _name: str, status_code: int, raises: bool) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, session_id="sess-new")
         request = httpx.Request("POST", "http://embedding-worker/generate/stored")

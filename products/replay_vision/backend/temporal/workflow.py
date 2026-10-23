@@ -665,8 +665,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         scanner_id=inputs.scanner_id,
                         model_output=model_output,
                     ),
-                    start_to_close_timeout=dt.timedelta(seconds=30),
-                    schedule_to_close_timeout=dt.timedelta(minutes=2),
+                    # Covers the worker's provider retries plus ranking, so a slow embed is not paid for twice.
+                    start_to_close_timeout=dt.timedelta(seconds=120),
+                    schedule_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=_SIDE_EFFECT_RETRY,
                 )
             except Exception:
