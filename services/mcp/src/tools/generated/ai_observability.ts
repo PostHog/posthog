@@ -2661,6 +2661,9 @@ const llmaScoreDefinitionCreate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.short_name !== undefined) {
+            body['short_name'] = params.short_name
+        }
         if (params.description !== undefined) {
             body['description'] = params.description
         }
@@ -2754,6 +2757,9 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.short_name !== undefined) {
+            body['short_name'] = params.short_name
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -2798,6 +2804,9 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
         }
         if (params.name !== undefined) {
             body['name'] = params.name
+        }
+        if (params.short_name !== undefined) {
+            body['short_name'] = params.short_name
         }
         if (params.description !== undefined) {
             body['description'] = params.description

@@ -226,6 +226,8 @@ class PipelineV3(Generic[ResumableData]):
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
         kept_rows_synced: int | None = None,
+        continued_workflow_run_id: str | None = None,
+        continued_job_ids: tuple[str, ...] = (),
         ride_out: RideOutConfig | None = None,
         progress: DurableProgress | None = None,
     ) -> None:
@@ -386,6 +388,7 @@ class PipelineV3(Generic[ResumableData]):
             "partition_format": partition_format,
             "partition_mode": partition_mode,
             "is_first_ever_sync": is_first_ever_sync,
+            "continued_job_ids": list(continued_job_ids),
         }
         self._pg_producer = self._build_producer(
             self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode
@@ -423,9 +426,13 @@ class PipelineV3(Generic[ResumableData]):
             # value of the earlier attempts of this run. Without their newest value, the run promotes the
             # largest value of its own rows as the watermark, and the next run reads every newer row again.
             # `models.schema` is loaded when this attempt starts, so it holds what the earlier attempts staged.
-            self._last_incremental_field_value = staged_run_last_value(
-                models.schema.sync_type_config or {}, self._job.workflow_run_id
-            )
+            staged_config = models.schema.sync_type_config or {}
+            self._last_incremental_field_value = staged_run_last_value(staged_config, self._job.workflow_run_id)
+            if self._last_incremental_field_value is None and continued_workflow_run_id is not None:
+                # The first attempt of a job that continues the cursor of an interrupted job has the same
+                # gap: the interrupted run read the newest rows. A later attempt of this run staged that
+                # value again, so the lookup above finds it.
+                self._last_incremental_field_value = staged_run_last_value(staged_config, continued_workflow_run_id)
             if self._last_incremental_field_value is None and self._schema.should_use_incremental_field:
                 self._logger.warning(
                     "V3 Pipeline: Resumed non-ascending extract found no staged last value of this run",
