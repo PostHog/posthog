@@ -120,13 +120,22 @@ class TestBuildCompatibilityHint:
         assert hint is not None
         assert expected_start in hint
 
-    def test_non_string_argument_type_gets_no_property_cast_advice(self) -> None:
+    @parameterized.expand(
+        [
+            ("string", "String", True),
+            ("nested_wrappers", "LowCardinality(Nullable(String))", True),
+            ("array_of_string", "Array(String)", False),
+        ]
+    )
+    def test_property_cast_advice_follows_string_argument_types(
+        self, _name: str, rejected_type: str, expects_cast_advice: bool
+    ) -> None:
         hint = build_compatibility_hint(
-            "Code: 43. DB::Exception: Illegal type Array(String) of first argument of function lower. (ILLEGAL_TYPE_OF_ARGUMENT)"
+            f"Code: 43. DB::Exception: Illegal type {rejected_type} of first argument of function lower. (ILLEGAL_TYPE_OF_ARGUMENT)"
         )
         assert hint is not None
-        assert "`lower` does not accept Array(String)" in hint
-        assert "toFloat" not in hint
+        assert f"`lower` does not accept {rejected_type}" in hint
+        assert ("toFloat(properties.x)" in hint) == expects_cast_advice
 
     @parameterized.expand(
         [
