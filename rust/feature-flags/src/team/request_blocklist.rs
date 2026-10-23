@@ -73,7 +73,7 @@ impl BlockedHosts {
 
 /// Single addresses or CIDR ranges. `entries` keeps the stored strings so the team
 /// serializes back to the cache shape it came from.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(from = "Vec<String>", into = "Vec<String>")]
 pub struct BlockedIps {
     entries: Vec<String>,
@@ -103,13 +103,6 @@ impl From<Vec<String>> for BlockedIps {
 impl From<BlockedIps> for Vec<String> {
     fn from(ips: BlockedIps) -> Self {
         ips.entries
-    }
-}
-
-// `ranges` is derived from `entries`, so equal entries always give equal ranges.
-impl PartialEq for BlockedIps {
-    fn eq(&self, other: &Self) -> bool {
-        self.entries == other.entries
     }
 }
 

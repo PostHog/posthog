@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 /// An inclusive `[start, end]` range. IPv4 ranges widen to `u128` so both families share
 /// one representation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ParsedCidr {
     pub(crate) start: u128,
     pub(crate) end: u128,
