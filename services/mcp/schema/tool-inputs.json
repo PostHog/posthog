@@ -126,6 +126,16 @@
             "maximum": 9007199254740991,
             "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions."
         },
+        "DashboardInsightTileIdsSchema": {
+            "description": "IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+            }
+        },
         "DashboardTileCreateSchema": {
             "type": "object",
             "properties": {
