@@ -131,6 +131,9 @@ export interface traceDialogLogicActions {
         fullScreen: boolean
         id: string
         initialFilters: Partial<LogsViewerFilters> | null
+        openedFrom:
+            | null
+            | import('products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic').LogsViewerModalOrigin
         personId: string | null
         pinnedFilters: UniversalFiltersGroup | null
         sessionId: string | null
