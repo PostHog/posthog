@@ -17,6 +17,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
+import { OFFLINE_HISTORY_BREAKDOWN_LABELS, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
 import { OfflineScorerHistoryTable } from './OfflineScorerHistoryTable'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
@@ -265,7 +266,26 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                         ) : (
                             <>
                                 <LemonCard hoverEffect={false} className="min-w-0">
-                                    <div className="font-semibold mb-2">Score history</div>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                        <div className="font-semibold">Score history</div>
+                                        <div className="flex items-center gap-2">
+                                            <LemonLabel>Break down by</LemonLabel>
+                                            <LemonSelect<OfflineHistoryBreakdown | ''>
+                                                value={filters.breakdown}
+                                                onChange={(breakdown) => setFilters({ breakdown })}
+                                                options={[
+                                                    { value: '', label: 'None' },
+                                                    ...Object.entries(OFFLINE_HISTORY_BREAKDOWN_LABELS).map(
+                                                        ([value, label]) => ({
+                                                            value: value as OfflineHistoryBreakdown,
+                                                            label,
+                                                        })
+                                                    ),
+                                                ]}
+                                                data-attr="offline-history-breakdown"
+                                            />
+                                        </div>
+                                    </div>
                                     {primaryPageLoading || comparisonPageLoading || (!primaryPage && !primaryError) ? (
                                         <Spinner />
                                     ) : (
@@ -278,6 +298,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                             {trendPeriods.length > 0 && (
                                                 <OfflineScoreTrendChart
                                                     periods={trendPeriods}
+                                                    breakdown={filters.breakdown || undefined}
                                                     timezone={timezone}
                                                     onPointClick={(point) =>
                                                         router.actions.push(offlineExperimentUrl(point))
@@ -287,8 +308,9 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                         </>
                                     )}
                                     <p className="text-muted text-xs mt-2 mb-0">
-                                        Each point is one experiment and scorer version. Points use successful results
-                                        only. Different periods and versions remain separate.
+                                        {filters.breakdown
+                                            ? 'Each point is one experiment, scorer version, and breakdown value. Points use successful results only. Different periods and versions remain separate.'
+                                            : 'Each point is one experiment and scorer version. Points use successful results only. Different periods and versions remain separate.'}
                                     </p>
                                 </LemonCard>
                                 {[
@@ -345,6 +367,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                     </div>
                                                 )}
                                                 <OfflineScorerHistoryTable
+                                                    breakdown={filters.breakdown || undefined}
                                                     periodKey={period.key}
                                                     page={period.page}
                                                     loading={period.loading}

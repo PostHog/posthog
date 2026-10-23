@@ -63522,6 +63522,12 @@ export namespace Schemas {
       /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
       id: string;
       /**
+         * Model used for this item. Omitted or null values inherit the experiment's model.
+         * @maxLength 255
+         * @nullable
+         */
+      model_version?: string | null;
+      /**
          * Stable case identifier for matching inputs across experiments.
          * @maxLength 255
          * @nullable
@@ -72158,6 +72164,11 @@ export namespace Schemas {
     }
 
     export interface OfflineHistoryPoint {
+      /**
+         * Breakdown value for this summary; null when unspecified or no breakdown is selected.
+         * @nullable
+         */
+      breakdown_value?: string | null;
       /** Experiment execution and cohort context. */
       experiment: OfflineExperimentRead;
       /** Complete summary for one experiment and scorer version. */
@@ -72237,6 +72248,11 @@ export namespace Schemas {
     }
 
     export interface OfflineItemRead {
+      /**
+         * Model used for the item, falling back to the experiment's model.
+         * @nullable
+         */
+      model_version?: string | null;
       /** Stable item UUID. */
       id: string;
       /** Owning experiment UUID. */
@@ -125508,6 +125524,17 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
+     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     *
+     * * `model_version` - Model
+     * * `prompt_version` - Prompt version
+     * * `application_version` - Application version
+     * * `suite_key` - Suite
+     * * `run_source` - Run source
+     * @minLength 1
+     */
+    breakdown?: AiObservabilityOfflineScorersHistoryListBreakdown;
+    /**
      * Filter experiments by the author's user ID.
      * @minimum 1
      */
@@ -125609,6 +125636,17 @@ export namespace Schemas {
      */
     tags?: string;
     };
+
+    export type AiObservabilityOfflineScorersHistoryListBreakdown = typeof AiObservabilityOfflineScorersHistoryListBreakdown[keyof typeof AiObservabilityOfflineScorersHistoryListBreakdown];
+
+
+    export const AiObservabilityOfflineScorersHistoryListBreakdown = {
+      ModelVersion: 'model_version',
+      PromptVersion: 'prompt_version',
+      ApplicationVersion: 'application_version',
+      SuiteKey: 'suite_key',
+      RunSource: 'run_source',
+    } as const;
 
     export type AiObservabilityOfflineScorersHistoryListTagMatch = typeof AiObservabilityOfflineScorersHistoryListTagMatch[keyof typeof AiObservabilityOfflineScorersHistoryListTagMatch];
 
