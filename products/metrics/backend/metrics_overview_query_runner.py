@@ -2,7 +2,9 @@
 
 The series `last_seen` can lag the newest sample. Capture sends the series labels on the first sample
 of each label window only, and `metric_series` takes rows only from labelled samples. So the
-overview also reads the newest sample time from `metric_samples` and keeps the later of the two.
+overview also reads the newest sample time from `metric_service_freshness`, which takes every sample,
+and keeps the later of the two. That table has no backfill, so a service without a row in it keeps
+its series `last_seen`.
 """
 
 import datetime as dt
@@ -148,17 +150,15 @@ class MetricsOverviewQueryRunner:
 
         with tracer.start_as_current_span("metrics.overview.newest_sample") as span:
             span.set_attribute("team_id", self.team.pk)
-            # The constant bounds let the time_bucket and timestamp_max minmax indexes skip granules.
-            # The per-service bound only filters rows, so it keeps the timestamp array reads to the hours after
-            # each service's last labelled sample.
+            # The constant bound is a primary key range on (team_id, time_bucket).
+            # The per-service bound only filters the rows in that range.
             query = parse_select(
                 """
                     SELECT
                         {listed_service} AS listed_service,
-                        toTimeZone(max(timestamp_max), 'UTC') AS newest_sample_at
-                    FROM posthog.metric_samples
+                        toTimeZone(max(max_timestamp), 'UTC') AS newest_sample_at
+                    FROM posthog.metric_service_freshness
                     WHERE time_bucket >= {earliest_bucket}
-                      AND timestamp_max >= {earliest_since}
                       AND time_bucket >= {bucket_from}
                     GROUP BY listed_service
                     LIMIT {limit}
@@ -166,7 +166,6 @@ class MetricsOverviewQueryRunner:
                 placeholders={
                     "listed_service": listed_service,
                     "earliest_bucket": ast.Constant(value=_start_of_hour(earliest_since)),
-                    "earliest_since": ast.Constant(value=earliest_since),
                     "bucket_from": bucket_from,
                     # One row for each listed service and one row for all other services.
                     "limit": ast.Constant(value=len(names) + 1),

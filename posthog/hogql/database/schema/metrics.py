@@ -265,6 +265,33 @@ class MetricNamesTable(Table):
         return "metric_names"
 
 
+class MetricServiceFreshnessTable(Table):
+    description: str = "One row per service and UTC hour with the newest data point time, including data points sent without labels. Use it to find when a service last sent data."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket", nullable=False, description="UTC hour in which the service had data points."
+        ),
+        "service_name": StringDatabaseField(
+            name="service_name", nullable=False, description="Name of the service that emitted the data points."
+        ),
+        "original_expiry_time_bucket": DateTimeDatabaseField(
+            name="original_expiry_time_bucket", nullable=False, description="Hour in which the row leaves retention."
+        ),
+        "max_timestamp": DateTimeDatabaseField(
+            name="max_timestamp", nullable=False, description="Newest data point timestamp of the service in the hour."
+        ),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "metrics4_service_freshness"
+
+    def to_printed_hogql(self):
+        return "metric_service_freshness"
+
+
 class MetricSeriesTable(Table):
     description: str = "One row per unique metric series (metric + label set), keyed by `series_fingerprint`. Labels are stored here once and joined to `metrics` at query time."
     workload: Workload | None = Workload.LOGS

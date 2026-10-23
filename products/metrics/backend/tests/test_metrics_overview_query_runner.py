@@ -13,6 +13,8 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
+
 from products.metrics.backend import metrics_overview_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event, truncate_metrics_tables
@@ -70,7 +72,15 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(api_row.series, 3)
         self.assertEqual(dt.datetime.fromisoformat(api_row.last_seen), anchor)
 
-    def test_last_seen_comes_from_the_newest_sample_not_the_series_row(self):
+    @parameterized.expand(
+        [
+            ("from_the_freshness_rollup", False, 0),
+            ("from_the_series_row_while_the_rollup_is_empty", True, 20),
+        ]
+    )
+    def test_last_seen_comes_from_the_newest_sample_not_the_series_row(
+        self, _name: str, empty_rollup: bool, expected_minutes_before_newest: int
+    ):
         newest = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         seed_metric(
             team_id=self.team.id,
@@ -94,13 +104,50 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             has_labels=False,
         )
 
+        if empty_rollup:
+            # The rollup table starts empty when it is created, and nothing backfills it.
+            sync_execute("TRUNCATE TABLE IF EXISTS metrics4_service_freshness")
+
         overview = MetricsOverviewQueryRunner(team=self.team).run()
+
+        expected = newest - dt.timedelta(minutes=expected_minutes_before_newest)
+        assert overview.last_seen is not None
+        self.assertEqual(dt.datetime.fromisoformat(overview.last_seen), expected)
+        self.assertEqual(
+            [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services], [("api", expected)]
+        )
+
+    def test_overview_reads_no_sample_arrays(self):
+        newest = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(newest - dt.timedelta(minutes=20), 1.0)],
+            service_name="api",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(newest, 2.0)],
+            service_name="api",
+            has_labels=False,
+        )
+        printed_queries: list[str] = []
+
+        def record_printed_query(**kwargs: Any) -> HogQLQueryResponse:
+            response = execute_hogql_query(**kwargs)
+            printed_queries.append(response.clickhouse or "")
+            return response
+
+        with patch.object(metrics_overview_query_runner, "execute_hogql_query", side_effect=record_printed_query):
+            overview = MetricsOverviewQueryRunner(team=self.team).run()
 
         assert overview.last_seen is not None
         self.assertEqual(dt.datetime.fromisoformat(overview.last_seen), newest)
-        self.assertEqual(
-            [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services], [("api", newest)]
-        )
+        self.assertEqual(len(printed_queries), 3)
+        for printed_query in printed_queries:
+            self.assertNotIn("metrics4_samples", printed_query)
+            self.assertNotIn("timestamp_arr", printed_query)
 
     @parameterized.expand(
         [

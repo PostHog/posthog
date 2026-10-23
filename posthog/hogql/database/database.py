@@ -120,6 +120,7 @@ from posthog.hogql.database.schema.metrics import (
     MetricNamesTable,
     MetricSamplesTable,
     MetricSeriesTable,
+    MetricServiceFreshnessTable,
     MetricsKafkaMetricsTable,
     MetricsTable,
 )
@@ -601,6 +602,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "metric_names": TableNode(name="metric_names", table=MetricNamesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+                    "metric_service_freshness": TableNode(
+                        name="metric_service_freshness", table=MetricServiceFreshnessTable()
+                    ),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
                     "error_tracking_fingerprint_issue_state": TableNode(
                         name="error_tracking_fingerprint_issue_state",
