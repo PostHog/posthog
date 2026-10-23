@@ -28,16 +28,21 @@ def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIs
     )
 
 
+def _shown(team_id: int, summary: ErrorTrackingIssueSummary | None) -> contracts.ErrorTrackingIssueSummary | None:
+    """Every read returns through here, so turning the flag off also hides stored summaries."""
+    if summary is None or not issue_summaries.issue_summaries_enabled(team_id):
+        return None
+    return _to_summary(summary)
+
+
 def get_issue_summary(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrackingIssueSummary | None:
     """The stored summary, whatever its age. Never generates."""
-    summary = issue_summaries.get_issue_summary(team_id, issue_id)
-    return _to_summary(summary) if summary is not None else None
+    return _shown(team_id, issue_summaries.get_issue_summary(team_id, issue_id))
 
 
 def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrackingIssueSummary | None:
     """Generate in the calling thread when a summary is due, else return the stored one. Blocks on the model."""
-    result = issue_summaries.get_or_generate_issue_summary(team_id, issue_id)
-    return _to_summary(result.summary) if result.summary is not None else None
+    return _shown(team_id, issue_summaries.get_or_generate_issue_summary(team_id, issue_id).summary)
 
 
 def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
@@ -52,4 +57,4 @@ def wait_for_issue_summary(
     summary = issue_summaries.wait_for_issue_summary(
         team_id, issue_id, checked_after=checked_after, timeout_seconds=timeout_seconds
     )
-    return _to_summary(summary) if summary is not None else None
+    return _shown(team_id, summary)

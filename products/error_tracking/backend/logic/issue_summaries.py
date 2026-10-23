@@ -125,6 +125,21 @@ class IssueSummaryOutcome(StrEnum):
     INVALID_OUTPUT = "invalid_output"
 
 
+# Failures that write no row. The next try waits for the lock to expire.
+RETRY_AFTER_LOCK_OUTCOMES = frozenset(
+    {
+        IssueSummaryOutcome.ISSUE_MISSING,
+        IssueSummaryOutcome.INPUTS_ERROR,
+        IssueSummaryOutcome.GATEWAY_UNCONFIGURED,
+        IssueSummaryOutcome.MODEL_ERROR,
+        IssueSummaryOutcome.INVALID_OUTPUT,
+    }
+)
+# Lock values that mean no generation runs. Any other value is a live claim.
+HELD_LOCK_OUTCOMES = frozenset(
+    {IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED, *RETRY_AFTER_LOCK_OUTCOMES}
+)
+
 ISSUE_SUMMARY_OUTCOMES = Counter(
     "error_tracking_issue_summary_total",
     "Issue summary requests by outcome",
@@ -177,14 +192,20 @@ def generation_blocked(team_id: int, stored: ErrorTrackingIssueSummary | None) -
 
 
 def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
-    """Queue generation in the background when a summary may be due. Returns whether it queued a task.
+    """Queue generation in the background when a summary may be due. True when a summary may arrive soon.
 
     False means nothing will change soon, so the caller should not wait.
     """
     if generation_blocked(team_id, get_issue_summary(team_id, issue_id)) is not None:
         return False
-    generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
-    return True
+    match _held_generation(team_id, issue_id):
+        case None:
+            generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
+            return True
+        case IssueSummaryOutcome.IN_PROGRESS:
+            return True
+        case _:
+            return False
 
 
 def wait_for_issue_summary(
@@ -230,6 +251,13 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     if (held := _claim_generation(team_id, issue_id)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
+    result = _generate_claimed(team_id, issue_id)
+    if result.outcome in RETRY_AFTER_LOCK_OUTCOMES:
+        _mark_claim_failed(team_id, issue_id, result.outcome)
+    return result
+
+
+def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     # Another worker can finish between the first read and the claim.
     stored = get_issue_summary(team_id, issue_id)
     if not regeneration_due(stored, timezone.now()):
@@ -325,10 +353,36 @@ def _claim_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome
         # Fail open, as the budget does: a Redis outage can let two concurrent reads both pay.
         logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
         return None
+    return _lock_outcome(held)
+
+
+def _held_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
+    """The outcome that holds the issue, or None when no claim or hold exists. Never takes the claim."""
+    try:
+        held = get_client().get(_lock_key(team_id, issue_id))
+    except RedisError:
+        logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
+        return None
+    return _lock_outcome(held) if held is not None else None
+
+
+def _lock_outcome(held: bytes | str | None) -> IssueSummaryOutcome:
     value = held.decode() if isinstance(held, bytes) else held
-    if value in (IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED):
+    if value in HELD_LOCK_OUTCOMES:
         return IssueSummaryOutcome(value)
     return IssueSummaryOutcome.IN_PROGRESS
+
+
+def _mark_claim_failed(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
+    """Replace the claim with `outcome` until the lock expires, so reads stop waiting for a summary that is not coming.
+
+    The lock keeps its TTL, so the retry spacing does not change. `xx` keeps an expired lock from coming back
+    with no TTL at all.
+    """
+    try:
+        get_client().set(_lock_key(team_id, issue_id), outcome.value, xx=True, keepttl=True)
+    except RedisError:
+        logger.warning("error_tracking_issue_summary_hold_unavailable", team_id=team_id, exc_info=True)
 
 
 def _hold_generation(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:

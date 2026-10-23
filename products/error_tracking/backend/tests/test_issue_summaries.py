@@ -313,19 +313,79 @@ class TestIssueSummaryGeneration(BaseTest):
         )
         assert stored_issue_ids == {self.issue.id}
 
+    @property
+    def _lock_key(self) -> str:
+        return f"{issue_summaries.ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{self.team.id}:{self.issue.id}"
+
+    def _start(self) -> tuple[bool, bool]:
+        with patch.object(issue_summaries.generate_error_tracking_issue_summary, "delay") as delay:
+            started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id)
+        return started, delay.called
+
     @parameterized.expand(
         [
-            ("due", True, True),
-            ("flag_off", False, False),
+            ("due", True, None, True, True),
+            ("flag_off", False, None, False, False),
+            ("held_no_exception", True, IssueSummaryOutcome.NO_EXCEPTION.value, False, False),
+            ("held_rate_limited", True, IssueSummaryOutcome.RATE_LIMITED.value, False, False),
+            ("held_after_failure", True, IssueSummaryOutcome.MODEL_ERROR.value, False, False),
+            ("claimed_by_another_worker", True, issue_summaries.LOCK_HELD_FOR_GENERATION, True, False),
         ]
     )
-    def test_start_generation_queues_only_when_it_can_generate(self, _name: str, flag: bool, queued: bool) -> None:
-        with (
-            patch.object(team_flags, "feature_enabled_or_false", return_value=flag),
-            patch.object(issue_summaries.generate_error_tracking_issue_summary, "delay") as delay,
-        ):
-            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) == queued
-        assert delay.called == queued
+    def test_start_generation_queues_only_when_it_can_generate(
+        self, _name: str, flag: bool, lock_value: str | None, started: bool, queued: bool
+    ) -> None:
+        if lock_value is not None:
+            issue_summaries.get_client().set(self._lock_key, lock_value, ex=60)
+
+        with patch.object(team_flags, "feature_enabled_or_false", return_value=flag):
+            assert self._start() == (started, queued)
+
+    def test_start_generation_queues_when_redis_is_down(self) -> None:
+        with patch.object(issue_summaries, "get_client", side_effect=RedisError("down")):
+            assert self._start() == (True, True)
+
+    @parameterized.expand(
+        [
+            (
+                "gateway_unconfigured",
+                lambda test: test.enterContext(
+                    patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=None)
+                ),
+            ),
+            *[(name, arrange) for name, arrange, _ in FAILURE_CASES],
+        ]
+    )
+    def test_failure_stops_start_until_the_lock_expires(self, _name: str, arrange: Any) -> None:
+        arrange(self)
+        get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert self._start() == (False, False)
+        assert issue_summaries.get_client().ttl(self._lock_key) > 0
+
+        self._release_lock()
+        assert self._start() == (True, True)
+
+    @parameterized.expand(
+        [
+            ("get", lambda test: summaries_facade.get_issue_summary(test.team.id, test.issue.id)),
+            (
+                "wait",
+                lambda test: summaries_facade.wait_for_issue_summary(
+                    test.team.id, test.issue.id, checked_after=None, timeout_seconds=0
+                ),
+            ),
+            (
+                "get_or_generate",
+                lambda test: summaries_facade.get_or_generate_issue_summary(test.team.id, test.issue.id),
+            ),
+        ]
+    )
+    def test_flag_off_hides_stored_summary(self, _name: str, read: Any) -> None:
+        get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        with patch.object(team_flags, "feature_enabled_or_false", return_value=False):
+            assert read(self) is None
 
     @parameterized.expand(
         [
