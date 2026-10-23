@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { Text } from '@posthog/quill'
 
-import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
@@ -11,6 +10,7 @@ import { TodayPaneRow } from './TodayPaneRow'
 import { analyticsTypesForPaneSearch } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection } from './TodayPaneSection'
+import { TodayProductIcon } from './TodayProductIcon'
 import { TodayProductRow } from './TodayProductRow'
 import { TodayProductsAnalyticsHint } from './TodayProductsAnalyticsHint'
 import { todayProductsLogic } from './todayProductsLogic'
@@ -69,7 +69,7 @@ export function TodayProductsSidebar(): JSX.Element {
                                 key={item.href}
                                 value={`pinned:${item.href}`}
                                 label={productsItemName(item)}
-                                icon={<NavProductIcon item={item} />}
+                                icon={<TodayProductIcon item={item} />}
                                 to={item.href ?? ''}
                                 active={item.href === activeHref}
                                 dataAttr="today-tool-pinned"

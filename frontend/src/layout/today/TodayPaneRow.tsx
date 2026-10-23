@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { cn } from '@posthog/quill'
 
 import { TodayPaneOption } from './TodayPaneOption'
@@ -7,6 +9,8 @@ interface TodayPaneRowProps {
     label: string
     meta?: string
     icon?: JSX.Element | null
+    /** A count at the end of the row, like unread items. It stays in view on hover. */
+    badge?: ReactNode
     to: string
     active?: boolean
     variant?: 'default' | 'destructive'
@@ -22,6 +26,7 @@ export function TodayPaneRow({
     label,
     meta,
     icon,
+    badge,
     to,
     active = false,
     variant,
@@ -50,6 +55,7 @@ export function TodayPaneRow({
                     </span>
                 )}
                 <span className="min-w-0 flex-1 truncate">{label}</span>
+                {badge && <span className="flex shrink-0 items-center empty:hidden">{badge}</span>}
                 {meta && (
                     <span
                         className={cn(
