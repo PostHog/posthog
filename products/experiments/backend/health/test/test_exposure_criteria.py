@@ -7,13 +7,20 @@ from parameterized import parameterized
 
 from posthog.schema import PropertyOperator
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
 from products.experiments.backend.health.checks.exposure_criteria import (
     EXPOSURE_EVENT_NOT_INGESTED,
     FILTER_ON_ANOTHER_FLAG,
     exposure_criteria_cannot_match,
 )
 from products.experiments.backend.health.context import ExposureEvents, FlagKeyFilter, HealthContext
+from products.experiments.backend.health.skips import (
+    NOT_AFTER_END,
+    NOT_ON_ARCHIVED,
+    CheckSkip,
+    not_applicable,
+    not_checked,
+)
 from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING_CONTEXT
 
 Severity = ExperimentHealthFindingSeverity
@@ -59,7 +66,7 @@ class TestExposureCriteriaCannotMatch(TestCase):
             ("no_values_match_every_event", _flag_filter(), None),
             ("a_number_can_be_converted", _flag_filter(7), None),
             ("not_exact", _flag_filter("pricing-test", operator=PropertyOperator.IS_NOT), None),
-            ("archived", _flag_filter("pricing-test", archived=True), None),
+            ("archived", _flag_filter("pricing-test", archived=True), not_applicable(NOT_ON_ARCHIVED)),
             (
                 "custom_event_in_a_draft",
                 _custom_event({"checkout_viewed": False}, **DRAFT, hours_since_launch=None),
@@ -76,13 +83,22 @@ class TestExposureCriteriaCannotMatch(TestCase):
                 (EXPOSURE_EVENT_NOT_INGESTED, Severity.WARNING),
             ),
             ("custom_event_received", _custom_event({"checkout_viewed": True}), None),
-            ("custom_event_without_a_definition", _custom_event({}), None),
-            ("custom_event_after_the_end", _custom_event({"checkout_viewed": False}, **ENDED), None),
+            (
+                "custom_event_without_a_definition",
+                _custom_event({}),
+                not_checked("Couldn't check because PostHog keeps no record of this event name"),
+            ),
+            (
+                "custom_event_after_the_end",
+                _custom_event({"checkout_viewed": False}, **ENDED),
+                not_applicable(NOT_AFTER_END),
+            ),
         ]
     )
     def test_exposure_criteria_cannot_match(
-        self, _name: str, ctx: HealthContext, expected: tuple[str, Severity] | None
+        self, _name: str, ctx: HealthContext, expected: tuple[str, Severity] | CheckSkip | None
     ) -> None:
-        finding = exposure_criteria_cannot_match(ctx)
+        outcome = exposure_criteria_cannot_match(ctx)
 
-        self.assertEqual((finding.subcode, finding.severity) if finding else None, expected)
+        actual = (outcome.subcode, outcome.severity) if isinstance(outcome, ExperimentHealthFinding) else outcome
+        self.assertEqual(actual, expected)
