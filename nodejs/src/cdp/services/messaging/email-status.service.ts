@@ -39,13 +39,13 @@ const STATUS_RANK = {
 
 export type EmailStatus = keyof typeof STATUS_RANK
 
-// A rerun keeps the message id, so its `skipped` or `sent` must replace the failed attempt it reruns.
-// Such a failure ranks with `unknown`, another attempt outcome that the next attempt replaces.
+// A rerun keeps the message id, so its outcome must replace the attempt it reruns. A failed attempt
+// ranks with `skipped`, so between a skip and an attempt failure the later one wins, and `sent` still replaces both.
 const ATTEMPT_FAILURE_REASONS: ReadonlySet<string> = new Set(['provider_error', 'gave_up'])
 
 const rankOf = (status: EmailStatus, reason: string | undefined): number =>
     status === 'failed' && reason !== undefined && ATTEMPT_FAILURE_REASONS.has(reason)
-        ? STATUS_RANK.unknown
+        ? STATUS_RANK.skipped
         : STATUS_RANK[status]
 
 export type StatusChange = {
