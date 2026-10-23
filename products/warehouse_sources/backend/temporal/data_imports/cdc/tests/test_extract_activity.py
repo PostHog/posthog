@@ -150,6 +150,7 @@ def _stub_app_db_writes():
             "_update_schema_sync_type_config",
             side_effect=_fake_update_schema_sync_type_config,
         ),
+        patch.object(CDCExtractActivity, "_read_masked_columns", side_effect=lambda schema: schema.masked_columns),
         patch(f"{_ACTIVITIES}.cancel_running_sync", return_value=None),
     ):
         yield
@@ -2245,6 +2246,26 @@ class TestBufferedIngressCapture:
             capture.extract()
 
         assert schema.sync_type_config["cdc_reset_pending"] == staged
+
+    def test_a_finished_reset_masks_with_the_masks_saved_with_it(self):
+        # The run loads its tables before it finishes resets. A mask change saved after that load
+        # stages a reset this run finishes, so the buffer the run then writes must carry the new mask.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.masked_columns = None
+        schema.incremental_field = None
+        schema.sync_type_config["cdc_reset_pending"] = {"trigger": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, "email": "a@example.com"})]
+
+        with (
+            _capture_harness(source, [schema], events) as capture,
+            patch.object(CDCExtractActivity, "_read_masked_columns", return_value=["email"]),
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow"),
+        ):
+            capture.extract()
+
+        written = capture.buffer.write_batch.call_args.kwargs["table"]
+        assert written.column("email").to_pylist() == [mask_value(1, "a@example.com")]
 
     def test_a_reset_waiting_on_a_slot_holds_the_table_out_until_the_slot_reads(self):
         # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here

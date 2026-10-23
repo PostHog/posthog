@@ -621,18 +621,30 @@ class CDCExtractActivity:
                     retained.add(inc)
                 self.enabled_columns_by_table[schema.name] = retained
 
-            if isinstance(schema.masked_columns, list) and schema.masked_columns:
-                primary_keys = self.pk_columns_by_table.get(schema.name, [])
-                masked = resolve_masked_columns(schema.masked_columns, primary_keys, schema.incremental_field)
-                # The API checks a mask against the stored key, but a table saved without one gets
-                # its key from the catalog above. Fail before any change of the table is read.
-                masked_keys = sorted(
-                    {fold_column_name(column) for column in schema.masked_columns}
-                    & {fold_column_name(column) for column in primary_keys}
-                )
-                if masked_keys:
-                    raise CDCMaskedKeyError(f"Table {schema.name} masks its primary-key columns {masked_keys}")
-                self.masked_columns_by_table[schema.name] = masked
+            self._load_masked_columns(schema)
+
+    def _read_masked_columns(self, schema: ExternalDataSchema) -> list[str] | None:
+        return (
+            ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)
+            .values_list("masked_columns", flat=True)
+            .first()
+        )
+
+    def _load_masked_columns(self, schema: ExternalDataSchema) -> None:
+        if not (isinstance(schema.masked_columns, list) and schema.masked_columns):
+            self.masked_columns_by_table.pop(schema.name, None)
+            return
+        primary_keys = self.pk_columns_by_table.get(schema.name, [])
+        masked = resolve_masked_columns(schema.masked_columns, primary_keys, schema.incremental_field)
+        # The API checks a mask against the stored key, but a table saved without one gets
+        # its key from the catalog above. Fail before any change of the table is read.
+        masked_keys = sorted(
+            {fold_column_name(column) for column in schema.masked_columns}
+            & {fold_column_name(column) for column in primary_keys}
+        )
+        if masked_keys:
+            raise CDCMaskedKeyError(f"Table {schema.name} masks its primary-key columns {masked_keys}")
+        self.masked_columns_by_table[schema.name] = masked
 
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
         """Look up primary keys in the source catalog, keyed back on `ExternalDataSchema.name`.
@@ -1038,6 +1050,10 @@ class CDCExtractActivity:
             mutate=_merge_pending,
             extra_model_fields={"initial_sync_complete": False},
         )
+        # Read after the locked write above. A mask change saves its reset together with the masks,
+        # so every reset that write merged and this run finishes comes with masks at least this new.
+        schema.masked_columns = self._read_masked_columns(schema)
+        self._load_masked_columns(schema)
         self._tables_awaiting_reset.discard(schema.name)
         return True
 
