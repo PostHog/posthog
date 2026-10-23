@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 
 [options]
@@ -774,7 +774,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "litellm", specifier = "==1.93.2" },
     { name = "orjson", specifier = ">=3.10.0" },
-    { name = "posthoganalytics", specifier = ">=7.75.6" },
+    { name = "posthoganalytics", specifier = ">=7.75.10" },
     { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
@@ -977,7 +977,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.75.6"
+version = "7.75.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -985,9 +985,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/01/4a/c2337776fe0dfdb54a42ce506d21f94ac89c2bfc682216d6f8ba27e034ac/posthoganalytics-7.75.6.tar.gz", hash = "sha256:91d7276c7736454ecb314a00442eac7776fe49cf946fb3d9aba2620fb67a92a9", size = 787455, upload-time = "2026-10-22T18:13:40.148Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/04/be1382f9fd27297e4cc6759e5a9144d2c85a4d87b41c2e25847890dca230/posthoganalytics-7.75.10.tar.gz", hash = "sha256:008db04675dc618c0d41c15542aa01c712815b40f7debbe2b7d4f9be450796d5", size = 808216, upload-time = "2026-10-23T12:45:43.007Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/87/d9a656effa0768b9c5d666e4d944cbd9314a3b15621ec7c848c271153a0b/posthoganalytics-7.75.6-py3-none-any.whl", hash = "sha256:b2bbabd9bf151148ff01c7cc5234ee867840207cca375184c370e4b5f21f6718", size = 928305, upload-time = "2026-10-22T18:13:38.078Z" },
+    { url = "https://files.pythonhosted.org/packages/81/22/e956b998f7be8ad9dfeb690f3d457c048b02dc0e185583cff83a75e13b5c/posthoganalytics-7.75.10-py3-none-any.whl", hash = "sha256:250755948102a28862d0c60bd36672dbba6591aeb7f6616d1c9091b9d2e99686", size = 950275, upload-time = "2026-10-23T12:45:40.871Z" },
 ]
 
 [[package]]
