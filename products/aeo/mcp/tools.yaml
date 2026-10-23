@@ -14,7 +14,7 @@ tools:
         title: List a tracked AI prompt's check history
         description: >
             List every check of one AI citation tracking prompt, newest first, paginated with `limit`/`offset` (default
-            20 per page). Filter by `engine` to see one answer engine. Each check has `cited`, `check_failed` and
+            20 per page, at most 100). Filter by `engine` to see one answer engine. Each check has `cited`, `check_failed` and
             `error`, the `cited_urls` and the subset on the target domains (`target_urls`, `target_best_position`),
             `top_cited_domains`, the `search_queries` the engine ran, and `answer_text`. Use it to read what an engine
             answered, which sources it cited instead of the project's site, and when a prompt started or stopped being

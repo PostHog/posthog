@@ -14,7 +14,7 @@ const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url)
 export const ContentAutopilotPromptAnswer = (): JSX.Element => {
     const { engines, activeEngine, shownCheck, selectedCheck, latestChecksLoading, latestChecksFailed, promptId } =
         useValues(contentAutopilotPromptDetailLogic)
-    const { selectEngine, openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
+    const { selectEngine, loadAeoPromptLatestChecks } = useActions(contentAutopilotPromptDetailLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -109,7 +109,10 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
             ) : latestChecksFailed ? (
                 <LemonBanner
                     type="error"
-                    action={{ children: 'Try again', onClick: () => promptId && openPromptDetail(promptId) }}
+                    action={{
+                        children: 'Try again',
+                        onClick: () => promptId && loadAeoPromptLatestChecks({ promptId, engines }),
+                    }}
                 >
                     Couldn't load the latest answers. Try again, and if it keeps happening contact support.
                 </LemonBanner>

@@ -186,6 +186,30 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [answer.split("\n")[0] for answer in answers] == expected
         assert answers[0] == "c\nwith a line break"
 
+    @parameterized.expand([("default", "", 20), ("capped", "?limit=1000", 100)])
+    def test_checks_page_size_is_bounded(self, _name: str, query: str, expected: int) -> None:
+        prompt_id = self._import_one_prompt()
+        with team_scope(self.team.pk):
+            prompt = AEOPrompt.objects.get(id=prompt_id)
+            AEOCitationCheck.objects.bulk_create(
+                AEOCitationCheck(
+                    team=self.team,
+                    prompt=prompt,
+                    run_id=uuid.uuid4(),
+                    prompt_text=prompt.prompt,
+                    prompt_source=prompt.prompt_source,
+                    prompt_hash=prompt.prompt_hash,
+                    engine="exa-answer",
+                    model="exa-answer",
+                )
+                for _ in range(101)
+            )
+
+        response = self.client.get(f"{self.url}{prompt_id}/checks/{query}").json()
+
+        assert response["count"] == 101
+        assert len(response["results"]) == expected
+
     @parameterized.expand([("checks", "checks/"), ("stats", "stats/")])
     def test_another_teams_prompt_is_not_found(self, _name: str, suffix: str) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")

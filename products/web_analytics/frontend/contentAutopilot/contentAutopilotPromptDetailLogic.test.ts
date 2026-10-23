@@ -86,6 +86,30 @@ describe('contentAutopilotPromptDetailLogic', () => {
         expect(logic.values.shownCheck?.id).toBe(EXAMPLE_PROMPT_CHECKS[1].id)
     })
 
+    it('ignores responses for a prompt the user already left', async () => {
+        const other = EXAMPLE_PROMPTS[1]
+        let resolveFirstPrompt: (value: typeof PROMPT) => void = () => {}
+        let resolveFirstStats: (value: typeof EXAMPLE_PROMPT_STATS) => void = () => {}
+        mockRetrieve.mockImplementationOnce(() => new Promise((resolve) => (resolveFirstPrompt = resolve)))
+        mockStats.mockImplementationOnce(() => new Promise((resolve) => (resolveFirstStats = resolve)))
+
+        logic.actions.openPromptDetail(PROMPT.id)
+        mockRetrieve.mockResolvedValue(other)
+        await expectLogic(logic, () => logic.actions.openPromptDetail(other.id)).toDispatchActions([
+            'loadAeoPromptSuccess',
+            'loadAeoPromptStatsSuccess',
+        ])
+        resolveFirstPrompt(PROMPT)
+        resolveFirstStats(EXAMPLE_PROMPT_STATS)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.prompt?.id).toBe(other.id)
+        const latestCheckPrompts = mockChecks.mock.calls
+            .filter(([, , params]) => params?.limit === 1)
+            .map(([, id]) => id)
+        expect(new Set(latestCheckPrompts)).toEqual(new Set([other.id]))
+    })
+
     it.each([
         ['not_found', new ApiError('Not found', 404)],
         ['failed', new ApiError('Server error', 500)],
