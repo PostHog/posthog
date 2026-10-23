@@ -9,15 +9,18 @@ logs and swallows them — the observation is already marked succeeded.
 The structured result (monitor `verdict`, scorer `score`, classifier `tags`) is stamped into `metadata` so
 search can filter by exact outcome inside the same ClickHouse ranking query, with no second-pass lookup.
 
-Teams on the embedding arm of the What to watch ranker store through the worker's synchronous endpoint
-instead, which returns the vector, and the activity ranks the observation from it (see `watch_rank`).
+The activity stores through the worker's synchronous endpoint, which also returns the vector, and ranks
+the observation from it for What to watch (see `watch_rank`). When that endpoint fails, it stores through
+Kafka instead and leaves the observation unranked.
 """
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
 from django.utils import timezone
 
+import httpx
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
@@ -33,7 +36,6 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.jev_watch_feed import ranker_mode, watch_feed_ranker_variant
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.observation_formatting import flatten_markdown
 from products.replay_vision.backend.tags import slugify_tag
@@ -143,47 +145,57 @@ async def _rank(*, team: Team, scanner_id: UUID, observation_id: UUID, vector: l
     await ReplayObservation.objects.filter(team_id=team.id, id=observation_id).aupdate(watch_rank=rank.to_json())
 
 
+# Leaves the activity's 30 s budget room to store through Kafka when the endpoint is slow.
+_STORE_TIMEOUT_S = 15
+
+
 async def _store_and_rank(
-    *, team: Team, scanner_id: UUID, observation_id: UUID, metadata: dict[str, Any], renderings: list[tuple[str, str]]
-) -> None:
-    """Store each rendering through the synchronous endpoint, then rank the observation from the first vector."""
+    *, team_id: int, scanner_id: UUID, observation_id: UUID, metadata: dict[str, Any], renderings: list[tuple[str, str]]
+) -> bool:
+    """Store each rendering through the synchronous endpoint, then rank the observation from the first vector.
+
+    Returns False when the endpoint failed, so the caller can store through Kafka instead.
+    """
     vector: list[float] | None = None
-    for rendering, content in renderings:
-        if not content.strip():
-            continue
-        vectors = await async_generate_and_store_embedding(
-            content,
-            team_id=team.id,
-            product=EMBEDDING_PRODUCT,
-            document_type=EMBEDDING_DOCUMENT_TYPE,
-            rendering=rendering,
-            document_id=str(observation_id),
-            models=[OBSERVATION_EMBEDDING_MODEL.value],
-            metadata=metadata,
+    try:
+        async with asyncio.timeout(_STORE_TIMEOUT_S):
+            for rendering, content in renderings:
+                if not content.strip():
+                    continue
+                vectors = await async_generate_and_store_embedding(
+                    content,
+                    team_id=team_id,
+                    product=EMBEDDING_PRODUCT,
+                    document_type=EMBEDDING_DOCUMENT_TYPE,
+                    rendering=rendering,
+                    document_id=str(observation_id),
+                    models=[OBSERVATION_EMBEDDING_MODEL.value],
+                    metadata=metadata,
+                )
+                vector = vector or vectors.get(OBSERVATION_EMBEDDING_MODEL.value)
+    except httpx.HTTPStatusError as e:
+        # The worker refuses an organization without AI data processing, and the Kafka path drops it too.
+        if e.response.status_code == 403:
+            return True
+        logger.warning(
+            "replay_vision.embed_observation.store_failed", observation_id=str(observation_id), exc_info=True
         )
-        vector = vector or vectors.get(OBSERVATION_EMBEDDING_MODEL.value)
+        return False
+    except Exception:
+        logger.warning(
+            "replay_vision.embed_observation.store_failed", observation_id=str(observation_id), exc_info=True
+        )
+        return False
     if vector is None:
-        return
+        return True
     # The embedding is stored by now, so a ranking failure must not fail the activity: a retry
     # would embed and store the text again.
     try:
+        team = await Team.objects.aget(id=team_id)
         await _rank(team=team, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
     except Exception:
         logger.exception("replay_vision.embed_observation.rank_failed", observation_id=str(observation_id))
-
-
-async def _watch_rank_team(team_id: int) -> Team | None:
-    """The team when it ranks observations for the What to watch feed, else None.
-
-    Fails soft to None: ranking is optional, and the plain Kafka path still stores the embedding.
-    """
-    try:
-        team = await Team.objects.aget(id=team_id)
-        variant = await sync_to_async(watch_feed_ranker_variant, thread_sensitive=False)(team.id, team.uuid)
-    except Exception:
-        logger.warning("replay_vision.embed_observation.rank_arm_unknown", team_id=team_id, exc_info=True)
-        return None
-    return team if ranker_mode(variant) == "embedding" else None
+    return True
 
 
 @activity.defn
@@ -197,21 +209,22 @@ async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
         "scanner_id": str(inputs.scanner_id),
         **_result_metadata(inputs.model_output),
     }
-    if team := await _watch_rank_team(inputs.team_id):
-        await _store_and_rank(
-            team=team,
-            scanner_id=inputs.scanner_id,
-            observation_id=inputs.observation_id,
-            metadata=metadata,
-            renderings=_renderings_for(inputs.model_output),
-        )
+    renderings = _renderings_for(inputs.model_output)
+    if await _store_and_rank(
+        team_id=inputs.team_id,
+        scanner_id=inputs.scanner_id,
+        observation_id=inputs.observation_id,
+        metadata=metadata,
+        renderings=renderings,
+    ):
         return
+    # The synchronous endpoint is down or not deployed yet; Kafka still stores the embedding for search.
     await _emit_embeddings(
         team_id=inputs.team_id,
         session_id=inputs.session_id,
         observation_id=inputs.observation_id,
         metadata=metadata,
-        renderings=_renderings_for(inputs.model_output),
+        renderings=renderings,
     )
 
 
