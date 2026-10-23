@@ -406,6 +406,7 @@ class TestLogValuesAttributesQueryErrors(APIBaseTest):
             ("empty_object", "{}"),
             ("empty_list", "[]"),
             ("not_json", "not json"),
+            ("scalar", "5"),
             ("group_without_values", json.dumps({"type": "AND"})),
         ]
     )

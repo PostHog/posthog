@@ -1510,15 +1510,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return filter_group
         return {"type": "AND", "values": []}
 
-    def _filter_group_from_query_params(self, request: Request) -> PropertyGroupFilter | None:
+    @staticmethod
+    def _filter_group_from_query_params(request: Request) -> PropertyGroupFilter | None:
         try:
             filter_group = json.loads(request.GET.get("filterGroup") or "null")
         except json.JSONDecodeError:
             return None
-        if not filter_group:
+        if not isinstance(filter_group, dict | list) or not filter_group:
             return None
         try:
-            return PropertyGroupFilter.model_validate(self._normalize_filter_group(filter_group))
+            return PropertyGroupFilter.model_validate(LogsViewSet._normalize_filter_group(filter_group))
         except ValidationError:
             return None
 
