@@ -1048,6 +1048,8 @@ class TestPostgresPrinter(BaseTest):
             # Math
             ("e", "e()", "exp(1)"),
             ("log2", "log2(8)", "log(2, 8)"),
+            ("round_1arg", "round(1.5)", "round(1.5)"),
+            ("round_2arg", "round(1.2345, 2)", "round((1.2345)::numeric, 2)"),
             # Aggregation
             ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
             ("uniqExact", "uniqExact(1)", "COUNT(DISTINCT 1)"),
