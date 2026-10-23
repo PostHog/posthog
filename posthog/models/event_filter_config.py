@@ -5,7 +5,7 @@ from django.db import models
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 
 ALLOWED_FIELDS = {"event_name", "distinct_id"}
 ALLOWED_OPERATORS = {"exact", "contains"}
@@ -88,7 +88,7 @@ def ingestion_pipeline_choices() -> list[tuple[str, str]]:
     return [(pipeline.value, pipeline.value) for pipeline in IngestionPipeline]
 
 
-class EventFilterPipelineOverride(UUIDTModel, TeamScopedRootMixin):
+class EventFilterPipelineOverride(UUIDModel, TeamScopedRootMixin):
     """
     Per-team, per-pipeline override of normal ingestion. A team without a row ingests
     normally, so a row is written only when the team first changes a pipeline.
