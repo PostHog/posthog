@@ -12,6 +12,7 @@ from requests.exceptions import (
     ConnectionError as RequestsConnectionError,
     ReadTimeout,
 )
+from urllib3 import HTTPConnectionPool
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -31,7 +32,9 @@ WINDOW_START = datetime(2026, 10, 22, 11, 30, tzinfo=UTC)
 WINDOW_END = datetime(2026, 10, 22, 14, 0, tzinfo=UTC)
 IN_WINDOW = WINDOW_START + timedelta(minutes=30)
 EXPIRED = "401: The OAuth token used to make this call expired"
-REFUSED = RequestsConnectionError(MaxRetryError(None, "/rerun", NewConnectionError(None, "connection refused")))
+REFUSED = RequestsConnectionError(
+    MaxRetryError(HTTPConnectionPool("127.0.0.1"), "/rerun", NewConnectionError(None, "connection refused"))
+)
 # Minutes after IN_WINDOW that land after the window ends.
 RECOVERED = 200
 
@@ -300,7 +303,8 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("connection_refused", "send", REFUSED, True),
-            ("http_error_response", "send", MagicMock(status_code=503, text="{}"), True),
+            ("rejected_by_cdp_api", "send", MagicMock(status_code=400, text="{}"), True),
+            ("gateway_error_response", "send", MagicMock(status_code=504, text="{}"), False),
             ("planning_failed_in_task", "plan", RuntimeError("clickhouse down"), True),
             ("read_timeout", "send", ReadTimeout("read timed out"), False),
             ("interrupted_during_a_request", "send", KeyboardInterrupt(), False),

@@ -291,7 +291,7 @@ class HogFunctionAdmin(admin.ModelAdmin):
         if not self.has_change_permission(request):
             raise PermissionDenied
         state = get_replay_state(fingerprint)
-        can_release = bool(state) and state["status"] in ("done", "failed") and is_replay_claimed(fingerprint)
+        can_release = state is not None and state["status"] in ("done", "failed") and is_replay_claimed(fingerprint)
         if request.method == "POST" and request.POST.get("action") == "release" and can_release:
             release_replay_claim(fingerprint, actor=f"admin:{request.user.pk}")
             messages.success(request, "This plan can be sent again. Preview the same filters to send it.")

@@ -19,6 +19,7 @@ from products.cdp.backend.services.invocation_replay import (
     ReplayCriteria,
     claim_replay,
     execute_replay,
+    is_replay_claimed,
     plan_replay,
     release_replay_claim,
 )
@@ -140,6 +141,11 @@ class Command(BaseCommand):
             )
         failed = [r for r in results if r.status_code != 200]
         self.stdout.write(f"Sent {len(results) - len(failed)} request(s), {len(failed)} failed.")
+        if failed and is_replay_claimed(plan.fingerprint):
+            raise CommandError(
+                f"{len(failed)} request(s) failed, and some may still have queued their runs, so this plan stays blocked. "
+                "Check the runs on the destinations. If nothing was queued, send again with --allow-resend."
+            )
         if failed:
             raise CommandError(
                 f"{len(failed)} request(s) failed. Preview again to see the runs that are still failed, then send that plan."

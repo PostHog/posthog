@@ -652,7 +652,7 @@ def mark_replay_failed(fingerprint: str, reason: str) -> None:
 
 
 _UNCERTAIN_DETAIL = (
-    "Some requests stopped without a response and may still have queued their runs, so this plan stays blocked. "
+    "Some requests ended without a clear answer and may still have queued their runs, so this plan stays blocked. "
     "Check the runs on the destinations first. Then allow a resend if nothing was queued."
 )
 
@@ -694,6 +694,9 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                         },
                     )
                     status_code, detail = response.status_code, response.text[:500]
+                    # A gateway in front of the CDP API can answer 502 or 504 after the API queued the rerun.
+                    if status_code >= 500:
+                        uncertain_requests += 1
                 except Exception as error:
                     # One unreachable request must not stop the rest of the plan. The
                     # result records it, so the operator can preview again and send
