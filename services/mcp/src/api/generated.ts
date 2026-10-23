@@ -41849,6 +41849,62 @@ export namespace Schemas {
       current_from: string;
     }
 
+    /**
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear
+     */
+    export type IssueSummaryCategoryEnum = typeof IssueSummaryCategoryEnum[keyof typeof IssueSummaryCategoryEnum];
+
+
+    export const IssueSummaryCategoryEnum = {
+      OwnCode: 'own_code',
+      ThirdParty: 'third_party',
+      Network: 'network',
+      Bots: 'bots',
+      Expected: 'expected',
+      Unclear: 'unclear',
+    } as const;
+
+    export interface ErrorTrackingIssueSummary {
+      /** What the error is and where it happens, in plain language. */
+      what_happened: string;
+      /** The model's best guess at the cause. A hypothesis to check against the code, never a finding. */
+      likely_cause: string;
+      /** Which users, sessions or platforms the error reaches. */
+      who_is_affected: string;
+      /** One concrete step to investigate or fix the error. */
+      suggested_next_step: string;
+      /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
+       *
+       * * `own_code` - Own Code
+       * * `third_party` - Third Party
+       * * `network` - Network
+       * * `bots` - Bots
+       * * `expected` - Expected
+       * * `unclear` - Unclear */
+      category?: IssueSummaryCategoryEnum;
+      /** When the summary was written. */
+      generated_at: string;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `unavailable` - Unavailable
+     */
+    export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
+
+
+    export const IssueSummaryStatusEnum = {
+      Ready: 'ready',
+      Generating: 'generating',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface ErrorTrackingIssueDetail {
       /** Error tracking issue ID. */
       id: string;
@@ -41909,6 +41965,14 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      summary?: ErrorTrackingIssueSummary;
+      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `unavailable` - Unavailable */
+      summary_status: IssueSummaryStatusEnum;
     }
 
     /**
