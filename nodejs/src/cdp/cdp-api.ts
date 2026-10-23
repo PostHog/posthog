@@ -54,6 +54,7 @@ import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
+    NOT_SENDABLE,
     TransactionalEmailOutcome,
     TransactionalEmailRequestSchema,
     transactionalEmailRequestsTotal,
@@ -1182,9 +1183,6 @@ export class CdpApi {
             if (!hogFlow || hogFlow.team_id !== team.id) {
                 return reply('not_found', 404, { error: 'Workflow not found' })
             }
-            if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
-                return reply('not_sendable', 400, { error: 'Workflow is not an active transactional email' })
-            }
 
             const event: HogFunctionInvocationGlobals['event'] = {
                 uuid: new UUIDT().toString(),
@@ -1238,6 +1236,13 @@ export class CdpApi {
                 }
             }
             try {
+                // Checked after the key, so a retry of a send that went out replays after its workflow is paused.
+                if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
+                    if (idempotencyKey) {
+                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                    }
+                    return reply('not_sendable', 400, NOT_SENDABLE)
+                }
                 const decision = await this.transactionalEmailPolicy.check(
                     await transactionalSendCandidate(hogFlow, invocation.id, to, send, this.deps.integrationManager)
                 )

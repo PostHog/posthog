@@ -248,17 +248,17 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
         content=template.content,
         message_category_id=template.message_category_id,
     )
-    _require_active(team_id, template.transactional_hog_flow_id)
+    _require_workflow(team_id, template.transactional_hog_flow_id)
     return template.transactional_hog_flow_id
 
 
-def _require_active(team_id: int, hog_flow_id: UUID) -> None:
+def _require_workflow(team_id: int, hog_flow_id: UUID) -> None:
+    # The CDP service checks that the workflow is active after it looks up the idempotency key,
+    # so a retry of a send that went out still replays after its workflow is paused.
     try:
-        workflow = get_workflow_summary(team_id=team_id, workflow_id=str(hog_flow_id))
+        get_workflow_summary(team_id=team_id, workflow_id=str(hog_flow_id))
     except WorkflowNotFound as e:
         raise TransactionalEmailPaused("The template's transactional email no longer exists.") from e
-    if workflow.status != "active":
-        raise TransactionalEmailPaused("The template's transactional email isn't active.")
 
 
 def _code_email_workflow_id(team_id: int, key: str) -> UUID:
@@ -268,7 +268,7 @@ def _code_email_workflow_id(team_id: int, key: str) -> UUID:
     if template_id is not None:
         return _transactional_workflow_id(team_id, template_id)
     hog_flow_id = _key_workflow_id(team_id, key)
-    _require_active(team_id, hog_flow_id)
+    _require_workflow(team_id, hog_flow_id)
     return hog_flow_id
 
 
@@ -326,7 +326,7 @@ def code_send_from(team_id: int, address: str | None) -> SendFrom:
         if address:
             raise SenderNotAllowed(f"No verified sender in this project can send from `{email}`.") from e
         raise SenderNotVerified("The project has no verified default email sender.") from e
-    return SendFrom(integration_id=sender.integration_id, email=sender.email, name=sender.name)
+    return SendFrom(integration_id=sender.integration_id, email=sender.email, name=sender.name, is_default=not address)
 
 
 def rendered_content(*, subject: str, html: str, text: str) -> RenderedContent:
@@ -395,7 +395,14 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
 
 # The CDP service runs these checks before it queues, and answers each with what to change.
 SEND_CHECK_CODES = frozenset(
-    {"invalid_recipient", "sender_not_verified", "sending_suspended", "template_paused", "recipient_suppressed"}
+    {
+        "invalid_recipient",
+        "sender_not_verified",
+        "sending_suspended",
+        "template_paused",
+        "recipient_suppressed",
+        "transactional_email_paused",
+    }
 )
 
 
@@ -425,7 +432,12 @@ def _send_payload(send: AcceptedSend) -> dict[str, Any]:
         )
     if send.sender is not None:
         payload["from"] = _without_empty(
-            {"integrationId": send.sender.integration_id, "email": send.sender.email, "name": send.sender.name}
+            {
+                "integrationId": send.sender.integration_id,
+                "email": send.sender.email,
+                "name": send.sender.name,
+                "isDefault": send.sender.is_default,
+            }
         )
     if send.reply_to:
         payload["replyTo"] = list(send.reply_to)

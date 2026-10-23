@@ -2248,6 +2248,11 @@ describe('CDP API', () => {
                     { send: { ...codeSend, content: { ...codeSend.content, subject: 'Other' } } },
                 ],
                 ['the other send route', {}, { route: 'send_email' }],
+                [
+                    'another sender the caller named',
+                    { send: codeSend },
+                    { send: { ...codeSend, from: { ...codeSend.from, integrationId: 13 } } },
+                ],
             ])('rejects the key for %s', async (_desc, first, retry) => {
                 await sendKeyed({ ...keyed, ...first })
 
@@ -2255,6 +2260,38 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(422)
                 expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            })
+
+            it.each([
+                [
+                    'its workflow was paused',
+                    { send: codeSend },
+                    { send: codeSend },
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
+                            [hogFlow.id],
+                            'pauseHogFlow'
+                        )
+                        ;(api['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
+                    },
+                ],
+                [
+                    'the default sender changed',
+                    { send: { ...codeSend, from: { integrationId: 12, isDefault: true } } },
+                    { send: { ...codeSend, from: { integrationId: 13, isDefault: true } } },
+                    async () => {},
+                ],
+            ])('returns the first send for a retry after %s', async (_desc, first, retry, change) => {
+                const sent = await sendKeyed({ ...keyed, ...first })
+                await change()
+
+                const res = await sendKeyed({ ...keyed, ...retry })
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toMatchObject({ invocation_id: sent.body.invocation_id, replayed: true })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
 
@@ -2530,6 +2567,7 @@ describe('CDP API', () => {
             const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
 
             expect(res.status).toEqual(400)
+            expect(res.body).toMatchObject({ code: 'transactional_email_paused', why: expect.any(String) })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 

@@ -236,11 +236,6 @@ class TestTransactionalEmail(APIBaseTest):
                 for addressed_by in ("url_id", "key")
                 for case, code, detail in [
                     (
-                        "workflow_archived",
-                        "transactional_email_paused",
-                        "The template's transactional email isn't active.",
-                    ),
-                    (
                         "category_turned_marketing",
                         "marketing_template",
                         "The template is in a marketing category. Only transactional templates can be sent.",
@@ -263,12 +258,7 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, _flag, capture, case, addressed_by, expected_code, expected_detail
     ):
         body, headers = dict(self.body), {}
-        if case == "workflow_archived":
-            archived = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}", {"status": "archived"}
-            )
-            assert archived.status_code == status.HTTP_200_OK, archived.json()
-        elif case == "category_turned_marketing":
+        if case == "category_turned_marketing":
             category = MessageCategory.objects.create(
                 team=self.team, key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL
             )
@@ -512,6 +502,7 @@ class TestTransactionalEmail(APIBaseTest):
                     "sending_suspended",
                     "template_paused",
                     "recipient_suppressed",
+                    "transactional_email_paused",
                 )
             ),
         ]
@@ -587,7 +578,7 @@ class TestTransactionalEmail(APIBaseTest):
                     "html": "<p>Hi {{ variables.name }}</p>",
                     "text": "Hi {{ variables.name }}",
                 },
-                "from": {"integrationId": self.sender.id},
+                "from": {"integrationId": self.sender.id, "isDefault": True},
                 "tracking": {"captureEngagement": True},
             },
             "route": "send_email",
@@ -618,7 +609,7 @@ class TestTransactionalEmail(APIBaseTest):
                         "html": "<p>Hi {{ variables.name }}</p>",
                         "text": "Hi {{ variables.name }}",
                     },
-                    "from": {"integrationId": "default"},
+                    "from": {"integrationId": "default", "isDefault": True},
                     "tracking": {"captureEngagement": False},
                 },
             ),
@@ -628,7 +619,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"html": "", "text": "Hi"},
                 {
                     "content": {"subject": "Welcome, Jane", "text": "Hi"},
-                    "from": {"integrationId": "default"},
+                    "from": {"integrationId": "default", "isDefault": True},
                     "tracking": {"captureEngagement": True},
                 },
             ),
