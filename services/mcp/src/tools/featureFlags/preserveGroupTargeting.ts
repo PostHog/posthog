@@ -26,6 +26,15 @@
  * same payload. On a flag whose sets all aggregate the same way, a set that keeps its keys at its
  * index keeps its source even when other sets change.
  *
+ * A group-aggregated set on an older flag can hold a group property on another group type than its
+ * own. A deletion or a swap can pair a set with the wrong stored set. On such a flag the pairing
+ * decides which group type that property keeps, and the set's group type when the agent echoes the
+ * property. The merge therefore refuses a payload without IDs on such a flag unless each set repeats
+ * the filters of the stored set at its index and no other stored set has the same filters. A payload
+ * with IDs can drop the ID of a stored set that holds such a property. The merge refuses each set
+ * without an ID that repeats the filters of such a stored set when no ID in the payload names that
+ * stored set. As a new set, it would move the property to its own group type.
+ *
  * A set's aggregation then decides its property types. A group-aggregated set restores a
  * person-aggregated type that its source holds for the key. A group-aggregated set with no source
  * looks the key up in every stored set instead when the stored sets all aggregate the same way, or
@@ -398,9 +407,10 @@ function unambiguousPersonCandidates(
  * change which group the filter reads. The property therefore keeps that index. A person-aggregated
  * source aggregates on no group type, so every group property with an index in it keeps that index.
  * Undefined means the stored filters on the key disagree and the agent sent no index. The caller then
- * returns the property as the agent sent it, because an untyped property fails the API's type check
- * under every enforcement setting. A typed group property without an index saves where the API does
- * not enforce the mismatch rule, and the evaluator reads it on the set's group type.
+ * returns the property as the agent sent it, because the API rejects an untyped property whatever
+ * FEATURE_FLAG_FILTERS_ENFORCED_RULES holds. A typed group property without an index saves while that
+ * setting leaves out `group_property_type_index_mismatch`, and the evaluator then reads it on the
+ * set's group type.
  */
 function groupTypeIndexFor(
     prop: FlagProperty,
@@ -630,11 +640,14 @@ function crossGroupPropertyMessage(unpaired: number[]): string {
         "doesn't target. The flag checks each such property on the property's own group type. This update " +
         "changes, adds, removes, or reorders conditions without condition_id, so the tool can't tell which " +
         `stored condition these come from: ${paths}. It needs that to keep each property on its group type. ` +
-        'Send the condition_id from the read on each condition that came from the flag, then send the update again.'
+        'Read the flag with feature-flag-get-definition or feature-flag-get-definition-by-key to get each ' +
+        "condition's condition_id. Send it on each condition that came from the flag, and leave it off new " +
+        'conditions. Then send the update again.'
     )
 }
 
 function sourcesByConditionId(
+    incomingGroups: FlagConditionGroup[],
     conditionIds: (string | undefined)[],
     existingSets: (ExistingSet | undefined)[],
     existingFlagGroupIndex: number | undefined
@@ -655,18 +668,27 @@ function sourcesByConditionId(
             fields: ['filters.groups.N.condition_id:stale_condition_id'],
         })
     }
+    const sentIds = new Set(conditionIds)
+    const unnamedCrossGroupSets = [...storedById].flatMap(([id, existingSet]) =>
+        !sentIds.has(id) && holdsCrossGroupProperty(existingSet) ? [existingSet] : []
+    )
+    const lostIds = incomingGroups.flatMap((group, index) =>
+        isRecord(group) &&
+        conditionIds[index] === undefined &&
+        unnamedCrossGroupSets.some((existingSet) => keepsFilters(group, existingSet))
+            ? [index]
+            : []
+    )
+    if (lostIds.length > 0) {
+        throw new ToolInputValidationError(crossGroupPropertyMessage(lostIds), {
+            fields: ['filters.groups.N.condition_id:cross_group_property'],
+        })
+    }
     return conditionIds.map((id) => (id === undefined ? undefined : storedById.get(id)))
 }
 
 type SetSources = { sourceSets: (ExistingSet | undefined)[]; matchedPersonSets: ExistingSet[][] }
 
-/**
- * A deletion or a swap can pair a set with the wrong stored set. On a flag that holds a group property
- * on another group type than its set, the pairing decides which group type such a property keeps, and
- * the set's group type when the agent echoes the property. The merge therefore refuses the payload
- * unless each set repeats the filters of the stored set at its index and no other stored set has the
- * same filters.
- */
 function matchSetsByPositionAndContent(
     incomingGroups: FlagConditionGroup[],
     existingSets: (ExistingSet | undefined)[],
@@ -798,7 +820,7 @@ export function preserveGroupTargetingFilters(
         const aggregatesOnPersonsOnly = storedAggregations.size === 1 && storedAggregations.has(null)
         const { sourceSets, matchedPersonSets }: SetSources = carriesConditionIds
             ? {
-                  sourceSets: sourcesByConditionId(conditionIds, existingSets, existingFlagGroupIndex),
+                  sourceSets: sourcesByConditionId(result.groups, conditionIds, existingSets, existingFlagGroupIndex),
                   matchedPersonSets: [],
               }
             : matchSetsByPositionAndContent(result.groups, existingSets, mixedAggregation)

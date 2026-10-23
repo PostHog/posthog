@@ -75,12 +75,15 @@ function aggregationViolations(existing: FlagFilters, merged: FlagFilters | null
 }
 
 /** The condition set paths a refusal names, or none when the merge goes through. */
-function refusedSets(merge: () => unknown): string[] {
+function refusedSets(
+    merge: () => unknown,
+    field = 'filters.groups.N.aggregation_group_type_index:unresolved_aggregation'
+): string[] {
     try {
         merge()
     } catch (error) {
         if (error instanceof ToolInputValidationError) {
-            expect(error.fields).toEqual(['filters.groups.N.aggregation_group_type_index:unresolved_aggregation'])
+            expect(error.fields).toEqual([field])
             return [...error.message.matchAll(/filters\.groups\[\d+\]/g)].map((match) => match[0])
         }
         throw error
@@ -2081,61 +2084,67 @@ describe('preserveGroupTargetingFilters', () => {
             name: 'the agent changes the value and sends the index',
             existing: onFlagLevel0([planOnGroupType1]),
             sent: [[{ ...planOnGroupType1, value: 'ent' }]],
-            unpaired: 'filters.groups[0]',
+            unpaired: ['filters.groups[0]'],
         },
         {
             name: 'the agent changes the value and sends the property untyped',
             existing: onFlagLevel0([planOnGroupType1]),
             sent: [[{ ...untypedPlan, value: 'ent' }]],
-            unpaired: 'filters.groups[0]',
+            unpaired: ['filters.groups[0]'],
         },
         {
             name: 'the condition that holds the property is deleted',
             existing: onFlagLevel0([planOnGroupType1], [planOnGroupType0('ent')]),
             sent: [[{ ...untypedPlan, value: 'ent' }]],
-            unpaired: 'filters.groups[0]',
+            unpaired: ['filters.groups[0]'],
         },
         {
             name: 'the condition in front of the one that holds the property is deleted',
             existing: onFlagLevel0([planOnGroupType0('ent')], [planOnGroupType1]),
             sent: [[planOnGroupType1]],
-            unpaired: 'filters.groups[0]',
+            unpaired: ['filters.groups[0]'],
         },
         {
             name: 'a condition is added in front of the one that holds the property',
             existing: onFlagLevel0([planOnGroupType1]),
             sent: [[{ key: 'size', operator: 'exact', value: 'large' }], [planOnGroupType1]],
-            unpaired: 'filters.groups[0], filters.groups[1]',
+            unpaired: ['filters.groups[0]', 'filters.groups[1]'],
         },
         {
             name: 'another condition has the same filters',
             existing: onFlagLevel0([planOnGroupType1], [planOnGroupType0('pro')]),
             sent: [[untypedPlan], [untypedPlan]],
-            unpaired: 'filters.groups[0], filters.groups[1]',
+            unpaired: ['filters.groups[0]', 'filters.groups[1]'],
         },
     ])(
         'refuses an edit without condition_id to a flag with a group property on another group type when $name',
         ({ existing, sent, unpaired }) => {
-            expect(() =>
+            const merge = (): unknown =>
                 preserveGroupTargetingFilters(existing, {
                     groups: sent.map((properties) => ({ properties, rollout_percentage: 100 })),
                 })
-            ).toThrow(
-                expect.objectContaining({
-                    fields: ['filters.groups.N.condition_id:cross_group_property'],
-                    message: expect.stringContaining(`come from: ${unpaired}. `),
-                })
-            )
+
+            expect(refusedSets(merge, 'filters.groups.N.condition_id:cross_group_property')).toEqual(unpaired)
         }
     )
 
     // An index the agent sends stays when its condition has a source, and the API reports the mismatch. A
     // new condition has no stored group type to keep, so its property takes the condition's group type.
     it.each([
-        { name: 'the condition that holds the key', appended: false, value: undefined, expected: 2 },
-        { name: 'the condition that holds the key with a new value', appended: false, value: 'ent', expected: 2 },
-        { name: 'a new condition', appended: true, value: undefined, expected: 0 },
-    ])('gives an index the agent sends on another group type to $name', ({ appended, value, expected }) => {
+        { name: 'the condition that holds the key keeps it', appended: false, value: undefined, expected: 2 },
+        {
+            name: 'the condition that holds the key keeps it with a new value',
+            appended: false,
+            value: 'ent',
+            expected: 2,
+        },
+        {
+            name: "a new condition replaces it with the condition's group type",
+            appended: true,
+            value: undefined,
+            expected: 0,
+        },
+    ])('decides an index the agent sends on another group type when $name', ({ appended, value, expected }) => {
         const sent = {
             aggregation_group_type_index: 0,
             properties: existingGroupFlag.groups[0]?.properties.map((prop) => ({

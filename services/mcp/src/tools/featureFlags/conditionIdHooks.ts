@@ -4,4 +4,4 @@ import { withConditionIds } from './conditionIds'
 
 export default {
     afterResponse: (_context, _params, result) => withConditionIds(result),
-} satisfies ToolHooks
+} satisfies ToolHooks<unknown>

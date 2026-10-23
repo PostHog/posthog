@@ -418,6 +418,19 @@ describe('condition ids', () => {
             ],
             expected: [[null, ['group', 2]]],
         },
+        {
+            name: 'the agent adds a condition without an ID that repeats a property on another group type',
+            flagLevel: 0,
+            stored: [planOn(1, 'pro')],
+            sent: (stored) => [
+                echoWithId(stored[0]!),
+                { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+            ],
+            expected: [
+                [null, ['group', 1]],
+                [null, ['group', 0]],
+            ],
+        },
     ])(
         'restores each condition from the stored condition with its ID when $name',
         ({ flagLevel, stored, sent, expected }) => {
@@ -474,6 +487,34 @@ describe('condition ids', () => {
                 message: expect.stringMatching(
                     /on filters\.groups\[1\] matches no condition.*copied this condition from a different flag, remove its condition_id/
                 ),
+            })
+        )
+    })
+
+    it('refuses a condition that drops its ID when it repeats a stored condition with a group property on another group type', () => {
+        const existing = {
+            aggregation_group_type_index: 0,
+            groups: [
+                planOn(1, 'pro'),
+                {
+                    properties: [{ key: 'size', type: 'group', group_type_index: 0, operator: 'exact', value: 'L' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+        const [, kept] = readGroups(existing)
+
+        expect(() =>
+            preserveGroupTargetingFilters(existing, {
+                groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 50 },
+                    echoWithId(kept!),
+                ],
+            })
+        ).toThrow(
+            expect.objectContaining({
+                fields: ['filters.groups.N.condition_id:cross_group_property'],
+                message: expect.stringContaining('come from: filters.groups[0]. '),
             })
         )
     })
