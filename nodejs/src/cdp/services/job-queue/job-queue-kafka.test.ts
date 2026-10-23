@@ -1,3 +1,5 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
 
 describe('CyclotronJobQueueKafka', () => {
@@ -91,6 +93,17 @@ describe('CyclotronJobQueueKafka', () => {
                   "teamId": 1,
                 }
             `)
+        })
+
+        it.each([
+            ['an ISO string', '2026-05-27T10:45:04.123Z', '2026-05-27T10:45:04.123Z'],
+            ['an invalid string', 'not-a-date', undefined],
+        ])('should parse queueScheduledAt from %s', (_, serialized, expected) => {
+            const invocation = migrateKafkaCyclotronInvocation(
+                parseJSON(JSON.stringify({ id: 'id', teamId: 1, queueScheduledAt: serialized }))
+            )
+
+            expect(invocation.queueScheduledAt?.toISO()).toEqual(expected)
         })
     })
 })
