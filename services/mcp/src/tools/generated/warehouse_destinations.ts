@@ -6,49 +6,35 @@ import * as orvalSchemas from '@/generated/warehouse_destinations/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ExternalDataDestinationsListSchema = () => {
-    const ExternalDataDestinationsListQueryParams = orvalSchemas.ExternalDataDestinationsListQueryParams()
-    return ExternalDataDestinationsListQueryParams
+const ExternalDataDestinationsAddSourcesSchema = () => {
+    const ExternalDataDestinationsAddSourcesCreateBody = orvalSchemas.ExternalDataDestinationsAddSourcesCreateBody()
+    const ExternalDataDestinationsAddSourcesCreateParams = orvalSchemas.ExternalDataDestinationsAddSourcesCreateParams()
+    return ExternalDataDestinationsAddSourcesCreateParams.omit({ project_id: true }).extend(
+        ExternalDataDestinationsAddSourcesCreateBody.shape
+    )
 }
 
-const externalDataDestinationsList = (): ToolBase<
-    ReturnType<typeof ExternalDataDestinationsListSchema>,
-    Schemas.PaginatedExternalDataDestinationList
+const externalDataDestinationsAddSources = (): ToolBase<
+    ReturnType<typeof ExternalDataDestinationsAddSourcesSchema>,
+    WithPostHogUrl<Schemas.AddSourcesResponse>
 > => ({
-    name: 'external-data-destinations-list',
-    schema: ExternalDataDestinationsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsListSchema>>) => {
+    name: 'external-data-destinations-add-sources',
+    schema: ExternalDataDestinationsAddSourcesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsAddSourcesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedExternalDataDestinationList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
+        const body: Record<string, unknown> = {}
+        if (params.source_ids !== undefined) {
+            body['source_ids'] = params.source_ids
+        }
+        if (params.resync !== undefined) {
+            body['resync'] = params.resync
+        }
+        const result = await context.api.request<Schemas.AddSourcesResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/${encodeURIComponent(String(params.id))}/add_sources/`,
+            body,
         })
-        return result
-    },
-})
-
-const ExternalDataDestinationsRetrieveSchema = () => {
-    const ExternalDataDestinationsRetrieveParams = orvalSchemas.ExternalDataDestinationsRetrieveParams()
-    return ExternalDataDestinationsRetrieveParams.omit({ project_id: true })
-}
-
-const externalDataDestinationsRetrieve = (): ToolBase<
-    ReturnType<typeof ExternalDataDestinationsRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExternalDataDestination>
-> => ({
-    name: 'external-data-destinations-retrieve',
-    schema: ExternalDataDestinationsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExternalDataDestination>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/data-management/warehouse-destinations?destination=${result.id}`)
+        return await withPostHogUrl(context, result, `/data-management/warehouse-destinations?destination=${params.id}`)
     },
 })
 
@@ -116,35 +102,49 @@ const externalDataDestinationsCreate = (): ToolBase<
     },
 })
 
-const ExternalDataDestinationsAddSourcesSchema = () => {
-    const ExternalDataDestinationsAddSourcesCreateBody = orvalSchemas.ExternalDataDestinationsAddSourcesCreateBody()
-    const ExternalDataDestinationsAddSourcesCreateParams = orvalSchemas.ExternalDataDestinationsAddSourcesCreateParams()
-    return ExternalDataDestinationsAddSourcesCreateParams.omit({ project_id: true }).extend(
-        ExternalDataDestinationsAddSourcesCreateBody.shape
-    )
+const ExternalDataDestinationsListSchema = () => {
+    const ExternalDataDestinationsListQueryParams = orvalSchemas.ExternalDataDestinationsListQueryParams()
+    return ExternalDataDestinationsListQueryParams
 }
 
-const externalDataDestinationsAddSources = (): ToolBase<
-    ReturnType<typeof ExternalDataDestinationsAddSourcesSchema>,
-    WithPostHogUrl<Schemas.AddSourcesResponse>
+const externalDataDestinationsList = (): ToolBase<
+    ReturnType<typeof ExternalDataDestinationsListSchema>,
+    Schemas.PaginatedExternalDataDestinationList
 > => ({
-    name: 'external-data-destinations-add-sources',
-    schema: ExternalDataDestinationsAddSourcesSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsAddSourcesSchema>>) => {
+    name: 'external-data-destinations-list',
+    schema: ExternalDataDestinationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source_ids !== undefined) {
-            body['source_ids'] = params.source_ids
-        }
-        if (params.resync !== undefined) {
-            body['resync'] = params.resync
-        }
-        const result = await context.api.request<Schemas.AddSourcesResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/${encodeURIComponent(String(params.id))}/add_sources/`,
-            body,
+        const result = await context.api.request<Schemas.PaginatedExternalDataDestinationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
-        return await withPostHogUrl(context, result, `/data-management/warehouse-destinations?destination=${params.id}`)
+        return result
+    },
+})
+
+const ExternalDataDestinationsRetrieveSchema = () => {
+    const ExternalDataDestinationsRetrieveParams = orvalSchemas.ExternalDataDestinationsRetrieveParams()
+    return ExternalDataDestinationsRetrieveParams.omit({ project_id: true })
+}
+
+const externalDataDestinationsRetrieve = (): ToolBase<
+    ReturnType<typeof ExternalDataDestinationsRetrieveSchema>,
+    WithPostHogUrl<Schemas.ExternalDataDestination>
+> => ({
+    name: 'external-data-destinations-retrieve',
+    schema: ExternalDataDestinationsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExternalDataDestination>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/data-management/warehouse-destinations?destination=${result.id}`)
     },
 })
 
@@ -174,10 +174,10 @@ const externalDataDestinationsTestConnection = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'external-data-destinations-list': externalDataDestinationsList,
-    'external-data-destinations-retrieve': externalDataDestinationsRetrieve,
+    'external-data-destinations-add-sources': externalDataDestinationsAddSources,
     'external-data-destinations-connect-link': externalDataDestinationsConnectLink,
     'external-data-destinations-create': externalDataDestinationsCreate,
-    'external-data-destinations-add-sources': externalDataDestinationsAddSources,
+    'external-data-destinations-list': externalDataDestinationsList,
+    'external-data-destinations-retrieve': externalDataDestinationsRetrieve,
     'external-data-destinations-test-connection': externalDataDestinationsTestConnection,
 }
