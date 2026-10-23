@@ -7908,6 +7908,10 @@ snapshots:
         hash: v1.k794b7964.1d792984be0657f406e45722e1b4799905c474a28f8c985c8e406377a8dd97e7.gQ65VeoKFMTS04UA7UjbntfuL7nkr6Zpk-mhvoTf9X4
     products-posthog-ai-turnsuggestioncard--alert-suggestion--light:
         hash: v1.k794b7964.3c7adbcba23292f8890353b7e6788dfb5828d88388ed66d788cbf1951dd45abf.byZ29GpYD4aDnWNIvEXYy1vrSoR6au3ieBIMqNb8tMw
+    products-posthog-ai-turnsuggestioncard--condensed-suggestion--dark:
+        hash: v1.k794b7964.139710bfad513236c32717c3e9af5b2e8a535cf7cc2ba067d57a5aa59b19e841.gsYrCNFXod9D-SQbpM6KAWfZcT_wVhYh2ouMQFyTCL0
+    products-posthog-ai-turnsuggestioncard--condensed-suggestion--light:
+        hash: v1.k794b7964.678728d0f09ec1d6d7a282f82e76812d2662c72e075db139a3d1ea7e6248fb2e.XXf85C-_cDHfZ2fRvW0rx8vhBXFMvMot4BAq35MNfnQ
     products-posthog-ai-turnsuggestioncard--error-alert-suggestion--dark:
         hash: v1.k794b7964.c11acf3ed061e235f538dba634b3503de9b40201f89ddb80a4240354e4bb718f.tv5z2ob1K9r9p_i_a4gGkdSQiJqyU7KLpUMrnH3PC50
     products-posthog-ai-turnsuggestioncard--error-alert-suggestion--light:
