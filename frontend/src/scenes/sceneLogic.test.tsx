@@ -117,6 +117,32 @@ describe('sceneLogic', () => {
         })
     })
 
+    it('plays when 5 is pressed after the holiday flag arrives', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 9, 22))
+        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+        const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
+        let playsBeforeFlag = 0
+        let playsAfterFlag = 0
+
+        try {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
+            playsBeforeFlag = play.mock.calls.length
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS], {
+                [FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS]: true,
+            })
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
+            playsAfterFlag = play.mock.calls.length
+        } finally {
+            play.mockRestore()
+            pause.mockRestore()
+            jest.useRealTimers()
+        }
+        expect(playsBeforeFlag).toBe(0)
+        expect(playsAfterFlag).toBe(1)
+    })
+
     // A scene that never mounts must not leave the address bar on it with the previous scene still
     // rendered, and must leave something error tracking can count.
     describe('a scene that fails to load', () => {

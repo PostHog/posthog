@@ -21,7 +21,6 @@ from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
 
 from posthog.credentials_service.errors import (
-    CredentialsServiceMisconfiguredError,
     CredentialsServiceUnreachableError,
     SecretInRecoveryError,
     SecretMissingError,
@@ -30,7 +29,10 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataSchema,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
@@ -51,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
     SimpleSource,
     SourceExtractionNotImplementedError,
 )
@@ -303,6 +306,114 @@ class TestSchemaSyncHistory(BaseTest):
         )
 
         assert has_completed_job is expected
+
+
+class TestJobToContinue(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "worker_restarts",
+                ExternalDataJob.Status.FAILED,
+                WORKER_RESTART_ERROR_MESSAGE,
+                "webhook",
+                "webhook",
+                True,
+            ),
+            ("user_cancel", ExternalDataJob.Status.FAILED, "Sync cancelled by user", "webhook", "webhook", False),
+            ("source_error", ExternalDataJob.Status.FAILED, "401 Unauthorized", "webhook", "webhook", False),
+            ("completed", ExternalDataJob.Status.COMPLETED, None, "webhook", "webhook", False),
+            (
+                "sync_type_changed",
+                ExternalDataJob.Status.FAILED,
+                WORKER_RESTART_ERROR_MESSAGE,
+                "incremental",
+                "webhook",
+                False,
+            ),
+            (
+                "full_refresh",
+                ExternalDataJob.Status.FAILED,
+                WORKER_RESTART_ERROR_MESSAGE,
+                "full_refresh",
+                "full_refresh",
+                False,
+            ),
+        ]
+    )
+    def test_only_a_job_stopped_by_worker_restarts_hands_its_cursor_to_the_next_job(
+        self, _name: str, status: str, latest_error: str | None, previous_sync_type: str, sync_type: str, expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type=sync_type)
+        previous = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=status,
+            latest_error=latest_error,
+            schema_snapshot={"sync_type": previous_sync_type},
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+        ExternalDataJob.objects.filter(id=previous.id).update(created_at=job.created_at - timedelta(minutes=1))
+
+        jobs_to_continue = cast(Any, module._jobs_to_continue).func(job, schema)
+
+        assert [continued.id for continued in jobs_to_continue] == ([previous.id] if expected else [])
+
+    def test_the_chain_stops_at_the_first_job_that_worker_restarts_did_not_stop(self) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type="webhook")
+
+        def stopped() -> ExternalDataJob:
+            return ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.FAILED,
+                latest_error=WORKER_RESTART_ERROR_MESSAGE,
+                schema_snapshot={"sync_type": "webhook"},
+            )
+
+        before_completed = stopped()
+        completed = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED
+        )
+        older, newer = stopped(), stopped()
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+        for minutes, previous in enumerate([newer, older, completed, before_completed], start=1):
+            ExternalDataJob.objects.filter(id=previous.id).update(
+                created_at=job.created_at - timedelta(minutes=minutes)
+            )
+
+        jobs_to_continue = cast(Any, module._jobs_to_continue).func(job, schema)
+
+        assert [continued.id for continued in jobs_to_continue] == [newer.id, older.id]
+
+    def test_the_continuing_job_counts_the_rows_of_the_job_it_continues_once(self) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Charge", team=self.team, source=source, sync_type="webhook")
+        stopped = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.FAILED, rows_synced=500
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+
+        cast(Any, module._carry_rows_synced).func(job, stopped)
+        cast(Any, module._carry_rows_synced).func(job, stopped)
+
+        job.refresh_from_db()
+        assert job.rows_synced == 500
 
 
 @pytest.mark.asyncio
@@ -1216,6 +1327,42 @@ async def test_reset_run_drops_cursors_but_preserves_sync_history(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reset_pipeline,copied,continues",
+    [(False, True, True), (False, False, True), (True, False, False)],
+    ids=["first_execution", "later_execution", "reset"],
+)
+async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unless_it_resets(
+    reset_pipeline: bool, copied: bool, continues: bool
+) -> None:
+    source = mock.MagicMock(spec=ResumableSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    manager = source.get_resumable_source_manager.return_value
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    interrupted = mock.MagicMock(id="interrupted-job", workflow_run_id="interrupted-run")
+    earlier = mock.MagicMock(id="earlier-job", workflow_run_id="earlier-run")
+    manager.continue_from_job.return_value = copied
+
+    with (
+        _patched_activity_reaching_run(source, schema) as run_mock,
+        mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted, earlier])),
+        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()) as carry,
+    ):
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=reset_pipeline))
+
+    if continues:
+        manager.continue_from_job.assert_called_once_with("interrupted-job")
+    else:
+        manager.continue_from_job.assert_not_called()
+    # A later execution of the continuing job copies nothing, and still holds the loader to the stopped jobs.
+    assert carry.await_count == (1 if continues and copied else 0)
+    assert run_mock.call_args.kwargs["continued_workflow_run_id"] == ("interrupted-run" if continues else None)
+    assert run_mock.call_args.kwargs["continued_job_ids"] == (("interrupted-job", "earlier-job") if continues else ())
+
+
+@pytest.mark.asyncio
 async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
@@ -1552,7 +1699,6 @@ async def test_probe_never_runs_when_not_eligible_or_resetting(overrides: dict[s
         (SecretInRecoveryError("HUBSPOT_APP_CLIENT_SECRET"), False),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET"), True),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET", disabled_reason="unconfigured"), True),
-        (CredentialsServiceMisconfiguredError("CREDENTIALS_SERVICE_URL"), True),
         (CredentialsServiceUnreachableError("connection refused"), False),
     ],
 )

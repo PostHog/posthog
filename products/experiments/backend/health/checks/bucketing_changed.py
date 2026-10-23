@@ -30,14 +30,9 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     leave_out,
     not_checked_finding,
 )
-from products.experiments.backend.health.context import (
-    BucketingChange,
-    BucketingSetting,
-    FlagHistory,
-    FlagHistoryNotChecked,
-    HealthContext,
-)
+from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, HealthContext
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
 _TITLE = "The flag's variant assignment changed after launch"
 _KEY_TITLE = "The flag key changed after launch"
