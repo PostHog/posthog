@@ -544,16 +544,21 @@ describe('BI editor query generation', () => {
     })
 
     it.each([
-        ...([100, 1000, 10000, 50000] as const).map((limit) => ({ limit, repeated: false })),
-        { limit: 100 as const, repeated: true },
+        ...([100, 1000, 10000, 50000] as const).map((limit) => ({
+            limit,
+            repeated: false,
+            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+        })),
+        { limit: 100 as const, repeated: true, chartType: ChartDisplayType.TwoDimensionalHeatmap },
+        { limit: 100 as const, repeated: false, chartType: ChartDisplayType.ActionsTable },
     ])(
-        'maps every BI row and column dimension to pivot table axes with limit $limit (repeated: $repeated)',
-        ({ limit, repeated }) => {
+        'maps every BI row and column dimension to pivot table axes in $chartType with limit $limit (repeated: $repeated)',
+        ({ limit, repeated, chartType }) => {
             const secondRow = repeated ? eventField : timestampField
             const secondColumn = repeated ? browserField : countryField
             const result = buildBIQuery({
                 source: { table: 'events' },
-                chartType: ChartDisplayType.TwoDimensionalHeatmap,
+                chartType,
                 rows: [eventField, secondRow],
                 columns: [browserField, secondColumn],
                 values: [{ field: revenueField, aggregation: 'sum' }],
