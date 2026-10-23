@@ -46,6 +46,7 @@ def _context(
     variants: list[tuple[str, int, float, bool | None]],
     *,
     baseline: tuple[int, int] = (1000, 100),
+    manual_running_time: bool = False,
     **changes: Any,
 ) -> HealthContext:
     control_samples, control_conversions = baseline
@@ -67,7 +68,13 @@ def _context(
             for key, samples, difference, significant in variants
         ),
     )
-    metric = PrimaryMetric(name="Checkout", is_funnel=True, minimum_detectable_effect=30, result=result)
+    metric = PrimaryMetric(
+        name="Checkout",
+        is_funnel=True,
+        minimum_detectable_effect=30,
+        manual_running_time=manual_running_time,
+        result=result,
+    )
     return replace(RUNNING_CONTEXT, primary_metric=metric, **changes)
 
 
@@ -135,9 +142,18 @@ class TestEarlySignificance(TestCase):
                 replace(
                     SMALL_SIGNIFICANT_LIFT,
                     primary_metric=PrimaryMetric(
-                        name="Revenue", is_funnel=False, minimum_detectable_effect=30, result=None
+                        name="Revenue",
+                        is_funnel=False,
+                        minimum_detectable_effect=30,
+                        manual_running_time=False,
+                        result=None,
                     ),
                 ),
+                Status.NOT_APPLICABLE,
+            ),
+            (
+                "manual_running_time",
+                _context([("test", 1000, 0.2, True)], manual_running_time=True),
                 Status.NOT_APPLICABLE,
             ),
             ("under_50_users", _context([("test", 20, 0.2, True)], baseline=(20, 2)), Status.NOT_APPLICABLE),
@@ -158,11 +174,28 @@ class TestEarlySignificance(TestCase):
 class TestEarlySignificanceFromStoredResults(BaseTest):
     @parameterized.expand(
         [
-            ("inline_metric_and_the_experiments_effect", False, True, 20, 15, Status.FINDING, 20),
-            ("inline_metric_and_the_teams_default_effect", False, True, None, 15, Status.FINDING, 15),
-            ("inline_metric_and_the_product_default_effect", False, True, None, None, Status.FINDING, 30),
-            ("shared_metric", True, True, None, None, Status.FINDING, 30),
-            ("result_of_an_earlier_configuration", False, False, None, None, Status.NOT_APPLICABLE, None),
+            (
+                "inline_metric_and_the_experiments_effect",
+                False,
+                True,
+                {"minimum_detectable_effect": 20},
+                15,
+                Status.FINDING,
+                20,
+            ),
+            ("inline_metric_and_the_teams_default_effect", False, True, {}, 15, Status.FINDING, 15),
+            ("inline_metric_and_the_product_default_effect", False, True, {}, None, Status.FINDING, 30),
+            ("shared_metric", True, True, {}, None, Status.FINDING, 30),
+            ("result_of_an_earlier_configuration", False, False, {}, None, Status.NOT_APPLICABLE, None),
+            (
+                "manual_running_time",
+                False,
+                True,
+                {"exposure_estimate_config": {"conversionRateInputType": "manual"}},
+                None,
+                Status.NOT_APPLICABLE,
+                None,
+            ),
         ]
     )
     def test_reads_the_primary_metrics_current_result(
@@ -170,7 +203,7 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
         _name: str,
         shared: bool,
         under_current_key: bool,
-        experiment_effect: int | None,
+        running_time_calculation: dict[str, Any],
         team_effect: int | None,
         expected: Status,
         expected_effect: int | None,
@@ -198,7 +231,7 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             feature_flag=flag,
             start_date=launched_at,
             metrics=[] if shared else [{**FUNNEL, "uuid": "checkout-funnel"}],
-            running_time_calculation={"minimum_detectable_effect": experiment_effect} if experiment_effect else {},
+            running_time_calculation=running_time_calculation,
         )
         if shared:
             saved_metric = ExperimentSavedMetric.objects.create(

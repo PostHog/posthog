@@ -57,6 +57,10 @@ def early_significance_skip(ctx: HealthContext) -> CheckSkip | None:
         return not_checked("Couldn't read the results of the primary metric")
     if not metric.is_funnel:
         return not_applicable("Runs on funnel primary metrics only")
+    # The page's target in this mode comes from the user's guessed baseline, so a note about the target could say
+    # "wait" after the page says the target is reached.
+    if metric.manual_running_time:
+        return not_applicable("Runs with the automatic running time estimate")
     if metric.result is None:
         return not_applicable("Runs once the primary metric has results")
     if _total_samples(metric.result) < MIN_SAMPLES_FOR_RESULTS:

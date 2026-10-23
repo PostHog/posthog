@@ -38,6 +38,7 @@ def _load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
         name=_metric_name(experiment, calculation_config),
         is_funnel=is_funnel,
         minimum_detectable_effect=_minimum_detectable_effect(experiment, team_config),
+        manual_running_time=_manual_running_time(experiment),
         result=MetricResultStore(experiment_id=experiment.id).current_result(calculation_config) if is_funnel else None,
     )
 
@@ -64,3 +65,12 @@ def _minimum_detectable_effect(experiment: Experiment, team_config: TeamExperime
     if isinstance(planned, int | float) and not isinstance(planned, bool) and planned > 0:
         return float(planned)
     return float(team_config.default_minimum_detectable_effect or PRODUCT_DEFAULT_MINIMUM_DETECTABLE_EFFECT)
+
+
+def _manual_running_time(experiment: Experiment) -> bool:
+    # pinned: the page's `ConversionRateInputType.MANUAL` in frontend/src/types.ts, read by `runningTimeLogic`.
+    running_time_calculation = experiment.running_time_calculation
+    estimate_config = (
+        running_time_calculation.get("exposure_estimate_config") if isinstance(running_time_calculation, dict) else None
+    )
+    return isinstance(estimate_config, dict) and estimate_config.get("conversionRateInputType") == "manual"
