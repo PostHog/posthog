@@ -994,13 +994,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Daily recalculation time',
                 description: (
                     <>
-                        Select the time of day when experiment metrics should be recalculated. This time is in your
+                        Select the time of day when experiment time series are recalculated. This time is in your
                         project's timezone (<ProjectTimezoneName />
                         ).
                     </>
                 ),
                 searchDescription:
-                    "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
+                    "Select the time of day when experiment time series are recalculated. This time is in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
                 flag: '!EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
@@ -1010,13 +1010,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Daily recalculation times',
                 description: (
                     <>
-                        Select up to two times of day when experiment metrics should be recalculated, at least 6 hours
+                        Select up to two times of day when experiment time series are recalculated, at least 6 hours
                         apart. Times are in your project's timezone (<ProjectTimezoneName />
                         ).
                     </>
                 ),
                 searchDescription:
-                    "Select up to two times of day when experiment metrics should be recalculated, at least 6 hours apart. Times are in your project's timezone.",
+                    "Select up to two times of day when experiment time series are recalculated, at least 6 hours apart. Times are in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
                 flag: 'EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
