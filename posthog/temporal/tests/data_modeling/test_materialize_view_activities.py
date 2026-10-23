@@ -18,8 +18,10 @@ import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
 from temporalio.exceptions import ApplicationError
+from trino.exceptions import TrinoUserError
 
 from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
@@ -156,13 +158,20 @@ class TestMaterializeViewManagedWarehouseActivity:
                 flag_enabled and target_ready
             )
         if flag_enabled:
-            is_ready.assert_called_once_with(organization_id=ateam.organization_id)
+            is_ready.assert_called_once_with(organization_id=ateam.organization_id, team_id=ateam.pk)
         else:
             is_ready.assert_not_called()
 
     @pytest.mark.parametrize(
-        "compile_fails,alias_dispatch_fails",
-        [(False, False), (True, False), (False, True)],
+        "compile_error,error_tracked,alias_dispatch_fails",
+        [
+            (None, False, False),
+            (ValueError("Trino compilation failed"), True, False),
+            (TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"), False, False),
+            (TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}), False, False),
+            (TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}), True, False),
+            (None, True, True),
+        ],
     )
     async def test_trino_shadow_records_execution_or_compilation_result(
         self,
@@ -172,7 +181,8 @@ class TestMaterializeViewManagedWarehouseActivity:
         ajob,
         adag,
         asaved_query,
-        compile_fails: bool,
+        compile_error: Exception | None,
+        error_tracked: bool,
         alias_dispatch_fails: bool,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
@@ -190,8 +200,8 @@ class TestMaterializeViewManagedWarehouseActivity:
         def execute_trino_model(**kwargs: Any) -> DuckLakeTableResult:
             kwargs["on_processed_bytes"](300)
             kwargs["on_processed_bytes"](45)
-            if compile_fails:
-                raise ValueError("Trino compilation failed")
+            if compile_error is not None:
+                raise compile_error
             return DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12)
 
         with (
@@ -210,6 +220,9 @@ class TestMaterializeViewManagedWarehouseActivity:
                 "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.prepare_executable_query",
                 side_effect=lambda saved_query: setattr(saved_query, "query", executable_query),
             ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.capture_exception"
+            ) as capture,
         ):
             result = await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
 
@@ -224,9 +237,10 @@ class TestMaterializeViewManagedWarehouseActivity:
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.bytes_read == 345
-        if compile_fails:
+        assert capture.called is error_tracked
+        if compile_error is not None:
             reconcile_aliases.assert_not_awaited()
-            assert result.error == "Trino compilation failed"
+            assert result.error == str(compile_error)
             assert ajob.status == DataModelingJobStatus.FAILED
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
