@@ -20,11 +20,16 @@ def forwards(apps, schema_editor):
     ExternalDataSchema = apps.get_model("warehouse_sources", "ExternalDataSchema")
 
     # One row per configured Plausible page table (the source is Alpha) — a per-row loop is fine.
-    schemas = ExternalDataSchema.objects.filter(
-        source__source_type="Plausible",
-        deleted=False,
-        name__in=AFFECTED_PRIMARY_KEYS.keys(),
-    ).iterator()
+    # Load only these columns: `data_warehouse` 0052 adds `enabled_columns` and can run after this migration.
+    schemas = (
+        ExternalDataSchema.objects.filter(
+            source__source_type="Plausible",
+            deleted=False,
+            name__in=AFFECTED_PRIMARY_KEYS.keys(),
+        )
+        .only("id", "name", "sync_type_config")
+        .iterator()
+    )
 
     for schema in schemas:
         config = schema.sync_type_config or {}
