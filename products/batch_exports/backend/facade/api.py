@@ -437,6 +437,15 @@ def create_batch_export(
     return _to_detail(batch_export)
 
 
+def validate_batch_export_filters(filters: object) -> None:
+    """Check the event filters a batch export stores.
+
+    Raises ``contracts.InvalidBatchExportFilters`` unless ``filters`` is None or a list of
+    supported filters.
+    """
+    batch_export_filters.validate_batch_export_filters(filters)
+
+
 def create_workflows_backfill_export(
     team_id: int,
     *,
@@ -450,7 +459,7 @@ def create_workflows_backfill_export(
     Raises ``contracts.InvalidBatchExportFilters`` when ``event_filters`` fail the checks the
     batch export API applies.
     """
-    batch_export_filters.validate_batch_export_filters(event_filters)
+    validate_batch_export_filters(event_filters)
 
     batch_export = BatchExport(
         team_id=team_id,
@@ -491,15 +500,6 @@ def backfill_batch_export(
 def list_supported_intervals() -> tuple[str, ...]:
     """Return the intervals a batch export may be scheduled on."""
     return tuple(interval for interval, _ in BATCH_EXPORT_INTERVALS)
-
-
-def validate_batch_export_filters(filters: object) -> None:
-    """Check the event filters a batch export stores.
-
-    Raises ``contracts.InvalidBatchExportFilters`` unless ``filters`` is None or a list of
-    supported filters.
-    """
-    batch_export_filters.validate_batch_export_filters(filters)
 
 
 def validate_destination_config(destination_type: str, config: Mapping[str, Any], *, partial: bool) -> dict[str, Any]:
