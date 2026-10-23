@@ -1,4 +1,7 @@
-import { LemonTable, type LemonTableColumns } from '@posthog/lemon-ui'
+import posthog from 'posthog-js'
+import { useState } from 'react'
+
+import { LemonButton, LemonCheckbox, LemonTable, type LemonTableColumns } from '@posthog/lemon-ui'
 
 import { formatMetricValue } from 'products/metrics/frontend/panels/metricsUnits'
 
@@ -10,11 +13,13 @@ import {
     WidgetLoadingState,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { MetricsTableDrilldownModal } from './MetricsTableDrilldownModal'
 import {
     type MetricsTableSparklineDomain,
     metricsTableSparklineCoordinates,
     metricsTableSparklineDomains,
 } from './metricsTableSparkline'
+import { parseMetricsTableWidgetConfig } from './metricsTableWidgetConfigValidation'
 
 export type MetricsTableResultColumn = {
     label: string
@@ -38,7 +43,7 @@ export type MetricsTableWidgetResult = {
 }
 
 const WIDGET_LIST_COUNT_ROWS = { singular: 'row', plural: 'rows' }
-const SPARKLINE_WIDTH = 96
+const SPARKLINE_WIDTH = 72
 const SPARKLINE_HEIGHT = 24
 
 /** An SVG line instead of a chart instance, so a table with 100 rows stays cheap to render. */
@@ -74,25 +79,60 @@ function MetricsTableSparkline({
     )
 }
 
+export type MetricsTableSelection = {
+    selected: string[]
+    onToggle: (key: string) => void
+    onOpen: (keys: string[]) => void
+}
+
 export function MetricsTableView({
     groupBy,
     columns,
     rows,
+    selection,
 }: {
     groupBy: string
     columns: MetricsTableResultColumn[]
     rows: MetricsTableResultRow[]
+    /** Without it, the table is read-only, as in the add-widget preview. */
+    selection?: MetricsTableSelection
 }): JSX.Element {
     const domains = metricsTableSparklineDomains(rows, columns.length)
     const tableColumns: LemonTableColumns<MetricsTableResultRow> = [
+        ...(selection
+            ? [
+                  {
+                      key: 'select',
+                      width: 0,
+                      render: (_: unknown, row: MetricsTableResultRow) => (
+                          <LemonCheckbox
+                              checked={selection.selected.includes(row.key)}
+                              onChange={() => selection.onToggle(row.key)}
+                              aria-label={`Select ${row.key}`}
+                          />
+                      ),
+                  },
+              ]
+            : []),
         {
             key: 'key',
             title: groupBy,
-            render: (_, row) => (
-                <span className="font-mono text-xs truncate block max-w-[24rem]" title={row.key}>
-                    {row.key}
-                </span>
-            ),
+            render: (_, row) =>
+                selection ? (
+                    <LemonButton
+                        size="xsmall"
+                        className="font-mono max-w-[24rem]"
+                        onClick={() => selection.onOpen([row.key])}
+                        tooltip="Open full charts"
+                        data-attr="metrics-table-widget-open-row"
+                    >
+                        <span className="truncate">{row.key}</span>
+                    </LemonButton>
+                ) : (
+                    <span className="font-mono text-xs truncate block max-w-[24rem]" title={row.key}>
+                        {row.key}
+                    </span>
+                ),
         },
         ...columns.map((column, index) => ({
             key: `column-${index}`,
@@ -101,9 +141,9 @@ export function MetricsTableView({
             render: (_: unknown, row: MetricsTableResultRow) => {
                 const value = row.values[index]
                 return (
-                    <div className="flex items-center justify-end gap-3">
+                    <div className="flex items-center justify-end gap-2">
                         <MetricsTableSparkline points={row.sparklines[index] ?? []} domain={domains[index]} />
-                        <span className="tabular-nums w-28 shrink-0 text-right">
+                        <span className="tabular-nums min-w-24 shrink-0 whitespace-nowrap text-right">
                             {value == null ? '–' : formatMetricValue(value, column.unit ?? undefined)}
                         </span>
                     </div>
@@ -123,8 +163,27 @@ export function MetricsTableView({
     )
 }
 
-export function MetricsTableWidget({ result, loading }: DashboardWidgetComponentProps): JSX.Element {
+export function MetricsTableWidget({ result, loading, config, tileId }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as MetricsTableWidgetResult | null | undefined
+    const [selected, setSelected] = useState<string[]>([])
+    const [openKeys, setOpenKeys] = useState<string[]>([])
+
+    const openCharts = (keys: string[]): void => {
+        setOpenKeys(keys)
+        posthog.capture('dashboard widget open metrics charts clicked', {
+            widget_type: 'metrics_table',
+            tile_id: tileId,
+            row_count: keys.length,
+        })
+    }
+    const selection: MetricsTableSelection = {
+        selected,
+        onToggle: (key) =>
+            setSelected((current) =>
+                current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+            ),
+        onOpen: openCharts,
+    }
 
     if (loading) {
         return <WidgetLoadingState rowCount={6} />
@@ -166,9 +225,29 @@ export function MetricsTableWidget({ result, loading }: DashboardWidgetComponent
     return (
         <>
             <WidgetCardContent>
-                <MetricsTableView groupBy={payload.groupBy ?? ''} columns={payload.columns ?? []} rows={rows} />
+                <MetricsTableView
+                    groupBy={payload.groupBy ?? ''}
+                    columns={payload.columns ?? []}
+                    rows={rows}
+                    selection={selection}
+                />
             </WidgetCardContent>
-            <WidgetContentFooter>
+            <WidgetContentFooter className="items-center gap-2">
+                {selected.length > 0 ? (
+                    <>
+                        <LemonButton
+                            type="primary"
+                            size="xsmall"
+                            onClick={() => openCharts(selected)}
+                            data-attr="metrics-table-widget-open-selected"
+                        >
+                            Open {selected.length} in full charts
+                        </LemonButton>
+                        <LemonButton size="xsmall" onClick={() => setSelected([])}>
+                            Clear
+                        </LemonButton>
+                    </>
+                ) : null}
                 <WidgetListCount
                     shown={rows.length}
                     totalCount={payload.totalCount}
@@ -177,6 +256,11 @@ export function MetricsTableWidget({ result, loading }: DashboardWidgetComponent
                     dataAttr="metrics-table-widget-count"
                 />
             </WidgetContentFooter>
+            <MetricsTableDrilldownModal
+                config={parseMetricsTableWidgetConfig(config)}
+                keys={openKeys}
+                onClose={() => setOpenKeys([])}
+            />
         </>
     )
 }

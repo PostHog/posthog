@@ -14,6 +14,7 @@ import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetails
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
     METRICS_TABLE_MAX_COLUMNS,
+    type MetricsTableInterval,
     type MetricsTableOrderDirection,
     editMetricsTableWidgetModalLogic,
 } from './editMetricsTableWidgetModalLogic'
@@ -41,6 +42,15 @@ const FILTER_OP_OPTIONS: LemonSelectOptions<MetricsTableFilterOp> = [
     { value: 'neq', label: '≠' },
     { value: 'regex', label: '=~' },
     { value: 'not_regex', label: '!~' },
+]
+
+const INTERVAL_OPTIONS: LemonSelectOptions<MetricsTableInterval | null> = [
+    { value: null, label: 'Auto' },
+    { value: 'minute', label: '1 minute' },
+    { value: 'minute_5', label: '5 minutes' },
+    { value: 'minute_15', label: '15 minutes' },
+    { value: 'hour', label: '1 hour' },
+    { value: 'day', label: '1 day' },
 ]
 
 const ORDER_DIRECTION_OPTIONS: LemonSelectOptions<MetricsTableOrderDirection> = [
@@ -149,6 +159,7 @@ function EditMetricsTableWidgetModalContents(): JSX.Element {
         groupBy,
         columns,
         dateFrom,
+        interval,
         limit,
         orderByColumn,
         orderDirection,
@@ -160,6 +171,7 @@ function EditMetricsTableWidgetModalContents(): JSX.Element {
         setGroupBy,
         addColumn,
         setDateFrom,
+        setInterval,
         setLimit,
         setOrderByColumn,
         setOrderDirection,
@@ -201,25 +213,37 @@ function EditMetricsTableWidgetModalContents(): JSX.Element {
                 <LemonDivider className="my-0" />
                 <section className="flex flex-col gap-3">
                     <h5 className="text-sm font-semibold m-0">{getDashboardWidgetGroupLabel('metrics')}</h5>
+                    <LemonField.Pure
+                        label="One row for each value of"
+                        help="A label on your metrics, such as http.route or service.name."
+                    >
+                        <LemonInput
+                            value={groupBy}
+                            placeholder="http.route"
+                            disabled={saving}
+                            onChange={setGroupBy}
+                            fullWidth
+                        />
+                    </LemonField.Pure>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <LemonField.Pure
-                            label="One row for each value of"
-                            help="A label on your metrics, such as http.route or service.name."
-                        >
-                            <LemonInput
-                                value={groupBy}
-                                placeholder="http.route"
-                                disabled={saving}
-                                onChange={setGroupBy}
-                                fullWidth
-                            />
-                        </LemonField.Pure>
                         <LemonField.Pure label="Date range" help="Each value is the average over this range.">
                             <LemonSelect
                                 value={dateFrom}
                                 disabled={saving}
                                 options={METRICS_TABLE_DATE_RANGE_OPTIONS}
                                 onChange={(value) => value && setDateFrom(value)}
+                                fullWidth
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure
+                            label="Point spacing"
+                            help="Time between points on the full charts that open from a row. Sparklines show at most 30 points."
+                        >
+                            <LemonSelect
+                                value={interval}
+                                disabled={saving}
+                                options={INTERVAL_OPTIONS}
+                                onChange={setInterval}
                                 fullWidth
                             />
                         </LemonField.Pure>

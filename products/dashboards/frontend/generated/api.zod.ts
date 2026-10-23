@@ -490,7 +490,7 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumns
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersMax = 5
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsMax = 4
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsMax = 6
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnDefault = 0
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnMin = 0
@@ -1571,6 +1571,15 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .optional()
                                             .describe(
                                                 "One metric per column. Each row shows the column's average over the date range and a sparkline."
+                                            ),
+                                        interval: zod
+                                            .union([
+                                                zod.enum(['minute', 'minute_5', 'minute_15', 'hour', 'day']),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points.'
                                             ),
                                         orderByColumn: zod
                                             .number()

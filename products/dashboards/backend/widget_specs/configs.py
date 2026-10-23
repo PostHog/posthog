@@ -379,6 +379,7 @@ class ConversationsRecentTicketsWidgetConfig(BaseModel):
 # `rate` and `increase` sum the per-series change of a counter, so a row shows the total for its label value.
 MetricsTableAggregation = Literal["rate", "increase", "sum", "avg", "min", "max", "histogram_quantile"]
 MetricsTableFilterOp = Literal["eq", "neq", "regex", "not_regex"]
+MetricsTableInterval = Literal["minute", "minute_5", "minute_15", "hour", "day"]
 
 
 class MetricsTableFilter(BaseModel):
@@ -426,6 +427,13 @@ class MetricsTableWidgetConfig(WidgetDateRangeConfigBase):
         default_factory=list,
         max_length=METRICS_TABLE_MAX_COLUMNS,
         description="One metric per column. Each row shows the column's average over the date range and a sparkline.",
+    )
+    interval: MetricsTableInterval | None = Field(
+        default=None,
+        description=(
+            "Time between the points of the full charts that open from a row. Null picks one from the date range. "
+            "The table sparklines always use at most 30 points."
+        ),
     )
     orderByColumn: int = Field(default=0, ge=0, description="Index of the column that sorts the rows.")
     orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderByColumn.")

@@ -44,10 +44,18 @@ class TestMetricsTableWidgetConfig(SimpleTestCase):
         validated = validate_widget_config(METRICS_TABLE_WIDGET_TYPE, {"groupBy": "http.route", "columns": [column]})
         assert validated["columns"][0]["quantile"] == 0.95
 
+    def test_accepts_six_columns_and_a_point_spacing(self) -> None:
+        validated = validate_widget_config(
+            METRICS_TABLE_WIDGET_TYPE, {"columns": [QUEUE_COLUMN] * 6, "interval": "minute_5"}
+        )
+        assert len(validated["columns"]) == 6
+        assert validated["interval"] == "minute_5"
+
     @parameterized.expand(
         [
             ("unknown_key", {"evil": True}),
-            ("too_many_columns", {"groupBy": "route", "columns": [QUEUE_COLUMN] * 5}),
+            ("too_many_columns", {"groupBy": "route", "columns": [QUEUE_COLUMN] * 7}),
+            ("unknown_interval", {"interval": "minute_7"}),
             ("quantile_missing", {"columns": [{**QUEUE_COLUMN, "aggregation": "histogram_quantile"}]}),
             ("quantile_without_histogram", {"columns": [{**QUEUE_COLUMN, "quantile": 0.5}]}),
             (

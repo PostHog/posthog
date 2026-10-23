@@ -11364,6 +11364,20 @@ export namespace Schemas {
     }
 
     /**
+     * Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points.
+     */
+    export type MetricsTableWidgetConfigInterval = typeof MetricsTableWidgetConfigInterval[keyof typeof MetricsTableWidgetConfigInterval] | null;
+
+
+    export const MetricsTableWidgetConfigInterval = {
+      Minute: 'minute',
+      Minute5: 'minute_5',
+      Minute15: 'minute_15',
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
+
+    /**
      * Sort direction for orderByColumn.
      */
     export type MetricsTableWidgetConfigOrderDirection = typeof MetricsTableWidgetConfigOrderDirection[keyof typeof MetricsTableWidgetConfigOrderDirection];
@@ -11380,9 +11394,11 @@ export namespace Schemas {
       groupBy?: string | null;
       /**
          * One metric per column. Each row shows the column's average over the date range and a sparkline.
-         * @maxItems 4
+         * @maxItems 6
          */
       columns?: MetricsTableColumn[];
+      /** Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points. */
+      interval?: MetricsTableWidgetConfigInterval;
       /**
          * Index of the column that sorts the rows.
          * @minimum 0

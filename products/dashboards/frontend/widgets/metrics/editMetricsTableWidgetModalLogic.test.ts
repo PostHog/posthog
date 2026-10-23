@@ -38,10 +38,15 @@ describe('editMetricsTableWidgetModalLogic', () => {
         logic.actions.setGroupBy('http.route')
         logic.actions.addColumn()
         logic.actions.updateColumn(0, REQUESTS)
+        logic.actions.setInterval('minute_5')
         await expectLogic(logic, () => logic.actions.submit()).toFinishAllListeners()
 
         expect(onSave).toHaveBeenCalledTimes(1)
-        expect(onSave.mock.calls[0][0]).toMatchObject({ groupBy: 'http.route', columns: [REQUESTS] })
+        expect(onSave.mock.calls[0][0]).toMatchObject({
+            groupBy: 'http.route',
+            columns: [REQUESTS],
+            interval: 'minute_5',
+        })
     })
 
     it('blocks the save until every column has a metric', () => {

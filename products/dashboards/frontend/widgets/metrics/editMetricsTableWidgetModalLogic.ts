@@ -19,8 +19,9 @@ import {
 
 export type EditMetricsTableWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
 export type MetricsTableOrderDirection = 'ASC' | 'DESC'
+export type MetricsTableInterval = NonNullable<MetricsTableWidgetConfig['interval']>
 
-export const METRICS_TABLE_MAX_COLUMNS = 4
+export const METRICS_TABLE_MAX_COLUMNS = 6
 const DEFAULT_QUANTILE = 0.95
 const NEW_COLUMN: MetricsTableColumn = { label: 'Value', metricName: '', aggregation: 'avg' }
 
@@ -30,6 +31,7 @@ export interface editMetricsTableWidgetModalLogicValues {
     dateFrom: WidgetDateFromValue
     defaultTitle: string
     groupBy: string
+    interval: MetricsTableInterval | null
     limit: number
     onClose: () => void
     orderByColumn: number
@@ -46,6 +48,7 @@ export interface editMetricsTableWidgetModalLogicActions {
     removeColumn: (index: number) => { index: number }
     setDateFrom: (dateFrom: WidgetDateFromValue) => { dateFrom: WidgetDateFromValue }
     setGroupBy: (groupBy: string) => { groupBy: string }
+    setInterval: (interval: MetricsTableInterval | null) => { interval: MetricsTableInterval | null }
     setLimit: (limit: number) => { limit: number }
     setOrderByColumn: (orderByColumn: number) => { orderByColumn: number }
     setOrderDirection: (orderDirection: MetricsTableOrderDirection) => {
@@ -85,6 +88,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
         loadConfig: (config: MetricsTableWidgetConfig) => ({ config }),
         setGroupBy: (groupBy: string) => ({ groupBy }),
         setDateFrom: (dateFrom: WidgetDateFromValue) => ({ dateFrom }),
+        setInterval: (interval: MetricsTableInterval | null) => ({ interval }),
         setLimit: (limit: number) => ({ limit }),
         setOrderByColumn: (orderByColumn: number) => ({ orderByColumn }),
         setOrderDirection: (orderDirection: MetricsTableOrderDirection) => ({ orderDirection }),
@@ -109,6 +113,17 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                 loadConfig: (_state: WidgetDateFromValue, { config }: { config: MetricsTableWidgetConfig }) =>
                     config.dateRange?.date_from ?? '-1h',
                 setDateFrom: (_state: WidgetDateFromValue, { dateFrom }: { dateFrom: WidgetDateFromValue }) => dateFrom,
+            },
+        ],
+        interval: [
+            null as MetricsTableInterval | null,
+            {
+                loadConfig: (_state: MetricsTableInterval | null, { config }: { config: MetricsTableWidgetConfig }) =>
+                    config.interval ?? null,
+                setInterval: (
+                    _state: MetricsTableInterval | null,
+                    { interval }: { interval: MetricsTableInterval | null }
+                ) => interval,
             },
         ],
         limit: [
@@ -170,11 +185,12 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
     }),
     selectors({
         config: [
-            (s) => [s.groupBy, s.columns, s.dateFrom, s.limit, s.orderByColumn, s.orderDirection],
+            (s) => [s.groupBy, s.columns, s.dateFrom, s.interval, s.limit, s.orderByColumn, s.orderDirection],
             (
                 groupBy: string,
                 columns: MetricsTableColumn[],
                 dateFrom: WidgetDateFromValue,
+                interval: MetricsTableInterval | null,
                 limit: number,
                 orderByColumn: number,
                 orderDirection: MetricsTableOrderDirection
@@ -182,6 +198,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                 groupBy: groupBy.trim() || null,
                 columns: columns.map((column) => ({ ...column, metricName: column.metricName.trim() })),
                 dateRange: { date_from: dateFrom },
+                interval,
                 limit,
                 orderByColumn,
                 orderDirection,

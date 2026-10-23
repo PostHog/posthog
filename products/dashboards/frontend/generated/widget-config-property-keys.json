@@ -52,7 +52,7 @@
             "status"
         ],
         "canvas_app": ["canvasId"],
-        "metrics_table": ["columns", "dateRange", "groupBy", "limit", "orderByColumn", "orderDirection"]
+        "metrics_table": ["columns", "dateRange", "groupBy", "interval", "limit", "orderByColumn", "orderDirection"]
     },
     "configPropertyTrees": {
         "notebook_widget": {
@@ -518,6 +518,9 @@
                         }
                     }
                 }
+            },
+            "interval": {
+                "$enum": ["day", "hour", "minute", "minute_15", "minute_5"]
             },
             "orderByColumn": {
                 "$type": "integer"

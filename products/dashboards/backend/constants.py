@@ -22,7 +22,8 @@ LOGS_LIST_DEFAULT_LIMIT = 50
 
 # Metrics table: one metrics query clause per column, and one row per value of the group-by label.
 # The metrics query keeps at most 100 series per clause, so the row limit cannot go higher.
-METRICS_TABLE_MAX_COLUMNS = 4
+# Six columns fit rate, errors and three percentiles side by side.
+METRICS_TABLE_MAX_COLUMNS = 6
 METRICS_TABLE_MAX_FILTERS = 5
 METRICS_TABLE_MAX_LIMIT = 100
 METRICS_TABLE_DEFAULT_LIMIT = 25
