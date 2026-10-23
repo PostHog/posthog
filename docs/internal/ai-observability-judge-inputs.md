@@ -282,6 +282,10 @@ The report agent's `list_all_eval_results` and `sample_eval_results` tools cap e
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
 
+The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken. Previews and low input token counts alone are insufficient evidence.
+
 ## Browser compatibility
 
 The evaluations list keeps supported rows visible if the API returns an output type the browser cannot display.
