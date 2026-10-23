@@ -18,7 +18,7 @@ use crate::{
 /// Build the injected IIFE for a chunk. Both ids are filled in as JSON-encoded string literals,
 /// so quotes/backslashes in the values can't break out of the snippet — chunk ids matter too,
 /// since re-injection reuses whatever the `//# chunkId=` comment carries.
-fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String> {
+pub(crate) fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String> {
     let Some(release_id) = release_id else {
         return substitute_chunk_id(CODE_SNIPPET_TEMPLATE, chunk_id);
     };
