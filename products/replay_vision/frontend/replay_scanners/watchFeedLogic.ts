@@ -51,9 +51,9 @@ export interface watchFeedLogicValues {
     feedItemsLoading: boolean
     feedLoad: WatchFeedLoad | null
     feedMoreFailed: boolean
-    feedServed: number
     feedRanker: WatchFeedRanker
     feedRankerVariant: string | null
+    feedServed: number
     hasFeedFilters: boolean
     scannerIdsFilter: string[]
     scannerTypeFilter: ScannerType | null
@@ -113,9 +113,7 @@ export interface watchFeedLogicActions {
             value: true
         }
     }
-    loadMoreFeed: () => {
-        value: true
-    }
+    loadMoreFeed: () => any
     loadMoreFeedFailure: (
         error: string,
         errorObject?: any
@@ -125,14 +123,10 @@ export interface watchFeedLogicActions {
     }
     loadMoreFeedSuccess: (
         feedItems: WatchFeedItemApi[] | null,
-        payload?: {
-            value: true
-        }
+        payload?: any
     ) => {
         feedItems: WatchFeedItemApi[] | null
-        payload?: {
-            value: true
-        }
+        payload?: any
     }
     restoreFeedFilters: (
         search: string,
