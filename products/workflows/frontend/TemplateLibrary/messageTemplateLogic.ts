@@ -1256,7 +1256,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         // Guards both new and existing templates - a brand-new template only exists in form
         // state until "Create" is pressed, so leaving without saving would discard it entirely.
         enabled: (newLocation) => {
-            if (!values.hasUnsavedChanges) {
+            // After a refusal, the banner holds the only copy of the edits.
+            if (!values.hasUnsavedChanges && !values.refusedEdits) {
                 return false
             }
             // Allow same-path changes (e.g. query params) through without warning.

@@ -700,6 +700,16 @@ describe('messageTemplateLogic', () => {
             }
         )
 
+        it('asks before a navigation drops the refused edits', async () => {
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            await refuse(claimThenAutosave)
+
+            router.actions.push('/workflows/library')
+
+            expect(confirmSpy).toHaveBeenCalledTimes(1)
+            confirmSpy.mockRestore()
+        })
+
         it('duplicates the unsaved edits without its key, ownership, source or hash', async () => {
             await refuse(claimThenAutosave)
 
