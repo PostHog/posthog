@@ -397,6 +397,7 @@ describe('experimentLogic', () => {
             metadata: { type: 'primary' },
             created_at: '2024-01-01T00:00:00Z',
         } as unknown as ExperimentSavedMetric
+        const keptSharedMetric = { ...attachedSharedMetric, id: 8, saved_metric: 2 } as ExperimentSavedMetric
 
         it.each([
             [
@@ -408,14 +409,13 @@ describe('experimentLogic', () => {
             ],
             [
                 'removeSharedMetricFromExperiment',
-                [],
-                [attachedSharedMetric],
+                [keptSharedMetric],
+                [attachedSharedMetric, keptSharedMetric],
                 (keyed: ReturnType<typeof experimentLogic>): void => keyed.actions.removeSharedMetricFromExperiment(1),
             ],
         ])(
-            '%s applies the save response and reuses the window (metric_config_change)',
+            '%s applies the save response, clears positional results and reuses the window (metric_config_change)',
             async (_name, savedMetricsAfter, savedMetricsBefore, dispatch) => {
-                /** A reload unmounts the metrics view, so a recalculation trigger sent during an active run is lost. */
                 useMocks({
                     post: {
                         '/api/environments/:team/query': () => [
@@ -437,8 +437,12 @@ describe('experimentLogic', () => {
                     .toNotHaveDispatchedActions(['loadExperiment'])
                     .toDispatchActions([
                         (action) =>
+                            action.type ===
+                                experimentMetricsLogic({ experiment }).actionTypes.setPrimaryMetricsResults &&
+                            action.payload.results.length === 0,
+                        (action) =>
                             action.type === keyed.actionTypes.refreshExperimentResults &&
-                            action.payload.forceRefresh === true &&
+                            action.payload.forceRefresh === false &&
                             action.payload.triggeredBy === 'metric_config_change',
                     ])
 

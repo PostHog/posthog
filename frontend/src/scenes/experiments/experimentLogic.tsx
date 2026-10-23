@@ -2164,8 +2164,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
             actions.setUnmodifiedExperiment(structuredClone(response))
             actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
             if (isLaunched(response)) {
-                actions.refreshExperimentResults(true, 'metric_config_change')
+                actions.refreshExperimentResults(false, 'metric_config_change')
             }
         },
         duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
@@ -2219,8 +2226,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
             actions.setUnmodifiedExperiment(structuredClone(response))
             actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
             if (isLaunched(response)) {
-                actions.refreshExperimentResults(true, 'metric_config_change')
+                actions.refreshExperimentResults(false, 'metric_config_change')
             }
         },
         createExperimentDashboard: async () => {
