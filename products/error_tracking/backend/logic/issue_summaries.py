@@ -107,7 +107,7 @@ WAIT_POLL_INTERVAL_SECONDS = 0.25
 ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
 LOCK_HELD_FOR_GENERATION = "1"
 LOCK_QUEUED = "queued"
-# Takes the lock when it is free or only marks a queued task. Returns nil on success, else the value that holds it.
+# Takes the lock when the key is free or holds only the queued marker. Returns nil on success, else the value that holds it.
 CLAIM_LUA = """
 local held = redis.call('GET', KEYS[1])
 if held == false or held == ARGV[1] then
@@ -115,6 +115,13 @@ if held == false or held == ARGV[1] then
     return false
 end
 return held
+"""
+# Deletes the key only while it holds the queued marker, so a worker's claim or a hold outcome survives.
+RELEASE_QUEUED_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
 """
 
 
@@ -219,7 +226,7 @@ def _queue_generation(team_id: int, issue_id: UUID | str) -> bool:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         # Without a task, the queued marker would keep reads waiting until it expires.
         try:
-            get_client().delete(_lock_key(team_id, issue_id))
+            get_client().register_script(RELEASE_QUEUED_LUA)(keys=[_lock_key(team_id, issue_id)], args=[LOCK_QUEUED])
         except RedisError:
             logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
         return False

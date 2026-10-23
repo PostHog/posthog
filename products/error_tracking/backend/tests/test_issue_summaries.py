@@ -360,6 +360,7 @@ class TestIssueSummaryGeneration(BaseTest):
 
     def test_start_queues_one_task_until_a_worker_claims_it(self) -> None:
         assert self._start() == (True, True)
+        assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= issue_summaries.ISSUE_SUMMARY_QUEUED_TTL_SECONDS
         assert self._start() == (True, False)
 
         result = get_or_generate_issue_summary(self.team.id, self.issue.id)
