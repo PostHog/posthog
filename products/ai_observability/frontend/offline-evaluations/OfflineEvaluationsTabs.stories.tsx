@@ -18,7 +18,7 @@ const meta: Meta<typeof OfflineEvaluationsTabs> = {
     args: { activeTab: 'datasets' },
     decorators: [
         (Story, { parameters }) => (
-            <div className={cn('@container/main-content', parameters.narrow && 'w-[520px]')}>
+            <div className={cn('@container/main-content', parameters.narrow ? 'w-[520px]' : 'w-[1200px]')}>
                 <Story />
             </div>
         ),

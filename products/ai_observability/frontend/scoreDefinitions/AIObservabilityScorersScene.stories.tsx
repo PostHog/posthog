@@ -37,7 +37,11 @@ const meta: Meta<typeof AIObservabilityScorersScene> = {
     },
     decorators: [
         (Story, { parameters }) => (
-            <div className={parameters.narrow ? 'w-[520px] @container/main-content' : '@container/main-content'}>
+            <div
+                className={
+                    parameters.narrow ? 'w-[520px] @container/main-content' : 'w-[1200px] @container/main-content'
+                }
+            >
                 <Story />
             </div>
         ),

@@ -20,6 +20,11 @@ const meta: Meta<typeof EvaluationsScene> = {
         testOptions: { waitForSelector: '[data-attr="create-evaluation-button"]' },
     },
     decorators: [
+        (Story, { parameters }) => (
+            <div className={parameters.narrow ? 'w-[520px]' : 'w-[1200px]'}>
+                <Story />
+            </div>
+        ),
         mswDecorator({
             get: {
                 '/api/projects/:team/evaluations/': { count: 0, results: [], next: null, previous: null },
@@ -33,13 +38,13 @@ const meta: Meta<typeof EvaluationsScene> = {
         }),
     ],
     play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('Score AI responses as they happen')
         sceneLogic.actions.setScene(Scene.AIObservabilityEvaluations, undefined, {
             params: {},
             searchParams: {},
             hashParams: {},
         })
-        const canvas = within(canvasElement)
-        await canvas.findByText('Score AI responses as they happen')
         for (const label of ['Online evals', 'Offline evals', 'Scorers']) {
             if (!canvas.getByText(label).closest('a')?.getAttribute('href')) {
                 throw new Error(`${label} must remain reachable before creating an online evaluation`)
@@ -54,11 +59,5 @@ type Story = StoryObj<typeof EvaluationsScene>
 export const NoOnlineEvaluations: Story = {}
 
 export const Narrow: Story = {
-    decorators: [
-        (Story) => (
-            <div className="w-[520px]">
-                <Story />
-            </div>
-        ),
-    ],
+    parameters: { narrow: true },
 }
