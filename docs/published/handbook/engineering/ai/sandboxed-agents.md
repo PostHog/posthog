@@ -520,6 +520,9 @@ at boot and dockerd does not autostart. Run the baked `bootstrap-dev-stack` help
 required — the sandbox has no TTY, and running phrocs under a pseudo-TTY makes it balloon in
 memory until it is OOM-killed — and the detached start returns while the stack is still booting,
 so `hogli wait` is what blocks until every process reports ready.
+On a 16 GiB self-driving run the full stack takes about 12 GiB and leaves no room for tests,
+so the agent should start only the datastores unless the task needs the running app
+(see `docs/internal/cloud-task-sandbox.md`).
 
 Provisioning also fires that helper detached as soon as the sandbox is up (best-effort, only on
 runs that booted the PostHog-published `posthog-dev-stack` image itself — never a user-authored
