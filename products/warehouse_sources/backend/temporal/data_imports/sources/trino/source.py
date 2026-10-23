@@ -44,6 +44,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _TRINO_IMPLEMENTATION = TrinoImplementation()
 
 
+# The source type the managed-warehouse host exemption is keyed on. A managed Trino tenant
+# endpoint answers on the gateway listener, not the pgwire one, so the exemption is asked
+# for under this name and grants port 443 only.
+_HOST_CHECK_SOURCE_TYPE = "trino"
+
+
 @SourceRegistry.register
 class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
@@ -215,7 +221,9 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
     def validate_credentials(
         self, config: TrinoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        is_valid, error = self.is_database_host_valid(config.host, team_id)
+        is_valid, error = self.is_database_host_valid(
+            config.host, team_id, port=config.port, source_type=_HOST_CHECK_SOURCE_TYPE
+        )
         if not is_valid:
             return False, error
         try:
@@ -236,7 +244,9 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        is_valid, error = self.is_database_host_valid(config.host, team_id)
+        is_valid, error = self.is_database_host_valid(
+            config.host, team_id, port=config.port, source_type=_HOST_CHECK_SOURCE_TYPE
+        )
         if not is_valid:
             raise ValueError(error or "Invalid Trino host.")
         with trino_failures_as_discovery_error(), connect_trino(config) as connection:

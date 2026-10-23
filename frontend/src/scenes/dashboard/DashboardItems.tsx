@@ -30,6 +30,7 @@ import {
     whenPressBecomesDrag,
 } from 'scenes/dashboard/editLayoutGesture'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
+import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -48,9 +49,6 @@ import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDash
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
-
-const DRAG_AUTO_SCROLL_THRESHOLD = 100
-const DRAG_AUTO_SCROLL_SPEED = 50
 
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
@@ -153,21 +151,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // `layouts` prop, so pushing layout updates to the store mid-gesture only triggers expensive full re-renders
     // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
     const dragEndTimeout = useRef<number | null>(null)
-    const scrollAnimationRef = useRef<number | null>(null)
-    const scrollContainerRef = useRef<HTMLElement | null>(null)
-    const scrollContainerRectRef = useRef<DOMRect | null>(null)
+    const { startAutoScroll, autoScrollOnDrag, stopAutoScroll } = useDragAutoScroll()
     const lastScrollSignalRef = useRef(scrollToBottomSignal)
 
     useEffect(() => {
         return () => {
-            if (scrollAnimationRef.current) {
-                cancelAnimationFrame(scrollAnimationRef.current)
-            }
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
             }
-            scrollContainerRef.current = null
-            scrollContainerRectRef.current = null
         }
     }, [])
 
@@ -484,63 +475,24 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 return
             }
             startInteraction(layout, newItem, 'drag')
-            scrollContainerRef.current = document.getElementById('main-content')
-            scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+            startAutoScroll()
         },
-        [startInteraction]
+        [startInteraction, startAutoScroll]
     )
 
     const handleDrag = useCallback(
-        (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
+        (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: Event) => {
             isDragging.current = true
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
             }
-            if (scrollAnimationRef.current) {
-                cancelAnimationFrame(scrollAnimationRef.current)
-                scrollAnimationRef.current = null
-            }
-
-            const scrollContainer = scrollContainerRef.current
-            const containerRect = scrollContainerRectRef.current
-            if (!scrollContainer || !containerRect) {
-                return
-            }
-
-            const mouseY = (e as MouseEvent).clientY
-
-            let scrollSpeed = 0
-            if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
-                scrollSpeed = -DRAG_AUTO_SCROLL_SPEED
-            } else if (mouseY > containerRect.bottom - DRAG_AUTO_SCROLL_THRESHOLD) {
-                scrollSpeed = DRAG_AUTO_SCROLL_SPEED
-            }
-
-            if (scrollSpeed !== 0) {
-                const scroll = (): void => {
-                    const atTop = scrollSpeed < 0 && scrollContainer.scrollTop === 0
-                    const atBottom =
-                        scrollSpeed > 0 &&
-                        scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight
-                    if (atTop || atBottom) {
-                        return
-                    }
-                    scrollContainer.scrollBy(0, scrollSpeed)
-                    scrollAnimationRef.current = requestAnimationFrame(scroll)
-                }
-                scrollAnimationRef.current = requestAnimationFrame(scroll)
-            }
+            autoScrollOnDrag(e)
         },
-        []
+        [autoScrollOnDrag]
     )
 
     const handleDragStop = useCallback(() => {
-        if (scrollAnimationRef.current) {
-            cancelAnimationFrame(scrollAnimationRef.current)
-            scrollAnimationRef.current = null
-        }
-        scrollContainerRef.current = null
-        scrollContainerRectRef.current = null
+        stopAutoScroll()
         if (dragEndTimeout.current) {
             window.clearTimeout(dragEndTimeout.current)
         }
@@ -551,7 +503,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts, stopAutoScroll])
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
         const { insight, text, button_tile, widget } = tile
