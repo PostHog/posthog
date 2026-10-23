@@ -154,6 +154,12 @@ describe('warehouseSuggestionsLogic', () => {
 
     afterEach(() => logic?.unmount())
 
+    async function checksRequested(count: number): Promise<void> {
+        while (mockCheck.mock.calls.length < count) {
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+    }
+
     async function mountLogic(
         surface: SuggestionSurface = 'models',
         onViewAccepted?: (suggestion: WarehouseSuggestionApi) => void
@@ -290,6 +296,62 @@ describe('warehouseSuggestionsLogic', () => {
             unique_key: ['day'],
             lookback_seconds: 0,
         })
+    })
+
+    it.each<[string, Parameters<typeof logic.actions.setRefreshDraft>[0]]>([
+        ['every unique key column is cleared', { uniqueKey: [] }],
+        ['the incremental column is cleared', { incrementalKey: null }],
+    ])('does not materialize an incremental draft when %s', async (_name, change) => {
+        mockList.mockResolvedValue(page([INCREMENTAL]))
+        await mountLogic()
+        logic.actions.openMaterializeModal(INCREMENTAL.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setRefreshDraft(change)
+        logic.actions.confirmMaterialize()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.materializeDisabledReason).toEqual('Select the incremental column and unique key columns')
+        expect(mockAccept).not.toHaveBeenCalled()
+    })
+
+    it('keeps the open view check when an earlier view check resolves last', async () => {
+        const first = materialize('first', 600)
+        const second = materialize('second', 1200)
+        mockList.mockResolvedValue(page([first, second]))
+        mockSavedQuery.mockImplementation(
+            async (_project, id) =>
+                ({ query: { query: `SELECT * FROM ${id}` } }) as Awaited<
+                    ReturnType<typeof warehouseSavedQueriesRetrieve>
+                >
+        )
+        const resolvers: Record<string, (keys: string[]) => void> = {}
+        mockCheck.mockImplementation(
+            (_project, { query }) =>
+                new Promise((resolve) => {
+                    resolvers[query] = (keys) =>
+                        resolve({
+                            eligible: true,
+                            key_candidates: keys,
+                            unique_key_candidates: keys,
+                            key_candidate_types: {},
+                            blockers: [],
+                            warnings: [],
+                        })
+                })
+        )
+        await mountLogic()
+
+        logic.actions.openMaterializeModal(first.id)
+        logic.actions.closeMaterializeModal()
+        logic.actions.openMaterializeModal(second.id)
+        await checksRequested(2)
+        resolvers[`SELECT * FROM ${second.subject_id}`](['second_day'])
+        resolvers[`SELECT * FROM ${first.subject_id}`](['first_day'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.incrementalCheck?.key_candidates).toEqual(['second_day'])
+        expect(logic.values.refreshDraft.incrementalKey).toEqual('second_day')
     })
 
     it('checks the view for incremental refresh when the dialog opens', async () => {

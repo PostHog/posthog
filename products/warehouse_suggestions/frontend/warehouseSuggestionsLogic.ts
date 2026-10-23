@@ -65,6 +65,8 @@ const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
 }
 const VIEW_IN_SQL_EDITOR_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
+const PICK_INTERVAL_REASON = 'Pick how often it refreshes'
+const INCOMPLETE_INCREMENTAL_REASON = 'Select the incremental column and unique key columns'
 const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => string> = {
     materialize: ({ payload }) => `Materializing ${payload.subject_name}. The first refresh is running.`,
     unmaterialize: ({ payload }) =>
@@ -139,6 +141,15 @@ function changedRefreshOptions(
     return options
 }
 
+async function fetchIncrementalCheck(viewId: string): Promise<IncrementalEligibilityApi | null> {
+    try {
+        const view = await warehouseSavedQueriesRetrieve(projectId(), viewId)
+        return await warehouseSavedQueriesCheckIncrementalCreate(projectId(), { query: view.query.query })
+    } catch {
+        return null
+    }
+}
+
 function sum(values: number[]): number {
     return values.reduce((total, value) => total + value, 0)
 }
@@ -163,6 +174,7 @@ export interface warehouseSuggestionsLogicValues {
     leavingSuggestionIds: string[]
     listedSuggestions: WarehouseSuggestionApi[]
     loadError: boolean
+    materializeDisabledReason: string | null
     materializeError: string | null
     materializeInterval: DataModelingSyncInterval | null
     materializeIntervalShorterThanSuggested: boolean
@@ -351,6 +363,10 @@ export interface warehouseSuggestionsLogicMeta {
             suggestions: WarehouseSuggestionApi[] | null,
             acceptConfirmSuggestionId: string | null
         ) => WarehouseSuggestionApi | null
+        materializeDisabledReason: (
+            materializeInterval: DataModelingSyncInterval | null,
+            refreshDraft: IncrementalConfigDraft
+        ) => string | null
         materializeIntervalShorterThanSuggested: (
             materializeModalSuggestion: WarehouseSuggestionApi | null,
             materializeInterval: DataModelingSyncInterval | null
@@ -407,7 +423,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             suggestionAccepted: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
             reload: true,
         }),
-        loaders({
+        loaders(({ values }) => ({
             suggestions: [
                 null as WarehouseSuggestionApi[] | null,
                 {
@@ -424,20 +440,15 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             incrementalCheck: [
                 null as IncrementalEligibilityApi | null,
                 {
-                    loadIncrementalCheck: async (viewId: string) => {
-                        try {
-                            const view = await warehouseSavedQueriesRetrieve(projectId(), viewId)
-                            return await warehouseSavedQueriesCheckIncrementalCreate(projectId(), {
-                                query: view.query.query,
-                            })
-                        } catch {
-                            return null
-                        }
+                    loadIncrementalCheck: async (viewId: string, breakpoint) => {
+                        const check = await fetchIncrementalCheck(viewId)
+                        breakpoint()
+                        return values.materializeModalSuggestion?.subject_id === viewId ? check : null
                     },
                     closeMaterializeModal: () => null,
                 },
             ],
-        }),
+        })),
         reducers(() => ({
             suggestions: {
                 suggestionResumed: (state: WarehouseSuggestionApi[] | null, { suggestion }) => [
@@ -578,6 +589,18 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 (s) => [s.suggestions, s.acceptConfirmSuggestionId],
                 (suggestions: WarehouseSuggestionApi[] | null, id: string | null): WarehouseSuggestionApi | null =>
                     (suggestions ?? []).find((suggestion) => suggestion.id === id) ?? null,
+            ],
+            materializeDisabledReason: [
+                (s) => [s.materializeInterval, s.refreshDraft],
+                (interval: DataModelingSyncInterval | null, draft: IncrementalConfigDraft): string | null => {
+                    if (!interval) {
+                        return PICK_INTERVAL_REASON
+                    }
+                    if (draft.enabled && (!draft.incrementalKey || draft.uniqueKey.length === 0)) {
+                        return INCOMPLETE_INCREMENTAL_REASON
+                    }
+                    return null
+                },
             ],
             materializeIntervalShorterThanSuggested: [
                 (s) => [s.materializeModalSuggestion, s.materializeInterval],
@@ -731,7 +754,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 confirmMaterialize: () => {
                     const suggestion = values.materializeModalSuggestion
                     const interval = values.materializeInterval
-                    if (!suggestion || !interval || !isMaterializePayload(suggestion.payload)) {
+                    if (
+                        !suggestion ||
+                        !interval ||
+                        values.materializeDisabledReason ||
+                        !isMaterializePayload(suggestion.payload)
+                    ) {
                         return
                     }
                     actions.acceptSuggestion(suggestion.id, {

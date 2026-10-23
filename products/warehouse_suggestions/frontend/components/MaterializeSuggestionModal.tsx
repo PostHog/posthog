@@ -28,6 +28,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
         materializeError,
         materializeInterval,
         materializeIntervalShorterThanSuggested,
+        materializeDisabledReason,
         actionsInFlight,
         refreshDraft,
         incrementalCheck,
@@ -66,7 +67,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         loading={inFlight}
-                        disabledReason={materializeInterval ? undefined : 'Pick how often it refreshes'}
+                        disabledReason={materializeDisabledReason ?? undefined}
                         onClick={() => confirmMaterialize()}
                         data-attr="warehouse-suggestions-materialize-confirm"
                     >
