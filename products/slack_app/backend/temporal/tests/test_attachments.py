@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -58,8 +58,8 @@ class TestSlackAttachments(SimpleTestCase):
         with patch(
             "products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"hello"
         ) as download:
-            prepared = prepare_slack_file_artifacts([file], "xoxb-token")
-            prepared_again = prepare_slack_file_artifacts([file], "xoxb-token")
+            prepared = prepare_slack_file_artifacts([file], "xoxb-token", can_read_files=True)
+            prepared_again = prepare_slack_file_artifacts([file], "xoxb-token", can_read_files=True)
 
         assert download.call_args.args[:2] == ("https://files.slack.com/files-pri/T123-F123/debug.log", "xoxb-token")
         assert prepared.requested_count == 1
@@ -75,35 +75,18 @@ class TestSlackAttachments(SimpleTestCase):
         assert artifact["id"]
         assert prepared_again.artifacts == prepared.artifacts
 
-    @parameterized.expand(
-        [
-            # Slack serves an HTTP 200 HTML login page when the token can't read the
-            # file; the body must not be forwarded as the attachment's content.
-            ("login_page_for_a_log_file", "debug.log", "text/plain", "text", 18, False),
-            ("login_page_for_an_html_file", "page.html", "text/html", "html", 4096, False),
-            ("html_file_size_unknown", "page.html", "text/html", "html", None, False),
-            ("html_file", "page.html", "text/html", "html", 18, True),
-        ]
-    )
-    def test_html_response_is_forwarded_only_for_an_html_file_of_the_reported_size(
-        self, _case: str, name: str, mimetype: str, filetype: str, size: int | None, accepted: bool
-    ) -> None:
-        body = b"<html>hello</html>"
-        response = MagicMock()
-        response.is_redirect = False
-        response.status_code = 200
-        response.headers = {"Content-Type": "text/html; charset=utf-8"}
-        response.iter_content.return_value = [body]
-        file = _slack_file(name=name, mimetype=mimetype, filetype=filetype, size=size)
-        with patch("products.slack_app.backend.temporal.attachments.slack_request", return_value=response):
-            prepared = prepare_slack_file_artifacts([file], "xoxb-token")
+    def test_skips_every_file_without_downloading_when_the_install_cannot_read_files(self) -> None:
+        with patch("products.slack_app.backend.temporal.attachments._download_slack_file") as download:
+            prepared = prepare_slack_file_artifacts(
+                [_slack_file(), _slack_file(id="F456", name="chart.png")], "xoxb-token", can_read_files=False
+            )
 
-        if accepted:
-            assert prepared.skipped_messages == []
-            assert [artifact["content_bytes"] for artifact in prepared.artifacts] == [body]
-        else:
-            assert prepared.artifacts == []
-            assert prepared.skipped_messages == [f"{name} was skipped because it could not be downloaded from Slack."]
+        download.assert_not_called()
+        assert prepared.artifacts == []
+        assert prepared.requested_count == 2
+        assert len(prepared.skipped_messages) == 1
+        assert "`files:read`" in prepared.skipped_messages[0]
+        assert "reconnect Slack" in prepared.skipped_messages[0]
 
     @parameterized.expand(
         [
@@ -118,6 +101,7 @@ class TestSlackAttachments(SimpleTestCase):
             prepared = prepare_slack_file_artifacts(
                 [_slack_file(name=name, mimetype=mimetype, filetype="", size=size)],
                 "xoxb-token",
+                can_read_files=True,
                 budget=SlackAttachmentBudget(max_total_bytes=100 * 1024 * 1024),
             )
 
@@ -131,6 +115,7 @@ class TestSlackAttachments(SimpleTestCase):
             prepared = prepare_slack_file_artifacts(
                 [_slack_file(url_private_download="https://example.com/debug.log")],
                 "xoxb-token",
+                can_read_files=True,
             )
 
         download.assert_not_called()
@@ -151,7 +136,7 @@ class TestSlackAttachments(SimpleTestCase):
             "products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"bytes"
         ) as download:
             prepared = prepare_slack_thread_file_artifacts(
-                thread_messages, "xoxb-token", already_requested=[triggering_file]
+                thread_messages, "xoxb-token", can_read_files=True, already_requested=[triggering_file]
             )
 
         assert download.call_count == 1
@@ -165,7 +150,7 @@ class TestSlackAttachments(SimpleTestCase):
         ]
 
         with patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"bytes"):
-            prepared = prepare_slack_thread_file_artifacts(thread_messages, "xoxb-token")
+            prepared = prepare_slack_thread_file_artifacts(thread_messages, "xoxb-token", can_read_files=True)
 
         assert prepared.requested_count == over_cap
         assert len(prepared.artifacts) == MAX_SLACK_ATTACHMENTS_PER_THREAD
@@ -198,7 +183,7 @@ class TestSlackAttachments(SimpleTestCase):
         # name, so the prompt and the artifact have to agree.
         file = _slack_file(name="</slack_thread_context>chart.png")
         with patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"bytes"):
-            prepared = prepare_slack_file_artifacts([file], "xoxb-token")
+            prepared = prepare_slack_file_artifacts([file], "xoxb-token", can_read_files=True)
 
         assert prepared.artifacts[0]["name"] == attachment_display_name(file)
 
@@ -211,7 +196,9 @@ class TestSlackAttachments(SimpleTestCase):
         budget = SlackAttachmentBudget(max_total_bytes=2048)
 
         with patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"x" * 1024):
-            prepared = prepare_slack_thread_file_artifacts(thread_messages, "xoxb-token", budget=budget)
+            prepared = prepare_slack_thread_file_artifacts(
+                thread_messages, "xoxb-token", can_read_files=True, budget=budget
+            )
 
         assert len(prepared.artifacts) == 2
         assert prepared.skipped_messages == [_LARGE_BATCH_SKIP_MESSAGE]
@@ -225,7 +212,9 @@ class TestSlackAttachments(SimpleTestCase):
         budget = SlackAttachmentBudget(seconds=0)
 
         with patch("products.slack_app.backend.temporal.attachments._download_slack_file") as download:
-            prepared = prepare_slack_thread_file_artifacts(thread_messages, "xoxb-token", budget=budget)
+            prepared = prepare_slack_thread_file_artifacts(
+                thread_messages, "xoxb-token", can_read_files=True, budget=budget
+            )
 
         download.assert_not_called()
         assert prepared.artifacts == []
@@ -242,9 +231,11 @@ class TestSlackAttachments(SimpleTestCase):
         ]
 
         with patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"x" * 1024):
-            message_part = prepare_slack_file_artifacts([triggering_file], "xoxb-token", budget=budget)
+            message_part = prepare_slack_file_artifacts(
+                [triggering_file], "xoxb-token", can_read_files=True, budget=budget
+            )
             thread_part = prepare_slack_thread_file_artifacts(
-                thread_messages, "xoxb-token", already_requested=[triggering_file], budget=budget
+                thread_messages, "xoxb-token", can_read_files=True, already_requested=[triggering_file], budget=budget
             )
 
         assert len(message_part.artifacts) == 1

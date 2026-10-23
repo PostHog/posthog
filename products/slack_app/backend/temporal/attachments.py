@@ -5,11 +5,15 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from django.conf import settings
+
 import structlog
 
 from posthog.egress.slack.transport import slack_request
+from posthog.models.integration import Integration
 
 from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage
+from products.slack_app.backend.services.slack_scopes import has_scopes
 
 logger = structlog.get_logger(__name__)
 
@@ -40,8 +44,7 @@ _ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files
 # Slack applies no file type rule of its own. The task artifact store decides what a
 # user may attach, so Slack, PostHog Desktop, and PostHog AI accept the same files.
 
-_HTML_EXTENSIONS = frozenset({".htm", ".html", ".xhtml"})
-_HTML_MIME_TYPES = frozenset({"application/xhtml+xml", "text/html"})
+SLACK_FILE_READ_SCOPE = "files:read"
 
 _SLOW_BATCH_SKIP_MESSAGE = (
     "Some Slack attachment(s) were skipped because they took too long to fetch. "
@@ -97,6 +100,10 @@ class PreparedSlackAttachments:
         return self.requested_count > 0
 
 
+def can_read_slack_files(integration: Integration) -> bool:
+    return has_scopes(integration, {SLACK_FILE_READ_SCOPE})
+
+
 def get_slack_bot_token(slack: Any, integration: Any) -> str | None:
     token = getattr(integration, "access_token", None)
     if isinstance(token, str) and token:
@@ -140,11 +147,6 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
 
-def _is_declared_html(filename: str, content_type: str, slack_filetype: str) -> bool:
-    extension = os.path.splitext(filename.lower())[1]
-    return extension in _HTML_EXTENSIONS or content_type in _HTML_MIME_TYPES or slack_filetype.lower() == "html"
-
-
 def _source_url(file: SlackFileRef) -> str:
     return file.url_private_download or file.url_private
 
@@ -155,13 +157,7 @@ def _download_slack_file(
     budget: SlackAttachmentBudget,
     *,
     max_file_bytes: int,
-    html_file_size: int | None = None,
 ) -> bytes | None:
-    """Download one Slack file, or return ``None`` when it is not safe to forward.
-
-    ``html_file_size`` is the size Slack reports for a file that is itself HTML. Leave it
-    ``None`` for every other file, and for an HTML file whose size Slack did not report.
-    """
     next_url = url
     max_bytes = min(max_file_bytes, budget.remaining_bytes)
     for _ in range(MAX_SLACK_DOWNLOAD_REDIRECTS + 1):
@@ -201,18 +197,6 @@ def _download_slack_file(
                 logger.warning("slack_attachment_download_failed_status", status_code=response.status_code)
                 return None
 
-            # Slack answers HTTP 200 with an HTML login/interstitial page when the
-            # token lacks files:read or the file is access-restricted. Forwarding that
-            # page would silently hand the agent a login page as the file. An HTML body
-            # is therefore accepted only for a file that is itself HTML, and only when
-            # its length is the size Slack reported for that file. The login page has
-            # a different length, so it is still refused.
-            response_content_type = _normalize_content_type(response.headers.get("Content-Type"))
-            is_html_response = response_content_type in _HTML_MIME_TYPES
-            if is_html_response and html_file_size is None:
-                logger.warning("slack_attachment_download_html_interstitial", content_type=response_content_type)
-                return None
-
             content_length = response.headers.get("Content-Length")
             if content_length:
                 try:
@@ -235,9 +219,6 @@ def _download_slack_file(
                     logger.warning("slack_attachment_download_rejected_body_size", total=total)
                     return None
                 chunks.append(chunk)
-            if is_html_response and total != html_file_size:
-                logger.warning("slack_attachment_download_html_interstitial", content_type=response_content_type)
-                return None
             return b"".join(chunks)
         finally:
             response.close()
@@ -260,6 +241,7 @@ def prepare_slack_file_artifacts(
     files: list[SlackFileRef],
     bot_token: str | None,
     *,
+    can_read_files: bool,
     budget: SlackAttachmentBudget | None = None,
 ) -> PreparedSlackAttachments:
     """Fetch the attachments on one Slack message, ready to upload to the agent's workspace."""
@@ -270,6 +252,7 @@ def prepare_slack_file_artifacts(
         over_limit_message=(
             f"Additional Slack attachment(s) skipped: only {MAX_SLACK_ATTACHMENTS_PER_MESSAGE} files are supported per message."
         ),
+        can_read_files=can_read_files,
         budget=budget or SlackAttachmentBudget(),
     )
 
@@ -278,6 +261,7 @@ def prepare_slack_thread_file_artifacts(
     thread_messages: list[SlackThreadMessage],
     bot_token: str | None,
     *,
+    can_read_files: bool,
     already_requested: list[SlackFileRef] | None = None,
     budget: SlackAttachmentBudget | None = None,
 ) -> PreparedSlackAttachments:
@@ -313,6 +297,7 @@ def prepare_slack_thread_file_artifacts(
             f"Slack attachment(s) from earlier in the thread skipped: only {MAX_SLACK_ATTACHMENTS_PER_THREAD} "
             "thread files are supported."
         ),
+        can_read_files=can_read_files,
         budget=budget or SlackAttachmentBudget(),
     )
 
@@ -332,6 +317,7 @@ def _prepare_files(
     *,
     max_files: int,
     over_limit_message: str,
+    can_read_files: bool,
     budget: SlackAttachmentBudget,
 ) -> PreparedSlackAttachments:
     from products.tasks.backend.facade import api as tasks_facade
@@ -344,6 +330,18 @@ def _prepare_files(
         return PreparedSlackAttachments(
             artifacts=[],
             skipped_messages=["Slack attachment(s) could not be read because the Slack bot token was unavailable."],
+            requested_count=requested_count,
+        )
+    # Without files:read, Slack answers a download with HTTP 200 and its HTML login page.
+    # That page would reach the agent as the file, so no download starts at all.
+    if not can_read_files:
+        return PreparedSlackAttachments(
+            artifacts=[],
+            skipped_messages=[
+                f"PostHog needs the `{SLACK_FILE_READ_SCOPE}` permission to read Slack attachments. "
+                f"Ask a project admin to reconnect Slack ({settings.SITE_URL}/settings/project-integrations), "
+                "then post the files again."
+            ],
             requested_count=requested_count,
         )
 
@@ -389,7 +387,6 @@ def _prepare_files(
                 bot_token,
                 budget,
                 max_file_bytes=max_file_bytes,
-                html_file_size=file.size if _is_declared_html(filename, content_type, file.filetype) else None,
             )
         except Exception:
             logger.exception("slack_attachment_download_exception", file_id=file.id)
