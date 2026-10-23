@@ -11,12 +11,12 @@
                     },
                     "content_id": {
                         "description": "Shows the file inline: reference it in `html` as `<img src=\"cid:logo\">` with `content_id` `logo`.",
-                        "maxLength": 128,
+                        "maxLength": 78,
                         "type": "string"
                     },
                     "content_type": {
                         "description": "MIME type with its parameters, such as `text/calendar; method=REQUEST`. Without it, the type follows the file name.",
-                        "maxLength": 255,
+                        "maxLength": 78,
                         "type": "string"
                     },
                     "filename": {
