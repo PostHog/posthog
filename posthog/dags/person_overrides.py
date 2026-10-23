@@ -412,7 +412,15 @@ def record_squash_run_failure(context: dagster.HookContext) -> None:
 # Job Definition
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value}, hooks={record_squash_run_failure})
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # Shares the run-queue limit with deletes_job and monthly_old_events_cleanup_job, because
+        # all three mutate the events tables. A squash run then queues while either of them runs.
+        "deletes_job_concurrency": "v1",
+    },
+    hooks={record_squash_run_failure},
+)
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
