@@ -1102,36 +1102,56 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
                 refreshInsight.mockImplementationOnce((...args) => hangUntilAborted(args[5]?.signal))
                 logic.actions.toggleTileGroup('target')
-                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setRefreshStatus'])
 
                 await expectLogic(logic, () =>
                     logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
-                ).toFinishAllListeners()
+                )
+                    .toDispatchActions(['refreshTileGroup'])
+                    .toFinishAllListeners()
 
                 expect(loads(target).map((call) => call[4])).toEqual(['force_blocking', 'force_blocking'])
                 expect(logic.values.waitingTileRefresh).toBeNull()
             })
 
-            it('keeps an open group queued during an update refresh, and a cancel stops its reload', async () => {
-                groupTiles({ target: { collapsed: true } })
-                dashboards[5].tiles[0].insight!.cache_target_age = now().add(1, 'hour').toISOString()
-                dashboards[5].tiles[1].insight!.cache_target_age = now().subtract(1, 'hour').toISOString()
-                await mountDashboard()
-                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
-                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
-                logic.actions.toggleTileGroup('target')
-                await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setRefreshStatus'])
+            it.each([
+                { cancelPoint: 'after the group dispatch', expectedLoads: 2 },
+                { cancelPoint: 'before the group dispatch', expectedLoads: 1 },
+            ])(
+                'keeps an open group queued during an update refresh, and a cancel $cancelPoint stops its reload',
+                async ({ cancelPoint, expectedLoads }) => {
+                    groupTiles({ target: { collapsed: true } })
+                    dashboards[5].tiles[0].insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                    dashboards[5].tiles[1].insight!.cache_target_age = now().subtract(1, 'hour').toISOString()
+                    await mountDashboard()
+                    await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+                    refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                    logic.actions.toggleTileGroup('target')
+                    await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setRefreshStatus'])
 
-                await expectLogic(logic, () =>
-                    logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
-                ).toDispatchActions(['refreshTileGroup'])
-                expect(logic.values.refreshStatus[target]).toMatchObject({ queued: true })
+                    if (cancelPoint === 'after the group dispatch') {
+                        await expectLogic(logic, () =>
+                            logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                        ).toDispatchActions(['refreshTileGroup'])
+                        expect(logic.values.refreshStatus[target]).toMatchObject({ queued: true })
 
-                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                        await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                    } else {
+                        await expectLogic(logic, () =>
+                            logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                        ).toDispatchActions(['abortAnyRunningQuery'])
 
-                expect(loads(target)).toHaveLength(2)
-                expect(logic.values.waitingTileRefresh?.tileIds).toContain(dashboards[5].tiles[0].id)
-            })
+                        await expectLogic(logic, () => logic.actions.cancelDashboardRefresh())
+                            .delay(5)
+                            .toFinishAllListeners()
+                            .toNotHaveDispatchedActions(['refreshTileGroup'])
+                        expect(Object.values(logic.values.refreshStatus).filter((status) => status.queued)).toEqual([])
+                    }
+
+                    expect(loads(target)).toHaveLength(expectedLoads)
+                    expect(logic.values.waitingTileRefresh?.tileIds).toContain(dashboards[5].tiles[0].id)
+                }
+            )
 
             it('an update refresh with nothing stale keeps a manual refresh running', async () => {
                 groupTiles({ target: { collapsed: true } })
