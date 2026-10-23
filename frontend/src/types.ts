@@ -92,6 +92,7 @@ import type { ScopeObjectEnumApi } from 'products/access_control/frontend/genera
 import { AlertType } from 'products/alerts/frontend/types'
 import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type { DashboardTileGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
     type NodeApiSuspended,
@@ -317,6 +318,7 @@ export enum AccessControlResourceType {
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
+    DataCatalog = 'data_catalog',
     DataDeletion = 'data_deletion',
     FeatureFlag = 'feature_flag',
     Heatmap = 'heatmap',
@@ -2822,7 +2824,7 @@ export interface DashboardType extends DashboardBasicType {
     customization?: {
         tile_spacing?: DashboardTileSpacing
         layout_compaction?: 'vertical' | 'horizontal' | 'stable'
-        group_titles?: Record<string, string>
+        groups?: Record<string, DashboardTileGroupApi>
     }
 }
 
@@ -6179,6 +6181,7 @@ export enum ActivityScope {
     DATA_WAREHOUSE_JOIN = 'DataWarehouseJoin',
     ACCESS_CONTROL = 'AccessControl',
     DATA_QUALITY_CHECK = 'DataQualityCheck',
+    WAREHOUSE_SUGGESTION = 'WarehouseSuggestion',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
     EVALUATION = 'Evaluation',
