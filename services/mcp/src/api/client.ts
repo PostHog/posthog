@@ -2,6 +2,7 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-signature'
+import { mapWithConcurrency } from '@/lib/concurrency'
 import { getUserAgent } from '@/lib/constants'
 import {
     ErrorCode,
@@ -50,6 +51,11 @@ const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 // must surface fast.
 const TRANSPORT_MAX_RETRIES = 2
 const TRANSPORT_BASE_BACKOFF_MS = 250
+
+// Experiment results run one /query/ call per metric. The per-organization /query/ concurrency
+// limit (20 by default) is shared with the app and every other MCP call, so one tool call keeps a
+// fifth of it at most, or the overflow comes back as 429s and empty metric rows.
+const EXPERIMENT_METRIC_QUERY_CONCURRENCY = 4
 
 /** Methods that carry no upstream effect, so a repeat after a failed
  *  connection cannot apply the same work twice. */
@@ -1192,65 +1198,38 @@ export class ApiClient {
                 const primaryMetricEntries = buildMetricEntries(experiment, 'primary')
                 const secondaryMetricEntries = buildMetricEntries(experiment, 'secondary')
 
-                // Execute queries for primary metrics
-                const primaryResults = await Promise.all(
-                    primaryMetricEntries.map(async ({ metric }) => {
-                        try {
-                            const queryBody = {
+                const runMetricQuery = async ({ metric }: ResolvedMetricEntry): Promise<unknown> => {
+                    try {
+                        const queryRequest = {
+                            query: {
                                 kind: 'ExperimentQuery',
                                 metric,
                                 experiment_id: experimentId,
-                            }
-
-                            const queryRequest = {
-                                query: queryBody,
-                                ...(refresh ? { refresh: 'force_blocking' } : {}),
-                            }
-
-                            const result = await this.fetchJson<unknown>(
-                                `${this.baseUrl}/api/environments/${projectId}/query/`,
-                                {
-                                    method: 'POST',
-                                    body: JSON.stringify(queryRequest),
-                                }
-                            )
-
-                            return result.success ? result.data : null
-                        } catch {
-                            return null
+                            },
+                            ...(refresh ? { refresh: 'force_blocking' } : {}),
                         }
-                    })
-                )
 
-                // Execute queries for secondary metrics
-                const secondaryResults = await Promise.all(
-                    secondaryMetricEntries.map(async ({ metric }) => {
-                        try {
-                            const queryBody = {
-                                kind: 'ExperimentQuery',
-                                metric,
-                                experiment_id: experimentId,
+                        const result = await this.fetchJson<unknown>(
+                            `${this.baseUrl}/api/environments/${projectId}/query/`,
+                            {
+                                method: 'POST',
+                                body: JSON.stringify(queryRequest),
                             }
+                        )
 
-                            const queryRequest = {
-                                query: queryBody,
-                                ...(refresh ? { refresh: 'force_blocking' } : {}),
-                            }
+                        return result.success ? result.data : null
+                    } catch {
+                        return null
+                    }
+                }
 
-                            const result = await this.fetchJson<unknown>(
-                                `${this.baseUrl}/api/environments/${projectId}/query/`,
-                                {
-                                    method: 'POST',
-                                    body: JSON.stringify(queryRequest),
-                                }
-                            )
-
-                            return result.success ? result.data : null
-                        } catch {
-                            return null
-                        }
-                    })
+                const metricResults = await mapWithConcurrency(
+                    [...primaryMetricEntries, ...secondaryMetricEntries],
+                    EXPERIMENT_METRIC_QUERY_CONCURRENCY,
+                    runMetricQuery
                 )
+                const primaryResults = metricResults.slice(0, primaryMetricEntries.length)
+                const secondaryResults = metricResults.slice(primaryMetricEntries.length)
 
                 return {
                     success: true,
