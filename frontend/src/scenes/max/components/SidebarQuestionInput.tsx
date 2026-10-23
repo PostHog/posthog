@@ -10,7 +10,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { cn } from 'lib/utils/css-classes'
 
-import { useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { SuggestionGroup, maxLogic } from '../maxLogic'

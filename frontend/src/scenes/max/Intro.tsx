@@ -4,7 +4,7 @@ import { Heading, Text } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
 
-import { useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 
 import { AILiabilityNotice } from './components/AILiabilityNotice'
 import { MaxChangelog } from './components/MaxChangelog'

@@ -12,7 +12,7 @@ import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
-import { useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 
 import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'

@@ -35,6 +35,7 @@ import {
     runStreamLogic,
     useAttachedContext,
     useForegroundStream,
+    useThreadSkin,
 } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
@@ -52,7 +53,6 @@ import {
     TurnTrailerActions,
     type TurnTrailer,
     useQuillThread,
-    useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'

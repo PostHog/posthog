@@ -43,9 +43,7 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 // atoms); `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
-export type { ThreadSkin } from '../components/quill/quillThreadContext'
 export { useQuillThread } from '../components/quill/quillThreadContext'
-export { useThreadSkin, ThreadSkinOverrideContext } from '../hooks/useThreadSkin'
 
 // The quill thread skin for a thread `ThreadView` does not render (the legacy chat behind `today-rail-nav`):
 // the skin provider, the message bubbles, and the footer affordances the bubbles share.

@@ -38,6 +38,11 @@ export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
 
+// --- Chat skin ---
+// Here, not in ./primitives, because surfaces that load eagerly (the composer on the AI-first homepage) read it.
+export { useThreadSkin, ThreadSkinOverrideContext } from '../hooks/useThreadSkin'
+export type { ThreadSkin } from '../components/quill/quillThreadContext'
+
 // --- Attached-context store + injection hook (headless) ---
 // Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
 // trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.

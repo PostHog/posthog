@@ -30,7 +30,7 @@ New behavior — new tools, new context types, new UI affordances — goes on th
   the `Quill*` siblings in `components/` and `messages/quill/` fork only the view, and share behavior through `useQuestionInput`,
   `useModeSelector`, `useAnswerRating` and the surface's shared presenters.
   A message presenter that has both skins switches on `useQuillThread()` at its top, like `PlanningAnswer`, and keeps its quill body in `messages/quill/`.
-  Code outside the thread (the composer, `Intro`, the suggestion badges) has no thread context, so it switches on `useThreadSkin()`, which reads the flags.
+  Code outside the thread (the composer, `Intro`, the suggestion badges) has no thread context, so it switches on `useThreadSkin()` from `api/logics`, which reads the flags. It stays out of `api/primitives` because the homepage composer loads eagerly.
 - ❌ Net-new capability on the LangGraph path.
 - ❌ New fields on `MaxUIContext` for a sandbox feature — use `AttachedContext` instead.
 - ❌ No new MaxTools.

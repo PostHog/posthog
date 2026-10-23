@@ -20,7 +20,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { type ThreadSkin, ThreadSkinOverrideContext } from 'products/posthog_ai/frontend/api/primitives'
+import { type ThreadSkin, ThreadSkinOverrideContext } from 'products/posthog_ai/frontend/api/logics'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import conversationList from './__mocks__/conversationList.json'
@@ -198,7 +198,7 @@ function SideBySideComparison(): JSX.Element {
                 </Column>
                 <Column
                     title="PostHog AI quill"
-                    caption="today-rail-nav on: the same LangGraph conversation in the quill skin."
+                    caption="phai-quill or today-rail-nav on: the same LangGraph conversation in the quill skin."
                     gaps={LEGACY_QUILL_GAPS}
                     skin="quill"
                     width={width}
