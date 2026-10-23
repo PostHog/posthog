@@ -37,6 +37,9 @@ export interface PlatformAlertLogicProps {
 
 export type GroupSnoozeDuration = '1h' | '4h' | '1d' | '1w'
 
+// The longest delay setTimeout accepts. A longer one fires at once.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
+
 export const GROUP_SNOOZE_DURATIONS: { duration: GroupSnoozeDuration; label: string; hours: number }[] = [
     { duration: '1h', label: '1 hour', hours: 1 },
     { duration: '4h', label: '4 hours', hours: 4 },
@@ -233,9 +236,23 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels,
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         loadCurrentTeamSuccess: () => {
             actions.loadConfiguration()
+        },
+        loadConfigurationSuccess: ({ configuration }) => {
+            const snoozeUntil = configuration?.snooze_until
+            if (!snoozeUntil || !dayjs(snoozeUntil).isAfter(dayjs())) {
+                cache.disposables.dispose('alertSnoozeExpiry')
+                return
+            }
+            // `alertSnoozeUntil` reads the clock only when the configuration changes, so reload at expiry.
+            // A wait past the timer limit fires early, and the reload arms the next one.
+            cache.disposables.add(() => {
+                const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
+                const timer = setTimeout(() => actions.loadConfiguration(), delay)
+                return () => clearTimeout(timer)
+            }, 'alertSnoozeExpiry')
         },
         snoozeGroupFor: ({ groupingKey, duration }) => {
             const { hours } = GROUP_SNOOZE_DURATIONS.find((option) => option.duration === duration)!

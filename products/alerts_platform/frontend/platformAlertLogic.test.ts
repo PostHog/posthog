@@ -95,6 +95,26 @@ describe('platformAlertLogic', () => {
         expect(logic.values.alertSnoozeUntil).toBe(active ? snooze_until : null)
     })
 
+    it('reloads when the alert-wide snooze ends, so the group snooze menu comes back', async () => {
+        jest.useFakeTimers()
+        try {
+            mockRetrieve.mockClear()
+            logic.actions.loadConfigurationSuccess({
+                ...CONFIGURATION,
+                snooze_until: dayjs().add(1, 'minute').toISOString(),
+            })
+            expect(logic.values.alertSnoozeUntil).not.toBeNull()
+
+            jest.advanceTimersByTime(61_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockRetrieve).toHaveBeenCalledTimes(1)
+            expect(logic.values.alertSnoozeUntil).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('snoozes one group, holds the in-flight state until the API answers, and swaps in the returned group', async () => {
         let respond: (alert: PlatformAlertApi) => void = () => {}
         mockSnooze.mockReturnValue(new Promise((resolve) => (respond = resolve)))
