@@ -1,5 +1,5 @@
-import type { FetchCandidate } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/collected-urls-record'
-import type { ImageFetchResult } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
+import type { FetchCandidate } from './collected-urls-record'
+import type { ImageFetchResult } from './image-fetcher'
 
 /**
  * Where the lane stores each fetched image. The image counts as handled only once the sink resolves: a rejection keeps

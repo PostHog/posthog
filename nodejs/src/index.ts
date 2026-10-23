@@ -6,6 +6,10 @@ import { initTracing } from '~/common/tracing/otel'
 import { initSuperProperties } from '~/common/utils/posthog'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { PluginServer } from '~/server'
+import {
+    AiResearchV4ImageFetchRetryServer,
+    AiResearchV4ImageFetchServer,
+} from '~/servers/ai-research-v4-image-fetch-server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionApiServer } from '~/servers/ingestion-api-server'
@@ -56,6 +60,12 @@ function createServer(): NodeServer {
 
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
             return new IngestionSessionReplayMlImageFetchRetryServer()
+
+        case PluginServerMode.ai_research_v4_image_fetch:
+            return new AiResearchV4ImageFetchServer()
+
+        case PluginServerMode.ai_research_v4_image_fetch_retry:
+            return new AiResearchV4ImageFetchRetryServer()
 
         case PluginServerMode.recording_api:
             return new RecordingApiServer()
