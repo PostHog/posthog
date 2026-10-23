@@ -299,12 +299,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         scan. ClickHouse runs each scalar subquery once, so the bounds reach the primary key.
         """
         bounds: list[ast.Expr] = []
-        for op, aggregate in (
-            (ast.CompareOperationOp.GtEq, "subtractMinutes(min(s.min_first_timestamp), {margin})"),
-            (ast.CompareOperationOp.LtEq, "addMinutes(max(s.max_last_timestamp), {margin})"),
+        for op, query in (
+            (
+                ast.CompareOperationOp.GtEq,
+                "SELECT subtractMinutes(min(s.min_first_timestamp), {margin}) FROM raw_session_replay_events AS s WHERE {scope}",
+            ),
+            (
+                ast.CompareOperationOp.LtEq,
+                "SELECT addMinutes(max(s.max_last_timestamp), {margin}) FROM raw_session_replay_events AS s WHERE {scope}",
+            ),
         ):
             bound = parse_select(
-                f"SELECT {aggregate} FROM raw_session_replay_events AS s WHERE {{scope}}",
+                query,
                 placeholders={
                     "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
                     "scope": self._recording_scope(),
