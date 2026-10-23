@@ -1,3 +1,4 @@
+import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hex import HexSourceConfig
@@ -36,3 +37,24 @@ class TestHexSource:
         assert kwargs["resumable_source_manager"] is manager
         # Full-refresh runs must not leak a stray watermark into the transport.
         assert kwargs["db_incremental_field_last_value"] is None
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # GetProjectRuns rejecting one project's run history as unprocessable. Only the stable
+            # error code is matched; the URL (workspace host, project id) varies per request.
+            "422 Client Error: Unprocessable Entity for url: https://app.hex.tech/api/v1/projects/example-project/runs?offset=0&limit=100 | api error: code=UNPROCESSABLE_CONTENT",
+            "401 Client Error: Unauthorized for url: https://app.hex.tech/api/v1/projects",
+            "403 Client Error: Forbidden for url: https://app.hex.tech/api/v1/projects",
+        ],
+    )
+    def test_non_retryable_errors_match_known_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_non_retryable_errors_do_not_match_transient(self):
+        # A 5xx/429 from Hex is retried in-process by the rest_source client; it must never be
+        # classified as non-retryable here.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        observed_error = "HTTP 503 for https://app.hex.tech/api/v1/projects"
+        assert not any(key in observed_error for key in non_retryable_errors)
