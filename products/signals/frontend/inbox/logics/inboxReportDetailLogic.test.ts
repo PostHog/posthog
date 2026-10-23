@@ -6,8 +6,11 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiConfig } from 'lib/api'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -75,7 +78,7 @@ describe('inboxReportDetailLogic', () => {
         }
     })
 
-    describe('priority editing', () => {
+    describe('report editing', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
 
         beforeEach(async () => {
@@ -173,6 +176,37 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(save).toHaveBeenCalledTimes(1)
         })
+
+        it.each([200, 500])(
+            'guards Monitoring submissions and releases the guard after response %s',
+            async (responseStatus) => {
+                let completeSave: () => void = () => {}
+                const pendingSave = new Promise<void>((resolve) => {
+                    completeSave = resolve
+                })
+                const save = jest.fn(async (request: MockResolverInfo): Promise<[number, SignalReport]> => {
+                    expect(request.params.team_id).toBe(String(ApiConfig.getCurrentProjectId()))
+                    await pendingSave
+                    return [responseStatus, { ...REPORT, status: SignalReportStatus.POTENTIAL }]
+                })
+                const originalProjectId = ApiConfig.getCurrentProjectId()
+                ApiConfig.setCurrentProjectId(456)
+                try {
+                    useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': save } })
+                    logic.actions.changeReportState('potential')
+                    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+                    expect(logic.values.reportStateSaving).toBe(true)
+                    logic.actions.changeReportState('potential')
+                    completeSave()
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(save).toHaveBeenCalledTimes(1)
+                    expect(logic.values.reportStateSaving).toBe(false)
+                } finally {
+                    completeSave()
+                    ApiConfig.setCurrentProjectId(originalProjectId)
+                }
+            }
+        )
 
         it('keeps the saved priority after a failure and allows retrying', async () => {
             useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } })

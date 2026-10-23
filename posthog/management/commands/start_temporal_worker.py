@@ -55,7 +55,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
-from posthog.temporal.common.worker import ActivityWorkerConfig, ManagedWorker, create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
@@ -527,6 +527,7 @@ _task_queue_specs = [
         + BILLING_ALERTS_ACTIVITIES
         + BILLING_ACTIVE_SYNC_ACTIVITIES,
     ),
+    (settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE, [], USAGE_REPORTS_AGGREGATION_ACTIVITIES),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
         SIGNALS_PRODUCT_WORKFLOWS
@@ -672,15 +673,6 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
-ACTIVITY_WORKER_CONFIGS = {
-    settings.BILLING_TASK_QUEUE: (
-        ActivityWorkerConfig(
-            task_queue=settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE,
-            activities=USAGE_REPORTS_AGGREGATION_ACTIVITIES,
-            max_concurrent_activities=1,
-        ),
-    ),
-}
 
 
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
@@ -990,7 +982,6 @@ class Command(BaseCommand):
                     ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
-                    activity_worker_configs=ACTIVITY_WORKER_CONFIGS.get(task_queue, ()),
                 )
             )
 

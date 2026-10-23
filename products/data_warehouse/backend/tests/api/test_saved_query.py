@@ -42,6 +42,7 @@ from products.data_warehouse.backend.presentation.views.saved_query.editing impo
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
+    SavedQueryRunSerializer,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -2786,6 +2787,14 @@ class TestMaterializeRequestBody(SimpleTestCase):
         assert "sync_frequency" in serializer.errors
 
 
+class TestSavedQueryRunRequestBody(SimpleTestCase):
+    def test_related_run_rejects_full_refresh(self):
+        serializer = SavedQueryRunSerializer(data={"direction": "upstream", "full_refresh": True})
+
+        assert not serializer.is_valid()
+        assert "full_refresh" in serializer.errors
+
+
 class TestResumeSchedulesRequestBody(SimpleTestCase):
     @parameterized.expand(
         [
@@ -2820,7 +2829,7 @@ class TestSavedQueryRun(APIBaseTest):
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_materializes_node(self, mock_sync_connect):
-        saved_query, _dag, _node = self._make_saved_query_with_node("v2_view")
+        saved_query, _dag, node = self._make_saved_query_with_node("v2_view")
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -2829,8 +2838,68 @@ class TestSavedQueryRun(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["node_ids"], [str(node.id)])
         mock_client.start_workflow.assert_called_once()
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
+
+    @parameterized.expand([("upstream",), ("downstream",)])
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_with_dependencies(self, direction, mock_sync_connect):
+        saved_query, dag, node = self._make_saved_query_with_node(f"{direction}_view")
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{direction}_related",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        related_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            saved_query=related_saved_query,
+            type=NodeType.VIEW,
+        )
+        source, target = (related_node, node) if direction == "upstream" else (node, related_node)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            {"direction": direction},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(set(response.json()["node_ids"]), {str(node.id), str(related_node.id)})
+        mock_client.start_workflow.assert_called_once()
+        self.assertEqual(mock_client.start_workflow.call_args.args[0], "data-modeling-execute-dag")
+        self.assertEqual(
+            set(mock_client.start_workflow.call_args.args[1]["node_ids"]),
+            {str(node.id), str(related_node.id)},
+        )
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):
+        saved_query, dag, node = self._make_saved_query_with_node("readable_view")
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="read_only_dependent",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_saved_query, type=NodeType.VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=node, target=related_node)
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        with patch(
+            "products.data_modeling.backend.logic.node_materialization.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level, **_: obj.id != related_saved_query.id,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+                {"direction": "downstream"},
+            )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        mock_client.start_workflow.assert_not_called()
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_without_backing_node_reports_the_failure(self, mock_sync_connect):
