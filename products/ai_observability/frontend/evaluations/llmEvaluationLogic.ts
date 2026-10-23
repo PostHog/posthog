@@ -59,6 +59,7 @@ import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavig
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import { getHogEvalExample } from './hogEvalExamples'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { markEvaluationsOverviewStale } from './overview/evaluationsOverviewLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
@@ -1426,6 +1427,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 // The list and the self-driving table read from llmEvaluationsLogic, which only
                 // fetches on mount. Refresh it here so they show the eval we just saved.
                 llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
+                markEvaluationsOverviewStale()
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
                     // Saving navigates away, so the offer to cover past data travels with the user.

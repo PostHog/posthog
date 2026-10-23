@@ -886,6 +886,7 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
             ("reasonless_resolve", "ready", "resolved", None, 1),
             ("already_fixed_dismissal", "ready", "suppressed", "already_fixed", 1),
             ("analysis_wrong_resolve", "ready", "resolved", "analysis_wrong", 0),
+            ("wrong_assignee_resolve", "ready", "resolved", "wrong_assignee", 0),
             ("no_action_needed_resolve", "ready", "resolved", "no_action_needed", 0),
             ("manual_fix_resolve", "ready", "resolved", "fixed_outside_posthog", 1),
             ("other_dismissal", "ready", "suppressed", "other", 0),
