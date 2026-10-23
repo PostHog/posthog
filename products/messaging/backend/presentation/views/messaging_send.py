@@ -44,13 +44,15 @@ from products.messaging.backend.presentation.views.transactional_email_api impor
     invalid_template_key,
 )
 
+UNKNOWN_FIELD = "PostHog doesn't take this field on this route."
+
 
 class RefusesUnknownFieldsSerializer(serializers.Serializer):
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, Mapping):
             unknown = [field for field in data if field not in self.fields]
             if unknown:
-                raise serializers.ValidationError({unknown[0]: "PostHog doesn't take this field on this route."})
+                raise serializers.ValidationError({unknown[0]: UNKNOWN_FIELD})
         return super().to_internal_value(data)
 
 
@@ -245,7 +247,9 @@ SEND_FIELD_WHY = {
 
 
 def invalid_send(errors: Any) -> TemplateRefusal:
-    return invalid_request(errors, why=send_field_why(first_field_error(errors).attr), retry="send again")
+    error = first_field_error(errors)
+    why = unknown_field_why(error.attr) if error.message == UNKNOWN_FIELD else send_field_why(error.attr)
+    return invalid_request(errors, why=why, retry="send again")
 
 
 def send_field_why(attr: str | None) -> str:
@@ -254,6 +258,11 @@ def send_field_why(attr: str | None) -> str:
         return SEND_FIELD_WHY[field]
     if not field:
         return "A send needs a template, a recipient address, and data as an object."
+    return unknown_field_why(field)
+
+
+def unknown_field_why(attr: str | None) -> str:
+    field = (attr or "").replace("__", ".")
     return (
         f"PostHog refuses a field it doesn't know, such as `{field}` from a newer SDK, so it never sends the email "
         "without part of what you asked for."

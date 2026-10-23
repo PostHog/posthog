@@ -653,8 +653,10 @@ class TestTransactionalEmail(APIBaseTest):
         assert error["why"] and error["fix"]
         if expected_code == "invalid_request":
             # The why explains the field that failed, not what a send needs in general.
-            named = {"reply_to__0": "reply_to"}.get(expected_attr, expected_attr)
-            assert f"`{named.split('__')[0]}" in error["why"], error["why"]
+            named = {"reply_to__0": "reply_to", "identifiers__email": "identifiers.email"}.get(
+                expected_attr, expected_attr
+            )
+            assert f"`{named}`" in error["why"], error["why"]
         if expected_attr == "to":
             assert error["detail"] == f"to: `{fields['to']}` is not a bare address. Send it as `jane@example.com`."
         mock_post.assert_not_called()
