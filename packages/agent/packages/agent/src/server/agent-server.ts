@@ -253,14 +253,27 @@ const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
-// Only the creator can answer prompts on these runs, so the run's credentials
-// speak for whoever approves. Team-controlled and auto-answered origins stay out.
-const CREATOR_CONTROLLED_ORIGIN_PRODUCTS = new Set([
-  POSTHOG_AI_ORIGIN_PRODUCT,
-  "user_created",
-]);
+// The Slack permission broker answers prompts as the run's own user, so its
+// answer would pass the answerer check without a person deciding.
+const AUTO_ANSWERED_ORIGIN_PRODUCTS = new Set(["slack"]);
 // Approval states are best-effort; past this, tools load ungated rather than delay the run.
 const MCP_TOOL_APPROVALS_TIMEOUT_MS = 5_000;
+
+interface RelayedPermissionRequest {
+  options: Array<{ kind: string; optionId: string; name?: string }>;
+  toolCall?: Record<string, unknown> | null;
+}
+
+interface RelayedPermissionResponse {
+  outcome: { outcome: "selected"; optionId: string };
+  _meta?: Record<string, unknown>;
+}
+
+interface PermissionAnswer {
+  response: RelayedPermissionResponse;
+  /** The `/command` caller who answered; unset when the session settled it. */
+  answeredByUserId?: number;
+}
 
 function mcpToolApprovalCancel(
   policy: McpToolPolicy,
@@ -621,10 +634,7 @@ export class AgentServer {
   private pendingPermissions = new Map<
     string,
     {
-      resolve: (response: {
-        outcome: { outcome: "selected"; optionId: string };
-        _meta?: Record<string, unknown>;
-      }) => void;
+      resolve: (answer: PermissionAnswer) => void;
       toolCallId?: string;
       optionIds: Set<string>;
       /**
@@ -1062,7 +1072,11 @@ export class AgentServer {
           ? this.resolveCredentialResponse(
               paramsValidation.data as CredentialResponseParams,
             )
-          : await this.executeCommand(command.method, command.params ?? {});
+          : await this.executeCommand(
+              command.method,
+              command.params ?? {},
+              payload,
+            );
         return c.json({
           jsonrpc: "2.0",
           id: command.id,
@@ -1500,6 +1514,7 @@ export class AgentServer {
   private async executeCommand(
     method: string,
     params: Record<string, unknown>,
+    caller?: JwtPayload,
   ): Promise<unknown> {
     if (!this.session) {
       throw new Error("No active session");
@@ -1990,6 +2005,7 @@ export class AgentServer {
           optionId,
           customInput,
           answers,
+          caller?.user_id,
         );
         if (resolved === "not_found") {
           throw new Error(
@@ -5228,7 +5244,7 @@ export class AgentServer {
         if (gatedMcpTool) {
           if (
             mode !== "background" &&
-            CREATOR_CONTROLLED_ORIGIN_PRODUCTS.has(
+            !AUTO_ANSWERED_ORIGIN_PRODUCTS.has(
               this.productLaunch.originProduct ?? "",
             ) &&
             this.hasReachableClient()
@@ -5664,8 +5680,10 @@ export class AgentServer {
     // cleanup may await operations that are blocked on a permission response.
     for (const [, pending] of this.pendingPermissions) {
       pending.resolve({
-        outcome: { outcome: "selected", optionId: "reject" },
-        _meta: { customInput: "Session is shutting down." },
+        response: {
+          outcome: { outcome: "selected", optionId: "reject" },
+          _meta: { customInput: "Session is shutting down." },
+        },
       });
     }
     this.pendingPermissions.clear();
@@ -5928,13 +5946,14 @@ export class AgentServer {
    * The proxy has no per-call approval, and clients hide "always" options by
    * default, so the one allow option is a plain allow labeled as saving it.
    * `persistsApproval` tells clients the answer outlives the run, so a
-   * run-scoped auto-approve mode must not answer it.
+   * run-scoped auto-approve mode must not answer it. The save uses the run's
+   * credentials, so only an answer from the user they belong to can make it.
    */
   private async relayMcpToolApproval(
     params: RequestPermissionRequest,
     policy: McpToolPolicy,
   ): Promise<RequestPermissionResponse> {
-    const response = await this.relayPermissionToClient({
+    const { response, answeredByUserId } = await this.awaitPermissionAnswer({
       ...params,
       toolCall: {
         ...params.toolCall,
@@ -5953,6 +5972,13 @@ export class AgentServer {
     );
     if (selected?.kind !== "allow_once") {
       return response;
+    }
+    const runUserId = await this.posthogAPI.getUserId();
+    if (answeredByUserId !== runUserId) {
+      return mcpToolApprovalCancel(
+        policy,
+        "only the user this run acts as can approve it",
+      );
     }
     try {
       await this.posthogAPI.approveMcpTool(
@@ -5982,13 +6008,15 @@ export class AgentServer {
    * buffered by broadcastEvent and replayed when the client reconnects. Session
    * cleanup force-resolves all pending permissions, so there is no leak.
    */
-  private relayPermissionToClient(params: {
-    options: Array<{ kind: string; optionId: string; name?: string }>;
-    toolCall?: Record<string, unknown> | null;
-  }): Promise<{
-    outcome: { outcome: "selected"; optionId: string };
-    _meta?: Record<string, unknown>;
-  }> {
+  private async relayPermissionToClient(
+    params: RelayedPermissionRequest,
+  ): Promise<RelayedPermissionResponse> {
+    return (await this.awaitPermissionAnswer(params)).response;
+  }
+
+  private awaitPermissionAnswer(
+    params: RelayedPermissionRequest,
+  ): Promise<PermissionAnswer> {
     const requestId = crypto.randomUUID();
     const toolCallId = params.toolCall?.toolCallId as string | undefined;
 
@@ -6039,6 +6067,7 @@ export class AgentServer {
     optionId: string,
     customInput?: string,
     answers?: Record<string, string>,
+    answeredByUserId?: number,
   ): "resolved" | "not_found" | "invalid_option" {
     const pending = this.pendingPermissions.get(requestId);
     if (!pending) return "not_found";
@@ -6061,8 +6090,11 @@ export class AgentServer {
     if (answers) meta.answers = answers;
 
     pending.resolve({
-      outcome: { outcome: "selected" as const, optionId },
-      ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
+      response: {
+        outcome: { outcome: "selected" as const, optionId },
+        ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
+      },
+      answeredByUserId,
     });
     return "resolved";
   }
