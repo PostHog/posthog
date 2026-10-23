@@ -150,6 +150,30 @@ describe('materializationJobsLogic', () => {
         }
     })
 
+    it('shows the failed run status without a detached error tag', async () => {
+        const mocks = apiMocks({
+            isMaterialized: true,
+            savedQueryExtras: { status: 'Failed', latest_error: 'Query failed' },
+        })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
+            200,
+            {
+                count: 1,
+                results: [{ id: 'run-1', status: 'Failed', error: 'Query failed' }],
+            },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+
+        render(createElement(MaterializationStatusPanel, { viewId: 'view-1', showRunActions: false }))
+
+        expect(screen.getByText('Last run')).toBeTruthy()
+        expect(screen.getAllByText('Failed').length).toBeGreaterThan(0)
+        expect(screen.getByText('Materialization').parentElement?.children).toHaveLength(1)
+    })
+
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
         const mocks = apiMocks({ isMaterialized: true })
         const requests: string[] = []
