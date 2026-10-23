@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
+import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import { createOfflineScoreTrendTickFormatter } from './offlineScoreTrendAxis'
 import { OfflineScoreTrendCrosshair } from './OfflineScoreTrendCrosshair'
@@ -29,6 +30,7 @@ export interface OfflineScoreTrendChartProps {
     hoverLogic?: BuiltLogic<offlineExperimentsLogicType>
     xDomain?: [number, number]
     showHeading?: boolean
+    combineVersions?: boolean
 }
 
 export function OfflineScoreTrendChart({
@@ -40,6 +42,7 @@ export function OfflineScoreTrendChart({
     hoverLogic,
     xDomain,
     showHeading = true,
+    combineVersions = false,
 }: OfflineScoreTrendChartProps): JSX.Element {
     const baseTheme = useChartTheme()
     const theme = useMemo(
@@ -53,7 +56,7 @@ export function OfflineScoreTrendChart({
     )
     const panels = useMemo(
         () =>
-            buildOfflineTrendPanels(periods).map((panel) => {
+            buildOfflineTrendPanels(periods, combineVersions).map((panel) => {
                 const domain = !panel.elapsed && xDomain ? xDomain : panel.xDomain
                 return {
                     ...panel,
@@ -61,7 +64,7 @@ export function OfflineScoreTrendChart({
                     tickFormatter: createOfflineScoreTrendTickFormatter(domain, panel.elapsed, timezone),
                 }
             }),
-        [periods, xDomain, timezone]
+        [periods, xDomain, timezone, combineVersions]
     )
 
     if (panels.length === 0) {
@@ -118,7 +121,7 @@ export function OfflineScoreTrendChart({
                                             <div className="mt-2 pt-2 border-t border-current/25">
                                                 <div className="flex items-center gap-2 font-medium">
                                                     <TooltipSwatch color={point.color} />
-                                                    <span className="break-words">{`${summary.scorer.name} · v${summary.scorer.version}`}</span>
+                                                    <ScorerLabel scorer={summary.scorer} />
                                                 </div>
                                                 <div className="flex items-baseline justify-between gap-4 mt-1">
                                                     <span className="opacity-70">{meta.metric}</span>

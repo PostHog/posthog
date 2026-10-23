@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from products.subscriptions.backend.logic import auto_disable, queries, subscription_utils
+from products.subscriptions.backend.logic import auto_disable, queries, subscription_query_access, subscription_utils
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS as MAX_INSIGHTS
 from products.subscriptions.backend.logic.teams_subscriptions import (
     TEAMS_WEBHOOK_URL_ERROR as TEAMS_WEBHOOK_URL_ERROR,
@@ -35,7 +35,10 @@ from products.subscriptions.backend.temporal.types import (
 from . import contracts
 
 if TYPE_CHECKING:
+    from posthog.models import Team, User
     from posthog.models.sharing_configuration import SharingConfiguration
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 __all__ = [
     "AI_PROMPT_MAX_LENGTH",
@@ -49,12 +52,16 @@ __all__ = [
     "TEAMS_WEBHOOK_URL_ERROR",
     "TEAMS_WEBHOOK_URL_MASKED_ERROR",
     "ai_query_plan_status",
+    "blocked_access_for_subscription",
+    "dashboard_has_active_full_subscription",
     "dashboard_ids_with_subscriptions",
     "delete_insight_subscriptions",
     "failed_delivery_counts",
+    "insight_has_active_subscription",
     "insight_ids_with_subscriptions",
     "render_shared_insight_image",
     "sanitize_prompt",
+    "should_check_table_access",
     "subscription_ids_in_team",
     "unsubscribe",
     "validate_re_enable",
@@ -129,4 +136,37 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
         Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
             "dashboard_id", flat=True
         )
+    )
+
+
+def insight_has_active_subscription(insight_id: int) -> bool:
+    """Whether an enabled subscription delivers this insight, directly or as a dashboard tile."""
+    return queries.insight_has_active_subscription(insight_id)
+
+
+def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
+    """Whether an enabled subscription delivers every insight on this dashboard."""
+    return queries.dashboard_has_active_full_subscription(dashboard_id)
+
+
+def should_check_table_access(*, team_id: int, subscription_id: int | None, attrs: dict[str, Any]) -> bool:
+    """Whether a subscription write must pass the table-access check: a create, a change to what
+    is delivered or to who receives it, or a write that enables or restores the subscription."""
+    return subscription_query_access.should_check_table_access(
+        team_id=team_id, subscription_id=subscription_id, attrs=attrs
+    )
+
+
+def blocked_access_for_subscription(
+    *,
+    user: User,
+    team: Team,
+    user_access_control: UserAccessControl,
+    subscription_id: int | None,
+    attrs: dict[str, Any],
+) -> list[str]:
+    """Names of the tables and query resources the requester cannot read among the queries the
+    subscription delivers after this write. Empty when the write passes the check."""
+    return subscription_query_access.blocked_access_for_subscription(
+        user=user, team=team, user_access_control=user_access_control, subscription_id=subscription_id, attrs=attrs
     )

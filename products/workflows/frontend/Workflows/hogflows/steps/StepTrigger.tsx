@@ -348,9 +348,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             {registeredMatch?.ConfigComponent ? (
                 <>
                     <registeredMatch.ConfigComponent node={node} />
-                    {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
-                        <TriggerVolumeEstimate action={node.data} />
-                    ) : null}
+                    <TriggerVolumeEstimate action={node.data} />
                     {registeredMatch.frequencyOptions ? (
                         <>
                             <LemonDivider />
@@ -402,7 +400,6 @@ function StepTriggerConfigurationEvents({
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const validationResult = actionValidationErrorsById[action.id]
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
@@ -460,9 +457,7 @@ function StepTriggerConfigurationEvents({
                 }
             />
 
-            {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
-                <TriggerVolumeEstimate action={action} />
-            ) : null}
+            <TriggerVolumeEstimate action={action} />
 
             <LemonDivider />
             <FrequencySection />

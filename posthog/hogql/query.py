@@ -89,6 +89,7 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
 @frozen
@@ -964,8 +965,9 @@ class HogQLQueryExecutor:
             )
 
             workload = self.workload
-            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
-                workload = clickhouse_context.workload
+            table_workload = clickhouse_context.workload
+            if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
+                workload = table_workload
             if use_new_events_cluster(self.team.pk, self.query_modifiers):
                 if get_query_tags().product == Product.ENDPOINTS or workload not in (
                     Workload.DEFAULT,

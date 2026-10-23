@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -20,6 +20,13 @@ jest.mock('kea', () => ({ ...jest.requireActual('kea'), useActions: jest.fn(), u
 jest.mock('lib/components/RestrictedArea', () => ({
     RestrictionScope: { Project: 'project' },
     useRestrictedArea: jest.fn(),
+}))
+jest.mock('lib/components/TZLabel', () => ({
+    TZLabel: ({ time, className }: { time: string; className?: string }) => (
+        <span data-attr={`tz-label-${time}`} className={className}>
+            {time}
+        </span>
+    ),
 }))
 jest.mock('./CustomPropertyModal', () => ({ CustomPropertyModal: () => null }))
 
@@ -50,7 +57,27 @@ describe('WarehousePersonPropertiesSetting', () => {
         updated_at: null,
         sync_frequency_interval_seconds: 3600,
         next_sync_at: '2026-01-01T01:00:00Z',
-        latest_run: null,
+        latest_run: {
+            id: 'run-1',
+            job_id: 'job-1',
+            account_segment: null,
+            sync_phase: null,
+            attempt: null,
+            workflow_id: null,
+            workflow_run_id: null,
+            temporal_url: null,
+            trigger: 'scheduled',
+            status: 'completed',
+            started_at: '2026-01-01T00:00:00Z',
+            finished_at: '2026-01-01T00:01:00Z',
+            rows_read: 1,
+            changed: 0,
+            existing: 0,
+            produced: 0,
+            skipped_missing_person: 0,
+            error: null,
+            created_at: '2026-01-01T00:00:00Z',
+        },
         external_data_source: 'warehouse-source-1',
         table_name: 'stripe_customers',
         saved_query_name: null,
@@ -105,6 +132,13 @@ describe('WarehousePersonPropertiesSetting', () => {
     afterEach(() => {
         cleanup()
         window.POSTHOG_APP_CONTEXT = previousAppContext
+    })
+
+    it('keeps the sync status tooltip separate from the time-zone popover', () => {
+        render(<WarehousePersonPropertiesSetting />)
+
+        expect(screen.getByText('Synced')).toHaveAttribute('data-base-ui-tooltip-trigger')
+        expect(screen.getByTestId('tz-label-2026-01-01T00:00:00Z').closest('[data-base-ui-tooltip-trigger]')).toBeNull()
     })
 
     test.each([

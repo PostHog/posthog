@@ -21,17 +21,10 @@ import { ScoutAskAiComposer } from './ScoutAskAiComposer'
 import { ScoutAttentionBanner, ScoutDetailHeader } from './ScoutDetailHeader'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutLearnedPanel } from './ScoutLearnedPanel'
-import { LeaveScoutNoteButton, ScoutNotesPanel } from './ScoutNotesPanel'
+import { ScoutNotesPanel } from './ScoutNotesPanel'
 import { ScoutReportCard } from './ScoutReportCard'
 import { ScoutRunFilterPills, ScoutRunHistorySection } from './ScoutRunHistorySection'
 import { ScoutTrials } from './trials/ScoutTrials'
-
-/** The two panes that sit in the right rail at full width, and join the main tab bar below it. */
-const RAIL_TABS: ScoutDetailTab[] = ['told', 'learned']
-
-function isRailTab(tab: ScoutDetailTab): boolean {
-    return RAIL_TABS.includes(tab)
-}
 
 /**
  * One scout's page, at `/inbox/scouts/:skillName`. The header says whether the scout is worth
@@ -54,22 +47,6 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const { currentTeamId } = useValues(teamLogic)
     const { setScoutDetailTab } = useActions(inboxSceneLogic)
     const [runFilter, setRunFilter] = useState<ScoutRunFilter>('all')
-    // Above the breakpoint both tab bars are on screen, so a click in one has to leave the other
-    // where it was. The URL has room for one pane, the one the last click opened, so each column
-    // also keeps its own last pane here. Following the URL rather than the click keeps these right
-    // through a Back press, which moves the pane without going through the bar.
-    const [mainColumnTab, setMainColumnTab] = useState<ScoutDetailTab | null>(null)
-    const [railColumnTab, setRailColumnTab] = useState<ScoutDetailTab>('told')
-    useEffect(() => {
-        if (!scoutDetailTab) {
-            return
-        }
-        if (isRailTab(scoutDetailTab)) {
-            setRailColumnTab(scoutDetailTab)
-        } else {
-            setMainColumnTab(scoutDetailTab)
-        }
-    }, [scoutDetailTab])
 
     // Deep-linking straight to a scout (or a narrow viewport where the roster isn't mounted)
     // means nobody else is polling the runs window, so the header + rollup would read empty
@@ -91,8 +68,8 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
     // for the rest. Held until the runs window settles, so the default doesn't move under a reader
     // a beat after the page opens.
-    const defaultMainTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
-    const tab = (scoutDetailTab === 'trials' && !canAccessTrials ? null : scoutDetailTab) ?? defaultMainTab
+    const defaultTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
+    const tab = (scoutDetailTab === 'trials' && !canAccessTrials ? null : scoutDetailTab) ?? defaultTab
     const scoutName = config ? scoutDisplayName(config) : null
 
     // Registered by the page as well as the AI panel, so the scout is already attached when the
@@ -181,9 +158,6 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const signalCount = emissionRows.length
     const runCount = rollup?.runs.length ?? 0
     const windowEmittedCount = rollup?.emittedCount ?? 0
-    const previousMainTab = mainColumnTab === 'trials' && !canAccessTrials ? null : mainColumnTab
-    const mainTab = isRailTab(tab) ? (previousMainTab ?? defaultMainTab) : tab
-    const railTab = isRailTab(tab) ? tab : railColumnTab
 
     const switchTab = (next: ScoutDetailTab): void => {
         captureScoutAction({
@@ -201,118 +175,64 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     // can fail outright, and hiding the tab then would say the scout emitted nothing while its
     // panel is the only place that reports the failed fetch. Whichever pane is open also keeps its
     // tab, so a link naming a pane this scout has none of still has a tab to select.
-    const mainTabs = [
-        (!scoutRunsLoadedOnce || reportCount > 0 || mainTab === 'reports') && {
+    const tabs = [
+        (!scoutRunsLoadedOnce || reportCount > 0 || tab === 'reports') && {
             key: 'reports' as ScoutDetailTab,
             label: `Reports ${reportCount}`,
         },
         { key: 'runs' as ScoutDetailTab, label: `Runs ${runCount}` },
-        canAccessTrials && {
-            key: 'trials' as ScoutDetailTab,
-            label: 'Trials',
-            'data-attr': 'scout-detail-trials-tab',
-        },
-        (!scoutRunsLoadedOnce || windowEmittedCount > 0 || mainTab === 'signals') && {
+        (!scoutRunsLoadedOnce || windowEmittedCount > 0 || tab === 'signals') && {
             key: 'signals' as ScoutDetailTab,
             // The window's count stands in until the rows land, so a failed fetch is not labelled
             // zero beside a panel that says the fetch failed.
             label: `Signals ${signalCount > 0 ? signalCount : windowEmittedCount}`,
         },
-    ]
-    const railTabs = [
         { key: 'told' as ScoutDetailTab, label: `Told ${toldCount}` },
         { key: 'learned' as ScoutDetailTab, label: `Learned ${learnedCount}` },
+        canAccessTrials && {
+            key: 'trials' as ScoutDetailTab,
+            label: 'Trials',
+            'data-attr': 'scout-detail-trials-tab',
+        },
     ]
 
-    const mainPanel = (which: ScoutDetailTab): JSX.Element =>
-        which === 'runs' ? (
-            <ScoutRunHistorySection skillName={skillName} filter={runFilter} />
-        ) : which === 'trials' && canAccessTrials ? (
-            <ScoutTrials configId={config.id} />
-        ) : which === 'signals' ? (
-            <ScoutSignalsPanel skillName={skillName} />
-        ) : (
-            <ScoutReportsPanel skillName={skillName} />
-        )
-
-    const railPanel = (which: ScoutDetailTab): JSX.Element =>
-        which === 'learned' ? <ScoutLearnedPanel skillName={skillName} /> : <ScoutNotesPanel skillName={skillName} />
+    const runFilterPills = <ScoutRunFilterPills skillName={skillName} filter={runFilter} onChange={setRunFilter} />
 
     return (
         <div className="@container flex min-h-0 flex-1 flex-col overflow-auto">
             <ScoutDetailHeader config={config} rollup={rollup} noteCount={toldCount} learnedCount={learnedCount} />
             <ScoutAskAiComposer skillName={skillName} scoutName={scoutDisplayName(config)} />
 
-            <div className="grid grid-cols-1 items-start gap-4 px-4 py-4 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
-                <div className="flex min-w-0 flex-col gap-4">
-                    <ScoutAttentionBanner config={config} />
+            <div className="flex min-w-0 flex-col gap-4 px-4 py-4">
+                <ScoutAttentionBanner config={config} />
 
-                    {/* Two tab bars for the same state: below the breakpoint the rail's panes have
-                        nowhere to sit, so they join this bar rather than stacking under the run
-                        list where nobody scrolls to them. */}
-                    <div className="flex flex-col gap-1 @4xl:hidden">
-                        <LemonTabs
-                            activeKey={tab}
-                            onChange={switchTab}
-                            size="small"
-                            tabs={[...mainTabs, ...railTabs]}
-                        />
-                        {/* The open pane's control gets its own row here rather than the bar's
-                            right slot. This bar carries the rail tabs, and the slot does not shrink:
-                            it pins over the tab strip and hides the rail tabs behind it. The note
-                            button is repeated from the rail bar because the rail column itself is
-                            not rendered at this width, which would leave the pane unwritable. */}
-                        {tab === 'runs' && (
-                            <ScoutRunFilterPills skillName={skillName} filter={runFilter} onChange={setRunFilter} />
-                        )}
-                        {tab === 'told' && (
-                            <div className="flex">
-                                <LeaveScoutNoteButton skillName={skillName} size="xsmall" />
-                            </div>
-                        )}
-                    </div>
-                    <div className="hidden @4xl:block">
-                        <LemonTabs
-                            activeKey={mainTab}
-                            onChange={switchTab}
-                            size="small"
-                            tabs={mainTabs}
-                            rightSlot={
-                                mainTab === 'runs' ? (
-                                    <ScoutRunFilterPills
-                                        skillName={skillName}
-                                        filter={runFilter}
-                                        onChange={setRunFilter}
-                                    />
-                                ) : undefined
-                            }
-                        />
-                    </div>
-
-                    {isRailTab(tab) ? (
-                        <>
-                            <div className="@4xl:hidden">{railPanel(tab)}</div>
-                            <div className="hidden @4xl:block">{mainPanel(mainTab)}</div>
-                        </>
-                    ) : (
-                        mainPanel(tab)
-                    )}
-                </div>
-
-                <div className="hidden min-w-0 flex-col gap-4 @4xl:flex">
+                <div className="flex flex-col gap-1">
+                    {/* The right slot does not shrink. In a narrow pane it would pin over the tab
+                        strip and hide the last tabs, so there the pills get their own row. */}
                     <LemonTabs
-                        activeKey={railTab}
+                        activeKey={tab}
                         onChange={switchTab}
                         size="small"
-                        tabs={railTabs}
-                        rightSlot={
-                            railTab === 'told' ? (
-                                <LeaveScoutNoteButton skillName={skillName} size="xsmall" />
-                            ) : undefined
-                        }
+                        tabs={tabs}
+                        rightSlot={tab === 'runs' ? runFilterPills : undefined}
+                        rightSlotClassName="hidden @4xl:flex"
                     />
-                    {railPanel(railTab)}
+                    {tab === 'runs' && <div className="@4xl:hidden">{runFilterPills}</div>}
                 </div>
+
+                {tab === 'runs' ? (
+                    <ScoutRunHistorySection skillName={skillName} filter={runFilter} />
+                ) : tab === 'trials' && canAccessTrials ? (
+                    <ScoutTrials configId={config.id} />
+                ) : tab === 'signals' ? (
+                    <ScoutSignalsPanel skillName={skillName} />
+                ) : tab === 'told' ? (
+                    <ScoutNotesPanel skillName={skillName} />
+                ) : tab === 'learned' ? (
+                    <ScoutLearnedPanel skillName={skillName} />
+                ) : (
+                    <ScoutReportsPanel skillName={skillName} />
+                )}
             </div>
         </div>
     )
