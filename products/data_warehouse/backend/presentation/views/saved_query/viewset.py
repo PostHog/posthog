@@ -337,6 +337,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
             )
+        except MaterializationForbiddenError as error:
+            raise exceptions.PermissionDenied(str(error))
 
         log_activity(
             organization_id=self.team.organization_id,

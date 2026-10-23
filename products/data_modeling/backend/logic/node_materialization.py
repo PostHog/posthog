@@ -17,6 +17,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.contracts import MaterializationForbiddenError
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
@@ -25,6 +27,9 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
 logger = structlog.get_logger(__name__)
+
+
+RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
 
 
 class MaterializationRunDirection(models.TextChoices):
@@ -74,7 +79,7 @@ def run_related_node_materializations(
     user: User,
     hidden_types: frozenset[str] = frozenset(),
 ) -> list[str]:
-    graph = Graph(team_id=node.team_id, hidden_types=hidden_types)
+    graph = Graph(team_id=node.team_id, dag_id=node.dag_id, hidden_types=hidden_types)
     if direction == MaterializationRunDirection.UPSTREAM:
         node_ids = graph.get_upstream(node.id)
     else:
@@ -91,14 +96,17 @@ def run_related_node_materializations(
     node_ids = managed_view_node_ids if node.belongs_to_managed_viewset else node_ids - managed_view_node_ids
     node_ids.add(str(node.id))
 
-    # A dependency run materializes every node it touches, so it needs the same data access check as enabling
-    # materialization for each view.
+    # A dependency run materializes every node it touches, so it needs the same edit and data access checks as
+    # enabling materialization for each view.
     database = Database.create_for(team_id=node.team_id, user=user)
+    access_control = UserAccessControl(user=user, team=node.team)
     saved_queries = DataWarehouseSavedQuery.objects.filter(
         team_id=node.team_id,
         node__id__in=node_ids,
     ).distinct()
     for saved_query in saved_queries:
+        if not access_control.check_access_level_for_object(saved_query, "editor"):
+            raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
         assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
@@ -124,7 +132,7 @@ def run_related_node_materializations(
             ),
         )
     )
-    return inputs.node_ids
+    return sorted(node_ids)
 
 
 def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:

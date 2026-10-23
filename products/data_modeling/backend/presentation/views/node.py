@@ -8,7 +8,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -16,6 +16,7 @@ from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.data_modeling.backend.facade.api import (
+    MaterializationForbiddenError,
     MaterializationRunDirection,
     delete_node,
     endpoint_link,
@@ -463,12 +464,15 @@ class NodeViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        node_ids = run_related_node_materializations(
-            node,
-            direction=body.validated_data["direction"],
-            user=cast(User, req.user),
-            hidden_types=self._hidden_node_types(),
-        )
+        try:
+            node_ids = run_related_node_materializations(
+                node,
+                direction=body.validated_data["direction"],
+                user=cast(User, req.user),
+                hidden_types=self._hidden_node_types(),
+            )
+        except MaterializationForbiddenError as error:
+            raise PermissionDenied(str(error))
         return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
