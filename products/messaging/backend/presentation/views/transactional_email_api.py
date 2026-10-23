@@ -262,7 +262,7 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         send_source = SendSource.from_headers(request.headers)
         if properties.get("outcome") == "queued":
-            mark_organization_migrated(str(self.organization.id), send_source)
+            mark_organization_migrated(str(self.team.organization_id), send_source)
         self._report_api_usage(
             request, "transactional email api send", {**send_source.as_event_properties(), **properties}
         )

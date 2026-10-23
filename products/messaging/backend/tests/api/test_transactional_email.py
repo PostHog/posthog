@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import DatabaseError
+
 import requests
 from parameterized import parameterized
 from rest_framework import status
@@ -25,6 +27,10 @@ from products.messaging.backend.services.transactional_email import make_transac
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 
 PASSWORD_RESET_HASH = "v1:973d41bbe3fdca5c52bb951cd4b5fd7159ae630b56c8f3997cbb31afd1ea76fd"
+
+
+def _organization_lookup_fails(_view: object) -> None:
+    raise DatabaseError("connection lost")
 
 
 @patch("products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.capture")
@@ -487,6 +493,14 @@ class TestTransactionalEmail(APIBaseTest):
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
         assert group_identify.call_count == 2
+
+    @patch.object(MessageTemplatesViewSet, "organization", property(_organization_lookup_fails))
+    def test_a_queued_migrated_send_is_accepted_when_the_organization_lookup_fails(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+
+        response = self.client.post(self.url, self.body, format="json", HTTP_X_POSTHOG_MIGRATED_FROM="resend")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
     @parameterized.expand(
         [
