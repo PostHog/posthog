@@ -58,6 +58,7 @@ import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from 
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { IssueFixButton } from './IssueFixButton'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -81,6 +82,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasAiFix = useFeatureFlag('ERROR_TRACKING_AI_FIX')
+    const hasCodingTasks = useFeatureFlag('PHAI_TASKS')
+    const canFixWithAi = hasAiFix && hasCodingTasks
     const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
     // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
     const [emailInOverflow, setEmailInOverflow] = useState(true)
@@ -255,7 +259,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                     collapseWhenNarrow={!!issue.name}
                                                     wrapperRef={inlineEmailMenuRef}
                                                 />
-                                                <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                                {issue.status === 'active' && canFixWithAi ? (
+                                                    <IssueFixButton issueId={issue.id} />
+                                                ) : (
+                                                    <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                                )}
                                             </div>
                                         )
                                     }
@@ -282,7 +290,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             />
                                         </ButtonGroup>
                                         <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
-                                        <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                        {issue.status === 'active' && canFixWithAi ? (
+                                            <IssueFixButton issueId={issue.id} />
+                                        ) : (
+                                            <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                        )}
                                         {!mobileDetailOpen && (
                                             <LemonButton
                                                 size="small"
