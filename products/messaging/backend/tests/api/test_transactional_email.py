@@ -556,6 +556,15 @@ class TestTransactionalEmail(APIBaseTest):
                 },
             ),
             (
+                "rendered_text_only",
+                {"html": "", "text": "Hi"},
+                {
+                    "content": {"subject": "Welcome, Jane", "text": "Hi"},
+                    "from": {"integrationId": "default"},
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
+            (
                 "template_by_key",
                 {"from": "hello@example.com", "reply_to": ["help@example.com"]},
                 {

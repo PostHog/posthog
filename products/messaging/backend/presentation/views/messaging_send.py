@@ -105,10 +105,14 @@ class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmail
         required=False, trim_whitespace=False, help_text="Subject of the rendered email. Only with `template_key`."
     )
     html = serializers.CharField(
-        required=False, trim_whitespace=False, help_text="HTML body of the rendered email. Only with `template_key`."
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="HTML body of the rendered email. Only with `template_key`.",
     )
     text = serializers.CharField(
         required=False,
+        allow_blank=True,
         trim_whitespace=False,
         help_text="Plain text body of the rendered email. Only with `template_key`. Without it, PostHog derives the "
         "text from `html`.",
