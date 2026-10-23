@@ -13,6 +13,7 @@ export type PushPlatform = 'ios' | 'android'
 // Mirrors DEVICE_SUBSCRIPTION_PREFIX in nodejs/src/cdp/utils/push-subscription-utils.ts.
 const DEVICE_SUBSCRIPTION_PREFIX = '$device_push_subscription_'
 const DEVICE_POLL_INTERVAL_MS = 5000
+const MAX_BACKOFF_STEPS = 4
 
 const PROVIDER_FOR_PLATFORM: Record<PushPlatform, 'apns' | 'firebase'> = {
     ios: 'apns',
@@ -47,7 +48,7 @@ export interface pushDeviceCheckLogicActions {
         integrations: IntegrationType[]
         payload?: any
     } // integrationsLogic
-    loadRegisteredDeviceCount: () => any
+    loadRegisteredDeviceCount: (_?: any) => any
     loadRegisteredDeviceCountFailure: (
         error: string,
         errorObject?: any
@@ -111,22 +112,29 @@ export const pushDeviceCheckLogic = kea<pushDeviceCheckLogicType>([
         registeredDeviceCount: [
             null as number | null,
             {
-                loadRegisteredDeviceCount: async (): Promise<number | null> => {
+                loadRegisteredDeviceCount: async (_ = null, breakpoint): Promise<number | null> => {
                     if (!values.appIds.length) {
                         return 0
                     }
-                    const prefixes = values.appIds.map((appId: string) => `${DEVICE_SUBSCRIPTION_PREFIX}${appId}`)
+                    // Match the key or the key plus `:`, so `com.app` never counts devices of `com.app.dev`.
+                    const legacyKeys = values.appIds.map((appId: string) => `${DEVICE_SUBSCRIPTION_PREFIX}${appId}`)
                     const response = await api.queryHogQL<[number][]>(
-                        hogql`SELECT count() FROM persons WHERE arrayExists(key -> arrayExists(prefix -> startsWith(key, prefix), ${prefixes}), JSONExtractKeys(properties))`,
+                        hogql`SELECT count() FROM persons WHERE arrayExists(key -> arrayExists(legacyKey -> key = legacyKey OR startsWith(key, concat(legacyKey, ':')), ${legacyKeys}), JSONExtractKeys(properties))`,
                         { productKey: 'workflows', scene: 'Workflows', name: 'push_setup_registered_devices' },
                         // The default refresh mode serves a cached count for hours, so a new device would never show.
                         { refresh: 'force_blocking' }
                     )
+                    breakpoint()
                     return response.results?.[0]?.[0] ?? 0
                 },
             },
         ],
     })),
+    reducers({
+        registeredDeviceCount: {
+            setPlatform: () => null,
+        },
+    }),
     selectors({
         pushIntegrations: [
             (s) => [s.integrations],
@@ -159,36 +167,58 @@ export const pushDeviceCheckLogic = kea<pushDeviceCheckLogicType>([
         ],
         deviceRegistered: [(s) => [s.registeredDeviceCount], (count: number | null): boolean => (count ?? 0) > 0],
     }),
-    listeners(({ actions, values, cache }) => ({
-        syncPolling: () => {
-            const shouldPoll = values.providerConnected && !values.deviceRegistered
-            // Re-adding the same key restarts the poll, which would fetch again on every result.
-            if (shouldPoll && !cache.devicePolling) {
-                cache.devicePolling = true
-                cache.disposables.add(() => {
+    listeners(({ actions, values, cache }) => {
+        const shouldPoll = (): boolean => values.providerConnected && !values.deviceRegistered
+        const scheduleNextCheck = (delayMs: number): void => {
+            cache.checkScheduled = true
+            cache.disposables.add(() => {
+                const timer = window.setTimeout(() => {
+                    cache.checkScheduled = false
                     actions.loadRegisteredDeviceCount()
-                    const timer = window.setInterval(() => actions.loadRegisteredDeviceCount(), DEVICE_POLL_INTERVAL_MS)
-                    return () => window.clearInterval(timer)
-                }, 'devicePoll')
-            } else if (!shouldPoll && cache.devicePolling) {
-                cache.devicePolling = false
-                cache.disposables.dispose('devicePoll')
-            }
-        },
-        setPlatform: () => {
-            cache.devicePolling = false
+                }, delayMs)
+                return () => window.clearTimeout(timer)
+            }, 'devicePoll')
+        }
+        const stopChecking = (): void => {
+            cache.checkScheduled = false
             cache.disposables.dispose('devicePoll')
-            actions.loadRegisteredDeviceCountSuccess(null)
-        },
-        loadIntegrationsSuccess: () => actions.syncPolling(),
-        loadRegisteredDeviceCountSuccess: ({ registeredDeviceCount }) => {
-            if (registeredDeviceCount) {
-                // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('workflows onboarding wizard push device detected', { platform: values.platform })
-            }
-            actions.syncPolling()
-        },
-    })),
+        }
+
+        return {
+            syncPolling: () => {
+                if (!shouldPoll()) {
+                    stopChecking()
+                } else if (!cache.checkScheduled && !values.registeredDeviceCountLoading) {
+                    actions.loadRegisteredDeviceCount()
+                }
+            },
+            setPlatform: () => {
+                stopChecking()
+                cache.failedChecks = 0
+                // Also supersedes a check still running for the old platform, so its count is dropped.
+                actions.loadRegisteredDeviceCount()
+            },
+            loadIntegrationsSuccess: () => actions.syncPolling(),
+            loadRegisteredDeviceCountSuccess: ({ registeredDeviceCount }) => {
+                cache.failedChecks = 0
+                if (registeredDeviceCount) {
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('workflows onboarding wizard push device detected', { platform: values.platform })
+                }
+                if (shouldPoll()) {
+                    scheduleNextCheck(DEVICE_POLL_INTERVAL_MS)
+                } else {
+                    stopChecking()
+                }
+            },
+            loadRegisteredDeviceCountFailure: () => {
+                cache.failedChecks = (cache.failedChecks ?? 0) + 1
+                if (shouldPoll()) {
+                    scheduleNextCheck(DEVICE_POLL_INTERVAL_MS * 2 ** Math.min(cache.failedChecks, MAX_BACKOFF_STEPS))
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.syncPolling()
     }),
