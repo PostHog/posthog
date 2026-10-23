@@ -989,6 +989,26 @@ describe('EmailService', () => {
                 to: [{ address: 'test@example.com', name: 'Test User' }],
             })
         })
+        it("should send a code send's headers", async () => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                headers: [
+                    { name: 'X-Entity-Ref-ID', value: 'order-123' },
+                    { name: 'key', value: 'invoice' },
+                    { name: 'value', value: '123' },
+                ],
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const emails = await mailDevAPI.getEmails()
+            expect(emails[0].headers).toMatchObject({
+                'x-entity-ref-id': 'order-123',
+                key: 'invoice',
+                value: '123',
+                'auto-submitted': 'auto-generated',
+            })
+        })
         it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
@@ -1121,15 +1141,19 @@ describe('EmailService', () => {
 
         // A person without an email property renders an empty `to`. Counting that as email_failed
         // lets one project's data trip the platform send failure rate alert.
+        // A suppressed cc or bcc must not turn the missing-recipient skip into a suppression.
         it.each([
-            ['an empty string', ''],
-            ['only whitespace', '   '],
-            ['no value', undefined],
-        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            ['an empty string', '', undefined],
+            ['only whitespace', '   ', undefined],
+            ['no value', undefined, undefined],
+            ['an empty string beside a suppressed cc', '', 'suppressed@example.com'],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email, cc) => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 to: { email: email as string, name: 'Test User' },
+                cc,
             })
+            jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
@@ -1532,6 +1556,91 @@ describe('EmailService', () => {
             }
         )
 
+        it("sends a code send's headers beside PostHog's own and its tags beside PostHog's tags", async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.queueParameters = createEmailParams({
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                tags: [{ name: 'category', value: 'password_reset' }],
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)).toEqual([
+                'X-Entity-Ref-ID',
+                'X-PostHog-Tracking-Code',
+                'Auto-Submitted',
+            ])
+            expect(sentCommand.input.Content.Simple.Headers[0]).toEqual({ Name: 'X-Entity-Ref-ID', Value: 'order-123' })
+            expect(sentCommand.input.EmailTags.map((t: { Name: string }) => t.Name)).toEqual(['ph_id', 'category'])
+            expect(sentCommand.input.EmailTags[1]).toEqual({ Name: 'category', Value: 'password_reset' })
+        })
+
+        it("sends a code send's attachments beside its recipients and PostHog's headers", async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const invite = 'BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n'
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                attachments: [
+                    {
+                        filename: 'invite.ics',
+                        content: Buffer.from(invite).toString('base64'),
+                        contentType: 'text/calendar; method=REQUEST',
+                    },
+                    { filename: 'logo.png', content: Buffer.from('png').toString('base64'), contentId: 'logo' },
+                ],
+            }
+            invocation.queueParameters = createEmailParams({
+                html: '<p>Hi</p><img src="cid:logo">',
+                cc: 'jane@example.com',
+                bcc: 'audit@example.com',
+                replyTo: 'help@example.com',
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                tags: [{ name: 'category', value: 'invite' }],
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const { input } = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(input).toMatchObject({
+                FromEmailAddress: '"Test User" <test@posthog-test.com>',
+                Destination: {
+                    ToAddresses: ['"Test User" <test@example.com>'],
+                    CcAddresses: ['jane@example.com'],
+                    BccAddresses: ['audit@example.com'],
+                },
+                ReplyToAddresses: ['help@example.com'],
+                TenantName: `team-${team.id}`,
+            })
+            expect(input.EmailTags.map((t: { Name: string }) => t.Name)).toEqual(['ph_id', 'category'])
+            expect(input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)).toEqual([
+                'X-Entity-Ref-ID',
+                'X-PostHog-Tracking-Code',
+                'Auto-Submitted',
+            ])
+            expect(input.Content.Simple.Attachments).toEqual([
+                {
+                    FileName: 'invite.ics',
+                    RawContent: Buffer.from(invite),
+                    ContentType: 'text/calendar; method=REQUEST',
+                    ContentId: undefined,
+                    ContentDisposition: 'ATTACHMENT',
+                    ContentTransferEncoding: 'BASE64',
+                },
+                {
+                    FileName: 'logo.png',
+                    RawContent: Buffer.from('png'),
+                    ContentType: undefined,
+                    ContentId: 'logo',
+                    ContentDisposition: 'INLINE',
+                    ContentTransferEncoding: 'BASE64',
+                },
+            ])
+        })
+
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
@@ -1790,17 +1899,22 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', {}],
+            ['a sensitive template', { sensitive: true }, undefined, {}],
+            ['a code send with tags', {}, 'Test Subject', { tags: [{ name: 'category', value: 'password_reset' }] }],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            async (_name, extraMetadata, subject, extraParams) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                invocation.queueParameters = {
+                    ...invocation.queueParameters!,
+                    ...extraParams,
+                } as typeof invocation.queueParameters
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -1817,6 +1931,9 @@ describe('EmailService', () => {
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+                expect(result.capturedPostHogEvents[0].properties.$email_tags).toEqual(
+                    'tags' in extraParams ? { category: 'password_reset' } : undefined
+                )
             }
         )
 
@@ -1827,6 +1944,25 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(result.capturedPostHogEvents).toHaveLength(0)
         })
+
+        it.each([
+            { captureEngagement: true, teamCaptures: false, captured: 1 },
+            { captureEngagement: false, teamCaptures: true, captured: 0 },
+        ])(
+            "follows a code send's capture choice $captureEngagement over the team switch $teamCaptures",
+            async ({ captureEngagement, teamCaptures, captured }) => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(teamCaptures)
+                invocation.hogFunction.metadata = { capture_engagement: captureEngagement }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.capturedPostHogEvents).toHaveLength(captured)
+            }
+        )
 
         it('should capture a $workflows_email_failed PostHog event on failure', async () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(

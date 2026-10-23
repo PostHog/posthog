@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { RESERVED_EMAIL_TAG_PREFIX } from '~/cdp/schema/emailFields'
 import { MinimalAppMetric } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -216,6 +217,15 @@ export const SES_LINK_INDEX_TAG = 'phl'
 // reset token, so its events keep no subject and only each clicked link's origin. `$link_index` still
 // tells the links apart.
 export const SES_SENSITIVE_TAG = 'ph_sensitive'
+
+// The tags a code send set on its email. PostHog's own tags start with `ph_`, and SES adds its own as `ses:…`.
+export function sendTagsOf(tags: Record<string, string[]> | undefined): Record<string, string> | undefined {
+    const sendTags = Object.entries(tags ?? {}).filter(
+        ([name, values]) =>
+            !name.toLowerCase().startsWith(RESERVED_EMAIL_TAG_PREFIX) && !name.includes(':') && values[0] !== undefined
+    )
+    return sendTags.length ? Object.fromEntries(sendTags.map(([name, values]) => [name, values[0]])) : undefined
+}
 
 const sensitiveLinkOrigin = (link: string): string => {
     try {
@@ -573,6 +583,7 @@ export class SesWebhookHandler {
             properties?: Record<string, any>
             timestamp?: string
             workflowVersion?: number
+            captureEngagement?: boolean
         }[]
         logEntries?: {
             functionId?: string
@@ -684,6 +695,7 @@ export class SesWebhookHandler {
             properties?: Record<string, any>
             timestamp?: string
             workflowVersion?: number
+            captureEngagement?: boolean
         }[] = []
         const logEntries: {
             functionId?: string
@@ -732,8 +744,17 @@ export class SesWebhookHandler {
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }
-            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId, isTest, workflowVersion } =
-                parsedCode || {}
+            const {
+                functionId,
+                invocationId,
+                teamId,
+                actionId,
+                parentRunId,
+                distinctId,
+                isTest,
+                workflowVersion,
+                captureEngagement,
+            } = parsedCode || {}
 
             if (!functionId && !invocationId) {
                 // A present but unparseable code is a different incident from a wholly absent one, so
@@ -754,9 +775,11 @@ export class SesWebhookHandler {
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
             if (metricName && !isTest) {
                 const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
+                const sendTags = sendTagsOf(rec.mail.tags)
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
+                    ...(sendTags ? { $email_tags: sendTags } : {}),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -805,6 +828,7 @@ export class SesWebhookHandler {
                     properties,
                     timestamp,
                     workflowVersion,
+                    captureEngagement,
                 })
 
                 // Per-link companion row for the workflow Metrics tab's link breakdown. Emitted only
@@ -830,6 +854,7 @@ export class SesWebhookHandler {
                         ),
                         timestamp,
                         workflowVersion,
+                        captureEngagement,
                     })
                 }
 
@@ -850,6 +875,7 @@ export class SesWebhookHandler {
                         properties,
                         timestamp,
                         workflowVersion,
+                        captureEngagement,
                     })
                 }
             }

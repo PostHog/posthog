@@ -426,6 +426,55 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(refreshed.person).toMatchObject({ properties: {}, name: '' })
         })
 
+        it.each([
+            ['a transactional email runs the version it was accepted at', 'api', 'accepted'],
+            ['an event workflow runs its live version', 'event', 'edited'],
+        ] as const)('%s', async (_desc, trigger, expectedReason) => {
+            const flowWithExit = (reason: string): HogFlow =>
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: { type: trigger, filters: {} } as any },
+                            exit: { type: 'exit', config: { reason } },
+                        },
+                        edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                    })
+                    .build()
+            const accepted = await insertHogFlow(hub.postgres, { ...flowWithExit('accepted'), version: 1 })
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_hogflowrevision (id, team_id, hog_flow_id, version, content, created_at)
+                 VALUES ($1, $2, $3, 1, $4, NOW())`,
+                [
+                    new UUIDT().toString(),
+                    team.id,
+                    accepted.id,
+                    JSON.stringify({ actions: accepted.actions, edges: accepted.edges, trigger: accepted.trigger }),
+                ],
+                'insert-revision'
+            )
+            const invocation = createSerializedHogFlowInvocation(accepted, {
+                flowVersion: 1,
+                event: { distinct_id: 'distinct_A_1', properties: { to: 'a@example.com' } } as any,
+            })
+            // The template is edited after the send was accepted, which publishes version 2.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 2, actions = $1 WHERE id = $2`,
+                [JSON.stringify(flowWithExit('edited').actions), accepted.id],
+                'edit-flow'
+            )
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            const exit = results[0].invocation.hogFlow.actions.find((action) => action.type === 'exit')
+            expect(exit?.config).toEqual({ reason: expectedReason })
+        })
+
         it('should make minimal calls to the person manager', async () => {
             const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
             await processor.processInvocations(invocations)

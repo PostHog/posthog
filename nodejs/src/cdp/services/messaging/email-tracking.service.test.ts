@@ -444,17 +444,30 @@ describe('EmailTrackingService', () => {
                 functionId,
                 parentRunId,
                 workflowVersion,
+                distinctId,
+                captureEngagement,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
+                distinctId?: string
+                captureEngagement?: boolean
             }): Promise<supertest.Response> => {
-                // Third arg opts into the versioned payload, which `generate` won't emit by default
-                // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
+                // The last two args opt into the versioned and capture-choice payloads, which `generate`
+                // won't emit by default until their rollouts finish (see EMIT_* in tracking-code.ts).
                 const trackingCode = signer.generate(
-                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    {
+                        functionId,
+                        id: invocationId,
+                        teamId: team.id,
+                        parentRunId,
+                        workflowVersion,
+                        distinctId,
+                        captureEngagement,
+                    },
                     false,
-                    workflowVersion !== undefined
+                    workflowVersion !== undefined,
+                    captureEngagement !== undefined
                 )
                 const sesRecord = {
                     eventType: 'Bounce',
@@ -561,6 +574,34 @@ describe('EmailTrackingService', () => {
                     ).toEqual(['email_bounced', 'email_bounced_hard'])
                 })
             })
+
+            it.each([
+                { captureEngagement: true, teamCaptures: false, captured: 1 },
+                { captureEngagement: false, teamCaptures: true, captured: 0 },
+                { captureEngagement: undefined, teamCaptures: true, captured: 1 },
+            ])(
+                "follows the code's capture choice $captureEngagement over the team switch $teamCaptures",
+                async ({ captureEngagement, teamCaptures, captured }) => {
+                    const emailTrackingService = api['emailTrackingService'] as any
+                    jest.spyOn(
+                        emailTrackingService.teamWorkflowsConfigService,
+                        'shouldCaptureEngagementEvents'
+                    ).mockResolvedValue(teamCaptures)
+                    const queueEvent = jest.spyOn(emailTrackingService.capturedEventsService, 'queueEvent')
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+
+                    const res = await postBounce({ functionId: hogFlow.id, distinctId: 'user-1', captureEngagement })
+                    expect(res.status).toBe(200)
+
+                    const bouncedEvents = queueEvent.mock.calls.filter(
+                        ([event]) => (event as { event: string }).event === '$workflows_email_bounced'
+                    )
+                    expect(bouncedEvents).toHaveLength(captured)
+                }
+            )
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {
                 const hogFlow = await insertHogFlow(

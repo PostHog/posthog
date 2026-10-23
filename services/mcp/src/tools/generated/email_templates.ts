@@ -261,6 +261,124 @@ const workflowsShowEmailTemplate = (): ToolBase<
         },
     })
 
+const WorkflowsUploadEmailTemplateSchema = () => {
+    const MessagingTemplatesByKeyUpdateBody = orvalSchemas.MessagingTemplatesByKeyUpdateBody()
+    const MessagingTemplatesByKeyUpdateParams = orvalSchemas.MessagingTemplatesByKeyUpdateParams()
+    return MessagingTemplatesByKeyUpdateParams.omit({ project_id: true }).extend(
+        MessagingTemplatesByKeyUpdateBody.shape
+    )
+}
+
+const workflowsUploadEmailTemplate = (): ToolBase<
+    ReturnType<typeof WorkflowsUploadEmailTemplateSchema>,
+    WithPostHogUrl<Schemas.UploadTemplateResponse>
+> => ({
+    name: 'workflows-upload-email-template',
+    schema: WorkflowsUploadEmailTemplateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUploadEmailTemplateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.html !== undefined) {
+            body['html'] = params.html
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.preheader !== undefined) {
+            body['preheader'] = params.preheader
+        }
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.if_not_superseded !== undefined) {
+            body['if_not_superseded'] = params.if_not_superseded
+        }
+        if (params.if_code_managed !== undefined) {
+            body['if_code_managed'] = params.if_code_managed
+        }
+        const result = await context.api.request<Schemas.UploadTemplateResponse>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/by_key/${encodeURIComponent(String(params.key))}/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
+    },
+})
+
+const WorkflowsSendEmailSchema = () => {
+    const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
+    return MessagingSendEmailCreateBody
+}
+
+const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSchema>, unknown> => ({
+    name: 'workflows-send-email',
+    schema: WorkflowsSendEmailSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.to !== undefined) {
+            body['to'] = params.to
+        }
+        if (params.identifiers !== undefined) {
+            body['identifiers'] = params.identifiers
+        }
+        if (params.message_data !== undefined) {
+            body['message_data'] = params.message_data
+        }
+        if (params.template !== undefined) {
+            body['template'] = params.template
+        }
+        if (params.template_key !== undefined) {
+            body['template_key'] = params.template_key
+        }
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.html !== undefined) {
+            body['html'] = params.html
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.reply_to !== undefined) {
+            body['reply_to'] = params.reply_to
+        }
+        if (params.cc !== undefined) {
+            body['cc'] = params.cc
+        }
+        if (params.bcc !== undefined) {
+            body['bcc'] = params.bcc
+        }
+        if (params.headers !== undefined) {
+            body['headers'] = params.headers
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.attachments !== undefined) {
+            body['attachments'] = params.attachments
+        }
+        if (params.capture_engagement !== undefined) {
+            body['capture_engagement'] = params.capture_engagement
+        }
+        if (params.from !== undefined) {
+            body['from'] = params.from
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging/send/email/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsUpdateEmailTemplateSchema = () => {
     const MessagingTemplatesPartialUpdateBody = orvalSchemas.MessagingTemplatesPartialUpdateBody()
     const MessagingTemplatesPartialUpdateParams = orvalSchemas.MessagingTemplatesPartialUpdateParams()
@@ -302,6 +420,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
         }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
@@ -320,5 +441,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-make-email-template-transactional-execute': workflowsMakeEmailTemplateTransactionalExecute,
     'workflows-patch-email-template': workflowsPatchEmailTemplate,
     'workflows-show-email-template': workflowsShowEmailTemplate,
+    'workflows-upload-email-template': workflowsUploadEmailTemplate,
+    'workflows-send-email': workflowsSendEmail,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
 }

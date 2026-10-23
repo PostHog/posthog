@@ -54,15 +54,19 @@ import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
+    NOT_SENDABLE,
     TransactionalEmailOutcome,
     TransactionalEmailRequestSchema,
     transactionalEmailRequestsTotal,
+    transactionalSendCandidate,
+    transactionalSendFingerprint,
 } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
+import { EmailSendPolicy } from './services/messaging/email-send-policy'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -195,6 +199,7 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
+    private transactionalEmailPolicy: EmailSendPolicy
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private resumeBatchJwt: ScopedServiceJwt
 
@@ -241,6 +246,11 @@ export class CdpApi {
             services.teamWorkflowsConfigService,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             services.emailSuppressionService
+        )
+        this.transactionalEmailPolicy = new EmailSendPolicy(
+            services.teamWorkflowsConfigService,
+            services.emailSuppressionService,
+            services.emailValidationService
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -1163,7 +1173,7 @@ export class CdpApi {
             if (!parsed.success) {
                 return reply('invalid_request', 400, { error: parsed.error.message })
             }
-            const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
+            const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
 
             const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
             if (!team) {
@@ -1172,9 +1182,6 @@ export class CdpApi {
             const hogFlow = await this.hogFlowManager.getHogFlow(req.params.id)
             if (!hogFlow || hogFlow.team_id !== team.id) {
                 return reply('not_found', 404, { error: 'Workflow not found' })
-            }
-            if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
-                return reply('not_sendable', 400, { error: 'Workflow is not an active transactional email' })
             }
 
             const event: HogFunctionInvocationGlobals['event'] = {
@@ -1199,13 +1206,16 @@ export class CdpApi {
             const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            if (send) {
+                invocation.state.send = send
+            }
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
             invocation.queue = 'email'
             invocation.queuePriority = EMAIL_QUEUE_PRIORITY.fast
 
             const idempotencyKeys = this.transactionalEmailIdempotencyKeys
-            const fingerprint = IdempotencyKeys.fingerprint([hogFlow.id, to, distinctId, variables])
+            const fingerprint = transactionalSendFingerprint(hogFlow.id, parsed.data)
             if (idempotencyKey) {
                 // Checked before the quota, so a retry of a send that went out gets its answer even
                 // when the team has hit its quota since.
@@ -1226,6 +1236,23 @@ export class CdpApi {
                 }
             }
             try {
+                // Checked after the key, so a retry of a send that went out replays after its workflow is paused.
+                if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
+                    if (idempotencyKey) {
+                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                    }
+                    return reply('not_sendable', 400, NOT_SENDABLE)
+                }
+                const decision = await this.transactionalEmailPolicy.check(
+                    await transactionalSendCandidate(hogFlow, invocation.id, to, send, this.deps.integrationManager)
+                )
+                if (!decision.ok) {
+                    if (idempotencyKey) {
+                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                    }
+                    const { code, detail, why, fix } = decision
+                    return reply(code, 400, { error: code, code, detail, why, fix })
+                }
                 const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
                 if (isLimited) {
                     if (idempotencyKey) {
