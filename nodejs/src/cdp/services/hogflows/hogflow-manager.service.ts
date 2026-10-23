@@ -48,12 +48,13 @@ const HOG_FLOW_FIELDS = [
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 
-type HogFlowRevisionSteps = Pick<HogFlow, 'actions' | 'edges'>
+type HogFlowRevisionSteps = Pick<HogFlow, 'actions' | 'edges' | 'trigger'>
 
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
     private revisionStepsLoader: LazyLoader<HogFlowRevisionSteps>
+    private actionIdsWithSecrets = new WeakMap<HogFlow, ReadonlySet<string>>()
 
     constructor(
         private postgres: PostgresRouter,
@@ -156,13 +157,17 @@ export class HogFlowManagerService {
     }
 
     /**
-     * The flow with the steps it had when it was published as `version`, or null when no revision holds that
-     * version. Everything else, such as its status and email pause, stays live. Revisions hold no secret
-     * inputs, so only use it for flows whose steps have none.
+     * The flow with the steps and trigger it had when it was published as `version`. Everything else, such as
+     * its status and email pause, stays live, and a step that is sensitive now stays sensitive. Null when no
+     * revision holds that version, or when a step of it holds secret inputs, which revisions do not store.
      */
     public async getHogFlowAtVersion(hogFlow: HogFlow, version: number): Promise<HogFlow | null> {
         const steps = await this.revisionStepsLoader.get(revisionKey(hogFlow.id, version))
-        return steps ? { ...hogFlow, ...steps, version } : null
+        const liveSecrets = this.actionIdsWithSecrets.get(hogFlow)
+        if (!steps || steps.actions.some((action) => liveSecrets?.has(action.id))) {
+            return null
+        }
+        return { ...hogFlow, ...steps, actions: withLiveSensitivity(steps.actions, hogFlow.actions), version }
     }
 
     private async fetchRevisionSteps(keys: string[]): Promise<Record<string, HogFlowRevisionSteps | undefined>> {
@@ -181,6 +186,7 @@ export class HogFlowManagerService {
             steps[revisionKey(row.hog_flow_id, row.version)] = {
                 actions: row.content.actions,
                 edges: row.content.edges,
+                trigger: row.content.trigger,
             }
         }
         return steps
@@ -284,6 +290,7 @@ export class HogFlowManagerService {
         if (!decrypted) {
             return
         }
+        this.actionIdsWithSecrets.set(item, new Set(Object.keys(decrypted)))
 
         for (const action of item.actions ?? []) {
             const actionSecrets = decrypted[action.id]
@@ -310,4 +317,17 @@ const revisionKey = (hogFlowId: HogFlow['id'], version: number): string => `${ho
 const parseRevisionKey = (key: string): { hogFlowId: string; version: number } => {
     const separator = key.lastIndexOf(':')
     return { hogFlowId: key.slice(0, separator), version: Number(key.slice(separator + 1)) }
+}
+
+const withLiveSensitivity = (pinned: HogFlow['actions'], live: HogFlow['actions']): HogFlow['actions'] => {
+    const sensitiveIds = new Set(
+        live
+            .filter((action) => action.type === 'function_email' && action.config.sensitive === true)
+            .map((action) => action.id)
+    )
+    return pinned.map((action) =>
+        action.type === 'function_email' && sensitiveIds.has(action.id)
+            ? { ...action, config: { ...action.config, sensitive: true } }
+            : action
+    )
 }

@@ -8,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../services/hogflows/hogflow-sensitivity'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CyclotronJobInvocation,
@@ -37,7 +38,7 @@ function personForFlow(
 
 const counterPinnedVersionMissing = new Counter({
     name: 'cdp_hogflow_pinned_version_missing_total',
-    help: 'A transactional email ran its live version because no revision holds the version it was accepted at',
+    help: 'A transactional email ran its live version because no revision can run the version it was accepted at',
 })
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
@@ -94,12 +95,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     // never changes an email that is already queued. Other workflows pick up live edits.
     private async versionToRun(hogFlow: HogFlow, state: CyclotronJobInvocationHogFlow['state']): Promise<HogFlow> {
         const accepted = state.flowVersion
-        if (hogFlow.trigger?.type !== 'api' || accepted === undefined || accepted === hogFlow.version) {
+        if (
+            state.event?.event !== TRANSACTIONAL_EMAIL_EVENT ||
+            accepted === undefined ||
+            accepted === hogFlow.version
+        ) {
             return hogFlow
         }
         const pinned = await this.hogFlowManager.getHogFlowAtVersion(hogFlow, accepted)
         if (!pinned) {
-            logger.warn('⚠️', 'No revision holds the accepted version of a transactional email, sending the live one', {
+            logger.warn('⚠️', 'The accepted version of a transactional email cannot run, sending the live one', {
                 id: hogFlow.id,
                 accepted,
                 live: hogFlow.version,

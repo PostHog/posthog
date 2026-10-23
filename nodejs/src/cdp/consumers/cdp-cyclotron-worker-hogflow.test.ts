@@ -427,22 +427,60 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         })
 
         it.each([
-            ['a transactional email runs the version it was accepted at', 'api', 'accepted'],
-            ['an event workflow runs its live version', 'event', 'edited'],
-        ] as const)('%s', async (_desc, trigger, expectedReason) => {
-            const flowWithExit = (reason: string): HogFlow =>
+            [
+                'a transactional email runs the version it was accepted at',
+                'api',
+                '$transactional_email',
+                {},
+                'accepted',
+                false,
+            ],
+            [
+                'a transactional email keeps its accepted version when the trigger changes',
+                'api',
+                '$transactional_email',
+                { trigger: 'schedule' },
+                'accepted',
+                false,
+            ],
+            [
+                'a transactional email stays sensitive when its step turns sensitive after it was accepted',
+                'api',
+                '$transactional_email',
+                { sensitive: true },
+                'accepted',
+                true,
+            ],
+            [
+                'a transactional email whose step holds secret inputs runs its live version',
+                'api',
+                '$transactional_email',
+                { secretInputs: { email: { api_key: { value: 'secret-key' } } } },
+                'edited',
+                false,
+            ],
+            ['an event workflow runs its live version', 'event', '$pageview', {}, 'edited', false],
+        ] as const)('%s', async (_desc, trigger, event, edit, expectedReason, expectedSensitive) => {
+            const flowWithExit = (reason: string, triggerType: string, sensitive: boolean): HogFlow =>
                 new FixtureHogFlowBuilder()
                     .withTeamId(team.id)
                     .withStatus('active')
                     .withWorkflow({
                         actions: {
-                            trigger: { type: 'trigger', config: { type: trigger, filters: {} } as any },
+                            trigger: { type: 'trigger', config: { type: triggerType, filters: {} } as any },
+                            email: {
+                                type: 'function_email',
+                                config: { template_id: 'template-email', inputs: {}, sensitive } as any,
+                            },
                             exit: { type: 'exit', config: { reason } },
                         },
                         edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
                     })
                     .build()
-            const accepted = await insertHogFlow(hub.postgres, { ...flowWithExit('accepted'), version: 1 })
+            const accepted = await insertHogFlow(hub.postgres, {
+                ...flowWithExit('accepted', trigger, false),
+                version: 1,
+            })
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO workflows_hogflowrevision (id, team_id, hog_flow_id, version, content, created_at)
@@ -457,13 +495,23 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             )
             const invocation = createSerializedHogFlowInvocation(accepted, {
                 flowVersion: 1,
-                event: { distinct_id: 'distinct_A_1', properties: { to: 'a@example.com' } } as any,
+                event: { event, distinct_id: 'distinct_A_1', properties: { to: 'a@example.com' } } as any,
             })
-            // The template is edited after the send was accepted, which publishes version 2.
+            // The workflow is edited after the send was accepted, which publishes version 2.
+            const edited = flowWithExit(
+                'edited',
+                'trigger' in edit ? edit.trigger : trigger,
+                'sensitive' in edit ? edit.sensitive : false
+            )
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_hogflow SET version = 2, actions = $1 WHERE id = $2`,
-                [JSON.stringify(flowWithExit('edited').actions), accepted.id],
+                `UPDATE posthog_hogflow SET version = 2, actions = $1, trigger = $2, encrypted_inputs = $3 WHERE id = $4`,
+                [
+                    JSON.stringify(edited.actions),
+                    JSON.stringify(edited.trigger),
+                    'secretInputs' in edit ? hub.encryptedFields.encrypt(JSON.stringify(edit.secretInputs)) : null,
+                    accepted.id,
+                ],
                 'edit-flow'
             )
 
@@ -471,8 +519,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 invocation,
             ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
 
-            const exit = results[0].invocation.hogFlow.actions.find((action) => action.type === 'exit')
-            expect(exit?.config).toEqual({ reason: expectedReason })
+            const actions = results[0].invocation.hogFlow.actions
+            expect(actions.find((action) => action.type === 'exit')?.config).toEqual({ reason: expectedReason })
+            expect(actions.find((action) => action.type === 'function_email')?.config).toMatchObject({
+                sensitive: expectedSensitive,
+            })
         })
 
         it('should make minimal calls to the person manager', async () => {
