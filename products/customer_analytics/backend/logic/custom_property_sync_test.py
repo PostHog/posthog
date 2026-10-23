@@ -5,6 +5,8 @@ from django.apps import apps
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from products.customer_analytics.backend.logic.custom_property_sync import (
     _read_view,
     sync_custom_properties_for_account,
@@ -79,16 +81,35 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert result.unmatched_keys == 1
         assert not CustomPropertyValue.objects.filter(definition=self.mrr_def, account=self.globex).exists()
 
-    def test_missing_column_marks_source_error_and_skips(self):
-        source = self._source(self.mrr_def, "does_not_exist")
+    @parameterized.expand([("not_in_view", False), ("not_yet_materialized", True)])
+    def test_missing_column_marks_source_error_and_skips(self, _name, materialized):
+        if materialized:
+            DataWarehouseTable = apps.get_model("warehouse_sources", "DataWarehouseTable")
+            self.view.columns = {**self.view.columns, "scored_at": {}}
+            self.view.table = DataWarehouseTable.objects.create(
+                team=self.team, name="billing_view_mat", columns={"org_id": "String", "mrr": "Float64"}
+            )
+            self.view.is_materialized = True
+            self.view.save()
+        source = self._source(self.mrr_def, "scored_at" if materialized else "does_not_exist")
         current = CustomPropertyValue.objects.create(
             team=self.team, account=self.acme, definition=self.mrr_def, value_num=100.0
         )
-        result = self._sync([(100.0, "acme")])
+        with patch(_EXECUTE) as execute:
+            result = sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id)
 
+        execute.assert_not_called()
         assert result.written == 0
         assert str(source.id) in result.source_errors
         assert self._active(self.acme, self.mrr_def).id == current.id
+
+    def test_unresolvable_view_read_marks_source_error_instead_of_raising(self):
+        source = self._source(self.mrr_def, "mrr")
+        with patch(_EXECUTE, side_effect=QueryError("Unable to resolve field: mrr")):
+            result = sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id)
+
+        assert result.written == 0
+        assert "Unable to resolve field: mrr" in result.source_errors[str(source.id)]
 
     def test_deleted_view_returns_not_found(self):
         self._source(self.mrr_def, "mrr")

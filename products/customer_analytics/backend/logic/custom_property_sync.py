@@ -13,6 +13,7 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -49,7 +50,7 @@ def sync_custom_property_values(
     sources = list(
         CustomPropertySource.objects.for_team(team_id)
         .filter(saved_query_id=saved_query_id, is_enabled=True)
-        .select_related("definition", "saved_query")
+        .select_related("definition", "saved_query", "saved_query__table")
     )
     if not sources:
         return SyncResult(view_found=True)
@@ -58,7 +59,11 @@ def sync_custom_property_values(
     if saved_query is None or saved_query.deleted:
         return SyncResult(view_found=False)
 
-    available_columns = set((saved_query.columns or {}).keys())
+    # HogQL reads a materialized view from its backing table, whose columns can lag behind the
+    # view's SQL until the view materializes again (see DataWarehouseSavedQuery.hogql_definition).
+    materialized_table = saved_query.table if saved_query.is_materialized else None
+    resolved_columns = materialized_table.columns if materialized_table is not None else saved_query.columns
+    available_columns = set((resolved_columns or {}).keys())
     result = SyncResult(view_found=True)
     usable: list[CustomPropertySource] = []
     selected_columns: set[str] = set()
@@ -80,10 +85,15 @@ def sync_custom_property_values(
     account_ids_by_external_id = _get_account_ids_by_external_id(team_id, external_id=external_id)
     external_ids = sorted(account_ids_by_external_id)
     team = Team.objects.get(id=team_id)
-    rows_by_key_column = {
-        key_column: _read_view(team, saved_query.name, ordered, key_column, external_ids)
-        for key_column in sorted({source.key_column for source in usable})
-    }
+    rows_by_key_column: dict[str, list] = {}
+    for key_column in sorted({source.key_column for source in usable}):
+        try:
+            rows_by_key_column[key_column] = _read_view(team, saved_query.name, ordered, key_column, external_ids)
+        except QueryError as exc:
+            failed = [source for source in usable if source.key_column == key_column]
+            for source in failed:
+                result.source_errors[str(source.id)] = f"Could not read view {saved_query.name}: {exc}"
+            usable = [source for source in usable if source.key_column != key_column]
     result.accounts_total = len(account_ids_by_external_id)
     result.rows_fetched = sum(len(rows) for rows in rows_by_key_column.values())
 
