@@ -125,8 +125,10 @@ class OrganizationInviteManager:
         return [{"id": project_id, "level": level} for project_id, level in combined_access.items()]
 
     @staticmethod
-    def delete_invites(invites: list[OrganizationInvite]) -> None:
-        OrganizationInvite.objects.filter(id__in=[invite.id for invite in invites]).delete()
+    def delete_invites(organization_id: UUID | str, invites: list[OrganizationInvite]) -> None:
+        OrganizationInvite.objects.filter(
+            organization_id=organization_id, id__in=[invite.id for invite in invites]
+        ).delete()
 
 
 def _project_access_level_exceeds(*, requested_level: str, granted_level: Optional[str]) -> bool:
@@ -337,7 +339,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             )
 
         # Delete existing invites for this email
-        OrganizationInviteManager.delete_invites(replaceable_invites)
+        OrganizationInviteManager.delete_invites(self.context["organization_id"], replaceable_invites)
 
         # Create new invite
         invite: OrganizationInvite = OrganizationInvite.objects.create(
