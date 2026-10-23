@@ -214,6 +214,7 @@ export const QueryDatabase = ({
     // item there opens nothing. Most embedded callers hide the tree entirely, but not all.
     const warehouseAccessControlEnabled =
         !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL] && !isEmbeddedMode
+    const renameSavedViewEnabled = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_RENAME_SAVED_VIEW]
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -1069,7 +1070,8 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
-                            {!isEmbeddedMode &&
+                            {renameSavedViewEnabled &&
+                            !isEmbeddedMode &&
                             item.record.type === 'view' &&
                             item.record.isSavedQuery &&
                             item.record.view?.managed_viewset_kind === null ? (
@@ -1472,7 +1474,7 @@ export const QueryDatabase = ({
                     onSave={updatePropertyDefinition}
                 />
             ) : null}
-            {renamingView ? (
+            {renameSavedViewEnabled && renamingView ? (
                 <RenameViewModal
                     key={renamingView.id}
                     viewName={renamingView.name}

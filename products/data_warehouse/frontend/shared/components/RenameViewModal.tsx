@@ -4,6 +4,8 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@post
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 export interface RenameViewReference {
     id: string
@@ -147,7 +149,9 @@ export function RenameViewModal({
                                                 <span className="text-secondary">
                                                     {getReferenceTypeLabel(reference.type)}:
                                                 </span>{' '}
-                                                {reference.name}
+                                                <Link to={urls.nodeDetail(reference.id)} target="_blank">
+                                                    {reference.name}
+                                                </Link>
                                             </li>
                                         ))}
                                     </ul>

@@ -298,6 +298,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
+    DATA_WAREHOUSE_RENAME_SAVED_VIEW: 'data-warehouse-rename-saved-view', // owner: #team-data-modeling
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
     DISCUSSIONS_SLACK_SYNC: 'discussions-slack-sync', // owner: #team-platform-features
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
