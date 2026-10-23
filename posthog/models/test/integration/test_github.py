@@ -1213,6 +1213,35 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["requested_reviewers"] == ["bob"]
         assert result["requested_teams"] == ["team-signals"]
 
+    @parameterized.expand(
+        [
+            (
+                "removed_on_later_page",
+                True,
+                [{"event": "review_request_removed", "requested_reviewer": {"login": "Alice"}}],
+                {"alice"},
+            ),
+            ("team_removal", True, [{"event": "review_request_removed", "requested_team": {"slug": "owners"}}], set()),
+            ("incomplete_history", False, [], None),
+            ("invalid_history", True, {"message": "Moved"}, None),
+        ]
+    )
+    def test_removed_reviewers_require_complete_history(
+        self, _name: str, complete: bool, last_page: object, expected: set[str] | None
+    ) -> None:
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        first = MagicMock(status_code=200)
+        first.links = {"next": {"url": "https://api.github.com/repos/PostHog/posthog/issues/123/timeline?page=2"}}
+        first.json.return_value = [{"event": "review_requested", "requested_reviewer": {"login": "bob"}}]
+        second = MagicMock(status_code=200) if complete else None
+        if second is not None:
+            second.links = {}
+            second.json.return_value = last_page
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first, second]) as mock_get:
+            assert github.get_removed_pull_request_reviewers("PostHog/posthog", 123) == expected
+        assert mock_get.call_args_list[0].args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/timeline"
+
     def test_list_submitted_pull_request_reviewers_reads_every_page(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)

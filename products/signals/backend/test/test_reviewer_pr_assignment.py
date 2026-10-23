@@ -94,6 +94,7 @@ def _open_pr_github() -> MagicMock:
         "requested_reviewers": ["opted-in"],
     }
     github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": []}
+    github.get_removed_pull_request_reviewers.return_value = set()
     return github
 
 
@@ -194,12 +195,22 @@ class TestAssignReviewersToPullRequest:
         ("assignees", "reviewed_by", "expected_reviewer"),
         [
             (["Assigned"], ["Completed"], "assigned"),
-            (["Lower-Ranked"], ["Completed"], "assigned"),
+            (["Lower-Ranked"], ["Completed"], "lower-ranked"),
             (["Assigned", "Lower-Ranked"], ["Completed", "Assigned"], "new-reviewer"),
-            (["outside-report"], ["Completed"], "assigned"),
-            (["Assigned"], ["Assigned", "Completed", "new-reviewer", "lower-ranked"], None),
+            (["outside-report"], ["Completed"], "outside-report"),
+            (["Assigned"], ["Assigned"], None),
+            ([], ["Completed"], "assigned"),
+            (["Author"], [], None),
         ],
-        ids=["top-ranked-assignee", "lower-ranked-assignee", "completed-assignee", "unlisted-assignee", "all-reviewed"],
+        ids=[
+            "top-ranked-assignee",
+            "lower-ranked-assignee",
+            "multiple-assignees",
+            "unlisted-assignee",
+            "owner-reviewed",
+            "no-owner",
+            "owner-is-author",
+        ],
     )
     def test_suggested_reviewers_receive_review_requests(
         self,
@@ -227,7 +238,6 @@ class TestAssignReviewersToPullRequest:
             assigned = assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
         assert assigned == []
-        github.list_submitted_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 123)
         if expected_reviewer:
             github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [expected_reviewer])
         else:
@@ -237,14 +247,22 @@ class TestAssignReviewersToPullRequest:
     @pytest.mark.django_db
     @pytest.mark.parametrize(
         ("existing_field", "existing_value"),
-        [("requested_reviewers", ["human-choice"]), ("requested_teams", ["owning-team"])],
+        [
+            ("requested_reviewers", ["human-choice"]),
+            ("requested_teams", ["owning-team"]),
+            ("requested_reviewers", ["Suggested"]),
+        ],
     )
-    def test_an_existing_review_request_is_left_alone(self, org_and_team, existing_field, existing_value):
+    @pytest.mark.parametrize("owner", [None, "suggested"])
+    def test_an_existing_review_request_only_allows_the_owner(
+        self, org_and_team: tuple[Organization, Team], existing_field: str, existing_value: list[str], owner: str | None
+    ) -> None:
         org, team = org_and_team
         _make_reviewer(org, "suggested", opted_in=False)
         report = _make_report(team, ["suggested"])
         github = _open_pr_github()
         github.get_pull_request.return_value[existing_field] = existing_value
+        github.get_pull_request.return_value["assignees"] = [owner] if owner else []
 
         with patch(
             "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
@@ -252,8 +270,37 @@ class TestAssignReviewersToPullRequest:
         ):
             assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
-        github.list_submitted_pull_request_reviewers.assert_not_called()
-        github.request_pull_request_reviews.assert_not_called()
+        if owner and existing_value != ["Suggested"]:
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [owner])
+        else:
+            github.list_submitted_pull_request_reviewers.assert_not_called()
+            github.request_pull_request_reviews.assert_not_called()
+        assert github.get_pull_request.return_value[existing_field] == existing_value
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("owner", [None, "selected"])
+    @pytest.mark.parametrize("removed", [{"selected"}, None])
+    def test_removed_requests_and_unavailable_history_are_not_overridden(
+        self, org_and_team: tuple[Organization, Team], owner: str | None, removed: set[str] | None
+    ) -> None:
+        org, team = org_and_team
+        for login in ["selected", "other"]:
+            _make_reviewer(org, login, opted_in=False)
+        report = _make_report(team, ["selected", "other"])
+        github = _open_pr_github()
+        github.get_pull_request.return_value["assignees"] = [owner] if owner else []
+        github.get_removed_pull_request_reviewers.return_value = removed
+
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+        if owner is None and removed is not None:
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["other"])
+        else:
+            github.request_pull_request_reviews.assert_not_called()
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -651,7 +698,7 @@ class TestDirectlyResponsibleIndividual:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize("claimant", [None, "bob", "carol"])
-    def test_assigning_the_dri_preserves_review_request_ranking(
+    def test_assigning_the_dri_requests_their_review(
         self, org_and_team: tuple[Organization, Team], claimant: str | None
     ) -> None:
         org, team = org_and_team
@@ -661,7 +708,7 @@ class TestDirectlyResponsibleIndividual:
         github = self._github(existing_assignees=[], assignable=None)
 
         assert self._assign(team, report, github) == [[claimant or "alice"]]
-        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["alice"])
+        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [claimant or "alice"])
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
