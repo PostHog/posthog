@@ -241,11 +241,12 @@ def list_groups(
     exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
     breaks ``created_at`` ties on ``group_key`` (unique within a team and type).
 
-    Dedup runs in two phases, so memory does not grow with the team's total property volume. The
-    first phase picks the page's keys and aggregates only ``created_at`` and the search match flag
-    per key. The second phase reads the latest properties for those keys only. The deduped
-    ``groups`` table holds every group's properties across all group types in memory before any
-    filter applies, and that runs out of memory on large projects.
+    Dedup runs in two phases, so memory does not grow with the group type's total property volume.
+    The first phase picks the page's keys and aggregates only ``created_at`` and the search match
+    flag per key. The second phase reads the latest properties for those keys only. A single dedup
+    over the ``groups`` table holds the latest properties of every group of the type in memory,
+    because the search, cursor and ordering can only apply after the dedup. That runs out of memory
+    on large projects.
     """
     from posthog.hogql import ast  # noqa: PLC0415 — keep HogQL off this widely-imported module's import path
     from posthog.hogql.database.schema.groups import select_from_groups_table  # noqa: PLC0415
@@ -307,6 +308,7 @@ def list_groups(
             "limit": ast.Constant(value=limit + 1),
         },
     )
+    # Without its own LIMIT, the executor's default row limit can drop the extra row that sets has_more.
     query = parse_select(
         "SELECT key, created_at, properties FROM {latest_groups} ORDER BY created_at DESC, key DESC LIMIT {limit}",
         placeholders={
