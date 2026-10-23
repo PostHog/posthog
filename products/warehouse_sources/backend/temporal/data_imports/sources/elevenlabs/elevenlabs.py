@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.settings import (
     ELEVENLABS_ENDPOINTS,
@@ -201,13 +200,30 @@ def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
     }
 
 
+_INVALID_API_KEY_MESSAGE = (
+    "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
+    "ElevenLabs account settings, then try again."
+)
+
+
+def _is_missing_permission(response: Response) -> bool:
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(detail, dict) and detail.get("status") == "missing_permissions"
+
+
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     """Probe the API key. 200 => valid. 401 => invalid key. 403 => valid key missing a scope.
 
-    At source-create (`schema_name=None`) a 403 is accepted: users may grant only the scopes for the
-    endpoints they want, so a missing scope must not block connecting. When probing a specific schema
-    a 403 is a genuine per-table scope error and is surfaced. Sync-time 403s are handled separately by
-    `get_non_retryable_errors`.
+    ElevenLabs also answers a valid key that lacks a scope with a 401 whose body carries
+    `detail.status == "missing_permissions"`, so that 401 is a missing scope too, not an invalid key.
+
+    At source-create (`schema_name=None`) a missing scope is accepted: users may grant only the scopes
+    for the endpoints they want, so a missing scope must not block connecting. When probing a specific
+    schema it is a genuine per-table scope error and is surfaced. Sync-time 403s are handled separately
+    by `get_non_retryable_errors`.
 
     Any other status (429, 5xx, or an unexpected code) means the key was never actually verified, so
     validation fails rather than saving an unverified key as valid — the user can retry a transient blip.
@@ -217,36 +233,35 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     if config is not None and config.fanout is not None:
         config = ELEVENLABS_ENDPOINTS[config.fanout.parent_name]
     probe_path = config.path if config else "/v1/user"
-    # Bake the probe's page_size into the URL: validate_via_probe issues a bare GET with no params.
+    # Bake the probe's page_size into the URL: the probe issues a bare GET with no params.
     url = f"{ELEVENLABS_BASE_URL}{probe_path}{f'?{config.page_size_param}=1' if config and config.page_size else ''}"
 
     # Don't follow redirects: requests preserves the custom `xi-api-key` header across a cross-origin
     # 3xx, so a redirect off the fixed API host could replay the key to another origin.
-    _ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
-        url,
-        headers=_get_headers(api_key),
-    )
-
-    if status is None:
+    try:
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
+            url, headers=_get_headers(api_key), timeout=10.0, allow_redirects=False
+        )
+    except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
         return False, "Could not reach the ElevenLabs API. Please try again."
+
+    status = response.status_code
     if status == 200:
         return True, None
-    if status == 401:
-        return (
-            False,
-            "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
-            "ElevenLabs account settings, then try again.",
-        )
-    if status == 403:
+    if status == 403 or (status == 401 and _is_missing_permission(response)):
         if schema_name is None:
             return True, None
-        return False, f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`."
+        return False, (
+            f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`. "
+            "Grant it on the key in your ElevenLabs account settings, then try again."
+        )
+    if status == 401:
+        return False, _INVALID_API_KEY_MESSAGE
     # A 4xx other than the 401/403 above (a 400 is what users actually hit) is a deterministic client
     # error: the key was rejected and retrying sends the same request, so treat it as an invalid key
     # rather than a transient "try again". 429 is a rate limit and stays retryable below.
     if 400 <= status < 500 and status != 429:
-        return False, "Invalid ElevenLabs API key"
+        return False, _INVALID_API_KEY_MESSAGE
     # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
     # can retry, rather than saving a source that only fails on its first sync.
     return False, f"Could not verify the ElevenLabs API key (status {status}). Please try again."

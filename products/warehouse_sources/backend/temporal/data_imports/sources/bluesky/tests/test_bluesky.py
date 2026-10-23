@@ -21,9 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 class TestValidateCredentials:
-    def test_valid_actor(self) -> None:
+    @pytest.mark.parametrize("actor", ["jay.bsky.team", "@jay.bsky.team", " jay.bsky.team "])
+    def test_valid_actor(self, actor: str) -> None:
         with scripted_network([ScriptedResponse(json={"did": "did:plc:abc"})]) as network:
-            is_valid, message = validate_credentials("jay.bsky.team")
+            is_valid, message = validate_credentials(actor)
 
         assert (is_valid, message) == (True, None)
         assert len(network.requests_log) == 1
@@ -32,8 +33,18 @@ class TestValidateCredentials:
         )
         assert network.requests_log[0].method == "GET"
 
-    def test_non_json_error_body_falls_back(self) -> None:
-        with scripted_network([ScriptedResponse(status=400, body=b"<html>not json</html>")]):
+    @pytest.mark.parametrize(
+        "response",
+        [
+            ScriptedResponse(status=400, body=b"<html>not json</html>"),
+            ScriptedResponse(
+                status=400,
+                json={"error": "InvalidRequest", "message": "Invalid app.bsky.actor.getProfile params: bad actor"},
+            ),
+        ],
+    )
+    def test_bad_actor_returns_actionable_message(self, response: ScriptedResponse) -> None:
+        with scripted_network([response]):
             is_valid, message = validate_credentials("missing.bsky.social")
 
         assert is_valid is False
@@ -51,8 +62,8 @@ class TestBlueskySourceResumeBehavior:
     """Run Bluesky resume behavior through the source pipeline."""
 
     @staticmethod
-    def _driver() -> SourceDriver:
-        return SourceDriver(BlueskySource(), BlueskySourceConfig(actor="jay.bsky.team"))
+    def _driver(actor: str = "jay.bsky.team") -> SourceDriver:
+        return SourceDriver(BlueskySource(), BlueskySourceConfig(actor=actor))
 
     @pytest.mark.parametrize(
         ("endpoint", "list_key", "item"),
@@ -98,10 +109,13 @@ class TestBlueskySourceResumeBehavior:
         assert result.params("cursor") == [None]
 
     def test_profile_endpoint_is_a_single_page_and_never_saves_state(self) -> None:
-        result = self._driver().run("Profile", [ScriptedResponse(json={"did": "did:plc:1", "handle": "jay.bsky.team"})])
+        result = self._driver("@jay.bsky.team").run(
+            "Profile", [ScriptedResponse(json={"did": "did:plc:1", "handle": "jay.bsky.team"})]
+        )
 
         assert result.raised is None
         assert len(result.requests) == 1
+        assert result.params("actor") == ["jay.bsky.team"]
         assert result.saved_states == []
 
     def test_posts_yields_flattened_post_objects(self) -> None:
@@ -159,8 +173,8 @@ POST_FANOUT_CASES = [
 
 class TestBlueskyPostFanout:
     @staticmethod
-    def _driver() -> SourceDriver:
-        return SourceDriver(BlueskySource(), BlueskySourceConfig(actor="jay.bsky.team"))
+    def _driver(actor: str = "jay.bsky.team") -> SourceDriver:
+        return SourceDriver(BlueskySource(), BlueskySourceConfig(actor=actor))
 
     @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
     def test_walks_every_post_and_child_page(

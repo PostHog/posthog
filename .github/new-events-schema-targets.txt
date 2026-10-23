@@ -25,9 +25,12 @@ posthog/clickhouse/test
 ee/clickhouse
 products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
+products/ai_observability/backend/tests/test_facade_api.py
+products/ai_observability/backend/tests/test_trace_views.py
 products/cohorts
 products/customer_analytics/backend/hogql_queries
 products/error_tracking/backend/hogql_queries
+products/error_tracking/backend/tests/test_issue_summaries.py
 products/experiments
 products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries
@@ -43,6 +46,7 @@ products/mcp_analytics/backend/tests/test_tool_tables.py
 products/product_analytics/backend/hogql_queries
 products/product_analytics/backend/tests/test_insight_data_checks.py
 products/replay_vision/backend/tests/test_session_identity.py
+products/signals/backend/test/test_anomaly_scoring_tick.py
 products/web_analytics/backend/hogql_queries
 
 # Code outside HogQL that builds events SQL itself and branches on the schema
@@ -71,6 +75,7 @@ posthog/api/test/test_query.py
 posthog/models/test/test_async_deletion_model.py
 posthog/models/web_preaggregated/test_web_pre_aggregated_timezones.py
 posthog/tasks/test/test_stop_surveys_reached_target.py
+products/ai_observability/backend/api/test/test_evaluations.py
 products/ai_observability/backend/api/test/test_personal_spend.py
 products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py

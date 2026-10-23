@@ -155,6 +155,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
     # Null on rows that predate the column; the write path accepts any token for those until their first edit.
     query_revision = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
+    query_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
@@ -418,7 +419,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 saved_query_id=str(self.id),
             )
 
-    def revert_materialization(self):
+    def revert_materialization(self, *, delete_joins: bool = True):
         from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
 
@@ -429,9 +430,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.is_materialized = False
 
         with transaction.atomic():
+            self.table_id = (
+                DataWarehouseSavedQuery.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values_list("table_id", flat=True)
+                .first()
+            )
             # delete the materialized table reference
             if self.table is not None:
-                self.table.soft_delete()
+                self.table.soft_delete(delete_joins=delete_joins)
                 self.table_id = None
 
             self.save()

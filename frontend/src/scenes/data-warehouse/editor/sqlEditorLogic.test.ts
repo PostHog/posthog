@@ -461,6 +461,18 @@ describe('sqlEditorLogic', () => {
                 .toMatchValues({ queryInput: restoredQuery, hasEditorChanges: false })
         })
 
+        it('opens a view with the query in the link as unsaved edits', async () => {
+            mountEditor()
+            await expectLogic(logic, () =>
+                router.actions.push(urls.sqlEditor({ view_id: MOCK_VIEW.id, query: 'SELECT edited' }))
+            )
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: 'SELECT edited', hasEditorChanges: true })
+            expect(logic.values.editingView?.id).toBe(MOCK_VIEW.id)
+            expect(logic.values.editingView?.query?.query).toBe(MOCK_VIEW.query.query)
+        })
+
         it.each([false, true])('refreshes a discarded draft without overwriting new edits (%s)', async (editAgain) => {
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
@@ -1929,9 +1941,9 @@ describe('sqlEditorLogic', () => {
                 { display_name: 'Monthly active users', unit: 'users' },
             ],
             [
-                'omits the optional fields when they are blank',
+                'posts blank optional fields as blank, so an overwrite clears them',
                 { ...PREFILL, display_name: '', unit: '' },
-                { display_name: undefined, unit: undefined },
+                { display_name: '', unit: '' },
             ],
         ])('%s', async (_case, fields, expectedOptionalFields) => {
             let createBody: Record<string, any> | undefined
@@ -1950,10 +1962,66 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetricSubmit(fields)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(createBody).toMatchObject({ name: fields.name, description: fields.description })
+            expect(createBody).toMatchObject({
+                name: fields.name,
+                description: fields.description,
+                created_source: 'user',
+            })
             expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
             expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
             expect(logic.values.metricPrefill).toBeNull()
+        })
+
+        it('asks before it overwrites a taken name, and reopens the form with the typed values and query on dismiss', async () => {
+            const createBodies: Record<string, any>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        createBodies.push(body)
+                        return body.overwrite
+                            ? [201, { name: body.name }]
+                            : [
+                                  409,
+                                  {
+                                      type: 'invalid_request',
+                                      code: 'metric_name_taken',
+                                      detail: 'A metric with this name already exists.',
+                                      extra: { existing_metric: { name: body.name, status: 'approved' } },
+                                  },
+                              ]
+                    },
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            mountEditor()
+            logic.actions.setQueryInput('SELECT 1;\nSELECT 2;\nSELECT 3')
+
+            logic.actions.saveAsMetricSubmit(PREFILL, 'SELECT 2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false])
+            // A dismissal runs only onAfterClose.
+            open.mock.calls.at(-1)?.[0].onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+            const reopenedForm = openForm.mock.calls.at(-1)?.[0]
+            expect(reopenedForm?.initialValues).toMatchObject({ ...PREFILL, saveTarget: 1 })
+
+            await reopenedForm?.onSubmit({ ...PREFILL, saveTarget: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+            // A click on Overwrite runs onClick, and the close that follows runs onAfterClose.
+            const confirmDialog = open.mock.calls.at(-1)?.[0]
+            confirmDialog?.primaryButton?.onClick?.({} as any)
+            confirmDialog?.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false, false, true])
+            expect(createBodies[2].definition.query).toEqual('SELECT 2')
+            expect(openForm).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toContain(urls.dataCatalogMetric(PREFILL.name))
+            open.mockRestore()
+            openForm.mockRestore()
         })
 
         it('refreshes the sidebar metric list after saving a metric', async () => {
@@ -2142,6 +2210,40 @@ describe('sqlEditorLogic', () => {
                 expect(logic.values.suggestionPayload?.acceptText).toBe(acceptText)
             }
         )
+
+        it('reviewEditingViewUpdate builds the update from the open view, the edit and the last run', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+            })
+            logic.mount()
+
+            logic.actions.editView(MOCK_VIEW.query.query, { ...MOCK_VIEW, is_materialized: true })
+            await expectLogic(logic).toDispatchActions(['editView', 'createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 2')
+
+            // The data node is mounted by the editor's visualization in the app, and not reachable from a host.
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+            })
+            editorDataNodeLogic.mount()
+            editorDataNodeLogic.actions.loadDataSuccess({ results: [], types: [['two', 'UInt8']] } as any)
+
+            logic.actions.reviewEditingViewUpdate()
+            await expectLogic(logic)
+                .toDispatchActions([
+                    'reviewEditingViewUpdate',
+                    (action) =>
+                        action.type === logic.actionTypes.reviewViewUpdate &&
+                        action.payload.view.id === MOCK_VIEW.id &&
+                        action.payload.view.query.query === 'SELECT 2' &&
+                        action.payload.view.shouldRematerialize === true &&
+                        JSON.stringify(action.payload.view.types) === JSON.stringify([['two', 'UInt8']]),
+                ])
+                .toFinishAllListeners()
+            editorDataNodeLogic.unmount()
+        })
     })
 
     describe('inline insight metadata editing', () => {

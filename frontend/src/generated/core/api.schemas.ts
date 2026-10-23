@@ -1698,6 +1698,7 @@ export interface TeamMarketingAnalyticsConfigApi {
 /**
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
+ * * `account_field` - Account field
  */
 export type AccountPropertyPinKindEnumApi =
     (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
@@ -1705,15 +1706,20 @@ export type AccountPropertyPinKindEnumApi =
 export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
+    AccountField: 'account_field',
 } as const
 
 export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
-    /** Definition type for this default pinned account property.
+    /** Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
      *
      * * `custom_property` - Custom property
-     * * `relationship` - Relationship */
+     * * `relationship` - Relationship
+     * * `account_field` - Account field */
     kind: AccountPropertyPinKindEnumApi
-    /** Project-scoped custom property or relationship definition UUID. */
+    /**
+     * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+     * @maxLength 64
+     */
     id: string
 }
 
@@ -1751,6 +1757,29 @@ export const EmailTrackingConsentModeEnumApi = {
     OptIn: 'opt_in',
 } as const
 
+export interface EmailUtmParamsApi {
+    /**
+     * Default utm_source. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_source?: string
+    /**
+     * Default utm_medium. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_medium?: string
+    /**
+     * Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_campaign?: string
+    /**
+     * Default utm_content. Empty uses the email step name. Supports Liquid variables.
+     * @maxLength 500
+     */
+    utm_content?: string
+}
+
 export interface TeamWorkflowsConfigApi {
     /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
     capture_workflows_engagement_events?: boolean
@@ -1760,6 +1789,10 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+    email_utm_tags_enabled?: boolean
+    /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
+    email_utm_params?: EmailUtmParamsApi
     /**
      * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
      * @minimum 0
@@ -5072,6 +5105,35 @@ export interface FileSystemHomeFolderApi {
     readonly path: string | null
 }
 
+export interface FileSystemRankedSearchItemApi {
+    /** The matching file system entry. */
+    entry: FileSystemApi
+    /** Sort key of the match. Lower sorts first. Compare element by element with other results. */
+    rank: number[]
+}
+
+export interface FileSystemRankedSearchTypeCountApi {
+    /** File system type, for example insight or dashboard. */
+    type: string
+    /** Number of matches of this type. */
+    count: number
+}
+
+export interface FileSystemRankedSearchResponseApi {
+    /** Matches, best first. */
+    results: FileSystemRankedSearchItemApi[]
+    /** True when every result contains every search word. False when no entry matched every word and the results match only some words. */
+    matched_all_words: boolean
+    /** Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false. */
+    matched_words: string[]
+    /** Number of matches for each type, largest first. */
+    type_counts: FileSystemRankedSearchTypeCountApi[]
+    /** True when no entry matched the words as typed, so every result is a close spelling. */
+    matched_with_typos: boolean
+    /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
+    counts_capped: boolean
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -6971,6 +7033,27 @@ export type FileSystemDestroyParams = {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
+}
+
+export type FileSystemSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return, best first.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Also include the best matches of every type, up to this many per type, so each type can show a preview.
+     * @minimum 0
+     * @maximum 10
+     */
+    per_type?: number
+    /**
+     * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
+     * @minLength 1
+     * @maxLength 200
+     */
+    search: string
 }
 
 export type FileSystemShortcutListParams = {

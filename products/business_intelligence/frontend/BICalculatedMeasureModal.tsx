@@ -114,9 +114,7 @@ export function BICalculatedMeasureModal(): JSX.Element | null {
                         onPressCmdEnter={saveCalculatedMeasure}
                         data-attr="bi-calculated-measure-formula"
                     />
-                    <p className="m-0 text-xs text-secondary">
-                        Press Cmd+Space (Ctrl+Space on Windows or Linux) to autocomplete fields.
-                    </p>
+                    <p className="m-0 text-xs text-secondary">Press Ctrl+Space to autocomplete fields.</p>
                     <p className="m-0 text-xs" role="status">
                         {calculatedFieldValidation === 'checking'
                             ? 'Checking SQL…'

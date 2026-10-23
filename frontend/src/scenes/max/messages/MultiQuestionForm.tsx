@@ -13,7 +13,7 @@ interface MultiQuestionFormRecapProps {
 
 /**
  * Displays a completed multi-question form recap in the chat thread.
- * The interactive form is handled by MultiQuestionFormInput in InputFormArea.tsx.
+ * The interactive form is handled by MultiQuestionFormInput in MultiQuestionFormInput.tsx.
  */
 export function MultiQuestionFormRecap({
     form,
