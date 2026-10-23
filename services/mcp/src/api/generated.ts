@@ -61160,7 +61160,13 @@ export namespace Schemas {
       calls: number;
       day: string;
       errors: number;
+      max?: number | null;
+      mean?: number | null;
+      /** Latency spread for the box plot view. Optional so responses cached before these fields existed still parse. */
+      min?: number | null;
+      p25?: number | null;
       p50: number;
+      p75?: number | null;
       p95: number;
       p99: number;
     }
