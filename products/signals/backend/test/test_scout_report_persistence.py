@@ -142,10 +142,14 @@ class TestScoutReportPersistence(BaseTest):
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
 
-    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self, first_report: bool) -> None:
         # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
         # reaches the insert too. The index has to stop it, and surface the first report, not a 500.
         run = self._make_run()
+        if first_report:
+            run.skill_name = "signals-scout-first-report"
+            run.save(update_fields=["skill_name"])
         first = create_scout_report(
             team_id=self.team.id,
             title="Checkout API p99 latency regressed",
@@ -163,7 +167,7 @@ class TestScoutReportPersistence(BaseTest):
                 signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
                 attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
                 run=run,
-                idempotency_key="emission-1",
+                idempotency_key="a-different-key" if first_report else "emission-1",
             )
         assert raised.value.existing.report_id == first.report_id
         assert raised.value.existing.status == SignalReport.Status.READY

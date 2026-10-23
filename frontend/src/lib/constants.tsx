@@ -785,3 +785,5 @@ export const SDK_KEY_TO_SNIPPET_LANGUAGE: Partial<Record<SDKKey, string>> = {
     [SDKKey.TANSTACK_START]: 'react',
     [SDKKey.VITE]: 'react',
 }
+
+export const FIRST_REPORT_SCOUT_NAME = 'signals-scout-first-report'

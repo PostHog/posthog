@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.limits import (
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
+    TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
     WORKFLOW_HARD_CEILING_S,
@@ -590,12 +591,16 @@ def start_manual_signals_scout_run(
 
 
 @async_to_sync
-async def start_onboarding_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+async def start_onboarding_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str | None = None
+) -> str:
     workflow_id = _off_schedule_run_workflow_id("signals-scout-onboarding", team_id, skill_name)
     try:
         await client.start_workflow(
             RunSignalsScoutWorkflow.run,
-            RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_MANUAL),
+            RunSignalsScoutInput(
+                team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_ONBOARDING, run_note=run_note
+            ),
             id=workflow_id,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,

@@ -33,6 +33,8 @@ from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -46,6 +48,7 @@ from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIAL_MAX_RUNTIME_S,
+    TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
@@ -53,6 +56,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
+    FirstReportScoutRunSummary,
     SignalScoutRunSummary,
     build_run_prompt,
 )
@@ -279,6 +283,8 @@ async def _arun_signals_scout(
     They render in their own prompt section as untrusted data. `precheck_query_source` says which
     pre-check started the run, and is stamped on the run row.
     """
+    if skill_name == FIRST_REPORT_SCOUT and triggered_by != TRIGGERED_BY_ONBOARDING:
+        raise ValueError("The first-report scout only accepts onboarding dispatches.")
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     trial = (
         await database_sync_to_async(load_trial_launch, thread_sensitive=False)(
@@ -1099,10 +1105,11 @@ async def _spawn_and_run(
             )
         )
 
+    summary_model = FirstReportScoutRunSummary if skill.name == FIRST_REPORT_SCOUT else SignalScoutRunSummary
     session, result = await MultiTurnSession.start(
         prompt=prompt,
         context=context,
-        model=SignalScoutRunSummary,
+        model=summary_model,
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
@@ -1123,14 +1130,30 @@ async def _spawn_and_run(
         # full skill name for canonical and custom scouts alike.
         ai_agent_name=skill.name,
         before_task_dispatch=_create_bridge_row,
-        origin_key=f"scout-trial:{trial.id}" if trial is not None else None,
+        origin_key=(
+            "first-report"
+            if skill.name == FIRST_REPORT_SCOUT
+            else f"scout-trial:{trial.id}"
+            if trial is not None
+            else None
+        ),
         # Leave the activity's cleanup allowance after the scout's own timeout.
-        max_poll_seconds=TRIAL_MAX_RUNTIME_S if trial is not None else DEFAULT_MAX_RUNTIME_S,
+        max_poll_seconds=(
+            FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+            if skill.name == FIRST_REPORT_SCOUT
+            else TRIAL_MAX_RUNTIME_S
+            if trial is not None
+            else DEFAULT_MAX_RUNTIME_S
+        ),
         # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
         # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
         # failing the whole run. A failed run never finalizes, so its scan-position close-out is
         # lost and the next run inherits a doubled scan delta.
-        fallback_from_text=lambda text: SignalScoutRunSummary(summary=text),
+        fallback_from_text=lambda text: (
+            FirstReportScoutRunSummary(summary=text, first_report_result=FirstReportScoutResult(outcome="incomplete"))
+            if skill.name == FIRST_REPORT_SCOUT
+            else SignalScoutRunSummary(summary=text)
+        ),
     )
     end_status = "completed"
     end_error: str | None = None
@@ -1150,6 +1173,7 @@ async def _spawn_and_run(
             team_id=team.parent_team_id or team.id,
             summary=result.summary,
             trial=trial is not None,
+            first_report_result=result.first_report_result if isinstance(result, FirstReportScoutRunSummary) else None,
         )
         return result.summary, str(session.task_run.id)
     except BaseException as error:
@@ -1944,13 +1968,25 @@ def _capture_run_finished(
         )
 
 
-def _finalize_run_row(*, run_id: Any, team_id: int, summary: str, trial: bool = False) -> None:
+def _finalize_run_row(
+    *,
+    run_id: Any,
+    team_id: int,
+    summary: str,
+    trial: bool = False,
+    first_report_result: FirstReportScoutResult | None = None,
+) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
     # by the agent's close-out, and `update()` skips the full model refresh. `updated_at` is stamped
     # by hand because `auto_now` runs in `save()`, which this path deliberately skips.
     SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(
         summary=summary, updated_at=timezone.now()
     )
+    if first_report_result is not None:
+        with transaction.atomic():
+            run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+            run.metadata = {**(run.metadata or {}), "first_report_result": first_report_result.model_dump(mode="json")}
+            run.save(update_fields=["metadata", "updated_at"])
     # Stamped here rather than at each emit/edit site so the flags are computed once, from the
     # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
     # a stamp failure never costs the summary write that already landed above.
