@@ -222,7 +222,7 @@ def is_publicly_shared(artifact: "Dashboard | Notebook | Insight") -> bool:
     ).exists()
 
 
-def blocked_access_in_notebook_edit(user: User, notebook: Any, new_content: dict[str, Any] | None) -> list[str]:
+def denied_resources_in_notebook_edit(user: User, notebook: Any, new_content: dict[str, Any] | None) -> list[str]:
     """Only queries the edit adds or changes are checked,
     so untouched content (and anything mid-typing that doesn't resolve) never gates."""
     old_content = notebook.content or {}

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: dict[str, Any]) -> None:
     from posthog.api.sharing_publish_gate import (  # noqa: PLC0415 — keep query runners off the facade import path
-        blocked_access_in_notebook_edit,
+        denied_resources_in_notebook_edit,
         is_publicly_shared,
     )
 
@@ -43,7 +43,7 @@ def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: di
         return
     if not is_publicly_shared(notebook):
         return
-    blocked = blocked_access_in_notebook_edit(user, notebook, content)
+    blocked = denied_resources_in_notebook_edit(user, notebook, content)
     if blocked:
         blocked_list = ", ".join(f"`{name}`" for name in blocked)
         raise NotebookContentEditNotAllowed(
