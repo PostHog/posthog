@@ -164,6 +164,14 @@ def _enqueue_team_metadata_update_on_commit(team_id: int) -> None:
     transaction.on_commit(enqueue_task)
 
 
+def _any_field_may_have_changed(update_fields: frozenset[str] | None, fields: frozenset[str]) -> bool:
+    """Whether a save could have touched any of `fields`.
+
+    A `None` update_fields means a full save, where we can't tell, so we assume it might have.
+    """
+    return update_fields is None or not fields.isdisjoint(update_fields)
+
+
 @receiver(post_save, sender=Team)
 def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     """Update team metadata cache when a Team is saved."""
@@ -184,8 +192,7 @@ def update_team_metadata_cache_on_flag_policy_save(
     # already holds empty lists for a team without a row.
     if created and not instance.blocked_hosts and not instance.blocked_ips:
         return
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and not {"blocked_hosts", "blocked_ips"} & update_fields:
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset({"blocked_hosts", "blocked_ips"})):
         return
 
     _enqueue_team_metadata_update_on_commit(instance.team_id)
@@ -206,14 +213,6 @@ def _record_enqueue_failure() -> None:
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
         namespace="team_metadata", cache_name="team_metadata", operation="enqueue", result="failure"
     ).inc()
-
-
-def _name_may_have_changed(update_fields: frozenset[str] | None) -> bool:
-    """Whether a save could have touched the `name` field.
-
-    A `None` update_fields means a full save, where we can't tell, so we assume it might have.
-    """
-    return update_fields is None or "name" in update_fields
 
 
 def _enqueue_related_team_metadata_fanout(*, organization_id: int | None = None, project_id: int | None = None) -> None:
@@ -239,7 +238,7 @@ def update_team_metadata_cache_on_organization_save(
     """Refresh dependent team metadata caches when an organization is renamed."""
     if created or not settings.FLAGS_REDIS_URL:
         return
-    if not _name_may_have_changed(kwargs.get("update_fields")):
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset({"name"})):
         return
 
     transaction.on_commit(lambda: _enqueue_related_team_metadata_fanout(organization_id=instance.id))
@@ -252,7 +251,7 @@ def update_team_metadata_cache_on_project_save(
     """Refresh dependent team metadata caches when a project is renamed."""
     if created or not settings.FLAGS_REDIS_URL:
         return
-    if not _name_may_have_changed(kwargs.get("update_fields")):
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset({"name"})):
         return
 
     transaction.on_commit(lambda: _enqueue_related_team_metadata_fanout(project_id=instance.id))

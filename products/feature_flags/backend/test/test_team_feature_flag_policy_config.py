@@ -9,7 +9,9 @@ from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.feature_flags.backend.facade.request_blocklist import (
+    MAX_BLOCKED_HOST_LENGTH,
     MAX_BLOCKED_HOSTS,
+    MAX_BLOCKED_IP_LENGTH,
     MAX_BLOCKED_IPS,
     BlocklistEntryError,
     normalize_blocked_hosts,
@@ -31,6 +33,7 @@ class TestNormalizeBlockedHosts(SimpleTestCase):
             ("accepts_ip_literal_host", ["203.0.113.7"], ["203.0.113.7"]),
             ("accepts_localhost", ["http://localhost:3000"], ["localhost"]),
             ("encodes_idn_as_punycode", ["Bücher.example"], ["xn--bcher-kva.example"]),
+            ("keeps_punycode_unchanged", ["xn--bcher-kva.example"], ["xn--bcher-kva.example"]),
             ("strips_ideographic_trailing_dot", ["example.com\u3002", "ü.com\u3002"], ["example.com", "xn--tda.com"]),
             ("backslash_in_url_reads_as_slash", ["https://example.com\\@evil.com"], ["example.com"]),
             (
@@ -136,37 +139,44 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
 
     def test_admin_sets_request_blocklist_normalized_and_logged(self) -> None:
         self.client.patch(self.url, {"feature_flag_policy_config": {"require_tags": True}}, format="json")
-        other_hosts = [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS - 1)]
+        other_hosts = [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS - 2)]
+        # Each fills its column exactly. Postgres truncates an entry that is too long for its
+        # varchar(n)[] column instead of raising an error, so only the read-back shows that it fits.
+        longest_host = ".".join(["a" * 63] * 3 + ["b" * 61])
+        longest_ip = "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe/127"
+        assert (len(longest_host), len(longest_ip)) == (MAX_BLOCKED_HOST_LENGTH, MAX_BLOCKED_IP_LENGTH)
 
         response = self.client.patch(
             self.url,
             {
                 "feature_flag_policy_config": {
-                    "blocked_hosts": ["https://Example.com/page", "", *other_hosts, "EXAMPLE.com"],
-                    "blocked_ips": ["198.51.100.42/24", "2001:db8::1"],
+                    "blocked_hosts": ["https://Example.com/page", "", *other_hosts, longest_host, "EXAMPLE.com"],
+                    "blocked_ips": ["198.51.100.42/24", "2001:db8::1", longest_ip],
                 }
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
+        expected_hosts = ["example.com", *other_hosts, longest_host]
+        expected_ips = ["198.51.100.0/24", "2001:db8::1", longest_ip]
         config = TeamFeatureFlagPolicyConfig.objects.get(team=self.team)
-        assert config.blocked_hosts == ["example.com", *other_hosts]
-        assert config.blocked_ips == ["198.51.100.0/24", "2001:db8::1"]
+        assert config.blocked_hosts == expected_hosts
+        assert config.blocked_ips == expected_ips
         assert config.require_tags is True
         log = ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").latest("created_at")
         assert log.detail is not None
         change = log.detail["changes"][0]
         assert change["field"] == "feature_flag_policy_config"
-        assert change["after"]["blocked_hosts"] == ["example.com", *other_hosts]
-        assert change["after"]["blocked_ips"] == ["198.51.100.0/24", "2001:db8::1"]
+        assert change["after"]["blocked_hosts"] == expected_hosts
+        assert change["after"]["blocked_ips"] == expected_ips
 
         response = self.client.patch(self.url, {"feature_flag_policy_config": {"blocked_hosts": []}}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.blocked_hosts == []
-        assert config.blocked_ips == ["198.51.100.0/24", "2001:db8::1"]
+        assert config.blocked_ips == expected_ips
         assert config.require_tags is True
 
     @parameterized.expand(

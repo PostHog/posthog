@@ -1,7 +1,7 @@
 """Validation and normalization for the per-team request blocklists on TeamFeatureFlagPolicyConfig.
 
-The flags service trusts the stored entries and does not normalize them again, so every writer
-goes through these functions. Deliberately free of Django/DRF imports: the model module imports
+The flags service trims hosts, strips a trailing dot, lowercases them, and skips invalid IP
+entries. It applies no other rule, so every writer goes through these functions. Deliberately free of Django/DRF imports: the model module imports
 the length limits at module level, and the serializer translates BlocklistEntryError.
 """
 
@@ -30,7 +30,7 @@ MAX_BLOCKLIST_INPUT_ENTRIES = 1000
 MAX_BLOCKED_HOST_LENGTH = 253
 MAX_BLOCKED_IP_LENGTH = 43
 
-_SINGLE_LABEL_HOSTS = frozenset({"localhost"})
+_ALLOWED_SINGLE_LABEL_HOSTS = frozenset({"localhost"})
 
 
 class BlocklistEntryError(ValueError):
@@ -68,7 +68,7 @@ def normalize_blocked_hosts(entries: Iterable[str]) -> list[str]:
             entry = idna.encode(entry, uts46=True, std3_rules=True).decode("ascii").rstrip(".")
         except idna.IDNAError:
             raise invalid_error
-        if "." not in entry and entry not in _SINGLE_LABEL_HOSTS:
+        if "." not in entry and entry not in _ALLOWED_SINGLE_LABEL_HOSTS:
             raise BlocklistEntryError(
                 f"'{entry}' would block every domain that ends in .{entry}. Enter a full domain like example.com."
             )
