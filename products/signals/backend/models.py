@@ -3521,9 +3521,18 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
                 opclasses=["int4_ops", "varchar_pattern_ops"],
             ),
             # Back the `text` search. On UPPER(...) because icontains compiles to
-            # UPPER(col::text) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("content"), name="gin_trgm_ops"), name="signal_scratchpad_content_trgm"),
-            GinIndex(OpClass(Upper("key"), name="gin_trgm_ops"), name="signal_scratchpad_key_trgm"),
+            # UPPER(col::text) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("content"), name="gin_trgm_ops"),
+                name="signal_scratchpad_content_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("key"), name="gin_trgm_ops"),
+                name="signal_scratchpad_key_trgm",
+                fastupdate=False,
+            ),
         ]
 
 
