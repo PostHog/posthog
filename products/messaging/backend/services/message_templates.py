@@ -6,7 +6,6 @@ from uuid import UUID
 from django.db import models, transaction
 from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
-from django.utils import timezone
 
 from posthog.api.tagged_item import cleanup_orphan_tags, current_tag_names, set_tags_on_object
 from posthog.models import TaggedItem
@@ -138,14 +137,6 @@ def save_tags(template: MessageTemplate, tags: list[str] | None) -> None:
 
 def edit_content(template: MessageTemplate, edit: Callable[[dict[str, Any]], dict[str, Any]]) -> None:
     template.content = edit(deepcopy(template.content or {}))
-
-
-def save_draft(team_id: int, template_id: UUID | str, draft: dict[str, Any] | None) -> MessageTemplate:
-    # Writes only the draft, so a draft save that races a publish, a delete or a conversion can't undo it.
-    MessageTemplate.objects.filter(team_id=team_id, deleted=False, pk=template_id).update(
-        draft_content=draft, updated_at=timezone.now()
-    )
-    return team_template(team_id, template_id)
 
 
 def record_content_hash(template: MessageTemplate) -> None:

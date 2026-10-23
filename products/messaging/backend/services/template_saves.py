@@ -10,7 +10,7 @@ from django.db import transaction
 
 from products.messaging.backend.facade.contracts import TemplateManagedBy, TemplateWriteIntent
 from products.messaging.backend.models import MessageTemplate
-from products.messaging.backend.services.message_templates import record_content_hash, save_draft
+from products.messaging.backend.services.message_templates import record_content_hash
 from products.messaging.backend.services.template_ownership import check_write
 from products.messaging.backend.services.transactional_email import check_still_sendable, sync_transactional_workflow
 
@@ -54,7 +54,9 @@ def save_locked_draft(
         check_write(template, intent)
         if template.transactional_hog_flow_id:
             require_workflow_editor(template.transactional_hog_flow_id)
-        return save_draft(team_id, template_id, draft)
+        template.draft_content = draft
+        template.save(update_fields=["draft_content", "updated_at"])
+    return template
 
 
 def release_template(
