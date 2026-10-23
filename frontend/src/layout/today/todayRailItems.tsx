@@ -33,8 +33,13 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         home: todayNewChatUrl,
         action: TodayNewChatButton,
     },
-    // No home: like Products, a pick only opens the sidebar and the open page stays.
-    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
+    analytics: {
+        label: 'Analytics',
+        title: 'Analytics',
+        icon: <IconAnalyticsBars />,
+        home: () => urls.analyticsProductHome(),
+        action: TodayNewAnalyticsButton,
+    },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear />, home: () => urls.settings('project') },
 }
