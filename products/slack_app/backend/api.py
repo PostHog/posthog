@@ -55,6 +55,8 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import reply_suggestions
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
@@ -2435,6 +2437,7 @@ def _route_app_home_opened(
         return ROUTE_NO_INTEGRATION
     try:
         _handle_app_home_opened(event, slack_team_id, integration=integration)
+        record_feature_used(slack_team_id, slack_user_id, SlackFeature.APP_HOME_TASKS)
     except Exception:
         logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
     return ROUTE_HANDLED_LOCALLY
@@ -4662,6 +4665,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
             "Only members of this PostHog project can reply to the agent. Ask a project member to reply instead.",
         )
         return HttpResponse(status=200)
+    record_feature_used(slack_team_id, clicker_slack_user_id, SlackFeature.REPLY_SUGGESTIONS)
 
     # A typed reply in an unapproved Slack Connect channel is dropped before dispatch, and a
     # channel can become shared after the buttons were posted.
@@ -4813,6 +4817,9 @@ def _report_slack_mention_received(
         }
         if posthog_user is not None and identified_distinct_id is not None:
             properties["$set"] = posthog_user.get_analytics_metadata()
+
+        if event.get("files"):
+            record_feature_used(slack_team_id, slack_user_id, SlackFeature.FILE_ATTACHMENTS)
 
         posthoganalytics.capture(
             distinct_id=distinct_id,
@@ -6234,6 +6241,7 @@ def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
     user_id = payload.get("user", {}).get("id", "")
     source_ts = message.get("thread_ts") or message.get("ts", "")
     workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{source_ts}"
+    record_feature_used(team_id, user_id, SlackFeature.FORK_THREAD)
     try:
         client = sync_connect()
         asyncio.run(

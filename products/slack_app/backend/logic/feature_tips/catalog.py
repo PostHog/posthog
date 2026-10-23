@@ -1,13 +1,19 @@
 """The Slack app features that a tip can promote.
 
 Each feature answers two questions about one Slack user: ``is_eligible`` (can this person use
-the feature now) and ``was_used`` (does this person already use it). Both read stored state
-only, so a user who started before tips existed is judged the same way as a new user.
+the feature now) and ``was_used`` (does this person already use it).
+
+``was_used`` reads stored state where the feature leaves some, such as a setting or a connected
+account, so a user who started before tips existed is judged the same way as a new user. Some
+features leave no state, such as a rating or a fork. The code path of such a feature calls
+``record_feature_used`` instead, so their use counts only from the release of tips onward.
+
+``is_eligible`` can make a network call, such as a feature flag check, so the caller runs it
+outside any database lock.
 """
 
 from __future__ import annotations
 
-from enum import StrEnum
 from functools import cached_property
 from typing import Literal
 
@@ -16,18 +22,34 @@ from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_messages import personal_integrations_url, project_web_url
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_assistant_enabled,
+    is_slack_app_forking_enabled,
+    is_slack_app_unprompted_answers_enabled,
+)
+from products.slack_app.backend.inbox_channel import (
+    _get_team_channel,
+    channel_name_from_target,
+    ensure_inbox_channel,
+    has_inbox_scopes,
+    invite_user_to_inbox,
+)
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
+from products.slack_app.backend.services.slack_messages import app_home_url, personal_integrations_url, project_web_url
+from products.slack_app.backend.services.slack_scopes import has_scopes
+from products.slack_app.backend.services.slack_settings import (
+    set_auto_model_choice,
+    set_untagged_followup_mode,
+    set_untagged_question_mode,
+)
 from products.subscriptions.backend.facade.api import user_has_slack_subscription
 
+__all__ = ["CATALOG", "SlackFeature", "TipContext", "TipCta", "TipFeature"]
 
-class SlackFeature(StrEnum):
-    THREAD_FOLLOWUP = "thread_followup"
-    SUBSCRIPTION = "subscription"
-    CODE_CHANGE_PR = "code_change_pr"
-    MCP_TOOL = "mcp_tool"
-    DIRECT_MESSAGE = "direct_message"
+# The artifact delivery path checks the same scopes at the point of use.
+SLACK_FILE_SCOPE = "files:write"
+SLACK_CANVAS_SCOPE = "canvases:write"
 
 
 @frozen(slots=False)
@@ -53,6 +75,26 @@ class TipContext:
     def team_has_github(self) -> bool:
         return Integration.objects.filter(team_id=self.team_id, kind="github").exists()
 
+    @cached_property
+    def workspace_has_several_projects(self) -> bool:
+        # Every PostHog project connected to this Slack workspace has its own Slack integration row.
+        return (
+            Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+                kind="slack", integration_id=self.integration.integration_id
+            ).count()
+            > 1
+        )
+
+    @cached_property
+    def inbox_channel_target(self) -> str | None:
+        if not has_inbox_scopes(self.integration):
+            return None
+        return _get_team_channel(self.team_id)
+
+    @cached_property
+    def app_home_url(self) -> str | None:
+        return app_home_url(self.integration)
+
 
 @frozen
 class TipCta:
@@ -68,20 +110,31 @@ class TipFeature:
     text: str
     # What the decision model reads to match a message to this feature.
     choice_criteria: str
+    # Whether the CTA is a button that changes something in place, through ``apply_action``.
+    has_action: bool = False
 
     def is_eligible(self, ctx: TipContext) -> bool:
         raise NotImplementedError
 
     def was_used(self, ctx: TipContext) -> bool:
-        raise NotImplementedError
+        """``False`` for a feature without stored state. Its code path records use instead."""
+        return False
+
+    def render_text(self, ctx: TipContext) -> str:
+        return self.text
 
     def cta(self, ctx: TipContext) -> TipCta | None:
         return None
+
+    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+        """Run an ``action`` CTA and return the text that replaces the tip."""
+        raise NotImplementedError
 
 
 class ThreadFollowupTip(TipFeature):
     feature = SlackFeature.THREAD_FOLLOWUP
     rank = 10
+    has_action = True
     text = (
         "Tip: in threads you start with me, you can reply without tagging me. "
         "I ask before I pick up the reply, or I can always pick it up."
@@ -101,6 +154,13 @@ class ThreadFollowupTip(TipFeature):
 
     def cta(self, ctx: TipContext) -> TipCta | None:
         return TipCta(kind="action", label="Always pick up my replies")
+
+    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+        set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
+        return (
+            "Done. I'll pick up your replies in threads you start with me. "
+            "You can change this in the PostHog app Home tab."
+        )
 
 
 class SubscriptionTip(TipFeature):
@@ -203,7 +263,265 @@ class DirectMessageTip(TipFeature):
         )
 
 
+class FileAttachmentsTip(TipFeature):
+    feature = SlackFeature.FILE_ATTACHMENTS
+    rank = 60
+    text = "Tip: attach a screenshot or a file to your message, and I read it together with your question."
+    choice_criteria = (
+        "Sending screenshots and files to the assistant. Fits a message that describes something on screen, "
+        "a design, a spreadsheet, a log file, or an error the person sees."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return True
+
+
+class FileOutputsTip(TipFeature):
+    feature = SlackFeature.FILE_OUTPUTS
+    rank = 70
+    text = "Tip: ask me for a CSV or a chart, and I add it to the thread as a file."
+    choice_criteria = (
+        "Files and Slack canvases made by the assistant. Fits a message that asks for an export, a list of rows, "
+        "a chart to share, or a long report."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return has_scopes(ctx.integration, {SLACK_FILE_SCOPE})
+
+    def render_text(self, ctx: TipContext) -> str:
+        if has_scopes(ctx.integration, {SLACK_CANVAS_SCOPE}):
+            return "Tip: ask me for a CSV, a chart, or a long report, and I add it to the thread as a file or a Slack canvas."
+        return self.text
+
+
+class InboxChannelTip(TipFeature):
+    feature = SlackFeature.INBOX_CHANNEL
+    rank = 80
+    has_action = True
+    text = "Tip: join the PostHog inbox channel to see the problems that PostHog finds in your product."
+    choice_criteria = (
+        "A Slack channel with reports about problems PostHog finds on its own, such as new or spiking errors. "
+        "Fits a message about errors, regressions, incidents, or keeping watch on the product."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return ctx.inbox_channel_target is not None
+
+    def render_text(self, ctx: TipContext) -> str:
+        if ctx.inbox_channel_target is None:
+            return self.text
+        name = channel_name_from_target(ctx.inbox_channel_target)
+        return f"Tip: join {name} to see the problems that PostHog finds in your product, such as new errors."
+
+    def cta(self, ctx: TipContext) -> TipCta | None:
+        return TipCta(kind="action", label="Join the channel")
+
+    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+        channel = ensure_inbox_channel(integration)
+        if channel is None or not invite_user_to_inbox(integration, channel[0], slack_user_id):
+            return "I couldn't add you to the channel. Try again later, or ask a Slack admin to add you."
+        return f"Done. You're in {channel[1]}."
+
+
+class ProjectInMentionTip(TipFeature):
+    feature = SlackFeature.PROJECT_IN_MENTION
+    rank = 90
+    text = (
+        "Tip: name a project in your message, and I use it for that request. "
+        "For example: _@PostHog in the website project, why did signups drop?_"
+    )
+    choice_criteria = (
+        "Choosing a PostHog project for one request by naming it. Fits a message about a specific app, site, "
+        "environment, or product area that could be a separate project."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return ctx.workspace_has_several_projects
+
+
+class AppHomeProjectTip(TipFeature):
+    feature = SlackFeature.APP_HOME_PROJECT
+    rank = 100
+    text = "Tip: you can choose your default project in the Home tab of the PostHog app."
+    choice_criteria = (
+        "Setting a default PostHog project. Fits a message that names a project or asks about data that "
+        "could be in another project."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return ctx.workspace_has_several_projects
+
+    def was_used(self, ctx: TipContext) -> bool:
+        return ctx.settings.default_integration_id is not None
+
+    def cta(self, ctx: TipContext) -> TipCta | None:
+        if ctx.app_home_url is None:
+            return None
+        return TipCta(kind="url", label="Open the Home tab", url=ctx.app_home_url)
+
+
+class ModelInMentionTip(TipFeature):
+    feature = SlackFeature.MODEL_IN_MENTION
+    rank = 110
+    text = (
+        "Tip: you can choose the model for one request in your message. "
+        "For example: _@PostHog use sonnet and fix the flaky checkout test_."
+    )
+    choice_criteria = (
+        "Choosing an AI model or effort level for one request. Fits a hard or long task, such as a deep "
+        "investigation or a large code change, or a message about speed or quality of answers."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return True
+
+
+class AutoModelChoiceTip(TipFeature):
+    feature = SlackFeature.AUTO_MODEL_CHOICE
+    rank = 120
+    has_action = True
+    text = (
+        "Tip: I can choose the model for each task you start: "
+        "a faster one for short questions and a stronger one for code changes."
+    )
+    choice_criteria = (
+        "Letting the assistant choose the AI model for each task. Fits a message about answer speed, cost, "
+        "or a mix of quick questions and large tasks."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        # The choice is stored on the linked PostHog user's run preferences.
+        return ctx.posthog_user_id is not None
+
+    def was_used(self, ctx: TipContext) -> bool:
+        return ctx.settings.auto_model_choice is not None
+
+    def cta(self, ctx: TipContext) -> TipCta | None:
+        return TipCta(kind="action", label="Turn it on")
+
+    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+        set_auto_model_choice(integration.integration_id, slack_user_id, True)
+        return (
+            "Done. I'll choose the model for each new task you start. You can change this in the PostHog app Home tab."
+        )
+
+
+class AppHomeTasksTip(TipFeature):
+    feature = SlackFeature.APP_HOME_TASKS
+    rank = 130
+    text = "Tip: the Home tab of the PostHog app lists your tasks and their status."
+    choice_criteria = (
+        "A list of the person's tasks and their status. Fits a message that asks about an earlier request, "
+        "a pull request in progress, or what the assistant is working on."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return ctx.app_home_url is not None
+
+    def cta(self, ctx: TipContext) -> TipCta | None:
+        if ctx.app_home_url is None:
+            return None
+        return TipCta(kind="url", label="Open the Home tab", url=ctx.app_home_url)
+
+
+class InsightUnfurlTip(TipFeature):
+    feature = SlackFeature.INSIGHT_UNFURL
+    rank = 140
+    text = "Tip: paste a link to a PostHog insight in Slack, and I show a preview of it."
+    choice_criteria = (
+        "Previews of PostHog links pasted in Slack. Fits a message that shares or mentions an insight, "
+        "a dashboard, or a chart with the team."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return True
+
+
+class ForkThreadTip(TipFeature):
+    feature = SlackFeature.FORK_THREAD
+    rank = 150
+    text = 'Tip: to continue a thread in private, use "Fork to DM" in the menu on my answer.'
+    choice_criteria = (
+        "Moving a channel conversation into a private direct message. Fits a message in a busy channel, "
+        "or about a topic the person wants to explore alone."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return not ctx.in_direct_message and is_slack_app_forking_enabled(ctx.integration)
+
+
+class UnpromptedAnswersTip(TipFeature):
+    feature = SlackFeature.UNPROMPTED_ANSWERS
+    rank = 160
+    has_action = True
+    text = "Tip: when you ask about PostHog in a channel without tagging me, I can offer to answer."
+    choice_criteria = (
+        "Answers to channel questions that do not tag the assistant. Fits a message that the person could "
+        "have asked the whole channel, such as a quick data question."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return not ctx.in_direct_message and is_slack_app_unprompted_answers_enabled(ctx.integration)
+
+    def was_used(self, ctx: TipContext) -> bool:
+        return ctx.settings.untagged_question_mode is not None
+
+    def cta(self, ctx: TipContext) -> TipCta | None:
+        return TipCta(kind="action", label="Always answer my questions")
+
+    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+        set_untagged_question_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
+        return (
+            "Done. I'll answer your questions about PostHog in channels, also when you don't tag me. "
+            "You can change this in the PostHog app Home tab."
+        )
+
+
+class AnswerRatingTip(TipFeature):
+    feature = SlackFeature.ANSWER_RATING
+    rank = 170
+    text = "Tip: rate my answers with the 👍 and 👎 buttons under them. This helps us make the answers better."
+    choice_criteria = (
+        "Rating the assistant's answers. Fits a message that says an earlier answer was wrong, "
+        "incomplete, or very helpful."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return True
+
+
+class ReplySuggestionsTip(TipFeature):
+    feature = SlackFeature.REPLY_SUGGESTIONS
+    rank = 180
+    text = "Tip: click a suggested reply under my answer to ask the next question in one step."
+    choice_criteria = (
+        "Suggested follow-up replies under an answer. Fits a short follow-up question that continues an earlier answer."
+    )
+
+    def is_eligible(self, ctx: TipContext) -> bool:
+        return True
+
+
 CATALOG: dict[SlackFeature, TipFeature] = {
     tip.feature: tip
-    for tip in (ThreadFollowupTip(), SubscriptionTip(), CodeChangePrTip(), McpToolTip(), DirectMessageTip())
+    for tip in (
+        ThreadFollowupTip(),
+        SubscriptionTip(),
+        CodeChangePrTip(),
+        McpToolTip(),
+        DirectMessageTip(),
+        FileAttachmentsTip(),
+        FileOutputsTip(),
+        InboxChannelTip(),
+        ProjectInMentionTip(),
+        AppHomeProjectTip(),
+        ModelInMentionTip(),
+        AutoModelChoiceTip(),
+        AppHomeTasksTip(),
+        InsightUnfurlTip(),
+        ForkThreadTip(),
+        UnpromptedAnswersTip(),
+        AnswerRatingTip(),
+        ReplySuggestionsTip(),
+    )
 }

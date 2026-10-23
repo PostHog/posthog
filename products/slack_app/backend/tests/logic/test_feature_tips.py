@@ -15,7 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.logic.feature_tips import interactivity, offer, picker
+from products.slack_app.backend.logic.feature_tips import catalog, interactivity, offer, picker
 from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, SlackFeature
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
 from products.slack_app.backend.logic.feature_tips.state import get_state, parse_state
@@ -31,7 +31,7 @@ class TestOfferFeatureTip:
     def setup(self):
         organization = Organization.objects.create(name="Org")
         self.team = Team.objects.create(organization=organization, name="Team")
-        # No assistant scopes and no linked PostHog user, so the thread follow-up tip is the only candidate.
+        # No linked PostHog user and no optional scopes, so the thread follow-up tip ranks first.
         self.integration = Integration.objects.create(
             team=self.team, kind="slack", integration_id=WORKSPACE, sensitive_config={"access_token": "xoxb-test"}
         )
@@ -39,6 +39,9 @@ class TestOfferFeatureTip:
             patch.object(offer, "is_slack_app_feature_tips_enabled", return_value=True) as self.flag,
             patch.object(offer, "post_slack_ephemeral") as self.post,
             patch.object(offer, "SlackIntegration"),
+            patch.object(catalog, "is_slack_app_unprompted_answers_enabled", return_value=False),
+            # The decision model is not reachable here, so every pick falls back to the ranked order.
+            patch.object(picker, "build_system_one_client", side_effect=RuntimeError("no gateway")),
         ):
             yield
 
@@ -92,26 +95,37 @@ class TestOfferFeatureTip:
         SlackSettings.objects.filter(slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER).update(
             feature_tips=state.model_dump(mode="json")
         )
-        assert self._offer() is None
-        self.post.assert_called_once()
+        second = self._offer()
+        assert second is not None and second != SlackFeature.THREAD_FOLLOWUP
+        assert self.post.call_count == 2
 
     @parameterized.expand(
         [
-            ("opted out", {"opted_out_at": "2026-01-01T00:00:00Z"}, None),
-            ("already chose a follow-up mode", None, UntaggedFollowupMode.NEVER),
+            ("opted out", {"opted_out_at": "2026-01-01T00:00:00Z"}, None, None),
+            (
+                "chose a follow-up mode before tips existed",
+                {},
+                UntaggedFollowupMode.NEVER,
+                SlackFeature.FILE_ATTACHMENTS,
+            ),
+            (
+                "used a feature that leaves no setting",
+                {"used": {"file_attachments": "2026-01-01T00:00:00Z"}},
+                UntaggedFollowupMode.NEVER,
+                SlackFeature.MODEL_IN_MENTION,
+            ),
         ]
     )
-    def test_no_tip(self, _name, stored_state, followup_mode):
+    def test_skips_what_the_reader_turned_off_or_already_uses(self, _name, stored_state, followup_mode, expected):
         self._threads(3)
         SlackSettings.objects.create(
             slack_workspace_id=WORKSPACE,
             slack_user_id=SLACK_USER,
             untagged_followup_mode=followup_mode,
-            feature_tips={"backfilled_at": "2026-01-01T00:00:00Z", "interaction_count": 5, **(stored_state or {})},
+            feature_tips={"backfilled_at": "2026-01-01T00:00:00Z", "interaction_count": 5, **stored_state},
         )
 
-        assert self._offer() is None
-        self.post.assert_not_called()
+        assert self._offer() == expected
 
     def test_flag_off_writes_nothing(self):
         self._threads(3)
@@ -119,6 +133,12 @@ class TestOfferFeatureTip:
 
         assert self._offer() is None
         assert not SlackSettings.objects.filter(slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER).exists()
+
+
+class TestCatalog(SimpleTestCase):
+    def test_every_feature_has_a_tip_and_a_unique_rank(self):
+        assert set(CATALOG) == set(SlackFeature)
+        assert len({tip.rank for tip in CATALOG.values()}) == len(CATALOG)
 
 
 class TestChooseTip(SimpleTestCase):
@@ -197,13 +217,20 @@ class TestFeatureTipClicks:
     def _settings(self) -> SlackSettings | None:
         return SlackSettings.objects.filter(slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER).first()
 
-    def test_thread_followup_cta_turns_the_setting_on(self):
-        self._click(offer.FEATURE_TIP_CTA_ACTION_ID, SlackFeature.THREAD_FOLLOWUP.value)
+    @parameterized.expand(
+        [
+            (SlackFeature.THREAD_FOLLOWUP, "untagged_followup_mode", UntaggedFollowupMode.AUTO),
+            (SlackFeature.AUTO_MODEL_CHOICE, "auto_model_choice", True),
+            (SlackFeature.UNPROMPTED_ANSWERS, "untagged_question_mode", UntaggedFollowupMode.AUTO),
+        ]
+    )
+    def test_action_cta_turns_the_setting_on(self, feature, column, expected):
+        self._click(offer.FEATURE_TIP_CTA_ACTION_ID, feature.value)
 
         settings = self._settings()
         assert settings is not None
-        assert settings.untagged_followup_mode == UntaggedFollowupMode.AUTO
-        assert SlackFeature.THREAD_FOLLOWUP.value in parse_state(settings.feature_tips).used
+        assert getattr(settings, column) == expected
+        assert feature.value in parse_state(settings.feature_tips).used
 
     def test_opt_out_stops_all_tips(self):
         self._click(offer.FEATURE_TIP_OPT_OUT_ACTION_ID, SlackFeature.SUBSCRIPTION.value)

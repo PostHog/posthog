@@ -55,6 +55,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.link_unfurl_charts import (
     UNFURL_IMAGE_ASSET_TTL,
     UNFURL_IMAGE_URL_TTL,
@@ -1365,6 +1367,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
 
     bot_authors = {SLACK_PLACEHOLDER_USER_ID, get_cached_bot_user_id(slack, integration)}
     bot_reply_actor = _bot_reply_actor(integration, event) if slack_user_id in bot_authors else None
+    if slack_user_id not in bot_authors:
+        record_feature_used(integration.integration_id, slack_user_id, SlackFeature.INSIGHT_UNFURL)
     if bot_reply_actor:
         slack_user_id = bot_reply_actor
         # Everything downstream, the chart workflow included, reads the sharer from the event.

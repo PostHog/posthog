@@ -35,6 +35,8 @@ FEATURE_TIP_QUESTION_ID = "feature_tip"
 NO_FEATURE = "none"
 # The model needs the request, not the whole message. This also keeps pasted logs out of the call.
 FEATURE_TIP_MESSAGE_MAX_CHARS = 500
+# The gateway accepts at most 16 options in one choice question, and `none` takes one of them.
+FEATURE_TIP_MAX_CANDIDATES = 15
 
 FEATURE_TIP_INSTRUCTIONS = (
     "`message` is what a person asked the PostHog assistant in Slack. "
@@ -74,6 +76,7 @@ def classify_feature_tip(
     text = message.strip()[:FEATURE_TIP_MESSAGE_MAX_CHARS]
     if not text or not candidates:
         return None
+    candidates = sorted(candidates, key=lambda tip: tip.rank)[:FEATURE_TIP_MAX_CANDIDATES]
     # No TypeSafe fallback: the message is customer text, and TypeSafe is a third party.
     client = build_system_one_client(
         model=FEATURE_TIP_DECISION_MODEL,

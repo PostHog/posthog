@@ -12,7 +12,7 @@ import structlog
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.logic.feature_tips.catalog import SlackFeature
+from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, SlackFeature
 from products.slack_app.backend.logic.feature_tips.offer import (
     FEATURE_TIP_ACTION_IDS,
     FEATURE_TIP_CTA_ACTION_ID,
@@ -20,15 +20,10 @@ from products.slack_app.backend.logic.feature_tips.offer import (
     FEATURE_TIP_OPT_OUT_ACTION_ID,
 )
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, TipRecord, update_state
-from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.inbox_interactivity import post_response_url
-from products.slack_app.backend.services.slack_settings import set_untagged_followup_mode
 
 logger = structlog.get_logger(__name__)
 
-THREAD_FOLLOWUP_ON_TEXT = (
-    "Done. I'll pick up your replies in threads you start with me. You can change this in the PostHog app Home tab."
-)
 TIPS_OFF_TEXT = "Got it. I won't show you more tips."
 
 
@@ -78,6 +73,8 @@ def handle_feature_tip_action(payload: dict[str, Any]) -> None:
     feature = SlackFeature(value["feature"])
 
     action_id = action.get("action_id")
+    tip = CATALOG[feature]
+    runs_action = action_id == FEATURE_TIP_CTA_ACTION_ID and tip.has_action
     now = timezone.now()
 
     def change(state: FeatureTipsState) -> None:
@@ -89,16 +86,16 @@ def handle_feature_tip_action(payload: dict[str, Any]) -> None:
         elif action_id == FEATURE_TIP_OPT_OUT_ACTION_ID:
             record.dismissed_at = now
             state.opted_out_at = now
-        if action_id == FEATURE_TIP_CTA_ACTION_ID and feature == SlackFeature.THREAD_FOLLOWUP:
+        if runs_action:
             state.used.setdefault(feature.value, now)
 
     update_state(integration.integration_id, slack_user_id, change)
 
     if action_id == FEATURE_TIP_CTA_ACTION_ID:
         event = "slack app feature tip clicked"
-        if feature == SlackFeature.THREAD_FOLLOWUP:
-            set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
-            post_response_url(response_url, {"replace_original": True, "text": THREAD_FOLLOWUP_ON_TEXT})
+        if runs_action:
+            text = tip.apply_action(integration, slack_user_id)
+            post_response_url(response_url, {"replace_original": True, "text": text})
         else:
             post_response_url(response_url, {"delete_original": True})
     elif action_id == FEATURE_TIP_OPT_OUT_ACTION_ID:

@@ -556,6 +556,7 @@ class SlackThreadHandler:
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
         reply_suggestions_for: str | None = None,
+        offer_feature_tip: bool = False,
     ) -> None:
         """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
@@ -601,7 +602,7 @@ class SlackThreadHandler:
         # A turn stopped before it answered still closes its stream, which then holds only status lines.
         if final_markdown or mention_sent:
             self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
-        if answer_delivered and reply_suggestions_for:
+        if answer_delivered and offer_feature_tip:
             self.offer_feature_tip()
 
     def _close_stream(

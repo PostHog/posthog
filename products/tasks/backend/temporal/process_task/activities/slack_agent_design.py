@@ -221,6 +221,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             append_attachments=_append_attachments,
             mention_sent=input.mention_sent,
             reply_suggestions_for=input.answer_markdown,
+            offer_feature_tip=input.answer_markdown is not None,
         )
         ts = input.ts
         for delivery in deliveries:

@@ -191,11 +191,16 @@ class RelaySlackMessageInput:
     trace_id: str | None = None
     # Set only for the agent's own answer, so a notice or a placeholder never gets reply buttons.
     offer_reply_suggestions: bool = False
+    # Set only for the agent's own answer, so a notice or a placeholder never gets a feature tip.
+    # Separate from the reply buttons, so turning those off for a surface leaves tips alone.
+    offer_feature_tip: bool = False
 
 
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
+    from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+    from products.slack_app.backend.logic.feature_tips.state import record_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_messages import (
         leading_mention_prefix,
@@ -325,6 +330,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
     handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+    if answer_delivered and has_pending_slack_files:
+        record_feature_used(mapping.slack_workspace_id, target, SlackFeature.FILE_OUTPUTS)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
@@ -332,4 +339,5 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # Last, because the model call behind it is the slowest step and the answer must not wait for it.
     if answer_delivered and input.offer_reply_suggestions:
         handler.offer_reply_suggestions(text)
+    if answer_delivered and input.offer_feature_tip:
         handler.offer_feature_tip()

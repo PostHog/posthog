@@ -1,15 +1,19 @@
 """Whether a tip goes under an answer, which one, and how it reaches the reader.
 
-The cheap checks run first, under a lock on the reader's settings row: opt-out, the number of
-earlier interactions, and the daily limit. Only a reader who passes them gets the feature checks
-and, with two or more candidates, the decision model call. The call runs after the lock is
-released, so a slow model never holds the row.
+The work runs in three steps, so no network call ever holds the lock on the reader's settings row:
+
+1. Under the lock: count this interaction and run the cheap gates (opt-out, the number of earlier
+   interactions, the daily limit).
+2. Without the lock: run the feature checks. Some of them check a feature flag over the network.
+3. Under the lock again: record what the checks found and hold today's tip slot.
+
+Then, with two or more candidates, the decision model picks one, and the tip posts.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
@@ -24,7 +28,7 @@ from products.slack_app.backend.analytics import capture_slack_event, slack_dist
 from products.slack_app.backend.feature_flags import is_slack_app_feature_tips_enabled
 from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, SlackFeature, TipContext, TipFeature
 from products.slack_app.backend.logic.feature_tips.picker import choose_tip
-from products.slack_app.backend.logic.feature_tips.state import mark_shown, parse_state
+from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, mark_shown, parse_state
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, section_block
 
@@ -86,13 +90,14 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
     if choice is None:
         return None
     tip = CATALOG[choice.feature]
+    text = tip.render_text(reservation.ctx)
     try:
         post_slack_ephemeral(
             SlackIntegration(integration).client,
             channel=request.channel,
             user=request.slack_user_id,
             thread_ts=request.thread_ts,
-            text=tip.text,
+            text=text,
             blocks=tip_blocks(integration.id, tip, reservation.ctx),
         )
     except Exception:
@@ -114,60 +119,87 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
     return choice.feature
 
 
+def _is_due(state: FeatureTipsState, now: datetime) -> bool:
+    return (
+        state.opted_out_at is None
+        and state.interaction_count >= MIN_INTERACTIONS
+        and (state.last_shown_at is None or now - state.last_shown_at >= TIP_INTERVAL)
+    )
+
+
+def _locked_settings(workspace_id: str, slack_user_id: str) -> SlackSettings | None:
+    # Another answer for this reader holds the row when this returns None. That answer decides about today's tip.
+    return (
+        SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=slack_user_id)
+        .select_for_update(skip_locked=True)
+        .first()
+    )
+
+
+def _save(settings: SlackSettings, state: FeatureTipsState) -> None:
+    settings.feature_tips = state.model_dump(mode="json")
+    settings.save(update_fields=["feature_tips", "updated_at"])
+
+
 def _reserve_candidates(request: TipRequest) -> _Reservation | None:
-    """Count this interaction, run the gates, and hold today's tip slot when a tip is due.
+    """Count this interaction, run the gates and the feature checks, and hold today's tip slot.
 
     The slot is held before the tip posts, so two answers that finish together cannot both send
     one. A post that then fails gives up the tip for that day, which is the cheaper mistake.
     """
     workspace_id = request.integration.integration_id
-    SlackSettings.objects.get_or_create(slack_workspace_id=workspace_id, slack_user_id=request.slack_user_id)
+    slack_user_id = request.slack_user_id
+    SlackSettings.objects.get_or_create(slack_workspace_id=workspace_id, slack_user_id=slack_user_id)
     now = timezone.now()
+
     with transaction.atomic():
-        settings = (
-            SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=request.slack_user_id)
-            .select_for_update(skip_locked=True)
-            .first()
-        )
-        # Another answer for this reader holds the row. That answer decides about today's tip.
+        settings = _locked_settings(workspace_id, slack_user_id)
         if settings is None:
             return None
         state = parse_state(settings.feature_tips)
         if state.backfilled_at is None:
             # The history already holds the thread of this answer, so it is not counted again.
             state.interaction_count = SlackThreadTaskMapping.objects.filter(
-                slack_workspace_id=workspace_id, mentioning_slack_user_id=request.slack_user_id
+                slack_workspace_id=workspace_id, mentioning_slack_user_id=slack_user_id
             ).count()
             state.backfilled_at = now
         else:
             state.interaction_count += 1
+        _save(settings, state)
+    if not _is_due(state, now):
+        return None
 
-        candidates: list[TipFeature] = []
-        ctx = TipContext(
-            integration=request.integration,
-            slack_user_id=request.slack_user_id,
-            posthog_user_id=request.posthog_user.id if request.posthog_user is not None else None,
-            channel=request.channel,
-            settings=settings,
-        )
-        due = (
-            state.opted_out_at is None
-            and state.interaction_count >= MIN_INTERACTIONS
-            and (state.last_shown_at is None or now - state.last_shown_at >= TIP_INTERVAL)
-        )
-        if due:
-            for feature, tip in CATALOG.items():
-                if feature.value in state.used or feature.value in state.shown:
-                    continue
-                if tip.was_used(ctx):
-                    state.used[feature.value] = now
-                elif tip.is_eligible(ctx):
-                    candidates.append(tip)
-            if candidates:
-                state.last_shown_at = now
-        settings.feature_tips = state.model_dump(mode="json")
-        settings.save(update_fields=["feature_tips", "updated_at"])
-    if not candidates:
+    ctx = TipContext(
+        integration=request.integration,
+        slack_user_id=slack_user_id,
+        posthog_user_id=request.posthog_user.id if request.posthog_user is not None else None,
+        channel=request.channel,
+        settings=settings,
+    )
+    newly_used: list[SlackFeature] = []
+    candidates: list[TipFeature] = []
+    for feature, tip in CATALOG.items():
+        if feature.value in state.used or feature.value in state.shown:
+            continue
+        if tip.was_used(ctx):
+            newly_used.append(feature)
+        elif tip.is_eligible(ctx):
+            candidates.append(tip)
+
+    with transaction.atomic():
+        settings = _locked_settings(workspace_id, slack_user_id)
+        if settings is None:
+            return None
+        state = parse_state(settings.feature_tips)
+        for feature in newly_used:
+            state.used.setdefault(feature.value, now)
+        # A tip that another answer sent while the checks ran is already counted. Do not send a second one.
+        candidates = [tip for tip in candidates if tip.feature.value not in state.shown]
+        reserved = bool(candidates) and _is_due(state, now)
+        if reserved:
+            state.last_shown_at = now
+        _save(settings, state)
+    if not reserved:
         return None
     return _Reservation(candidates=candidates, ctx=ctx, interaction_count=state.interaction_count)
 
@@ -204,4 +236,4 @@ def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext) -> list[di
             "value": value,
         }
     )
-    return [section_block(tip.text), {"type": "actions", "elements": buttons}]
+    return [section_block(tip.render_text(ctx)), {"type": "actions", "elements": buttons}]

@@ -51,6 +51,58 @@ MATCH_CASES = [
     ),
 ]
 
+# A reader rarely qualifies for every feature, so these cases pass the short lists a real reader gets.
+NEW_FEATURE_CASES = [
+    _case(
+        "screenshot_of_bug",
+        "the chart on my screen shows a gap on Tuesday, why?",
+        "file_attachments",
+        ["file_attachments", "subscription", "model_in_mention"],
+    ),
+    _case(
+        "export_rows",
+        "give me a list of all users who churned last month with their plan",
+        "file_outputs",
+        ["file_outputs", "thread_followup", "answer_rating"],
+    ),
+    _case(
+        "error_spike_watch",
+        "did we get any new errors after yesterday's deploy?",
+        "inbox_channel",
+        ["inbox_channel", "subscription", "app_home_tasks"],
+    ),
+    _case(
+        "named_project",
+        "for the mobile app, how many people opened the settings screen?",
+        "project_in_mention",
+        ["project_in_mention", "file_outputs", "answer_rating"],
+    ),
+    _case(
+        "deep_investigation",
+        "do a deep investigation into why retention dropped for the March cohort, take your time",
+        "model_in_mention",
+        ["model_in_mention", "insight_unfurl", "reply_suggestions"],
+    ),
+    _case(
+        "earlier_task_status",
+        "is the pull request you started this morning done yet?",
+        "app_home_tasks",
+        ["app_home_tasks", "file_attachments", "insight_unfurl"],
+    ),
+    _case(
+        "share_a_chart",
+        "I want to share the signup trend chart with the team here",
+        "insight_unfurl",
+        ["insight_unfurl", "direct_message", "answer_rating"],
+    ),
+    _case(
+        "wrong_answer",
+        "that number you gave me before was wrong, it should be much higher",
+        "answer_rating",
+        ["answer_rating", "file_outputs", "app_home_project"],
+    ),
+]
+
 NO_MATCH_CASES = [
     _case("plain_count", "how many people visited the pricing page yesterday?", "none", ["code_change_pr", "mcp_tool"]),
     _case("flag_state", "is the new-onboarding flag rolled out to everyone?", "none", ["mcp_tool", "direct_message"]),
@@ -94,7 +146,7 @@ async def eval_feature_tip_picker(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="slack-app-feature-tip-picker",
-        cases=[*MATCH_CASES, *NO_MATCH_CASES],
+        cases=[*MATCH_CASES, *NEW_FEATURE_CASES, *NO_MATCH_CASES],
         scorers=[FeatureTipMatch(), NoForcedTip()],
         task=task,
         ctx=ctx,
