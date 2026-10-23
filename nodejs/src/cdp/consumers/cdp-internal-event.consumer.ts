@@ -21,7 +21,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, readMessage } from './message-parsing'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 
 /**
  * Whether a GitHub delivery is a write PostHog's own GitHub App made, resolved from the `own_app`
@@ -183,14 +183,14 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         const events: HogFunctionInvocationGlobals[] = []
         await Promise.all(
             messages.map(async (message) => {
-                const event = readMessage('Error parsing message', () =>
+                const event = skipIfMalformed('Error parsing message', () =>
                     assertTeamId(CdpInternalEventSchema.parse(parseJSON(message.value!.toString())))
                 )
                 if (!event) {
                     return
                 }
 
-                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
                 const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
                     this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
                     this.hogFlowManager.getHogFlowsForTeam(event.team_id),
@@ -201,7 +201,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
                     return
                 }
 
-                const globals = readMessage('Error parsing message', () =>
+                const globals = skipIfMalformed('Error parsing message', () =>
                     convertInternalEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
                 )
                 if (globals) {

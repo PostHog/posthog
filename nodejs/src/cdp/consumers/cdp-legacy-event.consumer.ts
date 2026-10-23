@@ -28,7 +28,7 @@ import type {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, readMessage } from './message-parsing'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 
 export type LightweightPluginConfig = {
     id: number
@@ -386,14 +386,14 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
 
         await Promise.all(
             messages.map(async (message) => {
-                const clickHouseEvent = readMessage('Error parsing message', () =>
+                const clickHouseEvent = skipIfMalformed('Error parsing message', () =>
                     assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
                 )
                 if (!clickHouseEvent) {
                     return
                 }
 
-                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
                 const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
 
                 if (!team) {
@@ -406,7 +406,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                     return
                 }
 
-                const globals = readMessage('Error parsing message', () =>
+                const globals = skipIfMalformed('Error parsing message', () =>
                     convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
                 )
                 if (globals) {

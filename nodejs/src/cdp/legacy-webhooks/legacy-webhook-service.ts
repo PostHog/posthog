@@ -9,7 +9,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawKafkaEvent, Team } from '../../types'
-import { assertTeamId, readMessage } from '../consumers/message-parsing'
+import { assertTeamId, skipIfMalformed } from '../consumers/message-parsing'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { cdpTrackedFetch } from '../utils/cdp-fetch'
@@ -99,14 +99,14 @@ export class LegacyWebhookService {
 
         await Promise.all(
             messages.map(async (message) => {
-                const clickHouseEvent = readMessage('Error parsing message', () =>
+                const clickHouseEvent = skipIfMalformed('Error parsing message', () =>
                     assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
                 )
                 if (!clickHouseEvent) {
                     return
                 }
 
-                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
                 if (
                     !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
                     !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
@@ -114,7 +114,9 @@ export class LegacyWebhookService {
                     return
                 }
 
-                const event = readMessage('Error parsing message', () => convertToPostIngestionEvent(clickHouseEvent))
+                const event = skipIfMalformed('Error parsing message', () =>
+                    convertToPostIngestionEvent(clickHouseEvent)
+                )
                 if (event) {
                     events.push(event)
                 }

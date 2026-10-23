@@ -14,7 +14,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, readMessage } from './message-parsing'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 
 export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
     protected name = 'CdpPersonUpdatesConsumer'
@@ -82,14 +82,14 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
         const globals: HogFunctionInvocationGlobals[] = []
         await Promise.all(
             messages.map(async (message) => {
-                const data = readMessage('Error parsing message', () =>
+                const data = skipIfMalformed('Error parsing message', () =>
                     assertTeamId(parseJSON(message.value!.toString()) as ClickHousePerson)
                 )
                 if (!data) {
                     return
                 }
 
-                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
                 const [teamHogFunctions, team] = await Promise.all([
                     this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, this.hogTypes),
                     this.deps.teamManager.getTeam(data.team_id),
@@ -101,7 +101,7 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
                     return
                 }
 
-                const invocationGlobals = readMessage('Error parsing message', () =>
+                const invocationGlobals = skipIfMalformed('Error parsing message', () =>
                     convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL)
                 )
                 if (invocationGlobals) {

@@ -1,4 +1,4 @@
-import { assertTeamId, readMessage } from './message-parsing'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 
 describe('message-parsing', () => {
     describe('assertTeamId', () => {
@@ -11,13 +11,13 @@ describe('message-parsing', () => {
         })
     })
 
-    describe('readMessage', () => {
+    describe('skipIfMalformed', () => {
         it('reports a thrown non-Error as a reason a person can read', () => {
             // A thrown string carries no `message`. An undefined reason fails the dead-letter produce, so
             // the partition stalls on the very message the record exists to keep.
             const onError = jest.fn()
 
-            const result = readMessage(
+            const result = skipIfMalformed(
                 'Error parsing message',
                 () => {
                     throw 'kaboom'

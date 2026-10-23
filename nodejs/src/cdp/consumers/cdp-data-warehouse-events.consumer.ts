@@ -20,7 +20,7 @@ import {
     HogFunctionTypeType,
 } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, readMessage } from './message-parsing'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 
 // Filter source / trigger type each kind of warehouse row matches against.
 const TRIGGER_TYPE_BY_TABLE_TYPE = {
@@ -152,14 +152,14 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
         await Promise.all(
             messages.map(async (message) => {
-                const event = readMessage('Error parsing message', () =>
+                const event = skipIfMalformed('Error parsing message', () =>
                     assertTeamId(CdpDataWarehouseEventSchema.parse(parseJSON(message.value!.toString())))
                 )
                 if (!event) {
                     return
                 }
 
-                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
                 const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
                     this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
                     this.hogFlowManager.getHogFlowsForTeam(event.team_id),
@@ -170,7 +170,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
                     return
                 }
 
-                const globals = readMessage('Error parsing message', () =>
+                const globals = skipIfMalformed('Error parsing message', () =>
                     convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
                 )
                 if (globals) {

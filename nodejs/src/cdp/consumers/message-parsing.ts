@@ -13,13 +13,13 @@ export function assertTeamId<T extends { team_id: unknown }>(message: T): T {
 }
 
 /**
- * Runs a step that reads only the message. A throw counts as a parse error and returns null, so the
- * caller skips the message. A dependency lookup must not run inside `read`. Its error is not the
- * message's fault, so skipping the message would lose the event.
+ * If the step throws, this logs the error and counts it as a parse error. It then returns null, and
+ * the caller skips the message. Wrap only a step that reads the message. A dependency lookup must not
+ * run inside `step`. Its error is not the message's fault, so skipping the message would lose the event.
  */
-export function readMessage<T>(errorLog: string, read: () => T, onError?: (error: string) => void): T | null {
+export function skipIfMalformed<T>(errorLog: string, step: () => T, onError?: (error: string) => void): T | null {
     try {
-        return read()
+        return step()
     } catch (e) {
         const error = e instanceof Error ? e.message : String(e)
         logger.error(errorLog, e)

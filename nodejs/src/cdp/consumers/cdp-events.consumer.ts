@@ -15,7 +15,7 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, readMessage } from './message-parsing'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
@@ -190,7 +190,7 @@ export class CdpEventsConsumer<
                 const park = (error: string): boolean =>
                     this.deadLetterService.recordMessageFailure(message, { step: 'parse', error })
 
-                const clickHouseEvent = readMessage(
+                const clickHouseEvent = skipIfMalformed(
                     'Error parsing message',
                     () => assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent),
                     park
@@ -227,7 +227,7 @@ export class CdpEventsConsumer<
                     return
                 }
 
-                const globals = readMessage(
+                const globals = skipIfMalformed(
                     'Error parsing message',
                     () => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
                     park
