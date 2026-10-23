@@ -63,6 +63,7 @@ class TestGitHubReadiness(BaseTest):
         report.refresh_from_db()
         self.assertEqual(report.status, SignalReport.Status.CANDIDATE)
         self.assertEqual(report.research_blocked_reason, reason)
+        self.assertEqual(report.research_blocked_at, timezone.now())
         self.assertIsNone(report.first_visible_at)
         self.assertEqual(report.run_count, 0)
 
@@ -82,6 +83,46 @@ class TestGitHubReadiness(BaseTest):
         with patch(f"{MODULE}.get_team_github_readiness") as resolve:
             self.assertFalse(check_report_github_readiness(self.team.id, str(report.id)))
         resolve.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("not_connected", False, 1, False),
+            ("reconnect_required", False, 1, False),
+            ("no_repositories", False, 1, False),
+            ("not_connected", True, 6, True),
+            ("not_connected", True, 7, False),
+            ("temporarily_unavailable", False, 6, True),
+            ("temporarily_unavailable", True, 8, False),
+        ]
+    )
+    def test_suspended_research_only_resumes_within_its_recovery_window(
+        self, reason: str, recovery: bool, age_days: int, resumes: bool
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason=reason,
+            research_blocked_at=timezone.now() - timedelta(days=age_days),
+        )
+        with patch(
+            f"{MODULE}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
+        ) as readiness:
+            self.assertEqual(check_report_github_readiness(self.team.id, str(report.id), recovery=recovery), resumes)
+        self.assertEqual(readiness.call_count, int(resumes))
+
+    def test_repeated_selection_failures_do_not_extend_recovery_window(self) -> None:
+        blocked_at = timezone.now() - timedelta(days=6)
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="temporarily_unavailable",
+            research_blocked_at=blocked_at,
+        )
+        fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=0)
+        report.save(update_fields=fields)
+        self.assertFalse(check_report_github_readiness(self.team.id, str(report.id), "temporarily_unavailable"))
+        report.refresh_from_db()
+        self.assertEqual(report.research_blocked_at, blocked_at)
 
     def test_stale_empty_snapshot_can_be_revalidated(self) -> None:
         self.integration.repository_cache = []
@@ -189,7 +230,10 @@ class TestGitHubReadiness(BaseTest):
     @parameterized.expand([(True, False), (False, True)])
     def test_recovery_respects_quota_and_daily_limit(self, quota: bool, daily: bool) -> None:
         SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.CANDIDATE, research_blocked_reason="not_connected"
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="temporarily_unavailable",
+            research_blocked_at=timezone.now(),
         )
         with (
             patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=quota)),
@@ -199,9 +243,13 @@ class TestGitHubReadiness(BaseTest):
             resume_github_blocked_reports(self.team.id)
         resolve.assert_not_called()
 
-    def test_recovery_only_restarts_github_blocked_reports(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_recovery_only_restarts_github_blocked_reports(self, connection_restored: bool) -> None:
         queued = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.CANDIDATE, research_blocked_reason="not_connected"
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now(),
         )
         legacy = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.PENDING_INPUT, error=LEGACY_GITHUB_BLOCKERS[0]
@@ -212,6 +260,24 @@ class TestGitHubReadiness(BaseTest):
         human = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.PENDING_INPUT, error="Requires a product decision"
         )
+        transient = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="temporarily_unavailable",
+            research_blocked_at=timezone.now(),
+        )
+        SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="temporarily_unavailable",
+            research_blocked_at=timezone.now() - timedelta(days=8),
+        )
+        expired_legacy = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.PENDING_INPUT,
+            error=LEGACY_GITHUB_BLOCKERS[0],
+        )
+        SignalReport.objects.filter(id=expired_legacy.id).update(created_at=timezone.now() - timedelta(days=8))
         with (
             patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=False)),
             patch(f"{TASKS}.daily_report_limit_gate", return_value=Mock(limited=False)),
@@ -220,8 +286,11 @@ class TestGitHubReadiness(BaseTest):
             ),
             patch(f"{TASKS}.start_recovered_report", new_callable=AsyncMock) as start,
         ):
-            resume_github_blocked_reports(self.team.id)
-        self.assertEqual({call.args[1] for call in start.await_args_list}, {str(queued.id), str(legacy.id)})
+            resume_github_blocked_reports(self.team.id, connection_restored=connection_restored)
+        expected = {str(transient.id)}
+        if connection_restored:
+            expected.update((str(queued.id), str(legacy.id)))
+        self.assertEqual({call.args[1] for call in start.await_args_list}, expected)
         dismissed.refresh_from_db()
         human.refresh_from_db()
         self.assertEqual(dismissed.status, SignalReport.Status.SUPPRESSED)
@@ -251,3 +320,24 @@ class TestGitHubReadiness(BaseTest):
         )
         SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue", enabled=False)
         self.assertEqual(enabled_recovery_signals(self.team.id, [enabled, disabled]), [enabled])
+
+    def test_periodic_recovery_stops_when_the_connection_is_removed(self) -> None:
+        self.integration.delete()
+        blocked_at = timezone.now() - timedelta(days=1)
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="temporarily_unavailable",
+            research_blocked_at=blocked_at,
+        )
+        with (
+            patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=False)),
+            patch(f"{TASKS}.daily_report_limit_gate", return_value=Mock(limited=False)),
+        ):
+            resume_github_blocked_reports(self.team.id)
+        report.refresh_from_db()
+        self.assertEqual(report.research_blocked_reason, "not_connected")
+        self.assertEqual(report.research_blocked_at, blocked_at)
+        with patch(f"{TASKS}.get_team_github_readiness") as readiness:
+            resume_github_blocked_reports(self.team.id)
+        readiness.assert_not_called()
