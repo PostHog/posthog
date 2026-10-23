@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
+import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
 import { HedgehogMode } from 'lib/components/HedgehogMode/HedgehogMode'
@@ -70,6 +71,9 @@ export function GlobalModals(): JSX.Element {
     const shouldRenderTraceDialog = useKeepMountedWhileOpen(isTraceDialogOpen)
     const { isOpen: isComposeTicketModalOpen } = useValues(composeTicketLogic)
     const shouldRenderComposeTicketModal = useKeepMountedWhileOpen(isComposeTicketModalOpen)
+    // The item select modal mounts its own project tree, which builds the whole file system tree.
+    const { isOpen: isItemSelectModalOpen } = useValues(itemSelectModalLogic)
+    const shouldRenderItemSelectModal = useKeepMountedWhileOpen(isItemSelectModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
@@ -103,7 +107,7 @@ export function GlobalModals(): JSX.Element {
             <GlobalCustomUnitModal />
             <MoveToModal />
             <LinkToModal />
-            <ItemSelectModal />
+            {shouldRenderItemSelectModal ? <ItemSelectModal /> : null}
             {superpowersEnabled && <SuperpowersModal />}
             <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
