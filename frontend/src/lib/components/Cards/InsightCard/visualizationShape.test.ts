@@ -43,6 +43,15 @@ describe('visualizationShape', () => {
             'number',
         ],
         [
+            'funnel metric',
+            insightVisualization({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Trends, layout: FunnelLayout.metric },
+            }),
+            'number',
+        ],
+        [
             'funnel trends with a stale big number layout',
             insightVisualization({
                 kind: NodeKind.FunnelsQuery,

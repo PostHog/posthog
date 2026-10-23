@@ -265,6 +265,9 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             ) {
                 defaultW = 2
                 defaultH = 2
+            } else if (isMetricInsightQuery(query)) {
+                defaultW = 3
+                defaultH = 3
             } else if (isFunnelsQuery(source)) {
                 defaultW = 4
                 defaultH = 4
@@ -274,9 +277,6 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             } else if (isPathsQuery(source)) {
                 defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
-            } else if (isMetricInsightQuery(query)) {
-                defaultW = 3
-                defaultH = 3
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {

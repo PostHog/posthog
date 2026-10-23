@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconClock, IconFilter, IconTrending } from '@posthog/icons'
 
+import { FunnelLayout } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'
@@ -38,7 +39,7 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { funnelVizType } = (insightFilter || {}) as FunnelsFilter
+    const { funnelVizType, layout } = (insightFilter || {}) as FunnelsFilter
 
     if (funnelVizType === VizType.Flow) {
         return null
@@ -86,7 +87,9 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
             value={funnelVizType || VizType.Steps}
             onChange={(value) => {
                 if (funnelVizType !== value) {
-                    updateInsightFilter({ funnelVizType: value })
+                    // The big number and metric layouts belong to one viz type each, so they do not carry over.
+                    const resetLayout = layout === FunnelLayout.number || layout === FunnelLayout.metric
+                    updateInsightFilter({ funnelVizType: value, ...(resetLayout ? { layout: undefined } : {}) })
                 }
             }}
             options={options}

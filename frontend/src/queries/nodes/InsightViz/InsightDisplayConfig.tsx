@@ -162,7 +162,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                         <RetentionChartPicker />
                     </ConfigFilter>
                 )}
-                {!!isStepsFunnel && (
+                {!!(isStepsFunnel || isTrendsFunnel) && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>

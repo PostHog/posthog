@@ -15,6 +15,7 @@ import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogramChart } from './FunnelHistogramChart/FunnelHistogramChart'
 import { FunnelLineChart } from './FunnelLineChart/FunnelLineChart'
+import { FunnelMetricCard } from './FunnelMetricCard/FunnelMetricCard'
 import { FunnelStepsBarChart } from './FunnelStepsBarChart/FunnelStepsBarChart'
 
 export function Funnel(props: ChartParams): JSX.Element {
@@ -25,7 +26,7 @@ export function Funnel(props: ChartParams): JSX.Element {
 
     let viz: JSX.Element | null = null
     if (funnelVizType == FunnelVizType.Trends) {
-        viz = <FunnelLineChart {...props} />
+        viz = layout === FunnelLayout.metric ? <FunnelMetricCard {...props} /> : <FunnelLineChart {...props} />
     } else if (funnelVizType == FunnelVizType.TimeToConvert) {
         viz = <FunnelHistogramChart />
     } else if (funnelVizType === FunnelVizType.Flow) {

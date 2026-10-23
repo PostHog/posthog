@@ -645,6 +645,7 @@ export enum FunnelLayout {
     horizontal = 'horizontal',
     vertical = 'vertical',
     number = 'number',
+    metric = 'metric',
 }
 
 export const BIN_COUNT_AUTO = 'auto' as const

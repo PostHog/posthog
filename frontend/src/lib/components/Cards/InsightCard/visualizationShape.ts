@@ -3,6 +3,7 @@ import {
     isDataTableNode,
     isDataVisualizationNode,
     isFunnelsBoldNumberQuery,
+    isFunnelsMetricQuery,
     isFunnelsQuery,
     isInsightVizNode,
     isPathsQuery,
@@ -31,7 +32,7 @@ export function visualizationShape(query: InsightModel['query']): VisualizationS
             if (source.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
                 return 'table'
             }
-            if (isFunnelsBoldNumberQuery(source)) {
+            if (isFunnelsBoldNumberQuery(source) || isFunnelsMetricQuery(source)) {
                 return 'number'
             }
             return source.funnelsFilter?.funnelVizType === FunnelVizType.Trends ? 'line' : 'funnel'

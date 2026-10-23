@@ -1671,6 +1671,7 @@ class FunnelLayout(StrEnum):
     HORIZONTAL = "horizontal"
     VERTICAL = "vertical"
     NUMBER = "number"
+    METRIC = "metric"
 
 
 class FunnelMathType(StrEnum):
