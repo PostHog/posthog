@@ -10,11 +10,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
-import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
 
 import { ConnectTitle } from '../components/ConnectTitle'
 import { NoAccountInRegionNotice } from '../components/NoAccountInRegionNotice'
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
+import { signupLogic } from '../signupLogic'
 
 export function SignupCredentialsStep(): JSX.Element {
     const {

@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
-import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
 
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
+import { signupLogic } from '../signupLogic'
 
 export function PendingInviteStep(): JSX.Element {
     const { signupEmail, pendingInvite, pendingInviteResent, isPendingInviteResending } = useValues(signupLogic)
