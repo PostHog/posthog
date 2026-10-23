@@ -25,7 +25,7 @@ export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
 export const MessagingSendEmailCreateBody = () => zod.object({
-    to: zod.email().describe('Email address of the recipient.'),
+    to: zod.email().describe('Email address of the recipient, as `jane@example.com`.'),
     identifiers: zod
         .object({
             distinct_id: zod
