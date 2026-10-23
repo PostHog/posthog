@@ -1430,13 +1430,13 @@ export interface dashboardLogicMeta {
         tileGroupSections: (
             tileGroupSectionsEnabled: boolean,
             tiles: DashboardTile[],
-            layouts: Partial<Record<DashboardLayoutSize, Layout>>,
+            layouts: Partial<Record<string, Layout>>,
             dashboard: DashboardType | null,
             placement: DashboardPlacement
         ) => DashboardSection[]
         tileGroupSectionLayouts: (
             tileGroupSections: DashboardSection[],
-            layouts: Partial<Record<DashboardLayoutSize, Layout>>,
+            layouts: Partial<Record<string, Layout>>,
             dashboard: DashboardType | null
         ) => SectionLayouts[]
         refreshMetrics: (
