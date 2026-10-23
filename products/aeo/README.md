@@ -31,7 +31,7 @@ The runner reads it through `get_config` in `facade/api.py` when a run starts, a
 A team without a row falls back to `AEO_TARGET_DOMAINS`, with the registrable name of each domain as the brand (`posthog.com` means "posthog") and no competitors.
 Load a config from a JSON file with `python manage.py seed_aeo_config --team-id <id> --file ~/aeo-config.json`.
 Keep that file outside the checkout: this repository is public, and a team's competitor list must not end up in a commit.
-The command rejects an unknown key (at the top level or inside a competitor object), an empty `target_domains`, a field that is not a list of strings (or of competitor objects), a domain that is not a bare hostname with a public suffix, and a name shorter than 2 characters, so a mis-keyed file fails instead of turning detection off.
+The command rejects an unknown key (at the top level or inside a competitor), an empty `target_domains`, a competitor with no `domains`, a field that is not a list of strings (or of competitor objects), a domain that is not a bare hostname with a public suffix, and a name shorter than 2 characters, so a mis-keyed file fails instead of turning detection off.
 
 ## Usage
 

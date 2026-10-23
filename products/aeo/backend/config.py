@@ -87,6 +87,8 @@ def _clean_competitors(competitors: Sequence[Competitor]) -> list[dict[str, Any]
         domains = _clean_list(
             competitor.domains, f"competitors[{name!r}].domains", MAX_DOMAINS_PER_COMPETITOR, _clean_domain
         )
+        if not domains:
+            raise AEOConfigError(f"competitors[{name!r}].domains must list at least one domain")
         cleaned.append({"name": name, "domains": domains})
     return cleaned
 

@@ -47,8 +47,14 @@ def _config(
         (_config(brand_names=("x" * 201,)), "longer than 200"),
         (_config(competitors=(Competitor(name="R", domains=()),)), "at least 2 characters"),
         (_config(competitors=(Competitor(name="Rival", domains=("not a host",)),)), "bare hostname"),
+        (_config(competitors=(Competitor(name="Rival", domains=()),)), r"competitors\['Rival'\].domains must list"),
         (
-            _config(competitors=(Competitor(name="Rival", domains=()), Competitor(name="rival", domains=()))),
+            _config(
+                competitors=(
+                    Competitor(name="Rival", domains=("rival.example.net",)),
+                    Competitor(name="rival", domains=("rival.example.net",)),
+                )
+            ),
             "more than once",
         ),
     ],
@@ -109,14 +115,20 @@ def test_seed_command_stores_the_file(team: Team, tmp_path: Path) -> None:
         {
             "target_domains": ["brand.example.net"],
             "brand_names": ["Brand Co"],
-            "competitors": [{"name": "Rival", "domains": ["rival.example.net"]}, {"name": "Other"}],
+            "competitors": [
+                {"name": "Rival", "domains": ["rival.example.net"]},
+                {"name": "Other", "domains": ["other.example.net"]},
+            ],
         },
     )
 
     assert resolve_config(team.id) == AEOConfig(
         target_domains=("brand.example.net",),
         brand_names=("Brand Co",),
-        competitors=(Competitor(name="Rival", domains=("rival.example.net",)), Competitor(name="Other", domains=())),
+        competitors=(
+            Competitor(name="Rival", domains=("rival.example.net",)),
+            Competitor(name="Other", domains=("other.example.net",)),
+        ),
     )
 
 
@@ -130,20 +142,35 @@ def test_seed_command_stores_the_file(team: Team, tmp_path: Path) -> None:
         ({"target_domains": ["brand.example.net"], "brand_names": ["Brand", 1]}, "brand_names must be a list"),
         ({"target_domains": ["brand.example.net"], "competitors": {"name": "Rival"}}, "competitors must be a list"),
         ({"target_domains": ["brand.example.net"], "competitors": ["Rival"]}, r"competitors\[0\] must be an object"),
-        ({"target_domains": ["brand.example.net"], "competitors": [{"name": ["Rival"]}]}, r"competitors\[0\] must be"),
+        (
+            {"target_domains": ["brand.example.net"], "competitors": [{"name": ["Rival"], "domains": []}]},
+            r"competitors\[0\]\.name must be a string",
+        ),
         (
             {
                 "target_domains": ["brand.example.net"],
                 "competitors": [{"name": "Rival", "domains": "rival.example.net"}],
             },
-            r"competitors\[0\].domains must be a list",
+            r"competitors\[0\]\.domains must be a list",
+        ),
+        (
+            {"target_domains": ["brand.example.net"], "competitors": [{"name": "Rival", "domain": ["r.example.net"]}]},
+            r"Unknown key\(s\) \['domain'\] in competitors\[0\]",
+        ),
+        (
+            {"target_domains": ["brand.example.net"], "competitors": [{"name": "Rival"}]},
+            r"competitors\[0\]\.domains is missing",
+        ),
+        (
+            {"target_domains": ["brand.example.net"], "competitors": [{"name": "Rival", "domains": []}]},
+            r"competitors\[0\]\.domains must list at least one domain",
         ),
         (
             {
                 "target_domains": ["brand.example.net"],
                 "competitors": [{"name": "Rival", "domians": ["rival.example.net"]}],
             },
-            r"competitors\[0\] has unknown key\(s\) \['domians'\]",
+            r"Unknown key\(s\) \['domians'\] in competitors\[0\]",
         ),
         ([], "JSON object"),
     ],

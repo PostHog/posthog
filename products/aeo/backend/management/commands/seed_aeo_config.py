@@ -20,13 +20,19 @@ def _strings(value: object, field: str) -> tuple[str, ...]:
 
 
 def _competitor(item: object, index: int) -> Competitor:
-    if not isinstance(item, dict) or not isinstance(item.get("name"), str):
-        raise CommandError(f"competitors[{index}] must be an object with a name and a list of domains")
+    field = f"competitors[{index}]"
+    if not isinstance(item, dict):
+        raise CommandError(f"{field} must be an object with a name and a list of domains")
     if unknown := sorted(set(item) - COMPETITOR_KEYS):
-        raise CommandError(
-            f"competitors[{index}] has unknown key(s) {unknown}; a competitor may hold {sorted(COMPETITOR_KEYS)}"
-        )
-    return Competitor(name=item["name"], domains=_strings(item.get("domains", []), f"competitors[{index}].domains"))
+        raise CommandError(f"Unknown key(s) {unknown} in {field}; a competitor may hold {sorted(COMPETITOR_KEYS)}")
+    if not isinstance(item.get("name"), str):
+        raise CommandError(f"{field}.name must be a string")
+    if "domains" not in item:
+        raise CommandError(f"{field}.domains is missing; list at least one domain")
+    domains = _strings(item["domains"], f"{field}.domains")
+    if not domains:
+        raise CommandError(f"{field}.domains must list at least one domain")
+    return Competitor(name=item["name"], domains=domains)
 
 
 def parse_config(payload: object) -> AEOConfig:
