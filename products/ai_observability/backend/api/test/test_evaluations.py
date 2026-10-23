@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 from uuid import UUID, uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, connection, transaction
@@ -21,6 +21,7 @@ from posthog.models import Organization, OrganizationMembership, Project, Team, 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import (
     EvaluationSerializer,
+    EvaluationsOverviewPeriodSerializer,
     ModelConfigurationSerializer,
     TestHogRequestSerializer as HogRequestSerializer,
     _TargetConfigField,
@@ -2550,7 +2551,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIsNone(eval_obj.status_reason)
 
 
-class TestEvaluationsAccessControl(APIBaseTest):
+class _EvaluationAccessControlCase(APIBaseTest):
     # Evaluations have their own access control resource (see ACCESS_CONTROL_RESOURCES in
     # products/access_control/backend/facade/user_access_control.py). They used to inherit from `llm_analytics`.
     def setUp(self) -> None:
@@ -2560,13 +2561,7 @@ class TestEvaluationsAccessControl(APIBaseTest):
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
-
-        self.viewer_user = User.objects.create_and_join(self.organization, "eval-viewer@posthog.com", "testtest")
-        self.editor_user = User.objects.create_and_join(self.organization, "eval-editor@posthog.com", "testtest")
         self.no_access_user = User.objects.create_and_join(self.organization, "eval-noaccess@posthog.com", "testtest")
-
-        self._grant(self.viewer_user, "viewer")
-        self._grant(self.editor_user, "editor")
         self._grant(self.no_access_user, "none")
 
     def _grant(
@@ -2581,15 +2576,26 @@ class TestEvaluationsAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    def _create_evaluation(self, name: str = "Existing Evaluation") -> Evaluation:
+    def _create_evaluation(self, name: str = "Existing Evaluation", enabled: bool = False) -> Evaluation:
         return Evaluation.objects.create(
             team=self.team,
             name=name,
+            enabled=enabled,
             evaluation_type="hog",
             evaluation_config={"source": "return true"},
             output_type="boolean",
             created_by=self.user,
         )
+
+
+class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.viewer_user = User.objects.create_and_join(self.organization, "eval-viewer@posthog.com", "testtest")
+        self.editor_user = User.objects.create_and_join(self.organization, "eval-editor@posthog.com", "testtest")
+
+        self._grant(self.viewer_user, "viewer")
+        self._grant(self.editor_user, "editor")
 
     def _create_payload(self, name: str = "New Evaluation") -> dict:
         return {
@@ -2720,3 +2726,91 @@ class TestEvaluationsAccessControl(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/llm_analytics/models/?provider=openai")
 
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestEvaluationsOverviewAccessControl(ClickhouseTestMixin, _EvaluationAccessControlCase):
+    def test_overview_hides_evaluations_the_user_cannot_see(self) -> None:
+        visible = self._create_evaluation("Visible", enabled=True)
+        hidden = self._create_evaluation("Hidden", enabled=True)
+        self._grant(self.no_access_user, "viewer", resource_id=str(visible.id))
+        for evaluation in (visible, hidden, hidden):
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id="user-1",
+                timestamp="2026-03-09T10:00:00Z",
+                properties={"$ai_evaluation_id": str(evaluation.id), "$ai_evaluation_result": True},
+            )
+        flush_persons_and_events()
+        url = (
+            f"/api/projects/{self.team.id}/evaluations/overview/?date_from=2026-03-08&date_to=2026-03-10"
+            f"&evaluation_ids={visible.id},{hidden.id}"
+        )
+        # A user who sees both evaluations fills the cache first, so a shared entry would leak their totals.
+        assert self.client.get(url).json()["totals"]["graded"] == 3
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["evaluations"]] == ["Visible"]
+        assert response.json()["totals"]["graded"] == 1
+
+    @parameterized.expand([("runs",), ("score_distribution",)])
+    def test_evaluation_reads_need_access_to_the_evaluation(self, endpoint: str) -> None:
+        hidden = self._create_evaluation("Hidden")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/evaluations/{hidden.id}/{endpoint}/")
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("period", "{id}/runs/?date_from=2026-03-10&date_to=2026-03-09", "date_from", "Must be before date_to."),
+            (
+                "period out of range",
+                "overview/?date_to=9999-12-31",
+                None,
+                "The period is outside the supported date range.",
+            ),
+            (
+                "outcome without a passing rule",
+                "{id}/runs/?outcome=failed",
+                "outcome",
+                "This evaluation has no passing rule, so its runs are neither passed nor failed.",
+            ),
+            (
+                "score distribution without bounds",
+                "{id}/score_distribution/",
+                None,
+                "Only a numeric evaluation with a minimum and a maximum score has a score distribution.",
+            ),
+        ]
+    )
+    def test_invalid_reads_return_400(self, _name: str, path: str, attr: str | None, detail: str) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Score",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="numeric",
+            output_config={},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/evaluations/{path.format(id=evaluation.id)}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["attr"], response.json()["detail"]) == (attr, detail)
+
+
+class TestEvaluationsOverviewPeriod(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("date", {"date_from": "2026-03-10"}, True),
+            ("instant with offset", {"date_to": "2026-03-10T05:30:00+05:30"}, True),
+            ("not a date", {"date_from": "2026-13-01"}, False),
+        ]
+    )
+    def test_period_parsing(self, _name: str, data: dict[str, str], valid: bool) -> None:
+        assert EvaluationsOverviewPeriodSerializer(data=data).is_valid() is valid
