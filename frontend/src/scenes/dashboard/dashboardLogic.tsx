@@ -372,12 +372,21 @@ const withSavedTilePlacements = (
  * starts from the dashboard that the save before it left, so a save response cannot undo a later move.
  * A loader writes its result after `save` returns, so it passes `applied` to hold the next save until then.
  */
+interface TileSaveQueueOwner {
+    cache: Record<string, any>
+    mount: () => () => void
+}
+
 function enqueueTileSave<T>(
-    cache: Record<string, any>,
+    { cache, mount }: TileSaveQueueOwner,
     save: () => Promise<T>,
     applied: Promise<void> = Promise.resolve()
 ): Promise<T> {
     const previous = cache.tileSaves as Promise<unknown> | undefined
+    // A queued save reads the store when it starts, so the logic stays mounted until the queue is empty.
+    if (!previous) {
+        cache.releaseTileSaveMount = mount()
+    }
     // With nothing queued the save starts at once, so its request goes out in the same tick as the action.
     const result = previous ? previous.then(save) : save()
     const queued = result.then(
@@ -388,21 +397,22 @@ function enqueueTileSave<T>(
     void queued.then(() => {
         if (cache.tileSaves === queued) {
             cache.tileSaves = undefined
+            cache.releaseTileSaveMount()
         }
     })
     return result
 }
 
-function enqueueEditSave<T>(cache: Record<string, any>, save: () => Promise<T>): Promise<T> {
+function enqueueEditSave<T>(owner: TileSaveQueueOwner, save: () => Promise<T>): Promise<T> {
     let markApplied = (): void => {}
     const applied = new Promise<void>((resolve) => {
         markApplied = resolve
     })
     const start = (): Promise<T> => {
-        cache.resolveEditSaveApplied = markApplied
+        owner.cache.resolveEditSaveApplied = markApplied
         return save()
     }
-    return enqueueTileSave(cache, start, applied)
+    return enqueueTileSave(owner, start, applied)
 }
 
 const groupKeyUpdate = (tile: DashboardTile, saved: TilePlacement | undefined): { group_key?: string | null } =>
@@ -2080,7 +2090,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return preserveTiles ? values.dashboard : null
                 },
                 saveEditModeChanges: ({ scope }) =>
-                    enqueueEditSave(cache, async () => {
+                    enqueueEditSave({ cache, mount: () => dashboardLogic(props).mount() }, async () => {
                         cache.dashboardChangesPersisted = false
                         cache.draftLayoutsAtSave = values.draftLayouts
                         try {
@@ -4163,7 +4173,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 return
             }
-            await enqueueTileSave(cache, async () => {
+            await enqueueTileSave({ cache, mount: () => dashboardLogic(props).mount() }, async () => {
                 const move = planTileMove(values, tileId, sectionKey, cell)
                 if (!move) {
                     return

@@ -743,6 +743,23 @@ describe('dashboardLogic', () => {
                 expect(groupOf(looseTile)).toBe('plans')
             })
 
+            it('sends a queued layout save after the dashboard closes', async () => {
+                const [, opsTile, looseTile] = tileIds
+                logic.actions.moveTileToSection(opsTile, null, null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                enterEditMode()
+                logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+
+                logic.actions.saveEditModeChanges('layout')
+                logic.unmount()
+                pendingSaves[0].resolve()
+
+                await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual([[opsTile], [looseTile]])
+                pendingSaves[1].resolve()
+                await waitFor(() => expect(logic.isMounted()).toBe(false))
+            })
+
             it.each([
                 { finish: 'save', saveFails: false, expectedGroup: 'plans', unsaved: false },
                 { finish: 'save', saveFails: true, expectedGroup: 'plans', unsaved: true },
