@@ -10,6 +10,8 @@ After a merge, `metrics4_series` keeps one label row for each active series-hour
 in an expiry partition. `metrics4_names` stores hourly metric names.
 `metrics4_attributes` stores hourly metric and resource attributes. Readers use
 the last two tables for name and attribute selectors.
+`metrics4_service_freshness` stores the newest sample time of each service and
+hour. It is the only rollup that also takes samples without labels.
 
 `metrics4_input` supplies `original_expiry_timestamp` to each view. The Kafka
 view calculates this timestamp from the sample timestamp. The tables derive
@@ -43,10 +45,12 @@ METRICS4_SAMPLES_TABLE_NAME = "metrics4_samples"
 METRICS4_SERIES_TABLE_NAME = "metrics4_series"
 METRICS4_NAMES_TABLE_NAME = "metrics4_names"
 METRICS4_ATTRIBUTES_TABLE_NAME = "metrics4_attributes"
+METRICS4_SERVICE_FRESHNESS_TABLE_NAME = "metrics4_service_freshness"
 WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
 WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
+WRITABLE_METRICS4_SERVICE_FRESHNESS_TABLE_NAME = "writable_metrics4_service_freshness"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 METRICS4_VIEW_NAME = "metrics4_view"
 # metrics2 serves the hours before the cut-over. metrics4_samples serves the cut-over hour and later.
@@ -192,6 +196,21 @@ def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
     )
 
 
+_METRICS4_SERVICE_FRESHNESS_COLUMNS = """    `team_id` Int32,
+    `time_bucket` DateTime64(0),
+    `service_name` LowCardinality(String),
+    `original_expiry_time_bucket` DateTime64(0),
+    `max_timestamp` SimpleAggregateFunction(max, DateTime64(6))"""
+
+
+def WRITABLE_METRICS4_SERVICE_FRESHNESS_TABLE_SQL() -> str:
+    return _writable_table_sql(
+        WRITABLE_METRICS4_SERVICE_FRESHNESS_TABLE_NAME,
+        METRICS4_SERVICE_FRESHNESS_TABLE_NAME,
+        _METRICS4_SERVICE_FRESHNESS_COLUMNS,
+    )
+
+
 def METRICS4_SAMPLES_TABLE_SQL() -> str:
     arrays = ",\n".join(
         f"    `{name}_arr` SimpleAggregateFunction(groupArrayArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR}), Array({element_type})){_ARRAY_CODECS.get(name, '')}"
@@ -309,6 +328,24 @@ SETTINGS index_granularity = 8192
 """
 
 
+def METRICS4_SERVICE_FRESHNESS_TABLE_SQL() -> str:
+    # A merged part keeps one row for each team, hour, service and expiry hour. The time_bucket after team_id
+    # lets a read of the recent hours of one team use the primary key.
+    return f"""
+CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SERVICE_FRESHNESS_TABLE_NAME}
+(
+{_METRICS4_SERVICE_FRESHNESS_COLUMNS}
+)
+ENGINE = {AggregatingMergeTree(METRICS4_SERVICE_FRESHNESS_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
+PARTITION BY toDate(original_expiry_time_bucket)
+ORDER BY (team_id, time_bucket, service_name, original_expiry_time_bucket)
+TTL original_expiry_time_bucket
+SETTINGS
+    index_granularity = 8192,
+    ttl_only_drop_parts = 1
+"""
+
+
 def METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_ATTRIBUTES_TABLE_NAME}
@@ -420,6 +457,26 @@ AS SELECT
 FROM {db}.{METRICS4_INPUT_TABLE_NAME} AS input
 WHERE has_labels
 GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
+"""
+
+
+def METRICS4_INPUT_TO_METRICS4_SERVICE_FRESHNESS_MV() -> str:
+    # No has_labels filter: capture sends the labels on the first sample of each label window only,
+    # so a labelled-only rollup can lag the newest sample of a series.
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SERVICE_FRESHNESS_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SERVICE_FRESHNESS_TABLE_NAME}
+(
+{_METRICS4_SERVICE_FRESHNESS_COLUMNS}
+)
+AS SELECT
+    team_id,
+    toStartOfHour(timestamp) AS time_bucket,
+    service_name,
+    toStartOfHour(original_expiry_timestamp) AS original_expiry_time_bucket,
+    maxSimpleState(timestamp) AS max_timestamp
+FROM {db}.{METRICS4_INPUT_TABLE_NAME}
+GROUP BY team_id, time_bucket, service_name, original_expiry_time_bucket
 """
 
 
