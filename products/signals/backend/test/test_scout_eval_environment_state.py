@@ -216,7 +216,7 @@ class TestScoutEnvironmentState(BaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.first_name, original_name)
 
-    @parameterized.expand([("artefact",), ("legacy_assignment",), ("legacy_task",)])
+    @parameterized.expand([("artefact",), ("shared_legacy_claim",), ("legacy_assignment",), ("legacy_task",)])
     def test_restores_report_claims_and_pull_requests_with_backing_tasks(self, source: str) -> None:
         task_id, report_id, claim_id, pr_id = (uuid4() for _ in range(4))
         created_at = self.checkpoint - timedelta(hours=1)
@@ -283,7 +283,24 @@ class TestScoutEnvironmentState(BaseTest):
                 ],
             }
         )
-        if source != "artefact":
+        if source == "shared_legacy_claim":
+            state = state.model_copy(
+                update={
+                    "report_assignments": [
+                        ScoutEnvironmentRecord(
+                            id=claim_id,
+                            created_at=created_at,
+                            fields={
+                                "report_id": str(report_id),
+                                "actor_kind": "task",
+                                "actor_task_id": str(task_id),
+                                "claimed_at": created_at.isoformat(),
+                            },
+                        )
+                    ]
+                }
+            )
+        elif source != "artefact":
             assignment_fields: dict[str, JsonValue] = {
                 "report_id": str(report_id),
                 "actor_kind": "task",
@@ -352,7 +369,7 @@ class TestScoutEnvironmentState(BaseTest):
                         ],
                     }
                 )
-        case = self.case.model_copy(update={"state": state})
+        case = ScoutEnvironmentCase.model_validate(self.case.model_copy(update={"state": state}).model_dump())
         with patch(
             "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
             return_value=self.receipt.databases,
@@ -367,7 +384,10 @@ class TestScoutEnvironmentState(BaseTest):
         self.assertEqual(str(claim.claim_id), result.identity_map[str(claim_id)])
         prs = fetch_implementation_prs_for_reports([local_report], team_id=self.team.id)[local_report]
         self.assertEqual([(pr.url, pr.state) for pr in prs], [("https://github.com/example/project/pull/1", "open")])
-        self.assertEqual(prs[0].claim_id, result.identity_map[str(claim_id)] if source == "artefact" else None)
+        self.assertEqual(
+            prs[0].claim_id,
+            result.identity_map[str(claim_id)] if source in {"artefact", "shared_legacy_claim"} else None,
+        )
         if source == "legacy_task":
             TaskRun.objects.bulk_create(
                 [

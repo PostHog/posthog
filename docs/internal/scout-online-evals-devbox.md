@@ -31,6 +31,8 @@ timestamps, work-claim artefacts and pull requests so report ownership and revie
 state remain linked after IDs are remapped.
 Each claim must belong to the artefact's report. Task channels and external
 connections still require separate restore support.
+A legacy assignment can share its ID with one work-claim artefact for the same
+report. All other starting-state record IDs must remain unique.
 
 Declare `source_project_url` in the case and bundle text policy to keep copied
 project links inside the restored instance. Preparation binds the exact source

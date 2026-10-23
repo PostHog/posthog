@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from collections import Counter
 from pathlib import PurePosixPath
 from typing import Literal, Self
 from uuid import UUID
@@ -133,7 +134,20 @@ class ScoutEnvironmentCase(EnvironmentTextPolicy):
             )
         skills = [self.skill, *self.companion_skills]
         identities = [*(skill.id for skill in skills), *(row.id for row in self.state.records())]
-        if len(identities) != len(set(identities)):
+        work_claim_reports = {
+            row.id: row.fields.get("report_id")
+            for row in self.state.report_artefacts
+            if row.fields.get("type") == "work_claim"
+        }
+        shared_legacy_claims = {
+            row.id
+            for row in self.state.report_assignments
+            if isinstance(row.fields.get("report_id"), str)
+            and row.fields["report_id"] == work_claim_reports.get(row.id)
+        }
+        if any(
+            count != (2 if identity in shared_legacy_claims else 1) for identity, count in Counter(identities).items()
+        ):
             raise ValueError("Starting-state record IDs must be unique.")
         if len({skill.name for skill in skills}) != len(skills):
             raise ValueError("Starting-state skill names must be unique.")

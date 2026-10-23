@@ -38,6 +38,7 @@ from products.signals.backend.scout_harness.eval_environment.schema import (
     ScoutEnvironmentSeed,
     ScoutEnvironmentSkill,
 )
+from products.signals.backend.scout_harness.eval_environment.support import ScoutEnvironmentSupport
 from products.signals.backend.scout_harness.eval_environment.trials import (
     EvaluationPlan,
     FrozenEnvironment,
@@ -48,6 +49,66 @@ from products.signals.backend.scout_harness.trial_comparison_types import TrialC
 
 class TestScoutEvaluationFreeze(TestCase):
     @parameterized.expand(
+        [
+            "shared_legacy_claim",
+            "wrong_report",
+            "wrong_artefact_type",
+            "duplicate_assignment",
+            "duplicate_artefact",
+            "other_record",
+            "skill",
+        ]
+    )
+    def test_record_ids_only_overlap_for_a_legacy_assignment_and_its_report_work_claim(self, change: str) -> None:
+        cutoff = datetime(2030, 1, 1, tzinfo=UTC)
+        report_id, claim_id = uuid4(), uuid4()
+        artefact: dict[str, object] = {
+            "id": claim_id,
+            "created_at": cutoff,
+            "fields": {"report_id": str(report_id), "type": "work_claim", "content": "{}"},
+        }
+        assignment: dict[str, object] = {
+            "id": claim_id,
+            "created_at": cutoff,
+            "fields": {"report_id": str(report_id)},
+        }
+        state: dict[str, list[dict[str, object]]] = {
+            "reports": [{"id": report_id, "created_at": cutoff, "fields": {"title": "Example report"}}],
+            "report_artefacts": [artefact],
+            "report_assignments": [assignment],
+        }
+        if change == "wrong_report":
+            assignment["fields"] = {"report_id": str(uuid4())}
+        elif change == "wrong_artefact_type":
+            artefact["fields"] = {"report_id": str(report_id), "type": "note", "content": "{}"}
+        elif change == "duplicate_assignment":
+            state["report_assignments"].append(assignment)
+        elif change == "duplicate_artefact":
+            state["report_artefacts"].append(artefact)
+        elif change == "other_record":
+            state["notes"] = [{"id": claim_id, "created_at": cutoff, "fields": {"content": "Example note"}}]
+        data = {
+            "environment_id": "example",
+            "source_cutoff": cutoff,
+            "checkpoint": cutoff,
+            "skill": {
+                "id": claim_id if change == "skill" else uuid4(),
+                "name": "example-scout",
+                "body": "Review example events.",
+                "version": 1,
+                "origin": "custom",
+            },
+            "state": state,
+        }
+        if change == "shared_legacy_claim":
+            case = ScoutEnvironmentCase.model_validate(data)
+            ScoutEnvironmentSupport.validate(case)
+            self.assertEqual(case.state.report_artefacts[0].id, case.state.report_assignments[0].id)
+        else:
+            with self.assertRaisesRegex(ValidationError, "Starting-state record IDs must be unique"):
+                ScoutEnvironmentCase.model_validate(data)
+
+    @parameterized.expand(
         [(mode, change) for mode in ("recorded", "native") for change in ("unchanged", "removed", "added", "modified")]
     )
     def test_freeze_binds_extra_inputs_and_requires_the_same_inputs_on_reuse(
@@ -55,7 +116,7 @@ class TestScoutEvaluationFreeze(TestCase):
     ) -> None:
         self.addCleanup(os.umask, os.umask(0o077))
         with TemporaryDirectory() as folder:
-            directory = Path(folder)
+            directory = Path(folder).resolve()
             workspace = directory / "state"
             cutoff = datetime(2030, 1, 1, tzinfo=UTC)
             dataset = EnvironmentDataset.build(
@@ -119,6 +180,7 @@ class TestScoutEvaluationFreeze(TestCase):
                     manifest_sha256=dataset.manifest_sha256,
                     environment_id=case.environment_id,
                     team_id=seed.team_id,
+                    target_project_url=None,
                 )
                 assert freeze(extra_inputs) == 0
                 frozen_path = workspace / "frozen.json"
@@ -170,8 +232,17 @@ class TestScoutEvaluationFreeze(TestCase):
         parser = argparse.ArgumentParser()
         add_arguments(parser)
         with TemporaryDirectory() as folder:
+            directory = Path(folder).resolve()
             args = parser.parse_args(
-                ["--state-dir", folder, "prepare", "--case", f"{folder}/case.json", "--bundle", f"{folder}/bundle"]
+                [
+                    "--state-dir",
+                    str(directory),
+                    "prepare",
+                    "--case",
+                    str(directory / "case.json"),
+                    "--bundle",
+                    str(directory / "bundle"),
+                ]
             )
             stderr = StringIO()
             with (
@@ -190,7 +261,7 @@ class TestScoutEvaluationFreeze(TestCase):
     @parameterized.expand([("prompt",), ("binding",), ("transformation",)])
     def test_dispatch_rejects_changed_runtime_prompt_or_missing_binding(self, changed: str) -> None:
         with TemporaryDirectory() as folder:
-            directory = Path(folder)
+            directory = Path(folder).resolve()
             prompt_path = directory / "runtime-prompt.json"
             manifest_path = directory / "frozen.json"
             prompt = RecordedScoutPrompt(
