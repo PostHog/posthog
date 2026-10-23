@@ -115,11 +115,11 @@ export interface DailyToolStat {
     p50: number
     p95: number
     p99: number
-    min?: number
-    p25?: number
-    mean?: number
-    p75?: number
-    max?: number
+    min?: number | null
+    p25?: number | null
+    mean?: number | null
+    p75?: number | null
+    max?: number | null
 }
 
 export interface DailyChartData {
@@ -172,7 +172,7 @@ export function buildDailyChartData(dailyStats: DailyToolStat[], bucketKeys: str
 // Whiskers stop at p99 so one very slow call does not flatten every box.
 function latencyBox(row: DailyToolStat, day: string): BoxPlotDatum | null {
     const { min, p25, mean, p75, max } = row
-    if (min === undefined || p25 === undefined || mean === undefined || p75 === undefined || max === undefined) {
+    if (min == null || p25 == null || mean == null || p75 == null || max == null) {
         return null
     }
     return { day, min, p25, median: row.p50, mean, p75, max, whiskerMax: row.p99 }

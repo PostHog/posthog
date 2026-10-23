@@ -76,6 +76,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
                         max: 60000,
                     }),
                     dailyStat({ day: '2026-06-06', calls: 1, p50: 100, p95: 100, p99: 100 }),
+                    dailyStat({ day: '2026-06-07', calls: 2, min: null, p25: null, mean: null, p75: null, max: null }),
                 ],
                 ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
             )
@@ -92,6 +93,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
                 },
                 // A row cached before the spread fields existed has no box to draw.
                 null,
+                // Neither does a bucket whose calls all lack a duration.
                 null,
             ])
         })
