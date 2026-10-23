@@ -21,6 +21,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeCatalogConnectionConfig,
     ManagedWarehouseBackfillState,
     ManagedWarehouseProvisionStatus,
+    ManagedWarehouseTarget,
 )
 
 if TYPE_CHECKING:
@@ -102,16 +103,14 @@ def default_bucket_region() -> str:
     return common.default_bucket_region()
 
 
-def get_managed_warehouse_target(organization_id: str, *, source_type: str) -> "ManagedWarehouseTarget | None":
+def get_managed_warehouse_target(organization_id: str, *, source_type: str) -> ManagedWarehouseTarget | None:
     """The managed warehouse `organization_id` may reach from a `source_type` source, or None.
 
     The warehouse-source host guard is the only caller. It decides whether a source's host is
     exempt from the private-address check, so it needs the control plane's own answer for this
     organization rather than any stored row.
     """
-    from products.managed_warehouse.backend.managed_ingress import (  # noqa: PLC0415
-        get_managed_warehouse_target as _get,
-    )
+    from products.managed_warehouse.backend.managed_ingress import get_managed_warehouse_target as _get  # noqa: PLC0415
 
     return _get(organization_id, source_type=source_type)
 
@@ -129,9 +128,7 @@ def managed_warehouse_ingress_ips() -> tuple[str, ...]:
 
 def managed_warehouse_domain() -> str:
     """The zone managed warehouse hostnames are served under in this deployment."""
-    from products.managed_warehouse.backend.managed_ingress import (  # noqa: PLC0415
-        managed_warehouse_domain as _domain,
-    )
+    from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain as _domain  # noqa: PLC0415
 
     return _domain()
 
