@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { Dispatch, SetStateAction, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSearchableSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -103,13 +104,17 @@ export function ProjectMove(): JSX.Element {
             </p>
 
             <div className="flex items-center gap-2">
-                <LemonSelect
+                <LemonSearchableSelect
                     options={otherOrganizations.map((o) => ({
                         label: o.name,
                         value: o.id,
+                        icon: <UploadedLogo size="xsmall" name={o.name} entityId={o.id} mediaId={o.logo_media_id} />,
                         disabledReason: notAdminOfOrg(o) ? NOT_ADMIN_OF_TARGET_REASON : undefined,
                     }))}
                     placeholder="Select target organization"
+                    searchPlaceholder="Search organizations..."
+                    searchInputDataAttr="move-project-target-organization-search"
+                    noResultsMessage="No organizations match"
                     onChange={(value) => {
                         const organization = otherOrganizations.find((o) => o.id === value)
                         setTargetOrganization(organization || null)
