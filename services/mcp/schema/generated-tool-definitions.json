@@ -7010,6 +7010,22 @@
         },
         "feature_flag": "customer-analytics-feature-requests"
     },
+    "feature-requests-link-github-create": {
+        "description": "Link a Customer analytics feature request to one GitHub issue. Pass the request id, its current `expected_version`, the id of a GitHub integration connected to the project, and the issue URL. Pull request URLs are rejected, and a request can have only one linked issue. Link an issue only when it describes the same customer problem and one feature would close both. The link syncs the issue state to the request: a closed issue sets the status to completed or won't fix, and a reopened issue restores the earlier status. The response contains the request with its `github_link` and the next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Link feature request to GitHub issue",
+        "title": "Link feature request to GitHub issue",
+        "required_scopes": ["customer_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/feature_requests/{id}/link_github/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
     "feature-requests-list": {
         "description": "List Customer analytics feature requests linked to accounts the caller can access. Filter by search text, lifecycle status, priority, product area, account, or archive state. Active requests are returned by default. Each request includes its active visible account links, account-specific evidence, product areas, and version. For bulk reads and aggregations, query `system.feature_requests` and its related system tables.",
         "category": "Customer analytics",
