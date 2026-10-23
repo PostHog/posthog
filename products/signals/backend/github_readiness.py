@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from temporalio import activity
 
@@ -17,7 +18,11 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSourceConfig
-from products.tasks.backend.facade.github_readiness import get_team_github_readiness
+from products.tasks.backend.facade.github_readiness import (
+    GITHUB_RECONNECT_REQUIRED_STATUSES,
+    GITHUB_RECOVERY_WINDOW,
+    get_team_github_readiness,
+)
 
 if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData
@@ -28,6 +33,7 @@ class CheckReportGitHubReadinessInput:
     team_id: int
     report_id: str
     reason: str | None = None
+    recovery: bool = False
 
 
 LEGACY_GITHUB_BLOCKERS = (
@@ -37,9 +43,18 @@ LEGACY_GITHUB_BLOCKERS = (
 )
 
 
-def github_blocked_reports() -> Q:
-    return Q(status=SignalReport.Status.CANDIDATE, research_blocked_reason__isnull=False) | Q(
-        status=SignalReport.Status.PENDING_INPUT, error__in=LEGACY_GITHUB_BLOCKERS
+def github_blocked_reports(*, connection_restored: bool = False) -> Q:
+    cutoff = timezone.now() - GITHUB_RECOVERY_WINDOW
+    blocked = Q(
+        status=SignalReport.Status.CANDIDATE,
+        research_blocked_reason__isnull=False,
+        research_blocked_at__gt=cutoff,
+    )
+    if not connection_restored:
+        return blocked & Q(research_blocked_reason=GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE)
+    return blocked | (
+        Q(status=SignalReport.Status.PENDING_INPUT, error__in=LEGACY_GITHUB_BLOCKERS)
+        & (Q(last_run_at__gt=cutoff) | Q(last_run_at__isnull=True, created_at__gt=cutoff))
     )
 
 
@@ -73,10 +88,17 @@ def enabled_recovery_signals(team_id: int, signals: list[SignalData]) -> list[Si
     ]
 
 
-def check_report_github_readiness(team_id: int, report_id: str, reason: str | None = None) -> bool:
-    if not SignalReport.objects.filter(
+def check_report_github_readiness(
+    team_id: int, report_id: str, reason: str | None = None, *, recovery: bool = False
+) -> bool:
+    report = SignalReport.objects.filter(
         team_id=team_id, id=report_id, status__in=[SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS]
-    ).exists():
+    ).first()
+    if report is None:
+        return False
+    if report.research_blocked_at and report.research_blocked_at <= timezone.now() - GITHUB_RECOVERY_WINDOW:
+        return False
+    if not reason and not recovery and report.research_blocked_reason in GITHUB_RECONNECT_REQUIRED_STATUSES:
         return False
     readiness = (
         GitHubReadiness(status=GitHubReadinessStatus(reason))
@@ -93,7 +115,8 @@ def check_report_github_readiness(team_id: int, report_id: str, reason: str | No
         if report.status == SignalReport.Status.IN_PROGRESS:
             fields = report.transition_to(SignalReport.Status.CANDIDATE)
         report.research_blocked_reason = readiness.status
-        report.save(update_fields=[*fields, "research_blocked_reason"])
+        report.research_blocked_at = report.research_blocked_at or timezone.now()
+        report.save(update_fields=[*fields, "research_blocked_reason", "research_blocked_at"])
     return False
 
 
@@ -102,5 +125,5 @@ def check_report_github_readiness(team_id: int, report_id: str, reason: str | No
 @close_db_connections
 async def check_report_github_readiness_activity(input: CheckReportGitHubReadinessInput) -> bool:
     return await database_sync_to_async(check_report_github_readiness, thread_sensitive=False)(
-        input.team_id, input.report_id, input.reason
+        input.team_id, input.report_id, input.reason, recovery=input.recovery
     )

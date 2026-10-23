@@ -143,6 +143,8 @@ class Command(BaseCommand):
                 raise CommandError("The report changed before research could start")
             previous_promoted_at = report.promoted_at
             previous_run_count = report.run_count
+            previous_research_blocked_reason = report.research_blocked_reason
+            previous_research_blocked_at = report.research_blocked_at
             update_fields = set()
             if report.status == SignalReport.Status.CANDIDATE:
                 report.promoted_at = timezone.now()
@@ -151,6 +153,9 @@ class Command(BaseCommand):
                 update_fields.update(report.transition_to(SignalReport.Status.POTENTIAL))
             if report.status != SignalReport.Status.CANDIDATE:
                 update_fields.update(report.transition_to(SignalReport.Status.CANDIDATE))
+            report.research_blocked_reason = None
+            report.research_blocked_at = None
+            update_fields.update({"research_blocked_reason", "research_blocked_at"})
             report.save(update_fields=update_fields)
             promoted_at = report.promoted_at
 
@@ -180,7 +185,11 @@ class Command(BaseCommand):
                 if current.status == SignalReport.Status.CANDIDATE and current.promoted_at == promoted_at:
                     current.status = previous_status
                     current.promoted_at = previous_promoted_at
-                    current.save(update_fields=["status", "promoted_at"])
+                    current.research_blocked_reason = previous_research_blocked_reason
+                    current.research_blocked_at = previous_research_blocked_at
+                    current.save(
+                        update_fields=["status", "promoted_at", "research_blocked_reason", "research_blocked_at"]
+                    )
                     restored = True
             if restored:
                 raise CommandError(
