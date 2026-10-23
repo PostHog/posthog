@@ -218,6 +218,16 @@ class TestScoreInsight(SimpleTestCase):
         assert named["app"] != named["web"]
 
 
+class TestFetchBuckets(SimpleTestCase):
+    def test_unbounded_smoothing_is_not_scored(self) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")], trendsFilter=TrendsFilter(smoothingIntervals=10_000_000)
+        )
+
+        with self.assertRaises(UnsupportedInsightError):
+            fetch_buckets(query, DAY_SCORING, 1)
+
+
 class TestTrendsQueryFor(SimpleTestCase):
     @parameterized.expand(
         [

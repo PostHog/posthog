@@ -40,6 +40,8 @@ from products.signals.backend.anomaly_scores.config import (
 # Naming fields do not change what a series counts, so a rename keeps its key.
 _SERIES_NAMING_FIELDS = {"custom_name", "name"}
 
+_MAX_SMOOTHING_BUCKETS = 90
+
 _DATE_UNITS = {IntervalType.HOUR: "h", IntervalType.DAY: "d", IntervalType.WEEK: "w", IntervalType.MONTH: "m"}
 
 # The scoring query runs as background work, so it gets more time than a chart query and fewer threads.
@@ -164,6 +166,9 @@ def fetch_buckets(query: TrendsQuery, scoring: IntervalScoring, to_score: int) -
     """
     count = history_buckets(scoring) + to_score
     smoothing = query.trendsFilter.smoothingIntervals if query.trendsFilter else None
+    if smoothing and smoothing > _MAX_SMOOTHING_BUCKETS:
+        # The field has no upper bound, and the fetch grows with it.
+        raise UnsupportedInsightError(f"Smoothing over {smoothing} buckets is not scored")
     if smoothing and smoothing > 1:
         # Trends smooths over the fetched buckets only, so the oldest values need their own trailing window.
         count += smoothing - 1
