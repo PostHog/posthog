@@ -10392,6 +10392,10 @@ snapshots:
         hash: v1.k794b7964.d8a99a7d7bcfe36920f9d8173ae8f480b93997229c986f058768b5eddeb5474c.RfV4yI1Hovb47bR9_HJMKzYxTqZJJfFjz2MkCzoWP-s
     scenes-app-data-warehouse-query-index-usage-fix-actions--report-still-catching-up--wide--light:
         hash: v1.k794b7964.0c5a2526511088eca0ef17402714414283b393d4ca94fb375a3f63f32e13999a.Am5ahhnXBQ0aZ3GyFwRzL_3wes-0XTj4uS5pw4WAJCY
+    scenes-app-data-warehouse-rename-view-modal--with-known-references--dark:
+        hash: v1.k794b7964.eb22a575000714f6695e91cbeac695e1999232d8b628cf059cff3cff6f3ebb9b.Jg5TpsINiav24GVDoQ2Ra4XIKWet2w8bbw3wLEAKdzk
+    scenes-app-data-warehouse-rename-view-modal--with-known-references--light:
+        hash: v1.k794b7964.e677d5b5fc832a7c6799a9b514e4f202ed8d272235aec67c32c73901f02afe34.zRrN3Lp3uzPAXR5PsGfjWMvVwCk6TYEUqFEz6JaTdWY
     scenes-app-data-warehouse-settings-api-version-deprecation-banner--with-sunset-date--dark:
         hash: v1.k794b7964.5a4d9d3ac30fd4e7a83925bb77a89685f5ad1b95e44431dc87696251acd62941.STCVyoJPmpKL8izqztWRz12VuY1AJPSbVh74dSG4k4U
     scenes-app-data-warehouse-settings-api-version-deprecation-banner--with-sunset-date--light:
