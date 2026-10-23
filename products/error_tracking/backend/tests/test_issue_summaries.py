@@ -1,5 +1,4 @@
 import json
-from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -248,26 +247,19 @@ class TestIssueSummaryGeneration(BaseTest):
                 lambda test: test.build_inputs.configure_mock(
                     side_effect=None, return_value=IssueSummaryOutcome.NO_EXCEPTION
                 ),
-                lambda test: None,
                 IssueSummaryOutcome.NO_EXCEPTION,
                 1,
             ),
-            (
-                "rate_limited",
-                lambda test: test._drain_budget(),
-                lambda test: test._refill_budget(),
-                IssueSummaryOutcome.RATE_LIMITED,
-                0,
-            ),
+            ("rate_limited", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED, 0),
         ]
     )
     def test_outcome_holds_the_issue_past_the_lock(
-        self, _name: str, arrange: Any, recover: Any, expected: IssueSummaryOutcome, input_builds: int
+        self, _name: str, arrange: Any, expected: IssueSummaryOutcome, input_builds: int
     ) -> None:
         arrange(self)
         with time_machine.travel(NOW, tick=False):
             get_or_generate_issue_summary(self.team.id, self.issue.id)
-        recover(self)
+        self._refill_budget()
 
         with time_machine.travel(NOW + timedelta(minutes=10), tick=False):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
@@ -389,28 +381,27 @@ class TestIssueSummaryGeneration(BaseTest):
                     side_effect=None, return_value=IssueSummaryOutcome.ISSUE_MISSING
                 ),
             ),
-            (
-                "unexpected_error",
-                lambda test: test.enterContext(
-                    patch.object(issue_summaries.Team.objects, "get", side_effect=OperationalError("db down"))
-                ),
-                OperationalError,
-            ),
         ]
     )
-    def test_failure_stops_start_until_the_lock_expires(
-        self, _name: str, arrange: Any, raises: type[Exception] | None = None
-    ) -> None:
+    def test_failure_stops_start_until_the_lock_expires(self, _name: str, arrange: Any) -> None:
         arrange(self)
-        expect_error: AbstractContextManager[Any] = self.assertRaises(raises) if raises else nullcontext()
-        with expect_error:
-            get_or_generate_issue_summary(self.team.id, self.issue.id)
+        get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert self._start() == (False, False)
         assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= issue_summaries.ISSUE_SUMMARY_LOCK_TTL_SECONDS
 
         self._release_lock()
         assert self._start() == (True, True)
+
+    def test_unexpected_error_stops_start_and_still_raises(self) -> None:
+        with (
+            patch.object(issue_summaries.Team.objects, "get", side_effect=OperationalError("db down")),
+            self.assertRaises(OperationalError),
+        ):
+            get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+        assert self._start() == (False, False)
+        assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= issue_summaries.ISSUE_SUMMARY_LOCK_TTL_SECONDS
 
     @parameterized.expand(
         [
