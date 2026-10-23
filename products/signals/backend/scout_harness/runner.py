@@ -34,6 +34,13 @@ from products.data_catalog.backend.facade.api import approved_metric_names_for_t
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.first_report_completion import complete_first_report_investigation
+from products.signals.backend.first_report_experiment import (
+    FirstReportExperiment,
+    capture_first_report_exposure,
+    resolve_first_report_experiment,
+)
+from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
@@ -458,6 +465,27 @@ async def _arun_signals_scout(
     # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
     # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
+    experiment = None
+    if skill.name == FIRST_REPORT_SCOUT and agent_runtime is None and trial is None:
+        experiment = await database_sync_to_async(resolve_first_report_experiment, thread_sensitive=False)(team)
+        if experiment is None:
+            await database_sync_to_async(set_first_report_state, thread_sensitive=False)(team.id, "incomplete")
+            return RunResult(
+                run_id=None,
+                task_run_id=None,
+                status=None,
+                last_message=None,
+                runtime_s=0.0,
+                skill_name=skill.name,
+                skill_version=skill.version,
+                skip_reason="first-report experiment disabled",
+            )
+        agent_runtime = experiment.agent_runtime
+    runtime = agent_runtime.runtime if agent_runtime is not None else "acp"
+    if experiment is not None:
+        await database_sync_to_async(capture_first_report_exposure, thread_sensitive=False)(
+            team, experiment, str(run_id)
+        )
     if agent_runtime is not None:
         runtime_adapter: str | None = agent_runtime.runtime_adapter
         model: str | None = agent_runtime.model
@@ -530,6 +558,8 @@ async def _arun_signals_scout(
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
             triggered_by=triggered_by,
             run_note=run_note,
             trial=trial,
@@ -549,6 +579,13 @@ async def _arun_signals_scout(
         # after fixing its skill.
         if trial is None:
             await database_sync_to_async(_clear_failure_streak, thread_sensitive=False)(config.pk)
+        outcome_properties = (
+            await database_sync_to_async(complete_first_report_investigation, thread_sensitive=False)(
+                team.id, str(run_id)
+            )
+            if experiment is not None
+            else {}
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -565,6 +602,9 @@ async def _arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
+            extra_properties=outcome_properties,
         )
         return RunResult(
             run_id=str(run_id),
@@ -634,6 +674,13 @@ async def _arun_signals_scout(
             if triggered_by == TRIGGERED_BY_SCHEDULE
             else None
         )
+        outcome_properties = (
+            await database_sync_to_async(complete_first_report_investigation, thread_sensitive=False)(
+                team.id, str(run_id)
+            )
+            if experiment is not None
+            else {}
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -650,9 +697,11 @@ async def _arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
-            extra_properties=_failure_properties(exc),
+            extra_properties={**outcome_properties, **(_failure_properties(exc) or {})},
         )
         if streak is not None and streak.tripped:
             _capture_config_auto_paused(
@@ -695,6 +744,13 @@ async def _arun_signals_scout(
         # The failure-streak breaker is deliberately untouched: a cancelled run says nothing
         # about whether this lane can succeed, and counting worker shutdowns toward the streak
         # would pause healthy scouts after a few deploys.
+        outcome_properties = (
+            await database_sync_to_async(complete_first_report_investigation, thread_sensitive=False)(
+                team.id, str(run_id)
+            )
+            if experiment is not None
+            else {}
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -711,6 +767,9 @@ async def _arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
+            extra_properties=outcome_properties,
         )
         raise
     finally:
@@ -919,6 +978,8 @@ async def _spawn_and_run(
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
     trial: TrialLaunch | None = None,
@@ -1010,6 +1071,7 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
         # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
         service_tier=service_tier,
+        runtime=runtime,
         sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60 if trial is not None else None,
     )
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
@@ -1072,6 +1134,8 @@ async def _spawn_and_run(
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
+            runtime=runtime,
+            experiment=experiment,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
             background_backoff=background_backoff,
@@ -1102,6 +1166,8 @@ async def _spawn_and_run(
                 model=model,
                 runtime_adapter=runtime_adapter,
                 service_tier=service_tier,
+                runtime=runtime,
+                experiment=experiment,
             )
         )
 
@@ -1113,6 +1179,7 @@ async def _spawn_and_run(
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+        internal=skill.name == FIRST_REPORT_SCOUT,
         mcp_builtin_agent_key="scout",
         # No credential owner on purpose: a scout is a team resource, so its runs mount only
         # connections members shared to the whole team, never anyone's personal grants. That
@@ -1369,6 +1436,8 @@ def _create_run_row(
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
     background_backoff: BackgroundBackoff | None = None,
@@ -1394,6 +1463,9 @@ def _create_run_row(
         )
         if value is not None
     }
+    metadata["runtime"] = runtime
+    if experiment is not None:
+        metadata.update(experiment.properties())
     # Stamped only when non-default, like the model triple: absence means the run held the
     # trusted-domains posture. Stamped (rather than read off the config later) because the
     # config row can be edited after the fact, which would silently rewrite what past runs
@@ -1687,6 +1759,8 @@ def _capture_run_started(
     model: str | None = None,
     runtime_adapter: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -1706,6 +1780,9 @@ def _capture_run_started(
         "run_id": str(run_id),
         "task_run_id": task_run_id,
     }
+    properties["runtime"] = runtime
+    if experiment is not None:
+        properties.update(experiment.properties())
     _attach_run_shape_props(
         properties,
         config=config,
@@ -1902,6 +1979,8 @@ def _capture_run_finished(
     model: str | None = None,
     runtime_adapter: str | None = None,
     service_tier: str | None = None,
+    runtime: str = "acp",
+    experiment: FirstReportExperiment | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
     extra_properties: dict[str, Any] | None = None,
@@ -1935,6 +2014,9 @@ def _capture_run_finished(
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
     }
+    properties["runtime"] = runtime
+    if experiment is not None:
+        properties.update(experiment.properties())
     _attach_run_shape_props(
         properties,
         config=config,
