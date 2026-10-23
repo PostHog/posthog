@@ -352,6 +352,14 @@ def test_build_check_fields_failed_check() -> None:
         ),
         ("competitor_cited_by_subdomain", "See the docs.", ["https://docs.other.example/x"], False, [], ["Other Co"]),
         ("nothing_detected", "Nothing to see here.", ["https://unrelated.example/a"], False, [], []),
+        (
+            "empty_answer_keeps_the_text_columns_null",
+            "",
+            ["https://rival.example/replay"],
+            None,
+            None,
+            ["Rival Analytics"],
+        ),
         ("mention_past_the_stored_text_is_not_counted", "x" * MAX_ANSWER_TEXT_LENGTH + " PostHog", [], False, [], []),
     ]
 )
@@ -359,8 +367,8 @@ def test_build_check_fields_detects_brand_and_competitors(
     _name: str,
     answer_text: str,
     cited_urls: list[str],
-    brand_mentioned: bool,
-    competitors_mentioned: list[str],
+    brand_mentioned: bool | None,
+    competitors_mentioned: list[str] | None,
     competitors_cited: list[str],
 ) -> None:
     check = CitationCheck(engine="exa-answer", model="exa-answer", cited_urls=cited_urls, answer_text=answer_text)

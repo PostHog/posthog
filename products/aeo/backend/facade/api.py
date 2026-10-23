@@ -10,6 +10,7 @@ import datetime as dt
 
 from django.core.exceptions import ValidationError
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
 from products.aeo.backend import gaps
@@ -43,23 +44,17 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
 def get_config(team_id: int) -> AEOConfig:
     """The team's brand and competitor config, or the instance defaults when the
     team has none."""
-    return resolve_config(team_id)
+    return resolve_config(resolve_effective_team_id(team_id))
 
 
-def update_config(
-    team_id: int,
-    *,
-    target_domains: object,
-    brand_names: object,
-    competitors: object,
-) -> AEOConfig:
+def update_config(team_id: int, config: AEOConfig) -> AEOConfig:
     """Replace the team's brand and competitor config. Later runs read it; rows
     already written keep the detection they ran with.
 
-    Takes raw payload values and raises `AEOConfigError` on a wrong shape:
-    `target_domains` and `brand_names` must be lists of strings, `competitors`
-    a list of `Competitor` values or `{"name": ..., "domains": [...]}` objects."""
-    return store_config(team_id, target_domains=target_domains, brand_names=brand_names, competitors=competitors)
+    Empty `brand_names` derive from the target domains. Raises `AEOConfigError`
+    when the config would turn detection off: no target domain, a domain that is
+    not a bare hostname with a public suffix, or a name shorter than two characters."""
+    return store_config(team_id, config)
 
 
 def list_prompts(team_id: int, *, limit: int, offset: int) -> tuple[list[Prompt], int]:

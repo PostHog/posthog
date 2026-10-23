@@ -8,19 +8,16 @@ brand, so an unconfigured team keeps the behavior the POC shipped with.
 
 from __future__ import annotations
 
-import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
 
 import structlog
 import tldextract
 
+from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.models.team import Team
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sanitize_user_text
 
 from products.aeo.backend.facade.contracts import AEOConfig, AEOConfigError, Competitor
@@ -37,116 +34,21 @@ MIN_NAME_LENGTH = 2
 
 # No suffix-list fetch: the bundled snapshot is enough to split a registrable name off a domain.
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
-# One DNS label: 1 to 63 letters, digits or hyphens, with no hyphen at either end.
-_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-
-
-def default_config() -> AEOConfig:
-    target_domains = [domain for domain in settings.AEO_TARGET_DOMAINS if domain]
-    return AEOConfig(
-        target_domains=tuple(target_domains), brand_names=_brand_names_from(target_domains), competitors=()
-    )
-
-
-def resolve_config(team_id: int, *, canonical_team_id: int | None = None) -> AEOConfig:
-    """The team's stored config, or the instance defaults when it has no row.
-
-    Keyed on the canonical team so a child environment reads the same config its
-    citation checks are written under. Callers that already resolved the
-    canonical id pass it to skip the lookup.
-    """
-    if canonical_team_id is None:
-        canonical_team_id = resolve_effective_team_id(team_id)
-    row = TeamAEOConfig.objects.filter(team_id=canonical_team_id).first()
-    return default_config() if row is None else _to_config(row)
-
-
-def store_config(
-    team_id: int,
-    *,
-    target_domains: object,
-    brand_names: object,
-    competitors: object,
-) -> AEOConfig:
-    """Validate and replace the team's config.
-
-    Takes the raw payload shapes: `target_domains` and `brand_names` are lists
-    of strings, `competitors` is a list of `Competitor` values or of
-    `{"name": ..., "domains": [...]}` objects. A stored row wins over every
-    default, so a mis-keyed, mistyped or empty payload would silently turn
-    detection off from the next run. Reject it here instead.
-    """
-    domains = _clean_list(target_domains, "target_domains", MAX_TARGET_DOMAINS, _clean_domain)
-    if not domains:
-        raise AEOConfigError("target_domains must list at least one domain")
-    names = _clean_list(brand_names, "brand_names", MAX_BRAND_NAMES, _clean_name) or list(_brand_names_from(domains))
-    cleaned_competitors = _clean_competitors(competitors)
-
-    team = Team.objects.get(id=resolve_effective_team_id(team_id))
-    # The create-or-get commits a row with empty lists on its own; one transaction keeps that row from being read.
-    with transaction.atomic():
-        row = get_or_create_team_extension(team, TeamAEOConfig)
-        row.target_domains = domains
-        row.brand_names = names
-        row.competitors = cleaned_competitors
-        row.save(update_fields=["target_domains", "brand_names", "competitors", "updated_at"])
-    return _to_config(row)
-
-
-def _clean_competitors(competitors: object) -> list[dict[str, Any]]:
-    if not isinstance(competitors, list):
-        raise AEOConfigError("competitors must be a list of objects, each with a name and a list of domains")
-    cleaned: list[dict[str, Any]] = []
-    for index, item in enumerate(competitors):
-        raw_name: object
-        raw_domains: object
-        if isinstance(item, Competitor):
-            raw_name, raw_domains = item.name, item.domains
-        elif isinstance(item, dict):
-            raw_name, raw_domains = item.get("name"), item.get("domains", [])
-        else:
-            raise AEOConfigError(f"competitors[{index}] must be an object with a name and a list of domains")
-        if not isinstance(raw_name, str):
-            raise AEOConfigError(f"competitors[{index}].name must be a string")
-        name = _clean_name(raw_name, f"competitors[{index}].name")
-        if any(name.lower() == existing["name"].lower() for existing in cleaned):
-            raise AEOConfigError(f"competitor {name!r} is listed more than once")
-        domains = _clean_list(raw_domains, f"competitors[{name!r}].domains", MAX_DOMAINS_PER_COMPETITOR, _clean_domain)
-        cleaned.append({"name": name, "domains": domains})
-    if len(cleaned) > MAX_COMPETITORS:
-        raise AEOConfigError(f"competitors lists {len(cleaned)} entries; the limit is {MAX_COMPETITORS}")
-    return cleaned
 
 
 def _brand_names_from(domains: Iterable[str]) -> tuple[str, ...]:
     return tuple(sorted({(_DOMAIN_PARTS(domain).domain or domain).lower() for domain in domains}))
 
 
-def _clean_list(values: object, field: str, limit: int, clean: Callable[[str, str], str]) -> list[str]:
-    if not isinstance(values, list | tuple) or not all(isinstance(value, str) for value in values):
-        raise AEOConfigError(f"{field} must be a list of strings")
-    seen: dict[str, str] = {}
-    for value in values:
-        if not value or not value.strip():
-            continue
-        cleaned = clean(value, field)
-        seen.setdefault(cleaned.lower(), cleaned)
-    if len(seen) > limit:
-        raise AEOConfigError(f"{field} lists {len(seen)} entries; the limit is {limit}")
-    return list(seen.values())
-
-
 def _clean_domain(value: str, field: str) -> str:
     # A leading or trailing dot is valid DNS, but a cited URL's host never carries one, so it would never match.
     domain = value.strip().lower().strip(".")
-    if len(domain) > GENERIC_VALUE_MAX_LEN or not all(_LABEL_RE.match(label) for label in domain.split(".")):
-        raise AEOConfigError(
-            f"{field}: {value!r} is not a bare hostname (labels of letters, digits and hyphens; "
-            "no scheme, path, port or spaces)"
-        )
     parts = _DOMAIN_PARTS(domain)
-    if not parts.domain or not parts.suffix:
-        raise AEOConfigError(f"{field}: {value!r} needs a registrable name and a public suffix, like example.com")
+    if not is_valid_proxy_domain(domain) or not parts.domain or not parts.suffix:
+        raise AEOConfigError(
+            f"{field}: {value!r} must be a bare hostname with a public suffix, like example.com "
+            "(no scheme, path, port or spaces)"
+        )
     return domain
 
 
@@ -160,17 +62,33 @@ def _clean_name(value: str, field: str) -> str:
     return name
 
 
-def _to_config(row: TeamAEOConfig) -> AEOConfig:
-    competitors = tuple(
-        Competitor(name=str(item["name"]), domains=tuple(_strings(row, item.get("domains"), "competitors[].domains")))
-        for item in _list(row, row.competitors, "competitors")
-        if isinstance(item, dict) and item.get("name")
-    )
-    return AEOConfig(
-        target_domains=tuple(_strings(row, row.target_domains, "target_domains")),
-        brand_names=tuple(_strings(row, row.brand_names, "brand_names")),
-        competitors=competitors,
-    )
+def _clean_list(values: Sequence[str], field: str, limit: int, clean: Callable[[str, str], str]) -> list[str]:
+    if len(values) > limit:
+        raise AEOConfigError(f"{field} lists {len(values)} entries; the limit is {limit}")
+    seen: dict[str, str] = {}
+    for value in values:
+        if not value.strip():
+            continue
+        cleaned = clean(value, field)
+        seen.setdefault(cleaned.lower(), cleaned)
+    return list(seen.values())
+
+
+def _clean_competitors(competitors: Sequence[Competitor]) -> list[dict[str, Any]]:
+    if len(competitors) > MAX_COMPETITORS:
+        raise AEOConfigError(f"competitors lists {len(competitors)} entries; the limit is {MAX_COMPETITORS}")
+    cleaned: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, competitor in enumerate(competitors):
+        name = _clean_name(competitor.name, f"competitors[{index}].name")
+        if name.lower() in seen:
+            raise AEOConfigError(f"competitor {name!r} is listed more than once")
+        seen.add(name.lower())
+        domains = _clean_list(
+            competitor.domains, f"competitors[{name!r}].domains", MAX_DOMAINS_PER_COMPETITOR, _clean_domain
+        )
+        cleaned.append({"name": name, "domains": domains})
+    return cleaned
 
 
 def _list(row: TeamAEOConfig, value: Any, field: str) -> list[Any]:
@@ -183,3 +101,53 @@ def _list(row: TeamAEOConfig, value: Any, field: str) -> list[Any]:
 
 def _strings(row: TeamAEOConfig, value: Any, field: str) -> list[str]:
     return [item for item in _list(row, value, field) if isinstance(item, str) and item]
+
+
+def _to_config(row: TeamAEOConfig) -> AEOConfig:
+    competitors = tuple(
+        Competitor(name=item["name"], domains=tuple(_strings(row, item.get("domains"), "competitors[].domains")))
+        for item in _list(row, row.competitors, "competitors")
+        if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]
+    )
+    return AEOConfig(
+        target_domains=tuple(_strings(row, row.target_domains, "target_domains")),
+        brand_names=tuple(_strings(row, row.brand_names, "brand_names")),
+        competitors=competitors,
+    )
+
+
+def default_config() -> AEOConfig:
+    target_domains = [domain for domain in settings.AEO_TARGET_DOMAINS if domain]
+    return AEOConfig(
+        target_domains=tuple(target_domains), brand_names=_brand_names_from(target_domains), competitors=()
+    )
+
+
+def resolve_config(canonical_team_id: int) -> AEOConfig:
+    """The team's stored config, or the instance defaults when it has no row.
+
+    Keyed on the canonical team so a child environment reads the same config its
+    citation checks are written under.
+    """
+    row = TeamAEOConfig.objects.filter(team_id=canonical_team_id).first()
+    return default_config() if row is None else _to_config(row)
+
+
+def store_config(team_id: int, config: AEOConfig) -> AEOConfig:
+    """Validate and replace the team's config.
+
+    A stored row wins over every default, so an empty or malformed value would
+    silently turn detection off from the next run. Reject it here instead.
+    """
+    domains = _clean_list(config.target_domains, "target_domains", MAX_TARGET_DOMAINS, _clean_domain)
+    if not domains:
+        raise AEOConfigError("target_domains must list at least one domain")
+    names = _clean_list(config.brand_names, "brand_names", MAX_BRAND_NAMES, _clean_name) or list(
+        _brand_names_from(domains)
+    )
+    competitors = _clean_competitors(config.competitors)
+    row, _ = TeamAEOConfig.objects.update_or_create(
+        team_id=resolve_effective_team_id(team_id),
+        defaults={"target_domains": domains, "brand_names": names, "competitors": competitors},
+    )
+    return _to_config(row)

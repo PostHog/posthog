@@ -62,7 +62,7 @@ def run_citation_checks(
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
     canonical_team_id = team.parent_team_id or team.id
-    config = resolve_config(team.id, canonical_team_id=canonical_team_id)
+    config = resolve_config(canonical_team_id)
     checks: list[dict[str, Any]] = []
     engine_failures = 0
     rows_written = 0

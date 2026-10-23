@@ -14,7 +14,7 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -258,12 +258,19 @@ def is_target_url(url: str, target_domains: Sequence[str]) -> bool:
     return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
 
 
+def name_pattern(names: Iterable[str]) -> str:
+    """Whole-word alternation over the names, for a case-insensitive search.
+
+    Lookarounds instead of \\b so a name that starts or ends with a non-word
+    character ("example.io") still needs a boundary. Also the pattern gaps.py
+    hands to Postgres, so a row read back by regex agrees with one scored here."""
+    return r"(?<!\w)(" + "|".join(re.escape(name) for name in sorted(names)) + r")(?!\w)"
+
+
 def name_mentioned(name: str, text: str) -> bool:
-    """Case-insensitive whole-word match. Lookarounds instead of \\b so a name that
-    starts or ends with a non-word character ("example.io") still needs a boundary."""
     if not name:
         return False
-    return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text, re.IGNORECASE) is not None
+    return re.search(name_pattern([name]), text, re.IGNORECASE) is not None
 
 
 def competitors_mentioned(config: AEOConfig, answer_text: str) -> list[str]:
@@ -325,6 +332,9 @@ def build_check_fields(
     # Detection runs over the text the row keeps, so a stored row can always confirm its own verdict.
     answer_text = strip_llm_framing_markers(check.answer_text, MAX_ANSWER_TEXT_LENGTH)
     failed = check.error is not None
+    # No answer to inspect, so the text columns stay null rather than False: a reader
+    # must not count an outage, or an engine turn with only citations, as a mention drop.
+    no_answer = failed or not answer_text
     return {
         "run_id": run_id,
         "prompt_id": prompt_id,
@@ -344,9 +354,8 @@ def build_check_fields(
         "target_urls": _safe_values(target_urls),
         "target_best_position": target_position(check.cited_urls, target_domains),
         "top_cited_domains": _safe_values(top_domains(check.cited_urls)),
-        # A failed check has no answer to inspect, so the detection columns stay null rather than False.
-        "brand_mentioned": None if failed else any(name_mentioned(name, answer_text) for name in config.brand_names),
-        "competitors_mentioned": None if failed else competitors_mentioned(config, answer_text),
+        "brand_mentioned": None if no_answer else any(name_mentioned(name, answer_text) for name in config.brand_names),
+        "competitors_mentioned": None if no_answer else competitors_mentioned(config, answer_text),
         "competitors_cited": None if failed else competitors_cited(config, check.cited_urls),
         "cost_usd": check.cost_usd,
         "gateway_trace_id": check.trace_id,

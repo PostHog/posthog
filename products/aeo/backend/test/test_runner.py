@@ -111,9 +111,11 @@ def test_resolve_config_falls_back_to_the_global_setting(team: Team, settings, s
     if stored:
         expected = update_config(
             team.id,
-            target_domains=["Brand.example.net", "brand.example.net"],
-            brand_names=["Brand Co"],
-            competitors=[Competitor(name="Rival", domains=("rival.example.net",))],
+            AEOConfig(
+                target_domains=("Brand.example.net", "brand.example.net"),
+                brand_names=("Brand Co",),
+                competitors=(Competitor(name="Rival", domains=("rival.example.net",)),),
+            ),
         )
         assert expected.target_domains == ("brand.example.net",)
 

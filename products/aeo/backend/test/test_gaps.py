@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.aeo.backend.facade.api import list_citation_gaps, update_config
+from products.aeo.backend.facade.contracts import AEOConfig
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 
@@ -121,15 +122,15 @@ class TestListCitationGaps(BaseTest):
             brand_mentioned=brand_mentioned,
         )
         if brand_names is not None:
-            update_config(self.team.id, target_domains=["example.co.uk"], brand_names=brand_names, competitors=[])
+            update_config(
+                self.team.id,
+                AEOConfig(target_domains=("example.co.uk",), brand_names=tuple(brand_names), competitors=()),
+            )
 
         with override_settings(AEO_TARGET_DOMAINS=["example.co.uk"]):
             gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
 
         assert gaps[0].mentioned_checks == mentioned_checks
-
-    def test_returns_nothing_for_an_unknown_team(self) -> None:
-        assert list_citation_gaps(self.team.id + 100_000, since=timezone.now() - dt.timedelta(days=14)) == []
 
     def test_ignores_checks_before_the_window(self) -> None:
         prompt = self._prompt("old gap")

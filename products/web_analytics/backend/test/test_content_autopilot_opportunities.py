@@ -7,7 +7,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.aeo.backend.facade.api import update_config
-from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
+from products.aeo.backend.facade.contracts import AEOConfig, CitationGap, EngineAnswer
 from products.web_analytics.backend.content_autopilot.lifecycle import ContentAutopilotLifecycleError
 from products.web_analytics.backend.content_autopilot.opportunities import (
     MAX_DRAFTS_PER_RUN,
@@ -102,7 +102,7 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
         assert len(self._refresh([_gap("What is the best CRM?")])) == 1
 
     def test_a_team_with_its_own_target_domains_gets_opportunities_for_them(self) -> None:
-        update_config(self.team.id, target_domains=["other.example.net"], brand_names=[], competitors=[])
+        update_config(self.team.id, AEOConfig(target_domains=("other.example.net",), brand_names=(), competitors=()))
         other = create_content_autopilot_profile(self.team, domain="https://other.example.net")
 
         assert len(self._refresh([_gap("What is the best CRM?")], profile_id=str(other.id))) == 1
