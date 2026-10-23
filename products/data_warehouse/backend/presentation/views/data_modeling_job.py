@@ -1,5 +1,6 @@
 from django.db.models import Q, QuerySet
 
+import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -27,6 +28,9 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         help_text="Whether the model is soft-deleted, or null if permanently deleted.",
     )
     engine = serializers.CharField(read_only=True, help_text="The engine that ran this materialization job.")
+    read_bytes = serializers.SerializerMethodField(
+        help_text="Bytes read by this run. Managed warehouse jobs use their directly recorded measurement."
+    )
     updated_at = serializers.DateTimeField(
         read_only=True,
         help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
@@ -74,10 +78,33 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def get_read_bytes(self, job: DataModelingJob) -> int | None:
+        if job.engine == DataModelingJobEngine.MANAGED_WAREHOUSE and job.read_bytes is None:
+            return job.bytes_read
+        return job.read_bytes
+
 
 class DataModelingJobPagination(pagination.LimitOffsetPagination):
     default_limit = 10
     max_limit = 100
+
+
+DATA_MODELING_JOB_LIST_FIELDS = [
+    field for field in DataModelingJobSerializer.Meta.fields if field not in ("saved_query_name", "saved_query_deleted")
+]
+
+
+class DataModelingJobFilterSet(django_filters.FilterSet):
+    after = django_filters.IsoDateTimeFilter(
+        field_name="created_at", lookup_expr="gte", help_text="Include jobs started at or after this time."
+    )
+    before = django_filters.IsoDateTimeFilter(
+        field_name="created_at", lookup_expr="lt", help_text="Include jobs started before this time."
+    )
+
+    class Meta:
+        model = DataModelingJob
+        fields = ["saved_query_id", "status", "engine"]
 
 
 @extend_schema_view(
@@ -103,7 +130,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["saved_query_id", "status", "engine"]
+    filterset_class = DataModelingJobFilterSet
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
@@ -122,7 +149,16 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             )
             queryset = queryset.filter(saved_query_id__in=accessible_saved_queries.values("id"))
 
-        return queryset.select_related("saved_query").order_by("-created_at")
+        return (
+            queryset.select_related("saved_query")
+            .only(
+                *DATA_MODELING_JOB_LIST_FIELDS,
+                "bytes_read",
+                "saved_query__name",
+                "saved_query__deleted",
+            )
+            .order_by("-created_at")
+        )
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

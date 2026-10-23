@@ -5,6 +5,8 @@ import { IconRefresh } from '@posthog/icons'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { dayjs } from 'lib/dayjs'
 import {
     Button,
     Card,
@@ -31,16 +33,20 @@ import {
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
+import type { DateMappingOption } from '~/types'
+
 import { DataModelingUsageListEngine } from './generated/api.schemas'
 import { MaterializationJobsTable } from './MaterializationJobsTable'
 import { ModelsUsageByModelTable } from './ModelsUsageByModelTable'
 import { MaterializedViewOption, modelsUsageLogic } from './modelsUsageLogic'
 
-const DATE_RANGE_LABELS: Record<string, string> = {
-    '7': 'Last 7 complete days',
-    '30': 'Last 30 complete days',
-    '90': 'Last 90 complete days',
-}
+const DATE_OPTIONS: DateMappingOption[] = [7, 30, 90].map((days) => ({
+    key: `Last ${days} complete days`,
+    values: [`-${days}d`],
+    getFormattedDate: (date: dayjs.Dayjs): string =>
+        `${date.subtract(days, 'day').format('MMM D, YYYY')} – ${date.subtract(1, 'day').format('MMM D, YYYY')}`,
+    defaultInterval: 'day',
+}))
 
 const ALL_VIEWS: MaterializedViewOption = { id: 'all', name: 'All materialized views' }
 
@@ -63,12 +69,17 @@ function MetricTile({ title, value }: { title: string; value: string }): JSX.Ele
     )
 }
 
-export function ModelsUsageTab(): JSX.Element {
+export function ModelsUsageTab({
+    savedQueryIdToNodeId,
+}: {
+    savedQueryIdToNodeId: Record<string, string>
+}): JSX.Element {
     const {
         usage,
         usageLoading,
         failed,
-        days,
+        dateFrom,
+        dateTo,
         chartLabels,
         chartSeries,
         jobsLoading,
@@ -77,7 +88,8 @@ export function ModelsUsageTab(): JSX.Element {
         selectedEngine,
         selectedSavedQueryId,
     } = useValues(modelsUsageLogic)
-    const { refresh, setDays, loadUsage, setSelectedEngine, setSelectedSavedQueryId } = useActions(modelsUsageLogic)
+    const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryId } =
+        useActions(modelsUsageLogic)
     const viewFilterRef = useRef<HTMLButtonElement>(null)
     const viewOptions = useMemo(() => [ALL_VIEWS, ...materializedViewOptions], [materializedViewOptions])
     const selectedView = viewOptions.find((option) => option.id === (selectedSavedQueryId ?? ALL_VIEWS.id)) ?? ALL_VIEWS
@@ -154,16 +166,17 @@ export function ModelsUsageTab(): JSX.Element {
                             </SelectContent>
                         </Select>
                     ) : null}
-                    <Select value={String(days)} onValueChange={(value) => value && setDays(Number(value))}>
-                        <SelectTrigger data-attr="models-usage-date-range" disabled={usageLoading}>
-                            <SelectValue>{(value: string) => DATE_RANGE_LABELS[value] ?? value}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent align="end" alignItemWithTrigger={false}>
-                            <SelectItem value="7">Last 7 complete days</SelectItem>
-                            <SelectItem value="30">Last 30 complete days</SelectItem>
-                            <SelectItem value="90">Last 90 complete days</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <div data-attr="models-usage-date-range">
+                        <DateFilter
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={setDateRange}
+                            dateOptions={DATE_OPTIONS}
+                            showRollingRangePicker={false}
+                            forceGranularity="day"
+                            disabled={usageLoading || jobsLoading}
+                        />
+                    </div>
                     <Button
                         variant="outline"
                         onClick={refresh}
@@ -257,11 +270,11 @@ export function ModelsUsageTab(): JSX.Element {
                             </CardContent>
                         </Card>
                     ) : null}
-                    <ModelsUsageByModelTable />
+                    <ModelsUsageByModelTable savedQueryIdToNodeId={savedQueryIdToNodeId} />
                 </>
             )}
 
-            <MaterializationJobsTable />
+            <MaterializationJobsTable savedQueryIdToNodeId={savedQueryIdToNodeId} />
         </div>
     )
 }

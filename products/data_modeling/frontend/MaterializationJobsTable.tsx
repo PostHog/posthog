@@ -18,6 +18,11 @@ import {
     PaginationItem,
     PaginationNext,
     PaginationPrevious,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
     Spinner,
     Table,
     TableBody,
@@ -34,7 +39,10 @@ import { pluralize } from 'lib/utils/strings'
 import { computeJobDuration } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { urls } from 'scenes/urls'
 
-import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import {
+    type DataModelingJobApi,
+    DataModelingJobsListStatus,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { MATERIALIZATION_JOBS_PAGE_SIZE, modelsUsageLogic } from './modelsUsageLogic'
 
@@ -59,10 +67,14 @@ function engineLabel(engine: DataModelingJobApi['engine']): string {
     return engine
 }
 
-export function MaterializationJobsTable(): JSX.Element {
-    const { materializationJobs, jobsLoading, jobsFailed, jobsPage, savedQueryNameById, managedWarehouseEnabled } =
+export function MaterializationJobsTable({
+    savedQueryIdToNodeId,
+}: {
+    savedQueryIdToNodeId: Record<string, string>
+}): JSX.Element {
+    const { materializationJobs, jobsLoading, jobsFailed, jobsPage, managedWarehouseEnabled, selectedJobStatus } =
         useValues(modelsUsageLogic)
-    const { refreshJobs, setJobsPage, openModel } = useActions(modelsUsageLogic)
+    const { refreshJobs, setJobsPage, setSelectedJobStatus, openModel } = useActions(modelsUsageLogic)
     const count = materializationJobs?.count ?? 0
     const jobs = materializationJobs?.results ?? []
     const pageCount = Math.max(Math.ceil(count / MATERIALIZATION_JOBS_PAGE_SIZE), 1)
@@ -73,13 +85,35 @@ export function MaterializationJobsTable(): JSX.Element {
 
     return (
         <Card size="sm" className="min-w-0 gap-0">
-            <CardHeader className="border-b border-border pb-3">
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
                 <div className="min-w-0">
                     <CardTitle role="heading" aria-level={3}>
                         Materialization jobs
                     </CardTitle>
                     <CardDescription>Every model refresh, newest first.</CardDescription>
                 </div>
+                <Select
+                    value={selectedJobStatus ?? 'all'}
+                    onValueChange={(value) =>
+                        value && setSelectedJobStatus(value === 'all' ? null : (value as DataModelingJobsListStatus))
+                    }
+                >
+                    <SelectTrigger data-attr="models-usage-job-status-filter" disabled={jobsLoading}>
+                        <SelectValue>
+                            {(value: string) =>
+                                value === 'all' ? 'All statuses' : value === 'Cancelled' ? 'Canceled' : value
+                            }
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end" alignItemWithTrigger={false}>
+                        <SelectItem value="all">All statuses</SelectItem>
+                        <SelectItem value={DataModelingJobsListStatus.Completed}>Completed</SelectItem>
+                        <SelectItem value={DataModelingJobsListStatus.Running}>Running</SelectItem>
+                        <SelectItem value={DataModelingJobsListStatus.Failed}>Failed</SelectItem>
+                        <SelectItem value={DataModelingJobsListStatus.Cancelled}>Canceled</SelectItem>
+                        <SelectItem value={DataModelingJobsListStatus.Skipped}>Skipped</SelectItem>
+                    </SelectContent>
+                </Select>
             </CardHeader>
             {jobsFailed ? (
                 <CardContent className="flex items-center justify-between gap-3 py-6">
@@ -110,20 +144,16 @@ export function MaterializationJobsTable(): JSX.Element {
                             <TableBody>
                                 {jobs.map((job) => {
                                     const modelName = job.saved_query_name ?? 'Deleted model'
-                                    const canOpenModel = Boolean(
-                                        job.saved_query_id &&
-                                        !job.saved_query_deleted &&
-                                        savedQueryNameById[job.saved_query_id]
-                                    )
+                                    const nodeId = job.saved_query_id
+                                        ? savedQueryIdToNodeId[job.saved_query_id]
+                                        : undefined
                                     return (
                                         <TableRow key={job.id}>
                                             <TableCell expand className="min-w-40 max-w-80">
-                                                {canOpenModel ? (
+                                                {nodeId && !job.saved_query_deleted ? (
                                                     <LinkPrimitive
                                                         className="block truncate font-medium text-link-primary hover:underline"
-                                                        to={urls.sqlEditor({
-                                                            view_id: job.saved_query_id ?? undefined,
-                                                        })}
+                                                        to={urls.nodeDetail(nodeId)}
                                                         onClick={openModel}
                                                         title={modelName}
                                                     >
@@ -187,7 +217,7 @@ export function MaterializationJobsTable(): JSX.Element {
                             </TableBody>
                         ) : (
                             <TableEmpty className="py-8 text-secondary">
-                                No materialization jobs match this view.
+                                No materialization jobs match these filters.
                             </TableEmpty>
                         )}
                     </Table>

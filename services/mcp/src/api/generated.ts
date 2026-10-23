@@ -29728,7 +29728,7 @@ export namespace Schemas {
          */
       readonly rows_expected: number | null;
       /**
-         * Bytes read by this run, including probes and retries.
+         * Bytes read by this run. Managed warehouse jobs use their directly recorded measurement.
          * @nullable
          */
       readonly read_bytes: number | null;
@@ -128207,9 +128207,17 @@ export namespace Schemas {
 
     export type DataModelingJobsListParams = {
     /**
+     * Include jobs started at or after this time.
+     */
+    after?: string;
+    /**
      * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
      */
     all_engines?: boolean;
+    /**
+     * Include jobs started before this time.
+     */
+    before?: string;
     /**
      * * `clickhouse` - ClickHouse
      * * `duckgres` - Duckgres
@@ -128299,6 +128307,14 @@ export namespace Schemas {
     };
 
     export type DataModelingUsageListParams = {
+    /**
+     * Inclusive UTC start date for a custom range, up to 366 complete days.
+     */
+    date_from?: string;
+    /**
+     * Inclusive UTC end date for a custom range. Today is always excluded.
+     */
+    date_to?: string;
     /**
      * Number of complete UTC days, up to 90.
      * @minimum 1

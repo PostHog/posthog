@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from drf_spectacular.helpers import forced_singular_serializer
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import response, serializers, viewsets
@@ -11,7 +13,13 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 class ModelUsageQuerySerializer(serializers.Serializer):
     days = serializers.IntegerField(
-        default=30, min_value=1, max_value=90, help_text="Number of complete UTC days, up to 90."
+        required=False, min_value=1, max_value=90, help_text="Number of complete UTC days, up to 90."
+    )
+    date_from = serializers.DateField(
+        required=False, help_text="Inclusive UTC start date for a custom range, up to 366 complete days."
+    )
+    date_to = serializers.DateField(
+        required=False, help_text="Inclusive UTC end date for a custom range. Today is always excluded."
     )
     page = serializers.IntegerField(default=1, min_value=1, help_text="Model breakdown page, starting at 1.")
     page_size = serializers.IntegerField(
@@ -25,6 +33,26 @@ class ModelUsageQuerySerializer(serializers.Serializer):
     saved_query_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="Limit usage to one accessible materialized view."
     )
+
+    def validate(self, attrs: dict) -> dict:
+        days = attrs.get("days")
+        date_from = attrs.get("date_from")
+        date_to = attrs.get("date_to")
+        if days is not None and date_from is not None:
+            raise serializers.ValidationError("Use days or a custom date range, not both.")
+        if date_to is not None and date_from is None:
+            raise serializers.ValidationError({"date_from": "A start date is required for a custom date range."})
+        if date_from is None:
+            attrs["days"] = days or 30
+            return attrs
+
+        today = datetime.now(UTC).date()
+        exclusive_date_to = min(date_to + timedelta(days=1) if date_to else today, today)
+        if date_from >= exclusive_date_to:
+            raise serializers.ValidationError({"date_from": "The range must include at least one complete UTC day."})
+        if (exclusive_date_to - date_from).days > 366:
+            raise serializers.ValidationError({"date_from": "The custom date range cannot exceed 366 days."})
+        return attrs
 
 
 class ModelUsageTotalsSerializer(serializers.Serializer):

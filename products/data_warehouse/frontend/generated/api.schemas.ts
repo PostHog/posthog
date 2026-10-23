@@ -81,7 +81,7 @@ export interface DataModelingJobApi {
      */
     readonly rows_expected: number | null
     /**
-     * Bytes read by this run, including probes and retries.
+     * Bytes read by this run. Managed warehouse jobs use their directly recorded measurement.
      * @nullable
      */
     readonly read_bytes: number | null
@@ -5606,9 +5606,17 @@ export interface ViewLinkValidationErrorApi {
 
 export type DataModelingJobsListParams = {
     /**
+     * Include jobs started at or after this time.
+     */
+    after?: string
+    /**
      * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
      */
     all_engines?: boolean
+    /**
+     * Include jobs started before this time.
+     */
+    before?: string
     /**
      * * `clickhouse` - ClickHouse
      * * `duckgres` - Duckgres

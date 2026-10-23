@@ -244,8 +244,11 @@ def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowR
         job.status = DataModelingJobStatus.FAILED
         job.rows_materialized = 0
         job.error = result.error
+    completed_at = dt.datetime.now(dt.UTC)
     job.bytes_read = result.bytes_read
-    job.last_run_at = dt.datetime.now(dt.UTC)
+    job.read_bytes = result.bytes_read
+    job.usage_updated_at = completed_at if result.bytes_read is not None else None
+    job.last_run_at = completed_at
     job.save()
     return job.engine
 

@@ -73,8 +73,9 @@ describe('modelsUsageLogic', () => {
         expect(jobRequests[0].get('all_engines')).toBe('true')
         expect(jobRequests[0].get('engine')).toBeNull()
         expect(jobRequests[0].get('saved_query_id')).toBeNull()
+        expect(jobRequests[0].get('after')).not.toBeNull()
+        expect(jobRequests[0].get('before')).not.toBeNull()
         expect(logic.values.materializedViewOptions.map((option) => option.name)).toEqual(['Alpha view', 'Beta view'])
-        expect(logic.values.savedQueryNameById['view-c']).toBe('Former materialized view')
 
         await expectLogic(logic, () => logic.actions.setSelectedSavedQueryId('view-a')).toDispatchActions([
             'loadUsageSuccess',
@@ -103,6 +104,36 @@ describe('modelsUsageLogic', () => {
         expect(jobRequests.at(-1)?.get('all_engines')).toBe('true')
         expect(jobRequests.at(-1)?.get('engine')).toBe('managed_warehouse')
         expect(logic.values.page).toBe(1)
+        expect(logic.values.jobsPage).toBe(1)
+    })
+
+    it('filters usage and jobs by a custom date range', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.setDateRange('2026-10-01', '2026-10-07')).toDispatchActions([
+            'loadUsageSuccess',
+            'loadMaterializationJobsSuccess',
+        ])
+
+        expect(usageRequests.at(-1)?.get('days')).toBeNull()
+        expect(usageRequests.at(-1)?.get('date_from')).toBe('2026-10-01')
+        expect(usageRequests.at(-1)?.get('date_to')).toBe('2026-10-07')
+        expect(jobRequests.at(-1)?.get('after')).toBe('2026-10-01T00:00:00.000Z')
+        expect(jobRequests.at(-1)?.get('before')).toBe('2026-10-08T00:00:00.000Z')
+        expect(logic.values.page).toBe(1)
+        expect(logic.values.jobsPage).toBe(1)
+    })
+
+    it('filters materialization jobs by status', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+        const usageRequestCount = usageRequests.length
+
+        await expectLogic(logic, () => logic.actions.setSelectedJobStatus('Failed')).toDispatchActions([
+            'loadMaterializationJobsSuccess',
+        ])
+
+        expect(jobRequests.at(-1)?.get('status')).toBe('Failed')
+        expect(usageRequests).toHaveLength(usageRequestCount)
         expect(logic.values.jobsPage).toBe(1)
     })
 

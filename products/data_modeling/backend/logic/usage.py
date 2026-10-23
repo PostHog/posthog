@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 
-from django.db.models import Count, F, Max, Q, QuerySet, Sum
+from django.db.models import Case, Count, F, Max, Q, QuerySet, Sum, When
 from django.db.models.functions import TruncDate
 
 from products.data_modeling.backend.models.data_modeling_job import (
@@ -30,10 +30,17 @@ class ModelUsage:
     @staticmethod
     def aggregates(*, prefix: str = "", engine: DataModelingJobEngine | None = None) -> dict[str, Count | Sum]:
         engine_filter = Q(engine=engine) if engine else Q()
+        measured_filter = Q(usage_updated_at__isnull=False) | Q(
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE, bytes_read__isnull=False
+        )
+        normalized_read_bytes = Case(
+            When(engine=DataModelingJobEngine.MANAGED_WAREHOUSE, then=F("bytes_read")),
+            default=F("read_bytes"),
+        )
         return {
             f"{prefix}runs": Count("id", filter=engine_filter),
-            f"{prefix}measured_runs": Count("id", filter=engine_filter & Q(usage_updated_at__isnull=False)),
-            f"{prefix}read_bytes": Sum("read_bytes", filter=engine_filter),
+            f"{prefix}measured_runs": Count("id", filter=engine_filter & measured_filter),
+            f"{prefix}read_bytes": Sum(normalized_read_bytes, filter=engine_filter),
             f"{prefix}read_rows": Sum("read_rows", filter=engine_filter),
             f"{prefix}cpu_microseconds": Sum("cpu_microseconds", filter=engine_filter),
             f"{prefix}query_count": Sum("query_count", filter=engine_filter),
@@ -62,13 +69,19 @@ class ModelUsage:
         cls,
         team_id: int,
         saved_query_ids: list[UUID],
-        days: int,
         page: int,
         page_size: int,
         engine: str,
+        days: int | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> dict[str, object]:
-        end = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
-        start = end - timedelta(days=days)
+        today = datetime.now(UTC).date()
+        end_date = min(date_to + timedelta(days=1) if date_to else today, today)
+        start_date = date_from or end_date - timedelta(days=days or 30)
+        start = datetime.combine(start_date, time.min, tzinfo=UTC)
+        end = datetime.combine(end_date, time.min, tzinfo=UTC)
+        range_days = (end_date - start_date).days
         engines = cls.ENGINES if engine == "all" else (DataModelingJobEngine(engine),)
         jobs = cls.jobs(team_id, start, end, engines).filter(saved_query_id__in=saved_query_ids)
         overview = jobs.aggregate(**cls.aggregates())
@@ -81,7 +94,7 @@ class ModelUsage:
             .order_by("day")
         }
         trends = []
-        for offset in range(days):
+        for offset in range(range_days):
             day: date = (start + timedelta(days=offset)).date()
             row = daily.get(
                 day,
@@ -130,6 +143,13 @@ class ModelUsage:
 
 
 def get_model_usage(
-    team_id: int, saved_query_ids: list[UUID], days: int, page: int, page_size: int, engine: str
+    team_id: int,
+    saved_query_ids: list[UUID],
+    page: int,
+    page_size: int,
+    engine: str,
+    days: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> dict[str, object]:
-    return ModelUsage.get(team_id, saved_query_ids, days, page, page_size, engine)
+    return ModelUsage.get(team_id, saved_query_ids, page, page_size, engine, days, date_from, date_to)

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -120,6 +122,19 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job3.id)])
 
+    def test_filters_by_started_date_range(self):
+        DataModelingJob.objects.filter(id=self.job1.id).update(created_at=datetime(2026, 10, 10, tzinfo=UTC))
+        DataModelingJob.objects.filter(id=self.job2.id).update(created_at=datetime(2026, 10, 11, tzinfo=UTC))
+        DataModelingJob.objects.filter(id=self.job3.id).update(created_at=datetime(2026, 10, 12, tzinfo=UTC))
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/",
+            {"after": "2026-10-11T00:00:00Z", "before": "2026-10-12T00:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job2.id)])
+
     def test_excludes_managed_warehouse_jobs(self):
         warehouse_job = DataModelingJob.objects.create(
             team=self.team,
@@ -141,7 +156,7 @@ class TestDataModelingJob(APIBaseTest):
             status=DataModelingJob.Status.COMPLETED,
             engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
             last_run_at=timezone.now(),
-            read_bytes=1024,
+            bytes_read=1024,
             read_rows=20,
             cpu_microseconds=300,
             query_count=4,

@@ -463,6 +463,14 @@ export type DataModelingNodesLineageRetrieveParams = {
 
 export type DataModelingUsageListParams = {
     /**
+     * Inclusive UTC start date for a custom range, up to 366 complete days.
+     */
+    date_from?: string
+    /**
+     * Inclusive UTC end date for a custom range. Today is always excluded.
+     */
+    date_to?: string
+    /**
      * Number of complete UTC days, up to 90.
      * @minimum 1
      * @maximum 90
