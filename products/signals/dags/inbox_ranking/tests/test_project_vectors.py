@@ -14,6 +14,7 @@ from parameterized import parameterized
 from products.signals.backend.ranking import model_store
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.ranking.serving_manifest import (
+    PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
@@ -33,6 +34,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
 )
 from products.signals.dags.inbox_ranking.mirror import dag as mirror_dag
 from products.signals.dags.inbox_ranking.multihead.prototype import project_context
+from products.signals.dags.inbox_ranking.training import dag as training_dag
 
 AS_OF = datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
 BEFORE = AS_OF - datetime.timedelta(days=3)
@@ -357,8 +359,11 @@ def test_the_mirror_region_builds_its_vectors_from_its_embeddings_and_the_export
         common.ROW_COUNT_METADATA_KEY: str(written.num_rows),
         common.SNAPSHOT_DATE_METADATA_KEY: partition_day.isoformat(),
         common.SCHEMA_VERSION_METADATA_KEY: str(PROJECT_VECTORS_SCHEMA_VERSION),
-        mirror_dag.ENGAGEMENT_EXPORT_DATE_METADATA_KEY: export_date,
+        PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY: export_date,
     }
+    # The training region's mirror lookup reads only this metadata, so a key drift drops every day.
+    oldest = partition_day - datetime.timedelta(days=training_dag.MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS)
+    assert training_dag._project_vectors_refusal(write["extras"]["Metadata"], oldest) is None
     assert written.schema == PROJECT_VECTORS_SCHEMA
     rows = _rows_by_key(written)
     assert {team_id for team_id, _ in rows} == {5}
