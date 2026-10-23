@@ -93,18 +93,32 @@ class AcceptedSend:
 
 
 @frozen
+class StoredTemplate:
+    """A template stored in PostHog, filled with `message_data`."""
+
+    template_id: UUID
+    message_data: Mapping[str, Any]
+    # What a send by key sets over the template's own sender, reply-to and tracking.
+    send: AcceptedSend | None = None
+
+
+@frozen
+class RenderedEmail:
+    """Content the caller's code rendered, sent under the workflow of `key`."""
+
+    key: str
+    send: AcceptedSend
+
+
+@frozen
 class EmailSendCommand:
-    """One email to send: who it goes to, and the template and data it is made from. A send names exactly one of
-    `template_id` and `template_key`; a key names rendered content in `send`."""
+    """One email to send: who it goes to, and what it is made from."""
 
     team_id: int
-    template_id: UUID | None
     to: str
     # The person the send is tracked against. Without one, the recipient's address is that person.
     distinct_id: str | None
-    message_data: Mapping[str, Any]
-    template_key: str | None = None
-    send: AcceptedSend | None = None
+    source: StoredTemplate | RenderedEmail
     # Checked by the CDP service, so a retry with the same key queues nothing new.
     idempotency_key: str | None = None
 

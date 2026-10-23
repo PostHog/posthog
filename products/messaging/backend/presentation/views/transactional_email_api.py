@@ -24,6 +24,7 @@ from products.messaging.backend.facade.transactional_email import (
     EmailSendOutcome,
     Queued,
     Rejected,
+    StoredTemplate,
     Unavailable,
     send_email,
 )
@@ -254,11 +255,9 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
             self._require_workflow_editor(template.transactional_hog_flow_id)
         command = EmailSendCommand(
             team_id=self.team_id,
-            template_id=template.id,
             to=data["to"],
             distinct_id=self._distinct_id(data),
-            message_data=data["message_data"],
-            send=send,
+            source=StoredTemplate(template_id=template.id, message_data=data["message_data"], send=send),
             idempotency_key=idempotency_key,
         )
         return self._send(request, command, report={"template_id": str(template.id), **usage})
