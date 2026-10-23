@@ -504,6 +504,8 @@ class TestTransactionalEmail(APIBaseTest):
             assert TransactionalEmailKey.objects.for_team(self.team.id).get(key=key).hog_flow_id == UUID(hog_flow_id)
             listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
             assert hog_flow_id not in {workflow["id"] for workflow in listed}
+        email_step = next(a for a in self._workflow(hog_flow_id)["actions"] if a["type"] == "function_email")
+        assert not email_step["config"].get("utm_tags_enabled")
         assert mock_post.call_args_list[0].kwargs["json"] == {
             "to": "user@example.com",
             "distinct_id": "user-1",
