@@ -202,8 +202,9 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS],
         ],
         includeSearchConversionGoals: [
-            (s) => [s.searchConversionsEnabled, s.includeConversionGoals],
-            (enabled, includeConversionGoals): boolean => enabled && includeConversionGoals,
+            (s) => [s.searchConversionsEnabled, s.includeConversionGoals, s.conversion_goals],
+            (enabled, includeConversionGoals, conversionGoals: ConversionGoalFilter[]): boolean =>
+                enabled && includeConversionGoals && conversionGoals.length > 0,
         ],
         conversionsDisabledReason: [
             (s) => [
@@ -227,7 +228,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     return 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
                 }
                 return conversionGoals.length > 0
-                    ? 'Turn on "Include conversion goals" to see PostHog conversions for organic landing pages.'
+                    ? 'Turn on "Include conversion goals" in Options to see PostHog conversions for organic landing pages.'
                     : 'Configure a conversion goal in marketing analytics settings to see PostHog conversions for organic landing pages.'
             },
         ],

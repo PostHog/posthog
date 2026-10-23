@@ -123,6 +123,7 @@ interface DataTableExportProps {
     fileNameForExport?: string
     excludedColumns?: string[]
     downloadQuery?: DataTableNode
+    iconOnly?: boolean
 }
 
 export function DataTableExport({
@@ -130,6 +131,7 @@ export function DataTableExport({
     fileNameForExport,
     excludedColumns = [],
     downloadQuery,
+    iconOnly = false,
 }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
     const { startExport, createStaticCohort } = useActions(exportsLogic)
@@ -146,6 +148,7 @@ export function DataTableExport({
         (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
+    const exportLabel = `Export${filterCount > 0 ? ` (${pluralize(filterCount, 'filter')})` : ''}`
     const canExportAllColumns = isEventsQuery(source) && source.select.includes('*')
     const showExportClipboardButtons =
         isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source) || isMarketingAnalyticsTableQuery(source)
@@ -309,8 +312,10 @@ export function DataTableExport({
                     data-attr="data-table-export-menu"
                     size="small"
                     disabledReason={accessControlDisabledReason ?? undefined}
+                    tooltip={iconOnly ? exportLabel : undefined}
+                    aria-label={iconOnly ? exportLabel : undefined}
                 >
-                    Export{filterCount > 0 ? ` (${pluralize(filterCount, 'filter')})` : ''}
+                    {iconOnly ? null : exportLabel}
                 </LemonButton>
             </LemonMenu>
             <DataTableExportColumnsModal

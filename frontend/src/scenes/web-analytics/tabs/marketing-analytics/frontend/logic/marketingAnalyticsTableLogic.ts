@@ -192,7 +192,7 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 const config = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]
                 // Hierarchy columns are auto-excluded outside AD_GROUP / AD — see
                 // getEffectiveExcludedColumns. Routing on the user-config (config.excludedBaseColumns)
-                // keeps CAMPAIGN on the natural-order path (preserves master's [ID, Campaign, Source, …]).
+                // keeps CAMPAIGN on the natural-order path, with the name ahead of its ID.
                 const effectiveExcluded = getEffectiveExcludedColumns(drillDownLevel)
 
                 // Dedupe in case the alias also appears in the filtered base columns
@@ -209,7 +209,12 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                                   ),
                               ])
                           )
-                        : Object.values(MarketingAnalyticsBaseColumns)
+                        : [
+                              MarketingAnalyticsBaseColumns.Campaign,
+                              ...Object.values(MarketingAnalyticsBaseColumns).filter(
+                                  (col) => col !== MarketingAnalyticsBaseColumns.Campaign
+                              ),
+                          ]
                               .filter((col) => !effectiveExcluded.has(col))
                               .map((column) => column.toString())
 

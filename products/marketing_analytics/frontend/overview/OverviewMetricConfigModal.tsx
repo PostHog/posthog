@@ -6,7 +6,16 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 
-import { OVERVIEW_METRIC_GROUPS, overviewMetricsForGroup } from './overviewMetricConfiguration'
+import { MetricSourceBadge } from '../components/MetricSourceBadge'
+import {
+    MAX_OVERVIEW_METRICS,
+    OVERVIEW_METRIC_SOURCES,
+    defaultOverviewMetricSelection,
+    moveOverviewMetric,
+    overviewMetricSource,
+    shownOverviewMetrics,
+    toggleOverviewMetric,
+} from './overviewMetricConfiguration'
 import { overviewMetricsLogic } from './overviewMetricsLogic'
 
 export function OverviewMetricConfigModal({
@@ -17,32 +26,34 @@ export function OverviewMetricConfigModal({
     viewKey: string
 }): JSX.Element {
     const logic = overviewMetricsLogic({ viewKey })
-    const { configuration, draftConfiguration } = useValues(logic)
-    const { closeConfiguration, applyConfiguration, updateDraftGroup, resetDraft } = useActions(logic)
+    const { selection, editorOpen, draftSelection } = useValues(logic)
+    const { closeEditor, applySelection, setDraftSelection } = useActions(logic)
+    const draft = draftSelection ?? shownOverviewMetrics(items, selection).map((item) => item.key)
+    const full = draft.length >= MAX_OVERVIEW_METRICS
 
     return (
         <LemonModal
-            title="Configure metrics"
-            isOpen={!!draftConfiguration}
-            onClose={closeConfiguration}
+            title="Edit top-line metrics"
+            isOpen={editorOpen}
+            onClose={closeEditor}
             width={600}
             footer={
                 <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                    <LemonButton type="secondary" onClick={resetDraft} data-attr="marketing-metrics-reset">
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => setDraftSelection(defaultOverviewMetricSelection(items))}
+                        data-attr="marketing-metrics-reset"
+                    >
                         Reset to defaults
                     </LemonButton>
                     <div className="flex gap-2">
-                        <LemonButton type="secondary" onClick={closeConfiguration}>
+                        <LemonButton type="secondary" onClick={closeEditor}>
                             Cancel
                         </LemonButton>
                         <LemonButton
                             type="primary"
-                            onClick={() => draftConfiguration && applyConfiguration(draftConfiguration)}
-                            disabledReason={
-                                JSON.stringify(configuration) === JSON.stringify(draftConfiguration)
-                                    ? 'No changes to apply'
-                                    : undefined
-                            }
+                            onClick={() => applySelection(draft)}
+                            disabledReason={draft.length === 0 ? 'Choose at least one metric' : undefined}
                             data-attr="marketing-metrics-apply"
                         >
                             Apply
@@ -52,89 +63,73 @@ export function OverviewMetricConfigModal({
             }
         >
             <p className="text-secondary">
-                Choose which metrics appear in this summary and change their order. Table columns stay unchanged.
+                Choose up to {MAX_OVERVIEW_METRICS} metrics to show above the chart. Table columns stay unchanged.
             </p>
+            <section aria-label="Shown metrics" className="mb-6">
+                <h4 className="mb-2">
+                    Shown ({draft.length} of {MAX_OVERVIEW_METRICS})
+                </h4>
+                {draft.length === 0 ? (
+                    <p className="text-secondary">No metrics chosen. Pick at least one below.</p>
+                ) : (
+                    draft.map((key, index) => (
+                        <div key={key} className="flex items-center gap-2 border-b py-2">
+                            <MetricSourceBadge source={overviewMetricSource(key)} />
+                            <span className="min-w-0 flex-1 break-words">{key}</span>
+                            {([-1, 1] as const).map((direction) => (
+                                <LemonButton
+                                    key={direction}
+                                    size="small"
+                                    icon={direction === -1 ? <IconArrowUp /> : <IconArrowDown />}
+                                    aria-label={`Move ${key} ${direction === -1 ? 'up' : 'down'}`}
+                                    tooltip={direction === -1 ? 'Move up' : 'Move down'}
+                                    disabledReason={
+                                        (direction === -1 ? index === 0 : index === draft.length - 1)
+                                            ? 'Already at the end'
+                                            : undefined
+                                    }
+                                    onClick={() => setDraftSelection(moveOverviewMetric(draft, key, direction))}
+                                />
+                            ))}
+                        </div>
+                    ))
+                )}
+            </section>
             <div className="flex flex-col gap-6">
-                {draftConfiguration &&
-                    OVERVIEW_METRIC_GROUPS.map(({ key: group, label }) => {
-                        const metrics = overviewMetricsForGroup(items, group, draftConfiguration)
-                        const { hidden } = draftConfiguration[group]
-                        return (
-                            <section key={group} aria-label={label}>
-                                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                    <h4 className="m-0">{label}</h4>
-                                    <div className="flex gap-1">
-                                        <LemonButton
-                                            size="small"
-                                            onClick={() => updateDraftGroup(group, { hidden: [] })}
-                                            disabledReason={!hidden.length ? 'All metrics are visible' : undefined}
-                                        >
-                                            Show all
-                                        </LemonButton>
-                                        <LemonButton
-                                            size="small"
-                                            onClick={() =>
-                                                updateDraftGroup(group, {
-                                                    hidden: [
-                                                        ...new Set([...hidden, ...metrics.map((item) => item.key)]),
-                                                    ],
-                                                })
-                                            }
-                                            disabledReason={
-                                                metrics.every((item) => hidden.includes(item.key))
-                                                    ? 'All metrics are hidden'
-                                                    : undefined
-                                            }
-                                        >
-                                            Hide all
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                                {metrics.length === 0 ? (
-                                    <p className="text-secondary">No metrics available for this group.</p>
-                                ) : (
-                                    metrics.map((item, index) => (
-                                        <div key={item.key} className="flex items-center gap-2 border-b py-2">
+                {OVERVIEW_METRIC_SOURCES.map(({ key: source, label }) => {
+                    const metrics = items.filter((item) => overviewMetricSource(item.key) === source)
+                    return (
+                        <section key={source} aria-label={label}>
+                            <h4 className="mb-2 flex items-center gap-2">
+                                <MetricSourceBadge source={source} />
+                                {label}
+                            </h4>
+                            {metrics.length === 0 ? (
+                                <p className="text-secondary">No metrics available from this source.</p>
+                            ) : (
+                                metrics.map((item) => {
+                                    const checked = draft.includes(item.key)
+                                    return (
+                                        <div key={item.key} className="border-b py-2">
                                             <LemonCheckbox
-                                                className="min-w-0 flex-1"
-                                                checked={!hidden.includes(item.key)}
+                                                checked={checked}
                                                 label={<span className="break-words">{item.key}</span>}
-                                                onChange={(checked) =>
-                                                    updateDraftGroup(group, {
-                                                        hidden: checked
-                                                            ? hidden.filter((key) => key !== item.key)
-                                                            : [...hidden, item.key],
-                                                    })
+                                                onChange={() =>
+                                                    setDraftSelection(toggleOverviewMetric(draft, item.key))
+                                                }
+                                                disabledReason={
+                                                    !checked && full
+                                                        ? `You can show up to ${MAX_OVERVIEW_METRICS} metrics. Remove one to add another.`
+                                                        : undefined
                                                 }
                                             />
-                                            {([-1, 1] as const).map((direction) => (
-                                                <LemonButton
-                                                    key={direction}
-                                                    size="small"
-                                                    icon={direction === -1 ? <IconArrowUp /> : <IconArrowDown />}
-                                                    aria-label={`Move ${item.key} ${direction === -1 ? 'up' : 'down'}`}
-                                                    tooltip={direction === -1 ? 'Move up' : 'Move down'}
-                                                    disabledReason={
-                                                        (direction === -1 ? index === 0 : index === metrics.length - 1)
-                                                            ? 'Already at the end'
-                                                            : undefined
-                                                    }
-                                                    onClick={() => {
-                                                        const order = metrics.map((metric) => metric.key)
-                                                        ;[order[index], order[index + direction]] = [
-                                                            order[index + direction],
-                                                            order[index],
-                                                        ]
-                                                        updateDraftGroup(group, { order })
-                                                    }}
-                                                />
-                                            ))}
                                         </div>
-                                    ))
-                                )}
-                            </section>
-                        )
-                    })}
+                                    )
+                                })
+                            )}
+                        </section>
+                    )
+                })}
             </div>
         </LemonModal>
     )

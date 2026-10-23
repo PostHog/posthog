@@ -76,6 +76,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Override the nouns used by Data Table counts and pagination. */
     dataTableNouns?: [string, string]
     compactDataTableToolbar?: boolean
+    /** Extra classes for the compact toolbar row, such as padding when the table sits inside a card. */
+    dataTableToolbarClassName?: string
+    /** Show the Export button as an icon to save toolbar space. */
+    dataTableExportIconOnly?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
