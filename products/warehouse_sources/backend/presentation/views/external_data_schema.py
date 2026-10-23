@@ -896,6 +896,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             f"Supported versions: {', '.join(source_impl.supported_versions)}"
                         }
                     )
+        # In validate() so the bulk endpoint rejects the whole batch with a 403 before it writes anything.
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        if instance is not None and instance.keeps_cdc_history and not _keeps_cdc_history_after(instance, data):
+            _require_editor_access_to_history_table(self.context.get("request"), self.context.get("view"), instance)
         return attrs
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
@@ -1011,8 +1015,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
         drops_cdc_history = instance.keeps_cdc_history and not _keeps_cdc_history_after(instance, data)
-        if drops_cdc_history:
-            _require_editor_access_to_history_table(self.context.get("request"), self.context.get("view"), instance)
 
         api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
@@ -2114,12 +2116,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         _require_editor_access_to_history_table(request, self, instance)
 
-        if instance.table:
-            instance.table.soft_delete()
-        instance.soft_delete()
-        # In `both` mode the history table is not the schema's linked table. After the schema delete,
-        # so a load that registers the table later reads the deleted schema and deregisters it itself.
-        deregister_companion_table(instance)
+        # Atomic, so a failed deregister leaves the schema in place and the delete can be retried.
+        with transaction.atomic():
+            if instance.table:
+                instance.table.soft_delete()
+            instance.soft_delete()
+            # In `both` mode the history table is not the schema's linked table. After the schema delete,
+            # so a load that registers the table later reads the deleted schema and deregisters it itself.
+            deregister_companion_table(instance)
 
         # CDC teardown, both best-effort: leaving the table in the publication makes the
         # customer's WAL carry its changes forever, and the buffer files are raw change data

@@ -46,15 +46,7 @@ def companion_tables(schema: ExternalDataSchema) -> list[DataWarehouseTable]:
         return []
 
     siblings = ExternalDataSchema.objects.filter(team_id=schema.team_id).exclude(deleted=True).exclude(id=schema.id)
-    # A source table such as `Orders_cdc` can resolve to the same table name, and a sibling that synced it
-    # owns that record. Its schema may not link it: in cdc_only mode the schema links its own history
-    # table instead. A sibling that never synced wrote nothing under the name.
-    synced_siblings = siblings.filter(source_id=source.id).filter(
-        Q(table_id__isnull=False) | Q(last_synced_at__isnull=False)
-    )
-    if any(_own_table_name(sibling, source) == companion_name for sibling in synced_siblings):
-        return []
-    return list(
+    candidates = list(
         DataWarehouseTable.objects.filter(
             team_id=schema.team_id,
             name=companion_name,
@@ -62,6 +54,20 @@ def companion_tables(schema: ExternalDataSchema) -> list[DataWarehouseTable]:
             deleted=False,
         ).filter(~Exists(siblings.filter(table_id=OuterRef("pk"))))
     )
+    if not candidates:
+        return []
+
+    # A source table such as `Orders_cdc` can resolve to the same table name, and a sibling that synced it
+    # owns that record. Its schema may not link it: in cdc_only mode the schema links its own history
+    # table instead. A sibling that never synced wrote nothing under the name.
+    synced_siblings = (
+        siblings.filter(source_id=source.id)
+        .filter(Q(table_id__isnull=False) | Q(last_synced_at__isnull=False))
+        .only("name", "s3_folder_name", "sync_type_config")
+    )
+    if any(_own_table_name(sibling, source) == companion_name for sibling in synced_siblings):
+        return []
+    return candidates
 
 
 def deregister_companion_table(schema: ExternalDataSchema) -> bool:

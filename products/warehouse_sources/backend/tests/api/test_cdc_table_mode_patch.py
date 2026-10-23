@@ -597,6 +597,8 @@ def test_deleting_a_schema_deregisters_its_unlinked_history_table(team, user, cl
     ("action", "table_mode", "expected_status"),
     [
         ("patch_to_consolidated", "both", 403),
+        # The source settings page saves through the bulk endpoint, which must not report a 403 as a 503.
+        ("bulk_patch_to_consolidated", "both", 403),
         ("delete_schema", "both", 403),
         # The UI sends sync_type and cdc_table_mode on every save, including ones that drop nothing.
         ("routine_save", "consolidated", 200),
@@ -632,6 +634,12 @@ def test_dropping_history_needs_editor_access_to_the_history_table(
         url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
         if action == "delete_schema":
             response = client.delete(url)
+        elif action == "bulk_patch_to_consolidated":
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "cdc_table_mode": "consolidated"}]},
+                content_type="application/json",
+            )
         else:
             payload = {"sync_type": "cdc", "cdc_table_mode": "consolidated"}
             response = client.patch(url, data=payload, content_type="application/json")
@@ -644,7 +652,8 @@ def test_dropping_history_needs_editor_access_to_the_history_table(
     assert not schema.deleted
 
 
-def test_a_failed_history_cleanup_rolls_back_the_mode_change(team, user, client: HttpClient):
+@pytest.mark.parametrize("action", ["patch_to_consolidated", "delete_schema"])
+def test_a_failed_history_cleanup_rolls_back_the_schema_change(team, user, client: HttpClient, action: str):
     source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
     history_table = _make_history_table(source, schema)
     client.force_login(user)
@@ -657,15 +666,16 @@ def test_a_failed_history_cleanup_rolls_back_the_mode_change(team, user, client:
         mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
         mock.patch(f"{_VIEW}.deregister_companion_table", side_effect=RuntimeError("catalog write failed")),
     ):
-        response = client.patch(
-            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
-            data={"cdc_table_mode": "consolidated"},
-            content_type="application/json",
-        )
+        url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
+        if action == "delete_schema":
+            response = client.delete(url)
+        else:
+            response = client.patch(url, data={"cdc_table_mode": "consolidated"}, content_type="application/json")
 
     assert response.status_code == 500
     schema.refresh_from_db()
     assert schema.cdc_table_mode == "both"
+    assert not schema.deleted
     history_table.refresh_from_db()
     assert history_table.deleted is False
 
