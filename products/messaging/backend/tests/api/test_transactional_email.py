@@ -588,6 +588,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("no_subject", {"subject": ""}, "invalid_request", "subject"),
             ("no_body", {"html": None}, "invalid_request", "html"),
             ("data_for_rendered_content", {"message_data": {"name": "Jane"}}, "invalid_request", "message_data"),
+            ("quoted_recipient", {"to": '"jane"@example.com'}, "invalid_request", "to"),
+            ("recipient_without_a_dotted_domain", {"to": "jane@localhost"}, "invalid_request", "to"),
             ("not_an_address", {"from": "Example"}, "invalid_request", "from"),
             ("unverified_domain", {"from": "Example <security@example.org>"}, "sender_not_verified", "from"),
             ("invalid_key", {"template_key": "welcome email"}, "invalid_template_key", "template_key"),

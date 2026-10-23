@@ -27,6 +27,7 @@ from products.messaging.backend.facade.transactional_email import (
     code_send_from,
     rendered_content,
 )
+from products.messaging.backend.presentation.views.send_email_fields import PlainAddressField
 from products.messaging.backend.presentation.views.transactional_email_api import (
     TRANSACTIONAL_EMAIL_THROTTLES,
     SendTransactionalEmailResponseSerializer,
@@ -67,6 +68,7 @@ CODE_FORM_FIELDS = ("subject", "html", "text")
 
 
 class SendEmailSerializer(SendTransactionalEmailSerializer):
+    to = PlainAddressField(help_text="Email address of the recipient, as `jane@example.com`.")
     template = TemplateReferenceSerializer(
         required=False,
         help_text="The template to send, by key or by id. Leave it out to send content your code rendered, with "
