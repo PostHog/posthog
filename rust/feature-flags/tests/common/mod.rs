@@ -20,6 +20,8 @@ use feature_flags::config::Config;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::{register_components, serve_with_rate_limiter_clock};
 
+pub mod persons_db_proxy;
+
 pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: CancellationToken,
