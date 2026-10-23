@@ -390,11 +390,11 @@ def _groups_snapshot_sensor_result(context: SensorEvaluationContext, *, refresh_
     )
 
 
-@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
+@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.RUNNING)
 def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     return _groups_snapshot_sensor_result(context, refresh_daily=False)
 
 
-@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
+@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.RUNNING)
 def duckling_groups_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     return _groups_snapshot_sensor_result(context, refresh_daily=True)
