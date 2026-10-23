@@ -3802,7 +3802,6 @@ export namespace Schemas {
       filterTestAccounts?: boolean | null;
       /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
       interval?: IntervalType | null;
-      /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
       metricFilters?: MetricsQueryFilter[] | null;
       /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
       metricVariables?: MetricsDashboardVariable[] | null;
@@ -28064,7 +28063,52 @@ export namespace Schemas {
     export type DashboardPersistedVariables = { [key: string]: unknown } | null;
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupColorEnum = typeof DashboardTileGroupColorEnum[keyof typeof DashboardTileGroupColorEnum];
+
+
+    export const DashboardTileGroupColorEnum = {
+      Blue: 'blue',
+      Purple: 'purple',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+    } as const;
+
+    export interface DashboardTileGroup {
+      /**
+         * Heading for the group. When it is blank or omitted, the heading shows the number of tiles.
+         * @maxLength 200
+         */
+      title?: string;
+      /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+      collapsed?: boolean;
+      /** Color of a dot before the group heading. Null or omitted shows no dot.
+       *
+       * * `blue` - Blue
+       * * `purple` - Purple
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red */
+      color?: DashboardTileGroupColorEnum | null;
+    }
+
+    /**
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    export type DashboardGroups = {[key: string]: DashboardTileGroup} | null;
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     export type DashboardGroupTitles = {[key: string]: string} | null;
@@ -28120,7 +28164,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     */
+    export type DashboardCustomizationGroups = {[key: string]: DashboardTileGroup};
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      */
     export type DashboardCustomizationGroupTitles = {[key: string]: string};
 
@@ -28139,7 +28188,9 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
-      /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+      /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
+      groups?: DashboardCustomizationGroups;
+      /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
       group_titles?: DashboardCustomizationGroupTitles;
     }
 
@@ -28227,7 +28278,12 @@ export namespace Schemas {
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
       /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+         * @nullable
+         */
+      groups?: DashboardGroups;
+      /**
+         * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
          * @nullable
          */
       group_titles?: DashboardGroupTitles;
@@ -28605,7 +28661,7 @@ export namespace Schemas {
       /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
       show_description?: boolean;
       /**
-         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its group.
          * @maxLength 100
          * @nullable
          */
@@ -41850,6 +41906,62 @@ export namespace Schemas {
       current_from: string;
     }
 
+    /**
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear
+     */
+    export type IssueSummaryCategoryEnum = typeof IssueSummaryCategoryEnum[keyof typeof IssueSummaryCategoryEnum];
+
+
+    export const IssueSummaryCategoryEnum = {
+      OwnCode: 'own_code',
+      ThirdParty: 'third_party',
+      Network: 'network',
+      Bots: 'bots',
+      Expected: 'expected',
+      Unclear: 'unclear',
+    } as const;
+
+    export interface ErrorTrackingIssueSummary {
+      /** What the error is and where it happens, in plain language. */
+      what_happened: string;
+      /** The model's best guess at the cause. A hypothesis to check against the code, never a finding. */
+      likely_cause: string;
+      /** Which users, sessions or platforms the error reaches. */
+      who_is_affected: string;
+      /** One concrete step to investigate or fix the error. */
+      suggested_next_step: string;
+      /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
+       *
+       * * `own_code` - Own Code
+       * * `third_party` - Third Party
+       * * `network` - Network
+       * * `bots` - Bots
+       * * `expected` - Expected
+       * * `unclear` - Unclear */
+      category?: IssueSummaryCategoryEnum;
+      /** When the summary was written. */
+      generated_at: string;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `unavailable` - Unavailable
+     */
+    export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
+
+
+    export const IssueSummaryStatusEnum = {
+      Ready: 'ready',
+      Generating: 'generating',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface ErrorTrackingIssueDetail {
       /** Error tracking issue ID. */
       id: string;
@@ -41910,6 +42022,14 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      summary?: ErrorTrackingIssueSummary;
+      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `unavailable` - Unavailable */
+      summary_status: IssueSummaryStatusEnum;
     }
 
     /**
@@ -81095,6 +81215,16 @@ export namespace Schemas {
          * @nullable
          */
       dismissal_note: string | null;
+      /**
+         * Query time an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month: what the view would cost without the change minus what it costs now. For materialize, people's reads cost what they cost per read before acceptance, at today's read volume, and the cost now is those reads plus refreshes. For unmaterialize, the cost without the change is its refreshes, and the cost now is every read. Negative when the change costs more than it saves. Null until 30 days have passed since acceptance, when a materialized view has no refresh in that time, and for other kinds.
+         * @nullable
+         */
+      realized_seconds_saved_per_month: number | null;
+      /**
+         * Bytes read that an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month, measured the same way as realized_seconds_saved_per_month.
+         * @nullable
+         */
+      realized_bytes_saved_per_month: number | null;
       /** Whether the caller has edit access to the subject and so may accept, dismiss or resume. */
       can_act: boolean;
     }
@@ -86864,7 +86994,13 @@ export namespace Schemas {
     }
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    export type PatchedPatchedDashboardOpenApiGroups = {[key: string]: DashboardTileGroup} | null;
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     export type PatchedPatchedDashboardOpenApiGroupTitles = {[key: string]: string} | null;
@@ -86916,7 +87052,12 @@ export namespace Schemas {
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
       /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+         * @nullable
+         */
+      groups?: PatchedPatchedDashboardOpenApiGroups;
+      /**
+         * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
          * @nullable
          */
       group_titles?: PatchedPatchedDashboardOpenApiGroupTitles;
@@ -124919,6 +125060,9 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -125033,6 +125177,9 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       WarehouseSuggestion: 'WarehouseSuggestion',
+      AccessControl: 'AccessControl',
+      DataWarehouseTable: 'DataWarehouseTable',
+      DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -125133,6 +125280,9 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -125235,6 +125385,9 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       WarehouseSuggestion: 'WarehouseSuggestion',
+      AccessControl: 'AccessControl',
+      DataWarehouseTable: 'DataWarehouseTable',
+      DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',

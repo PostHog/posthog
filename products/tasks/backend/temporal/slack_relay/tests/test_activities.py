@@ -23,6 +23,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     stream_pending_slack_attachments,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
+from products.tasks.backend.temporal.process_task.utils import record_delivered_message
 from products.tasks.backend.temporal.slack_relay.activities import (
     RelaySlackMessageInput,
     _append_unconfirmed_attachment_notice,
@@ -81,6 +82,49 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.state = {}
         self.task_run.save(update_fields=["artifacts", "state", "updated_at"])
         SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=None)
+
+    @parameterized.expand(
+        [
+            ("mobile_private", True, None, False),
+            ("explicit_slack_private", True, "slack_message", True),
+            ("slack_successor_private", True, "slack_run", True),
+            ("web_after_slack_successor", True, "web_message_after_slack_run", False),
+            ("shared_mobile", False, None, True),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_mobile_takeover_preserves_shared_and_explicit_slack_answers(
+        self, _name, private, request_origin, expected_post, _delete_progress, post
+    ) -> None:
+        self.task.state = {"mobile_push_user_ids": [self.user.id]}
+        self.task.save(update_fields=["state"])
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(
+            conversation_type=(
+                SlackThreadTaskMapping.ConversationType.IM
+                if private
+                else SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
+            )
+        )
+        message_id = request_origin if request_origin in {"slack_message", "web_message_after_slack_run"} else None
+        if request_origin in {"slack_run", "web_message_after_slack_run"}:
+            self.task_run.state = {"interaction_origin": "slack", "slack_actor_slack_user_id": "U123"}
+            self.task_run.save(update_fields=["state"])
+        if request_origin == "slack_message":
+            record_delivered_message(
+                str(self.task_run.id), "slack_message", actor_slack_user_id="U123", person_message="Continue"
+            )
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-{_name}",
+                message_id=message_id,
+                text="<@U123> Finished with <@UOTHER>.",
+            )
+        )
+        assert post.called is expected_post
+        if expected_post:
+            assert post.call_args.args[0] == "Finished with <@UOTHER>."
 
     @parameterized.expand(
         [

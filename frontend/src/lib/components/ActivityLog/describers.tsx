@@ -31,6 +31,7 @@ import {
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 
+import { accessControlActivityDescriber } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlActivityDescriber'
 import { ActivityScope } from '~/types'
 
 import { actionActivityDescriber } from 'products/actions/frontend/actionActivityDescriber'
@@ -53,6 +54,8 @@ import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows
 
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ACCESS_CONTROL:
+            return accessControlActivityDescriber
         case ActivityScope.ACTION:
             return actionActivityDescriber
         case ActivityScope.ALERT_CONFIGURATION:
