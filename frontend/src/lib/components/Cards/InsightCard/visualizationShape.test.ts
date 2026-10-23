@@ -1,3 +1,5 @@
+import { FunnelLayout } from 'lib/constants'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, FunnelVizType, InsightModel } from '~/types'
 
@@ -28,6 +30,24 @@ describe('visualizationShape', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+            }),
+            'line',
+        ],
+        [
+            'funnel big number',
+            insightVisualization({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { layout: FunnelLayout.number },
+            }),
+            'number',
+        ],
+        [
+            'funnel trends with a stale big number layout',
+            insightVisualization({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Trends, layout: FunnelLayout.number },
             }),
             'line',
         ],

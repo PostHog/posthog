@@ -10,6 +10,7 @@ import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdow
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import {
+    isFunnelsBoldNumberQuery,
     isFunnelsQuery,
     isInsightVizNode,
     isMetricInsightQuery,
@@ -258,6 +259,12 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             if (tile.text) {
                 defaultW = 2
                 defaultH = 2
+            } else if (
+                (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) ||
+                isFunnelsBoldNumberQuery(source)
+            ) {
+                defaultW = 2
+                defaultH = 2
             } else if (isFunnelsQuery(source)) {
                 defaultW = 4
                 defaultH = 4
@@ -267,9 +274,6 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             } else if (isPathsQuery(source)) {
                 defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
-            } else if (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) {
-                defaultW = 2
-                defaultH = 2
             } else if (isMetricInsightQuery(query)) {
                 defaultW = 3
                 defaultH = 3

@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { FunnelLayout, MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -359,6 +359,14 @@ export function isTrendsQuery(node?: Record<string, any> | null): node is Trends
 
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
+}
+
+export function isFunnelsBoldNumberQuery(node?: Record<string, any> | null): boolean {
+    return (
+        isFunnelsQuery(node) &&
+        (node.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) === FunnelVizType.Steps &&
+        node.funnelsFilter?.layout === FunnelLayout.number
+    )
 }
 
 export function isRetentionQuery(node?: Record<string, any> | null): node is RetentionQuery {

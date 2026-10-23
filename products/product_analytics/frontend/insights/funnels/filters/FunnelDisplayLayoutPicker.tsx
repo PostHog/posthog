@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { FunnelLayout } from 'lib/constants'
-import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { Icon123, IconFunnelHorizontal, IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { funnelDataLogic } from '../funnelDataLogic'
@@ -26,6 +26,11 @@ export function FunnelDisplayLayoutPicker(): JSX.Element {
                     value: FunnelLayout.horizontal,
                     icon: <IconFunnelHorizontal />,
                     label: 'Top to bottom',
+                },
+                {
+                    value: FunnelLayout.number,
+                    icon: <Icon123 />,
+                    label: 'Big number',
                 },
             ],
         },
