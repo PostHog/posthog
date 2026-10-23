@@ -45,12 +45,19 @@ export const WebAnalyticsMenu = (): JSX.Element => {
         showFocusMode,
         tiles,
         useWebAnalyticsPrecompute,
+        webQueryModifiers,
     } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
 
-    const { enterFocusMode, exitFocusMode, openFocusModeModal, setUseWebAnalyticsPrecompute, setTileVisibility } =
-        useActions(webAnalyticsLogic)
+    const {
+        enterFocusMode,
+        exitFocusMode,
+        openFocusModeModal,
+        setUseWebAnalyticsPrecompute,
+        setTileVisibility,
+        setWebQueryModifiers,
+    } = useActions(webAnalyticsLogic)
     const { openModal: openAchievementsModal } = useActions(webAnalyticsAchievementsLogic)
     const { exportTriggered } = useActions(shareNudgeLogic)
 
@@ -118,6 +125,31 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                                 Allow precompute
                             </ButtonPrimitive>
                         </Tooltip>
+                    </ScenePanelActionsSection>
+                </>
+            )}
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] && (
+                <>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
+                        <ScenePanelLabel title="Query modifiers" className="px-1.5">
+                            <Tooltip title="When on, overview and table tiles read from the dimensional pre-aggregated tables if they have data for the whole date range. Otherwise tiles load as usual. Only affects queries from this browser.">
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr="web-analytics-dimensional-tables-toggle"
+                                    onClick={() => {
+                                        setWebQueryModifiers({
+                                            useDimensionalTables: webQueryModifiers.useDimensionalTables
+                                                ? undefined
+                                                : true,
+                                        })
+                                    }}
+                                >
+                                    <LemonSwitch checked={!!webQueryModifiers.useDimensionalTables} size="xsmall" />
+                                    Use dimensional tables
+                                </ButtonPrimitive>
+                            </Tooltip>
+                        </ScenePanelLabel>
                     </ScenePanelActionsSection>
                 </>
             )}
