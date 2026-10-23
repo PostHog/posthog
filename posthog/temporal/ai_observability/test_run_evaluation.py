@@ -4563,7 +4563,15 @@ class TestJudgePromptAssembly:
             skip_reason="generation_output_too_long",
         )
 
-    def test_prompt_contains_input_tools_and_output_sections_in_order(self):
+    @pytest.mark.parametrize(
+        "text,expected_text",
+        [
+            pytest.param("Hello 👋", "Hello 👋", id="unicode"),
+            pytest.param("Hello \ud835", "Hello \ufffd", id="lone_surrogate"),
+            pytest.param("Hello \ud83d\ude00", "Hello 😀", id="surrogate_pair"),
+        ],
+    )
+    def test_prompt_contains_input_tools_and_output_sections_in_order(self, text: str, expected_text: str) -> None:
         evaluation = {
             "id": "eval-123",
             "name": "Test Evaluation",
@@ -4577,7 +4585,7 @@ class TestJudgePromptAssembly:
             1,
             properties={
                 "$ai_input": [
-                    {"role": "user", "content": "Send the welcome email."},
+                    {"role": "user", "content": f"Send the welcome email. {text}"},
                     {
                         "role": "assistant",
                         "content": None,
@@ -4591,9 +4599,9 @@ class TestJudgePromptAssembly:
                     },
                     {"role": "tool", "tool_call_id": "call_1", "content": "ok"},
                 ],
-                "$ai_output_choices": [{"role": "assistant", "content": "Done."}],
+                "$ai_output_choices": [{"role": "assistant", "content": f"Done. {text}"}],
                 "$ai_tools": [
-                    {"type": "function", "function": {"name": "send_email", "description": "Send an email."}},
+                    {"type": "function", "function": {"name": "send_email", "description": f"Send an email. {text}"}},
                     {"type": "function", "function": {"name": "lookup_user", "description": "Look up a user."}},
                 ],
             },
@@ -4617,6 +4625,10 @@ class TestJudgePromptAssembly:
 
         completion_request = mock_client.complete.call_args[0][0]
         user_prompt = completion_request.messages[0]["content"]
+        user_prompt.encode("utf-8")
+        assert f"Send the welcome email. {expected_text}" in user_prompt
+        assert f"Send an email. {expected_text}" in user_prompt
+        assert f"Done. {expected_text}" in user_prompt
 
         # Section ordering: Input first, then Tools available, then Output.
         input_idx = user_prompt.index("Input:")
