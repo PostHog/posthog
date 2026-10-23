@@ -9,6 +9,7 @@ rules and `min_units`, and backs a pair off when it skips, so the pair leaves th
 
 import math
 import uuid
+import hashlib
 import datetime
 from collections.abc import Callable
 from typing import Any
@@ -160,23 +161,76 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
     )
 
 
+# A new salt reorders every organization, so change the version only to start a new rollout order.
+_ROLLOUT_SALT = "activity-summary-self-driving-v1"
+_ROLLOUT_BUCKETS = 10_000
+
+
+def organization_rollout_bucket(organization_id: uuid.UUID) -> int:
+    """The organization's fixed place in the percentage rollout, from 0 to `_ROLLOUT_BUCKETS` - 1."""
+    digest = hashlib.sha256(f"{_ROLLOUT_SALT}:{organization_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
+
+
+def _in_rollout(config: ActivitySummaryConfig, organization_id: uuid.UUID) -> bool:
+    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
+    return organization_rollout_bucket(organization_id) < threshold
+
+
 def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
-    """The teams of every approved organization, or of the approved organizations in the allowlist."""
-    teams = Team.objects.filter(organization__is_ai_data_processing_approved=True)
-    if not config.enroll_all_approved:
-        if not config.organization_ids:
-            return []
-        teams = teams.filter(organization_id__in=config.organization_ids)
-    return list(teams.exclude(id__in=config.skip_team_ids).values_list("id", flat=True))
+    """The teams that `is_team_enrolled_for_generation` enrolls, in a fixed number of queries."""
+    if not config.enabled:
+        return []
+    listed = _parse_organization_ids(config.organization_ids)
+    teams = (
+        Team.objects.filter(organization__is_ai_data_processing_approved=True)
+        .exclude(id__in=config.skip_team_ids)
+        .exclude(organization_id__in=_parse_organization_ids(config.deny_organization_ids))
+    )
+    if config.enroll_all_approved:
+        return sorted(teams.values_list("id", flat=True))
+    team_ids = set(teams.filter(organization_id__in=listed).values_list("id", flat=True)) if listed else set()
+    if config.self_driving_organization_percentage > 0:
+        from products.signals.backend.facade.api import (
+            team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`
+        )
+
+        candidates = [
+            team_id
+            for team_id, organization_id in teams.exclude(organization_id__in=listed).values_list(
+                "id", "organization_id"
+            )
+            if _in_rollout(config, organization_id)
+        ]
+        team_ids |= team_ids_with_enabled_source(candidates)
+    return sorted(team_ids)
 
 
 def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:
-    """The tick may generate summaries for the team. It is the read check for now."""
-    return is_team_enrolled_for_read(config, team)
+    """The tick may generate summaries for the team. The single-team form of `enrolled_team_ids`.
+
+    The kill switch, `skip_team_ids`, AI data processing approval and the denylist win over every enrollment.
+    The percentage rollout enrolls only the projects that have an enabled signal source.
+    """
+    if not config.enabled or team.id in config.skip_team_ids:
+        return False
+    if team.organization.is_ai_data_processing_approved is not True:
+        return False
+    if team.organization_id in _parse_organization_ids(config.deny_organization_ids):
+        return False
+    if config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids):
+        return True
+    if not _in_rollout(config, team.organization_id):
+        return False
+    from products.signals.backend.facade.api import (
+        has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`
+    )
+
+    return has_enabled_source(team.id)
 
 
 def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool:
-    """The single-team form of `enrolled_team_ids`. The API and MCP tools read summaries only for these teams.
+    """The API and MCP tools read summaries only for these teams. The percentage rollout and the denylist do not apply.
 
     A disabled config enrolls no team.
     """
@@ -184,18 +238,18 @@ def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool
         return False
     if team.organization.is_ai_data_processing_approved is not True:
         return False
-    return config.enroll_all_approved or team.organization_id in _listed_organization_ids(config)
+    return config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids)
 
 
-def _listed_organization_ids(config: ActivitySummaryConfig) -> set[uuid.UUID]:
-    # The same parse as the `organization_id__in` filter, so an id in another UUID format still matches.
-    listed: set[uuid.UUID] = set()
-    for organization_id in config.organization_ids:
+def _parse_organization_ids(organization_ids: tuple[str, ...]) -> set[uuid.UUID]:
+    # A UUID parse, so an id in another UUID format still matches, and an invalid id matches nothing.
+    parsed: set[uuid.UUID] = set()
+    for organization_id in organization_ids:
         try:
-            listed.add(uuid.UUID(organization_id))
+            parsed.add(uuid.UUID(organization_id))
         except ValueError:
             continue
-    return listed
+    return parsed
 
 
 def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime) -> None:

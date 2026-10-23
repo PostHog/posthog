@@ -42,6 +42,7 @@ from products.signals.backend.activity_summary.queue import (
     ActivitySummaryTierStats,
     daily_usage,
     feed_queue,
+    is_team_enrolled_for_generation,
     max_update_cost_usd,
     select_pairs,
     sync_pair_state,
@@ -243,7 +244,17 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
     )
 
 
+def _enrolled_at_dispatch(team_id: int) -> bool:
+    # The flag can change between the plan and the pair, so the pair reads it again.
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    return team is not None and is_team_enrolled_for_generation(read_config(), team)
+
+
 def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> ActivitySummaryPairResult:
+    if not _enrolled_at_dispatch(input.team_id):
+        return ActivitySummaryPairResult(
+            status=UpdateStatus.SKIPPED_NOT_ENROLLED.value, cost_usd=None, called_model=False
+        )
     try:
         update = update_activity_summary(
             input.team_id,

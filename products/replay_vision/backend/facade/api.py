@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
@@ -181,6 +182,17 @@ def has_signal_emitting_scanner(team_id: int) -> bool:
     signals tables alone. See `SignalSourceConfig.is_source_enabled`.
     """
     return ReplayScanner.objects.filter(team_id=team_id, enabled=True, emits_signals=True).exists()
+
+
+def team_ids_with_signal_emitting_scanner(team_ids: Collection[int]) -> set[int]:
+    """The teams in `team_ids` that `has_signal_emitting_scanner` is true for, in one query."""
+    if not team_ids:
+        return set()
+    return set(
+        ReplayScanner.objects.filter(team_id__in=team_ids, enabled=True, emits_signals=True).values_list(
+            "team_id", flat=True
+        )
+    )
 
 
 def start_workflow_observation_request(
