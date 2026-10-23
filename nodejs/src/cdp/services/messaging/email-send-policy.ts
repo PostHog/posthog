@@ -13,7 +13,7 @@ export type PolicyCode =
 
 type Rejection = {
     ok: false
-    /** What happened, as the run log shows it. */
+    /** What happened, as the caller's 400 and the run log both show it. Delivery adds its own prefix in the log. */
     detail: string
     why: string
     fix: string
