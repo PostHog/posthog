@@ -13,23 +13,40 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import re
 from dataclasses import field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlparse
 
 from django.conf import settings
 
 import requests
+import structlog
+from celery.exceptions import SoftTimeLimitExceeded
+from google.genai import (
+    errors as genai_errors,
+    types as genai_types,
+)
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+from posthog.llm.gateway_client import ai_gateway_headers, build_gemini_client, resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import (
     GENERIC_VALUE_MAX_LEN,
     sanitize_user_text,
     strip_llm_framing_markers,
 )
 
+from products.aeo.backend.facade.contracts import AEO_GEMINI_ENGINE_FLAG
+from products.aeo.backend.flags import aeo_flag_enabled
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+logger = structlog.get_logger(__name__)
+
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
+# The gateway drops a Gemini request at its own 290s header timeout, so a longer client wait only outlives it.
+GEMINI_TIMEOUT_MS = 290_000
 EXA_TIMEOUT_SECONDS = 60
 EXA_ANSWER_URL = "https://api.exa.ai/answer"
 
@@ -42,6 +59,12 @@ MAX_ANSWER_TOKENS = 4096
 # answer; too small a cap yields incomplete, citation-less responses that would
 # otherwise read as "not cited".
 OPENAI_MAX_OUTPUT_TOKENS = 12000
+
+AEO_AI_PRODUCT = "aeo"
+# The Gemini API grounding chunk carries this redirect host as its uri and the
+# source domain in its `domain` field.
+GEMINI_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+_BARE_DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$")
 
 # Property-size guards so a single check event stays small.
 MAX_URLS_PER_CHECK = 40
@@ -63,7 +86,7 @@ class CitationCheck:
     model: str
     # URLs the answer actually cites, in first-mention order.
     cited_urls: list[str] = field(default_factory=list)
-    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic only).
+    # URLs the engine retrieved/saw but didn't necessarily cite (Anthropic and Gemini only).
     retrieved_urls: list[str] = field(default_factory=list)
     # Search queries the model issued.
     search_queries: list[str] = field(default_factory=list)
@@ -88,6 +111,9 @@ class ParsedAnswer:
     retrieved_urls: list[str] = field(default_factory=list)
     search_queries: list[str] = field(default_factory=list)
     cost_usd: float | None = None
+    # Gemini grounding chunks whose redirect could not be mapped back to a source domain (Gemini only).
+    unresolved_chunks: int = 0
+    unresolved_cited_chunks: int = 0
 
 
 class CitationEngine(Protocol):
@@ -245,6 +271,97 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
     )
 
 
+def _gemini_chunk_url(web: genai_types.GroundingChunkWeb) -> str | None:
+    """None means the chunk has no uri or a grounding redirect, and names no source domain."""
+    uri = web.uri or ""
+    try:
+        host = (urlparse(uri).hostname or "").lower()
+    except ValueError:
+        host = ""
+    if uri and host != GEMINI_GROUNDING_REDIRECT_HOST:
+        return uri
+    # is_target_url matches on host, so a redirect uri never counts as a citation of the
+    # source. Record the source domain from the chunk instead of following the redirect.
+    # The title is the page's own text, so a third-party page titled like a target
+    # domain would forge a citation; only the SDK's domain field names the source.
+    domain = (web.domain or "").strip().lower()
+    if _BARE_DOMAIN.match(domain):
+        return f"https://{domain}"
+    return None
+
+
+def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> ParsedAnswer:
+    """Parse a generate_content response grounded with Google Search.
+
+    Retrieved = every grounding chunk; cited = the chunks a grounding support
+    attaches to a span of the answer, in first-reference order. A redirect chunk
+    that names no source domain is dropped and counted in unresolved_chunks, and
+    in unresolved_cited_chunks when a support cites it, so the engine can fail the
+    check instead of recording a redirect URL nothing matches.
+    """
+    candidate = response.candidates[0] if response.candidates else None
+    if candidate is None:
+        return ParsedAnswer()
+    parts = candidate.content.parts if candidate.content and candidate.content.parts else []
+    answer_text = "".join(part.text for part in parts if part.text and not part.thought)
+
+    metadata = candidate.grounding_metadata
+    if metadata is None:
+        return ParsedAnswer(answer_text=answer_text)
+    chunks = metadata.grounding_chunks or []
+    # Positional, so a support's chunk index still lands on the right chunk.
+    chunk_urls = [_gemini_chunk_url(chunk.web) if chunk.web is not None else None for chunk in chunks]
+    cited: list[str] = []
+    cited_indices: set[int] = set()
+    for support in metadata.grounding_supports or []:
+        for index in support.grounding_chunk_indices or []:
+            if 0 <= index < len(chunk_urls):
+                cited_indices.add(index)
+                if url := chunk_urls[index]:
+                    cited.append(url)
+    unresolved = {index for index, chunk in enumerate(chunks) if chunk.web is not None and chunk_urls[index] is None}
+
+    return ParsedAnswer(
+        answer_text=answer_text,
+        cited_urls=_dedupe_urls(cited),
+        retrieved_urls=_dedupe_urls([url for url in chunk_urls if url]),
+        search_queries=list(metadata.web_search_queries or []),
+        unresolved_chunks=len(unresolved),
+        unresolved_cited_chunks=len(unresolved & cited_indices),
+    )
+
+
+def gemini_response_error(response: genai_types.GenerateContentResponse, cited_urls: list[str]) -> str | None:
+    """A response that never answered is a failed check, not a zero-citation answer:
+    no candidate (the prompt was blocked), a candidate without content, or a candidate
+    that stopped for a reason other than STOP (safety, recitation, max tokens) before
+    citing anything, the same way anthropic_truncated_error treats a cut-off answer."""
+    if not response.candidates:
+        feedback = response.prompt_feedback
+        block_reason = feedback.block_reason if feedback is not None else None
+        return f"no_candidates_response: {block_reason.value if block_reason is not None else 'unknown'}"
+    candidate = response.candidates[0]
+    finish_reason = candidate.finish_reason
+    reason = finish_reason.value.lower() if finish_reason is not None else "unknown"
+    if candidate.content is None:
+        return f"{reason}_response: no content"
+    if finish_reason in (None, genai_types.FinishReason.STOP) or cited_urls:
+        return None
+    return f"{reason}_response: {candidate.finish_message or 'stopped before citing'}"
+
+
+def gemini_unresolved_error(parsed: ParsedAnswer) -> str | None:
+    """A cited chunk that is a redirect naming no source domain may well be us, so
+    the check cannot tell whether the answer cited us. The same holds when every
+    chunk is unresolved, cited or not. Both are a failed check, not a zero-citation
+    answer."""
+    if parsed.unresolved_cited_chunks or (parsed.unresolved_chunks and not parsed.retrieved_urls):
+        return (
+            f"unresolved_grounding_redirects: {parsed.unresolved_chunks} chunks, {parsed.unresolved_cited_chunks} cited"
+        )
+    return None
+
+
 def is_target_url(url: str, target_domains: list[str]) -> bool:
     """True when the URL's host is one of the target domains or a subdomain of it."""
     try:
@@ -332,6 +449,10 @@ def _request_error(e: requests.RequestException) -> str:
     return f"{type(e).__name__}:{detail or ' ' + str(e)[:200]}"
 
 
+def _gemini_request_error(e: genai_errors.APIError) -> str:
+    return f"{type(e).__name__}: status={e.code} body={(e.message or '')[:200]}"
+
+
 class ClaudeWebSearchEngine:
     """Claude with Anthropic's native web_search server tool, via the AI gateway."""
 
@@ -366,7 +487,7 @@ class ClaudeWebSearchEngine:
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
             "anthropic-version": "2023-06-01",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+            **(ai_gateway_headers(ai_product=AEO_AI_PRODUCT, trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
             body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/messages", headers, payload)
@@ -408,7 +529,7 @@ class OpenAIWebSearchEngine:
         }
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+            **(ai_gateway_headers(ai_product=AEO_AI_PRODUCT, trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
             body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/responses", headers, payload)
@@ -422,6 +543,70 @@ class OpenAIWebSearchEngine:
             model=self.model,
             trace_id=trace_id,
             cited_urls=parsed.cited_urls,
+            search_queries=parsed.search_queries,
+            answer_text=parsed.answer_text,
+        )
+
+
+class GeminiGroundedEngine:
+    """Gemini grounded with Google Search, via the AI gateway's generateContent path."""
+
+    name = "gemini-google-search"
+
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or settings.AEO_GEMINI_MODEL
+        if resolve_ai_gateway_config() is None:
+            raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        # The client carries the trace and property headers, so each check builds its own
+        # and closes its connection pool when the check ends.
+        client = build_gemini_client(
+            ai_product=AEO_AI_PRODUCT,
+            trace_id=trace_id,
+            properties=custom_properties,
+            timeout_ms=GEMINI_TIMEOUT_MS,
+        )
+        if client is None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error="ai_gateway_unset")
+        config = genai_types.GenerateContentConfig(
+            tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
+            max_output_tokens=MAX_ANSWER_TOKENS,
+        )
+        try:
+            with client:
+                response = client.models.generate_content(model=self.model, contents=prompt, config=config)
+        except genai_errors.APIError as e:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_gemini_request_error(e))
+        except SoftTimeLimitExceeded:
+            # Celery raises this inside whatever call is in flight. Swallowing it as a failed
+            # check would let the scheduled run keep making billed calls past its soft limit.
+            raise
+        except Exception as e:
+            # The SDK raises plain ValueError and pydantic errors on a malformed 2xx body, and
+            # the gateway client raises its own host error. One escaped exception would abort
+            # the whole run, so every failure becomes a failed check row instead.
+            return CitationCheck(
+                engine=self.name, model=self.model, trace_id=trace_id, error=f"{type(e).__name__}: {str(e)[:200]}"
+            )
+        parsed = parse_gemini_grounding(response)
+        if parsed.unresolved_chunks:
+            logger.warning(
+                "aeo_gemini_unresolved_grounding_redirects",
+                unresolved=parsed.unresolved_chunks,
+                unresolved_cited=parsed.unresolved_cited_chunks,
+                resolved=len(parsed.retrieved_urls),
+                trace_id=trace_id,
+            )
+        error = gemini_response_error(response, parsed.cited_urls) or gemini_unresolved_error(parsed)
+        if error is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
+        return CitationCheck(
+            engine=self.name,
+            model=self.model,
+            trace_id=trace_id,
+            cited_urls=parsed.cited_urls,
+            retrieved_urls=parsed.retrieved_urls,
             search_queries=parsed.search_queries,
             answer_text=parsed.answer_text,
         )
@@ -464,12 +649,14 @@ class ExaAnswerEngine:
         )
 
 
-def available_engines() -> list[CitationEngine]:
-    """Engines the current configuration supports."""
+def available_engines(team: Team) -> list[CitationEngine]:
+    """Engines the current configuration supports for a scheduled run of this team."""
     engines: list[CitationEngine] = []
     if resolve_ai_gateway_config() is not None:
         engines.append(ClaudeWebSearchEngine())
         engines.append(OpenAIWebSearchEngine())
+        if aeo_flag_enabled(AEO_GEMINI_ENGINE_FLAG, team):
+            engines.append(GeminiGroundedEngine())
     if settings.EXA_API_KEY:
         engines.append(ExaAnswerEngine())
     return engines

@@ -56,6 +56,8 @@ class CitationGap:
 
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
+# Gemini stays out of scheduled runs until a review of Google's grounding terms clears it.
+AEO_GEMINI_ENGINE_FLAG = "aeo-engine-gemini"
 PROMPT_TOPIC_MAX_LENGTH = 200
 
 

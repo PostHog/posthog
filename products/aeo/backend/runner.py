@@ -23,6 +23,7 @@ from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
@@ -49,7 +50,7 @@ def run_citation_checks(
     interrupted run keeps the checks it already paid for. With record=False the
     engines still run (and cost money) but nothing is written — smoke-test mode.
     """
-    engines = engines if engines is not None else available_engines()
+    engines = engines if engines is not None else available_engines(team)
     if not engines:
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
@@ -117,6 +118,9 @@ def run_citation_checks(
                     AEOCitationCheck.objects.bulk_create(prompt_rows)
                 rows_written += len(prompt_rows)
                 AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
+            except SoftTimeLimitExceeded:
+                # Recording it as a write failure would let the scheduled run keep making billed calls past its soft limit.
+                raise
             except Exception as e:
                 write_failures += len(prompt_rows)
                 logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])

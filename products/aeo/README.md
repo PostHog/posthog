@@ -21,6 +21,7 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.          |
 | `AEO_TARGET_DOMAINS`                       | Domains counted as "us" in citations (default `posthog.com`).  |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                        |
+| `AEO_GEMINI_MODEL`                         | Gemini model override (engine `gemini-google-search`).         |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
 
@@ -38,6 +39,9 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 # 3. Real run (also runs daily via celery beat for allowlisted+flagged teams):
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
+
+Gemini with Google Search grounding (`gemini-google-search`, model `AEO_GEMINI_MODEL`) runs with `--engines gemini --dry-run`, or in scheduled runs for teams with the `aeo-engine-gemini` flag on.
+The flag stays off until a review of Google's grounding terms clears it, so a manual run records Gemini checks only with `--allow-ungated-gemini`.
 
 ### Import over the API
 
@@ -62,17 +66,18 @@ A run takes at most 50 prompts. It takes one prompt per topic in turn, so every 
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
 
-| Column                                                                   | Meaning                                                                                                             |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
-| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
-| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
-| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
-| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
-| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
-| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
+| Column                                                                   | Meaning                                                                                                                                              |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                                                                |
+| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.                                             |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `gemini-google-search` (flag `aeo-engine-gemini`).                                        |
+| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                                                       |
+| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record. Gemini cites domains (`https://posthog.com`), the other engines cite pages, so these columns are not comparable across engines. |
+| `num_citations`                                                          | How many URLs the answer cited. Gemini counts one per domain, the other engines one per page, so compare it within one engine only.                  |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Gemini expose retrieved results; others don't).                                                        |
+| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.                                                |
+| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                                                         |
+| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs).                                  |
 
 ## The join (the product thesis)
 

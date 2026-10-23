@@ -110,7 +110,8 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
     prompt_hash = models.CharField(max_length=64, help_text="SHA-256 of the normalized prompt text.")
 
     engine = models.CharField(
-        max_length=64, help_text="Answer engine: claude-web-search, openai-web-search, exa-answer."
+        max_length=64,
+        help_text="Answer engine: claude-web-search, openai-web-search, exa-answer, gemini-google-search.",
     )
     model = models.CharField(max_length=128, help_text="Engine model that answered.")
 

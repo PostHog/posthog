@@ -16,18 +16,18 @@ from celery import shared_task
 
 from posthog.celery_queues import CeleryQueue
 from posthog.models.team import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG
+from products.aeo.backend.flags import aeo_flag_enabled
 from products.aeo.backend.runner import run_citation_checks
 
 logger = structlog.get_logger(__name__)
 
 
-# A full run is up to 50 prompts x 3 engines of sequential web-search calls
-# (typically 10-60s each); four hours gives slow days headroom without letting
-# a hung run hold a worker slot indefinitely.
+# A full run is up to 50 prompts x 4 engines (Gemini only behind its flag) of
+# sequential web-search calls (typically 10-60s each); four hours gives slow days
+# headroom without letting a hung run hold a worker slot indefinitely.
 RUN_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
 RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
 
@@ -39,14 +39,7 @@ def _citation_tracking_enabled(team: Team) -> bool:
     allowlist = {str(raw).strip() for raw in settings.AEO_CITATION_TEAM_IDS}
     if str(team.id) not in allowlist:
         return False
-    # No person is behind this scheduled run; the team UUID keeps the flag call
-    # well-formed and the organization group lets the flag target teams.
-    return feature_enabled_or_false(
-        AEO_CITATION_TRACKING_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-    )
+    return aeo_flag_enabled(AEO_CITATION_TRACKING_FLAG, team)
 
 
 @shared_task(ignore_result=True)
