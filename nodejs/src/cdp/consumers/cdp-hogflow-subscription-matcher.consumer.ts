@@ -46,7 +46,7 @@ import {
 } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { ParseBatchOptions, parseBatch, skipIfMalformed } from './message-parsing'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
 // makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
@@ -138,7 +138,7 @@ const histogramHogflowMatcherFindParkedJobs = new Histogram({
 // internal-event query load is distinguishable from the events firehose on the shared cyclotron DB.
 type WakeSource = 'events' | 'person' | 'internal_events'
 
-const counterHogflowMatcherEventSkipped = new Counter({
+export const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
     help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), an invalid team id, or unknown team.',
     labelNames: ['reason'],
@@ -186,13 +186,6 @@ type MatchedJob = {
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
-
-// What a stream parser reads from one message: the team to look up, and how to build the globals
-// once the team has loaded.
-type ParsedMessage = {
-    teamId: unknown
-    toGlobals: (team: Team) => HogFunctionInvocationGlobals
-}
 
 // Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
 export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
@@ -776,7 +769,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.parseBatch(messages, 'Error parsing message', (message) => {
+        return await this.parseMatcherBatch(messages, 'Error parsing message', (message) => {
             const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
             // A job can be parked by distinct_id or person_id, so an event needs at least
             // one of them to match anything. Drop only events that carry neither.
@@ -793,7 +786,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parsePersonMessages')
     public async _parsePersonBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.parseBatch(messages, 'Error parsing person message', (message) => {
+        return await this.parseMatcherBatch(messages, 'Error parsing person message', (message) => {
             const data = parseJSON(message.value!.toString()) as ClickHousePerson
             // A deleted person can never satisfy a wait, so skip tombstones.
             if (data.is_deleted) {
@@ -812,47 +805,32 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    /**
-     * Parsing and building the globals do no I/O. They read only the message and the loaded team, so an
-     * error there means the message is malformed. It fails the same way every time it is read, so this
-     * skips it. This also skips a team id that the lookups cannot query, for the same reason.
-     *
-     * The team gate and the team lookup read Postgres. Their errors fail the batch, so the consumer
-     * does not store the batch's offsets and reads the batch again after the pod restarts. Skipping
-     * the message instead would lose the event, and the wait or conversion goal it should satisfy
-     * would time out.
-     */
-    private async parseBatch(
+    private async parseMatcherBatch(
         messages: Message[],
         errorLog: string,
-        parse: (message: Message) => ParsedMessage | null
+        parse: ParseBatchOptions['parse']
     ): Promise<HogFunctionInvocationGlobals[]> {
-        const events = await Promise.all(
-            messages.map(async (message) => {
-                const parsed = skipIfMalformed(errorLog, () => parse(message))
-                if (!parsed) {
-                    return null
-                }
-                if (!isValidTeamId(parsed.teamId)) {
-                    counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
-                    return null
-                }
+        return await parseBatch(messages, {
+            errorLog,
+            parse,
+            onInvalidTeamId: () => counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc(),
+            // Do not catch a lookup error here. A skipped event leaves the wait or conversion goal that it
+            // should satisfy to time out.
+            loadTeam: async (teamId) => {
                 // The vast majority of messages belong to teams with no wait_until_condition step and
                 // no conversion goal. Bail on those via the in-memory hogflow cache before paying for
                 // getTeam + full globals conversion.
-                if (!(await this.teamIsActionable(parsed.teamId))) {
+                if (!(await this.teamIsActionable(teamId))) {
                     counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                     return null
                 }
-                const team = await this.deps.teamManager.getTeam(parsed.teamId)
+                const team = await this.deps.teamManager.getTeam(teamId)
                 if (!team) {
                     counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
-                    return null
                 }
-                return skipIfMalformed(errorLog, () => parsed.toGlobals(team))
-            })
-        )
-        return events.filter((globals): globals is HogFunctionInvocationGlobals => globals !== null)
+                return team
+            },
+        })
     }
 
     // Step resumes name their job, so they skip the person and team gates the event parser applies.
@@ -889,7 +867,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
     public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.parseBatch(messages, 'Error parsing internal event message', (message) => {
+        return await this.parseMatcherBatch(messages, 'Error parsing internal event message', (message) => {
             const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
             if (!parsed.event.distinct_id && !parsed.person?.id) {
                 counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
@@ -1276,19 +1254,6 @@ function convertClickhousePersonToWakeGlobals(
             elements_chain: '',
         },
         person,
-    }
-}
-
-// If the step throws, this logs the error and counts it as a parse error. It then returns null, and the
-// caller skips the message. Wrap only a step that cannot fail for a transient reason. A lookup error must
-// fail the batch instead, so that Kafka delivers the batch again.
-function skipIfMalformed<T>(errorLog: string, step: () => T): T | null {
-    try {
-        return step()
-    } catch (e) {
-        logger.error(errorLog, e)
-        counterParseError.labels({ error: e.message }).inc()
-        return null
     }
 }
 
