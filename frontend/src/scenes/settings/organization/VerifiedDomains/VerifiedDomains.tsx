@@ -1,20 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconLock, IconPeople, IconShieldLock, IconShuffle, IconTrash, IconWarning } from '@posthog/icons'
+import { IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -24,53 +23,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
-import { ConfigureIdJagModal } from './ConfigureIdJagModal'
-import { ConfigureSAMLModal } from './ConfigureSAMLModal'
-import { ConfigureSCIMModal } from './ConfigureSCIMModal'
-import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
 import { verifiedDomainImpactLogic } from './verifiedDomainImpactLogic'
 import { RemoveDomainModal } from './VerifiedDomainImpactModals'
 import { getIdentityProviderConfigForDomain, verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
-
-// One distinctive icon per integration type, reused across each integration's status badges.
-const SAML_ICON = <IconShieldLock />
-const SCIM_ICON = <IconPeople />
-const XAA_ICON = <IconShuffle />
-
-function IntegrationBadge({
-    label,
-    type,
-    tooltip,
-    icon,
-    to,
-}: {
-    label: string
-    type: LemonTagType
-    tooltip: string
-    icon?: JSX.Element
-    to?: string
-}): JSX.Element {
-    const tag = (
-        <LemonTag type={type} icon={icon}>
-            {label}
-        </LemonTag>
-    )
-    // The tooltip needs a plain element it can attach hover handlers to; LemonTag can't reliably act as a
-    // Base UI tooltip trigger (it would also pick up the injected onClick and look clickable), so wrap it.
-    return (
-        <Tooltip title={tooltip}>
-            {to ? (
-                <Link to={to} className="inline-flex">
-                    {tag}
-                </Link>
-            ) : (
-                <span className="inline-flex">{tag}</span>
-            )}
-        </Tooltip>
-    )
-}
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
@@ -108,28 +65,14 @@ function VerifiedDomainsTable(): JSX.Element {
         identityProviderConfigsLoading,
         updatingDomainLoading,
         isSSOEnforcementAvailable,
-        isSAMLAvailable,
         isOIDCAvailable,
-        isSCIMAvailable,
-        isXAAAuthenticationAvailable,
         ownVerifiedDomain,
         identityProviderConfigs,
     } = useValues(verifiedDomainsLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const {
-        updateDomain,
-        setVerifyModal,
-        setConfigureSAMLModalId,
-        setConfigureSCIMModalId,
-        setConfigureIdJagModalId,
-        setScimLogsModalId,
-    } = useActions(verifiedDomainsLogic)
+    const { updateDomain, setVerifyModal } = useActions(verifiedDomainsLogic)
     const { promptRemoveDomain } = useActions(verifiedDomainImpactLogic)
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const showXAAControls = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION] && isXAAAuthenticationAvailable
-    const isSSOSettingsRedesignEnabled = !!featureFlags[FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -229,205 +172,28 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
         {
-            key: 'integrations',
-            title: 'Integrations',
-            render: function Integrations(_, { id }) {
-                const samlConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Saml
-                )
-                const scimConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Scim
-                )
-                const oidcConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Oidc
-                )
-                const idJagConfig = getIdentityProviderConfigForDomain(
-                    identityProviderConfigs,
-                    id,
-                    ConfigScopeEnumApi.Xaa
-                )
-                const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
-                const badges: JSX.Element[] = []
-
-                if (!isSAMLAvailable) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="muted"
-                            icon={SAML_ICON}
-                            tooltip="Upgrade your plan to enable SAML"
-                            to={billingLink}
-                        />
-                    )
-                } else if (samlConfig?.has_saml) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="success"
-                            icon={SAML_ICON}
-                            tooltip="SAML is enabled"
-                        />
-                    )
-                } else {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="muted"
-                            icon={SAML_ICON}
-                            tooltip="SAML is not enabled"
-                        />
-                    )
-                }
-
-                badges.push(
-                    <IntegrationBadge
-                        key="oidc"
-                        label="OIDC"
-                        type={isOIDCAvailable && oidcConfig?.has_oidc ? 'success' : 'muted'}
-                        icon={<IconLock />}
-                        tooltip={
-                            !isOIDCAvailable
-                                ? 'Upgrade your plan to enable OIDC'
-                                : oidcConfig?.has_oidc
-                                  ? 'OIDC is enabled'
-                                  : 'OIDC is not enabled'
-                        }
-                        to={!isOIDCAvailable ? billingLink : undefined}
-                    />
-                )
-
-                if (!isSCIMAvailable) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="scim"
-                            label="SCIM"
-                            type="muted"
-                            icon={SCIM_ICON}
-                            tooltip="Upgrade your plan to enable SCIM"
-                            to={billingLink}
-                        />
-                    )
-                } else if (scimConfig?.has_scim) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="scim"
-                            label="SCIM"
-                            type="success"
-                            icon={SCIM_ICON}
-                            tooltip="SCIM is enabled"
-                        />
-                    )
-                } else {
-                    badges.push(
-                        <IntegrationBadge
-                            key="scim"
-                            label="SCIM"
-                            type="muted"
-                            icon={SCIM_ICON}
-                            tooltip="SCIM is not enabled"
-                        />
-                    )
-                }
-
-                if (showXAAControls && idJagConfig?.has_id_jag) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="xaa"
-                            label="XAA"
-                            type="success"
-                            icon={XAA_ICON}
-                            tooltip="XAA is enabled"
-                        />
-                    )
-                }
-
-                if (badges.length === 0) {
-                    return <span className="text-muted">Not configured</span>
-                }
-
-                return <div className="flex items-center gap-1 flex-wrap">{badges}</div>
-            },
-        },
-        {
             key: 'actions',
             width: 32,
             align: 'center',
             render: function RenderActions(_, domainRecord) {
-                const { id } = domainRecord
                 return (
                     <More
                         overlay={
-                            <>
-                                {!isSSOSettingsRedesignEnabled && (
-                                    <>
-                                        <LemonButton
-                                            onClick={() => setConfigureSAMLModalId(id)}
-                                            fullWidth
-                                            disabledReason={
-                                                restrictionReason ||
-                                                (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
-                                            }
-                                        >
-                                            Configure SAML
-                                        </LemonButton>
-                                        <LemonButton
-                                            onClick={() => setConfigureSCIMModalId(id)}
-                                            fullWidth
-                                            disabledReason={
-                                                restrictionReason ||
-                                                (!isSCIMAvailable ? 'Upgrade to enable SCIM' : undefined)
-                                            }
-                                        >
-                                            Configure SCIM
-                                        </LemonButton>
-                                        {showXAAControls && (
-                                            <LemonButton
-                                                onClick={() => setConfigureIdJagModalId(id)}
-                                                fullWidth
-                                                disabledReason={restrictionReason}
-                                            >
-                                                Configure XAA
-                                            </LemonButton>
-                                        )}
-                                        {isSCIMAvailable && (
-                                            <LemonButton
-                                                onClick={() => setScimLogsModalId(id)}
-                                                fullWidth
-                                                disabledReason={restrictionReason}
-                                            >
-                                                View SCIM logs
-                                            </LemonButton>
-                                        )}
-                                    </>
-                                )}
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => promptRemoveDomain(domainRecord)}
-                                    fullWidth
-                                    icon={<IconTrash />}
-                                    disabledReason={restrictionReason ?? removeBlockedReason(domainRecord)}
-                                >
-                                    Remove domain
-                                </LemonButton>
-                            </>
+                            <LemonButton
+                                status="danger"
+                                onClick={() => promptRemoveDomain(domainRecord)}
+                                fullWidth
+                                icon={<IconTrash />}
+                                disabledReason={restrictionReason ?? removeBlockedReason(domainRecord)}
+                            >
+                                Remove domain
+                            </LemonButton>
                         }
                     />
                 )
             },
         },
     ]
-    const visibleVerifiedColumns = isSSOSettingsRedesignEnabled
-        ? verifiedColumns.filter((column) => column.key !== 'integrations')
-        : verifiedColumns
 
     const unverifiedColumns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -498,7 +264,7 @@ function VerifiedDomainsTable(): JSX.Element {
         <div className="space-y-4">
             <LemonTable
                 dataSource={verifiedDomainsList}
-                columns={visibleVerifiedColumns}
+                columns={verifiedColumns}
                 loading={verifiedDomainsLoading || identityProviderConfigsLoading}
                 rowKey="id"
                 emptyState="You haven't registered any authentication domains yet."
@@ -515,14 +281,6 @@ function VerifiedDomainsTable(): JSX.Element {
                 </>
             )}
             <AddDomainModal />
-            {!isSSOSettingsRedesignEnabled && (
-                <>
-                    <ConfigureSAMLModal />
-                    <ConfigureSCIMModal />
-                    {showXAAControls && <ConfigureIdJagModal />}
-                    <ScimLogsModal />
-                </>
-            )}
             <VerifyDomainModal />
             <RemoveDomainModal />
         </div>

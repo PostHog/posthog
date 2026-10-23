@@ -50,7 +50,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         isIdentityProviderConfigFormSubmitting,
         hasSamlDomainScopeConflict,
         isConfigScopeValid,
-        isRedesignEnabled,
+        isConfigScopeEnabled,
         organizationDomains,
         organizationDomainsLoadFailed,
         organizationDomainsLoading,
@@ -75,7 +75,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         scope: RestrictionScope.Organization,
     })
 
-    if (!isRedesignEnabled) {
+    if (!isConfigScopeEnabled) {
         return null
     }
 

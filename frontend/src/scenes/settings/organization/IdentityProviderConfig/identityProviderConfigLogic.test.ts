@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -74,9 +72,6 @@ describe('identityProviderConfigLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
-            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
-        })
         const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Oidc, configId: 'new' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -143,9 +138,6 @@ describe('identityProviderConfigLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
-            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
-        })
         const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Saml, configId: 'new' })
         logic.mount()
 
@@ -173,9 +165,6 @@ describe('identityProviderConfigLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
-            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
-        })
         const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Saml, configId: 'new' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -217,9 +206,6 @@ describe('identityProviderConfigLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
-            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
-        })
         const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Scim, configId: 'new' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -240,9 +226,6 @@ describe('identityProviderConfigLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
-            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
-        })
         const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Scim, configId: 'new' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -259,9 +242,6 @@ describe('identityProviderConfigLogic', () => {
 
     it('clears a stale delete confirmation when the delete modal reopens', async () => {
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
-            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
-        })
         const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Saml, configId: 'new' })
         logic.mount()
 
