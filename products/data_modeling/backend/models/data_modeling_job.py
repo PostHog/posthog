@@ -69,4 +69,10 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             # serves the per-saved-query lookup of the latest job of one engine, which the
             # materialized view health check and failure digest do for every live view
             models.Index(fields=["saved_query", "engine", "-last_run_at"], name="datamodelingjob_sq_engine_run"),
+            # serves the hourly job that copies ClickHouse bytes read from the query log onto jobs
+            models.Index(
+                fields=["workflow_run_id"],
+                name="datamodelingjob_ch_unmeasured",
+                condition=models.Q(engine="clickhouse", bytes_read__isnull=True),
+            ),
         ]

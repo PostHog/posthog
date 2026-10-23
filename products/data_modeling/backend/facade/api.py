@@ -114,6 +114,7 @@ _LAZY = {
     "check_incremental_eligibility": "logic.incremental_eligibility",
     "propose_incremental_config": "logic.incremental_eligibility",
     "definition_database": "logic.incremental_eligibility",
+    "record_job_bytes_read": "logic.job_bytes_read",
 }
 
 __all__ = sorted(_LAZY)
