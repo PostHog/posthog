@@ -36,7 +36,7 @@ export function SuggestionRow({
                     className={cn(
                         'grid items-center gap-x-3 gap-y-1.5 px-3 py-2.5',
                         highlight
-                            ? 'grid-cols-[minmax(0,1fr)_auto] @min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_auto]'
+                            ? 'grid-cols-[minmax(0,1fr)_auto] @min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_minmax(15rem,auto)]'
                             : 'grid-cols-[minmax(0,1fr)_auto]'
                     )}
                 >

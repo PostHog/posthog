@@ -32,7 +32,7 @@ export function SavingsBannerMessage({ summary }: SavingsBannerMessageProps): JS
                     <span> of scanning</span>
                 </>
             )}
-            <span> a month if materialized</span>
+            <span> a month</span>
         </>
     )
 }

@@ -62,9 +62,10 @@ interface TableStoryProps {
     results: WarehouseSuggestionApi[]
     width?: 'normal' | 'narrow'
     reviewOpen?: boolean
+    confirmSuggestionId?: string
 }
 
-function TableStory({ results, width, reviewOpen = false }: TableStoryProps): JSX.Element {
+function TableStory({ results, width, reviewOpen = false, confirmSuggestionId }: TableStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
             [LIST_URL]: { count: results.length, results },
@@ -74,10 +75,16 @@ function TableStory({ results, width, reviewOpen = false }: TableStoryProps): JS
     const logic = warehouseSuggestionsLogic({ surface: 'catalog' })
     const { stripState } = useValues(logic)
     useEffect(() => {
-        if (reviewOpen && stripState === 'active') {
+        if (stripState !== 'active') {
+            return
+        }
+        if (reviewOpen || confirmSuggestionId) {
             logic.actions.openReview()
         }
-    }, [reviewOpen, stripState, logic])
+        if (confirmSuggestionId) {
+            logic.actions.openAcceptConfirm(confirmSuggestionId)
+        }
+    }, [reviewOpen, confirmSuggestionId, stripState, logic])
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             <SuggestedCertificationsTable />
@@ -131,4 +138,12 @@ export const ReviewDialogNarrow: Story = {
         ],
     },
     parameters: dialogSnapshot(520),
+}
+
+export const DeprecateDialog: Story = {
+    args: {
+        confirmSuggestionId: '3',
+        results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
+    },
+    parameters: dialogSnapshot(1300),
 }

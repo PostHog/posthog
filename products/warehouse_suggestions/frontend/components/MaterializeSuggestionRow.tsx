@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import { dataAgeLabel, isMaterializePayload, readSummary, savingHighlight } from '../suggestionCopy'
+import { dataAgeLabel, isMaterializePayload, materializeSaving, readSummary, savingHighlight } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DataAgeMeta } from './DataAgeMeta'
 import { DismissSuggestionMenu } from './DismissSuggestionMenu'
@@ -64,7 +64,7 @@ export function MaterializeSuggestionRow({
                     ? [<span key="mode">{`Incremental by ${payload.incremental_key ?? 'new rows'}`}</span>]
                     : []),
             ]}
-            highlight={savingHighlight(payload)}
+            highlight={savingHighlight(materializeSaving(payload))}
             actions={
                 <>
                     <LemonButton

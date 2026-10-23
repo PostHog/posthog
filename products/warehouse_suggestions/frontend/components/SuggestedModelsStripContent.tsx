@@ -14,6 +14,8 @@ import { SavingsBannerMessage } from './SavingsBannerMessage'
 import { SuggestionsBanner } from './SuggestionsBanner'
 import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
+import { UnmaterializeSuggestionModal } from './UnmaterializeSuggestionModal'
+import { UnmaterializeSuggestionRow } from './UnmaterializeSuggestionRow'
 
 export function SuggestedModelsStripContent(): JSX.Element | null {
     const { stripState, listedSuggestions, savingsSummary, status } = useValues(warehouseSuggestionsLogic)
@@ -74,11 +76,20 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                 title="Suggested models"
                 summary={<SavingsBannerMessage summary={savingsSummary} />}
             >
-                {listedSuggestions.map((suggestion) => (
-                    <MaterializeSuggestionRow key={suggestion.id} suggestion={suggestion} windowDays={windowDays} />
-                ))}
+                {listedSuggestions.map((suggestion) =>
+                    suggestion.kind === 'unmaterialize' ? (
+                        <UnmaterializeSuggestionRow
+                            key={suggestion.id}
+                            suggestion={suggestion}
+                            windowDays={windowDays}
+                        />
+                    ) : (
+                        <MaterializeSuggestionRow key={suggestion.id} suggestion={suggestion} windowDays={windowDays} />
+                    )
+                )}
             </SuggestionsReviewModal>
             <MaterializeSuggestionModal />
+            <UnmaterializeSuggestionModal />
         </>
     )
 }

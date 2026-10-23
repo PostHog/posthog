@@ -12,6 +12,7 @@ import { INTERVAL_SECONDS, intervalForSeconds } from '../refreshIntervals'
 import {
     dataAgeLabel,
     isMaterializePayload,
+    materializeSaving,
     refreshModeLabel,
     savingSentence,
     shorterScheduleWarning,
@@ -113,7 +114,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         <span className="text-xs font-semibold text-secondary">
                             Estimated at the suggested settings
                         </span>
-                        <span className="text-sm">{savingSentence(payload)}</span>
+                        <span className="text-sm">{savingSentence(materializeSaving(payload))}</span>
                     </div>
                 </div>
                 {shorterWarning && <LemonBanner type="warning">{shorterWarning}</LemonBanner>}

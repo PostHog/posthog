@@ -108,6 +108,30 @@ const INCREMENTAL: WarehouseSuggestionApi = {
     },
 }
 
+function unmaterialize(id: string, refreshSeconds: number, liveSeconds: number): WarehouseSuggestionApi {
+    return {
+        ...MATERIALIZE,
+        id,
+        kind: 'unmaterialize',
+        subject_id: `view-${id}`,
+        payload: {
+            subject_name: id,
+            refresh_seconds_per_month: refreshSeconds,
+            refresh_bytes_per_month: 0,
+            live_seconds_per_month: liveSeconds,
+            live_bytes_per_month: 0,
+            read_seconds: 4,
+        },
+    }
+}
+
+const DEPRECATE: WarehouseSuggestionApi = {
+    ...MATERIALIZE,
+    id: 'suggestion-deprecate',
+    kind: 'deprecate',
+    payload: { subject_name: 'old_rollup', refresh_seconds_per_month: 5400, refresh_bytes_per_month: 0 },
+}
+
 function certification(id: string, kind: 'certify' | 'deprecate'): WarehouseSuggestionApi {
     return { ...MATERIALIZE, id, kind, subject_kind: 'table', payload: { subject_name: id } }
 }
@@ -292,8 +316,13 @@ describe('warehouseSuggestionsLogic', () => {
     it.each<[SuggestionSurface, WarehouseSuggestionApi[], string[]]>([
         [
             'models',
-            [materialize('bytes-big', 0, 5e12), materialize('time-small', 600), materialize('time-big', 2400)],
-            ['time-big', 'time-small', 'bytes-big'],
+            [
+                materialize('bytes-big', 0, 5e12),
+                materialize('time-small', 600),
+                unmaterialize('unread-mid', 3000, 1500),
+                materialize('time-big', 2400),
+            ],
+            ['time-big', 'unread-mid', 'time-small', 'bytes-big'],
         ],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
     ])('orders %s suggestions by what they are worth', async (surface, results, expectedOrder) => {
@@ -442,12 +471,53 @@ describe('warehouseSuggestionsLogic', () => {
         options.button.action()
     }
 
-    it('sends the strip toast View to the materialized view in the SQL editor', async () => {
-        await acceptAndClickView('models', MATERIALIZE)
+    it.each([MATERIALIZE, unmaterialize('unread', 3000, 1500)])(
+        'sends the strip toast View for $kind to the view in the SQL editor',
+        async (accepted) => {
+            await acceptAndClickView('models', accepted)
 
-        expect(router.values.location.pathname + router.values.location.search).toContain(
-            urls.sqlEditor({ view_id: MATERIALIZE.subject_id })
+            expect(router.values.location.pathname + router.values.location.search).toContain(
+                urls.sqlEditor({ view_id: accepted.subject_id })
+            )
+        }
+    )
+
+    it.each<[string, boolean, Record<string, unknown> | undefined, string]>([
+        ['stops refreshing by default', false, undefined, 'and stopped its refreshes'],
+        ['keeps refreshing when asked', true, { keep_materialized: true }, 'It keeps refreshing'],
+    ])('deprecating a materialized view %s', async (_name, keep, body, toast) => {
+        mockList.mockResolvedValue(page([DEPRECATE]))
+        mockAccept.mockResolvedValue({
+            ...DEPRECATE,
+            status: 'accepted',
+            created_asset: { certification_id: 'cert-1', stopped_materialization: !keep },
+        })
+        await mountLogic('catalog')
+        logic.actions.openAcceptConfirm(DEPRECATE.id)
+        logic.actions.setKeepMaterialized(keep)
+
+        logic.actions.confirmAccept()
+        await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), DEPRECATE.id, body)
+        expect((lemonToast.success as jest.Mock).mock.calls[0][0]).toContain(toast)
+        expect(logic.values.acceptConfirmSuggestion).toBeNull()
+    })
+
+    it('shows why the backend refused to stop materializing, closes the dialog and reloads', async () => {
+        const unread = unmaterialize('unread', 3000, 1500)
+        mockList.mockResolvedValue(page([unread]))
+        mockAccept.mockRejectedValue(
+            new ApiError('conflict', 409, undefined, { detail: 'Another view reads this view now.' })
         )
+        await mountLogic()
+        logic.actions.openAcceptConfirm(unread.id)
+
+        logic.actions.confirmAccept()
+
+        await expectLogic(logic).toDispatchActions(['acceptSuggestionFailed', 'loadSuggestions'])
+        expect(lemonToast.error).toHaveBeenCalledWith('Another view reads this view now.')
+        expect(logic.values.acceptConfirmSuggestion).toBeNull()
     })
 
     it('hands the catalog toast View to the host so it can show the new certification', async () => {

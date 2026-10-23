@@ -81,10 +81,28 @@ function materialize(
     }
 }
 
+function unmaterialize(id: string, name: string): WarehouseSuggestionApi {
+    const base = materialize(id, name, 0)
+    return {
+        ...base,
+        kind: 'unmaterialize',
+        payload: {
+            subject_name: name,
+            refresh_seconds_per_month: 5400,
+            refresh_bytes_per_month: 4 * 10 ** 12,
+            live_seconds_per_month: 900,
+            live_bytes_per_month: 10 ** 12,
+            read_seconds: 3.6,
+        },
+        evidence: { human_requests: 9, human_users: 2, human_days: 6, requests_by_surface: { sql_editor: 9 } },
+    }
+}
+
 const suggestions = [
     materialize('1', 'customer_monthly_revenue', 1080),
     materialize('2', 'sessions_by_plan_daily', 2400),
     materialize('3', 'stripe_invoices_enriched', 0, { unknownSources: true }),
+    unmaterialize('4', 'legacy_signup_funnel'),
 ]
 
 const manySuggestions = Array.from({ length: 7 }, (_, index) =>
@@ -98,6 +116,7 @@ interface StripStoryProps {
     failing?: boolean
     width?: 'normal' | 'narrow'
     openDialogWithInterval?: DataModelingSyncInterval
+    confirmSuggestionId?: string
 }
 
 function StripStory({
@@ -107,6 +126,7 @@ function StripStory({
     failing,
     width,
     openDialogWithInterval,
+    confirmSuggestionId,
 }: StripStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
@@ -134,15 +154,18 @@ function StripStory({
         if (stripState !== 'active') {
             return
         }
-        if (reviewOpen || openDialogWithInterval) {
+        if (reviewOpen || openDialogWithInterval || confirmSuggestionId) {
             logic.actions.openReview()
+        }
+        if (confirmSuggestionId) {
+            logic.actions.openAcceptConfirm(confirmSuggestionId)
         }
         if (!openDialogWithInterval) {
             return
         }
         logic.actions.openMaterializeModal(results[0].id)
         logic.actions.setMaterializeInterval(openDialogWithInterval)
-    }, [reviewOpen, openDialogWithInterval, stripState, logic, results])
+    }, [reviewOpen, openDialogWithInterval, confirmSuggestionId, stripState, logic, results])
 
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
@@ -200,5 +223,10 @@ export const MaterializeDialogIncrementalProposal: Story = {
         results: [materialize('1', 'sessions_by_plan_daily', 2400, { incremental: true })],
         openDialogWithInterval: '24hour',
     },
+    parameters: DIALOG_SNAPSHOT,
+}
+
+export const StopMaterializingDialog: Story = {
+    args: { confirmSuggestionId: '4' },
     parameters: DIALOG_SNAPSHOT,
 }

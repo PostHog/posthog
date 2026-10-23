@@ -6,6 +6,7 @@ import type {
     WarehouseSuggestionDeprecatePayloadApi,
     WarehouseSuggestionEvidenceApi,
     WarehouseSuggestionMaterializePayloadApi,
+    WarehouseSuggestionUnmaterializePayloadApi,
 } from './generated/api.schemas'
 
 const MIN_SECONDS_WORTH_NAMING = 60
@@ -49,6 +50,11 @@ export interface SavingsSummary {
     savedBytes: number
 }
 
+export interface MonthlySaving {
+    seconds: number
+    bytes: number
+}
+
 export interface DataAgeLabel {
     label: string
     caveat: string | null
@@ -60,14 +66,38 @@ export function isMaterializePayload(
     return 'refresh_interval_seconds' in payload
 }
 
+export function isUnmaterializePayload(
+    payload: WarehouseSuggestionApi['payload']
+): payload is WarehouseSuggestionUnmaterializePayloadApi {
+    return 'live_seconds_per_month' in payload
+}
+
 export function isDeprecatePayload(
     payload: WarehouseSuggestionApi['payload']
 ): payload is WarehouseSuggestionDeprecatePayloadApi {
-    return 'refresh_seconds_per_month' in payload
+    return 'refresh_seconds_per_month' in payload && !isUnmaterializePayload(payload)
 }
 
-export function savesTime(payload: WarehouseSuggestionMaterializePayloadApi): boolean {
-    return payload.saves_seconds_per_month >= MIN_SECONDS_WORTH_NAMING
+export function materializeSaving(payload: WarehouseSuggestionMaterializePayloadApi): MonthlySaving {
+    return { seconds: payload.saves_seconds_per_month, bytes: payload.saves_bytes_per_month }
+}
+
+export function unmaterializeSaving(payload: WarehouseSuggestionUnmaterializePayloadApi): MonthlySaving {
+    return {
+        seconds: Math.max(0, payload.refresh_seconds_per_month - payload.live_seconds_per_month),
+        bytes: Math.max(0, payload.refresh_bytes_per_month - payload.live_bytes_per_month),
+    }
+}
+
+export function monthlySaving(payload: WarehouseSuggestionApi['payload']): MonthlySaving | null {
+    if (isMaterializePayload(payload)) {
+        return materializeSaving(payload)
+    }
+    return isUnmaterializePayload(payload) ? unmaterializeSaving(payload) : null
+}
+
+export function savesTime(saving: MonthlySaving): boolean {
+    return saving.seconds >= MIN_SECONDS_WORTH_NAMING
 }
 
 export function suggestedScheduleHint(
@@ -109,18 +139,32 @@ export function refreshModeLabel(incremental: boolean, incrementalKey: string | 
     return incrementalKey ? `Each refresh reads only new rows by ${incrementalKey}` : 'Each refresh reads only new rows'
 }
 
-export function savingHighlight(payload: WarehouseSuggestionMaterializePayloadApi): SavingHighlight {
-    if (savesTime(payload)) {
-        return { amount: `~${spokenDuration(payload.saves_seconds_per_month, 1)}`, label: 'query time saved a month' }
+export function savingHighlight(saving: MonthlySaving): SavingHighlight {
+    if (savesTime(saving)) {
+        return { amount: `~${spokenDuration(saving.seconds, 1)}`, label: 'query time saved a month' }
     }
-    return { amount: `~${humanizeBytes(payload.saves_bytes_per_month)}`, label: 'less data scanned a month' }
+    return { amount: `~${humanizeBytes(saving.bytes)}`, label: 'less data scanned a month' }
 }
 
-export function savingSentence(payload: WarehouseSuggestionMaterializePayloadApi): string {
-    if (savesTime(payload)) {
-        return `Saves about ${spokenDuration(payload.saves_seconds_per_month, 1)} of query time a month`
+export function savingSentence(saving: MonthlySaving): string {
+    if (savesTime(saving)) {
+        return `Saves about ${spokenDuration(saving.seconds, 1)} of query time a month`
     }
-    return `Saves about ${humanizeBytes(payload.saves_bytes_per_month)} of scanning a month`
+    return `Saves about ${humanizeBytes(saving.bytes)} of scanning a month`
+}
+
+export function monthlyCost(seconds: number, bytes: number, inTime: boolean): string {
+    return inTime
+        ? `about ${spokenDuration(seconds, MAX_SPOKEN_UNITS)} a month`
+        : `about ${humanizeBytes(bytes)} scanned a month`
+}
+
+export function readTimeLabel(seconds: number): string {
+    if (seconds >= MIN_SECONDS_WORTH_NAMING) {
+        return `Each read takes about ${spokenDuration(seconds, MAX_SPOKEN_UNITS)}`
+    }
+    const wholeSeconds = Math.max(1, Math.round(seconds))
+    return `Each read takes about ${countOf(wholeSeconds, 'second', 'seconds')}`
 }
 
 export function certificationSummaryText(suggestions: WarehouseSuggestionApi[]): string {
@@ -143,7 +187,9 @@ export function noReadsLabel(windowDays: number): string {
     return `No reads recorded in ${windowDays} days`
 }
 
-export function refreshCostLabel(payload: WarehouseSuggestionDeprecatePayloadApi): string {
+export function refreshCostLabel(
+    payload: Pick<WarehouseSuggestionDeprecatePayloadApi, 'refresh_seconds_per_month' | 'refresh_bytes_per_month'>
+): string {
     if (payload.refresh_seconds_per_month >= MIN_SECONDS_WORTH_NAMING) {
         return `Refreshes use about ${spokenDuration(payload.refresh_seconds_per_month, MAX_SPOKEN_UNITS)} a month`
     }

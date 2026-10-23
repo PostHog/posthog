@@ -33,7 +33,7 @@ function subjectUrl(suggestion: WarehouseSuggestionApi): string {
 
 export function CertificationSuggestionRow({ suggestion, windowDays }: CertificationSuggestionRowProps): JSX.Element {
     const { actionsInFlight, leavingSuggestionIds } = useValues(warehouseSuggestionsLogic)
-    const { acceptSuggestion } = useActions(warehouseSuggestionsLogic)
+    const { acceptSuggestion, openAcceptConfirm } = useActions(warehouseSuggestionsLogic)
     const { payload } = suggestion
     const isTable = suggestion.subject_kind === 'table'
     const leaving = leavingSuggestionIds.includes(suggestion.id)
@@ -86,7 +86,9 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                         icon={deprecating ? <IconWarning /> : <IconCheckCircle />}
                         loading={inFlight}
                         disabledReason={blockedReason}
-                        onClick={() => acceptSuggestion(suggestion.id)}
+                        onClick={() =>
+                            deprecating ? openAcceptConfirm(suggestion.id) : acceptSuggestion(suggestion.id)
+                        }
                         data-attr={`warehouse-suggestions-${suggestion.kind}`}
                     >
                         {deprecating ? 'Mark deprecated' : 'Certify'}
