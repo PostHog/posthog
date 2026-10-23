@@ -74,12 +74,12 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_NATIVE_EVENTS_HOST": (
         get_from_env("CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
-        "Hostname for explicit new events cluster queries, without a scheme, port or path. Empty disables the route. Changes reach workers within about a minute.",
+        "Hostname of the events cluster, without a scheme, port or path. Queries that read events_json for a project in CLICKHOUSE_NATIVE_EVENTS_TEAMS run there. Leave it empty to keep them on the main cluster. Changes reach workers within about a minute.",
         str,
     ),
     "CLICKHOUSE_NATIVE_EVENTS_TEAMS": (
         [],
-        "Project IDs eligible for explicit native events cluster query opt-ins. This does not change query defaults.",
+        "Project IDs whose queries that read events_json run on the events cluster named by CLICKHOUSE_NATIVE_EVENTS_HOST. This does not change which events table a project reads.",
         list[int],
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (

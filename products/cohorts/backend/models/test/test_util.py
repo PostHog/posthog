@@ -18,6 +18,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.workload import Workload
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -25,8 +26,10 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
@@ -34,6 +37,7 @@ from products.cohorts.backend.models.util import (
     ERROR_CODE_MESSAGES,
     CohortErrorCode,
     _recalculate_cohortpeople_for_team,
+    _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -1440,3 +1444,38 @@ class TestRecalculationErrorRecovery(BaseTest):
         self.assertIs(ctx.exception, real_error)
         assert mock_reset.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
+
+
+class TestCohortRecalculationRoute(BaseTest):
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_a_recalculation_that_reads_events_json_runs_on_the_events_cluster(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="pageviewers",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 30,
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+        )
+        history = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
+            patch("products.cohorts.backend.models.util.sync_execute", return_value=3) as execute,
+        ):
+            _recalculate_cohortpeople_for_team_hogql(cohort, 1, self.team, history)
+        insert = next(call for call in execute.call_args_list if "INSERT INTO cohortpeople" in call.args[0])
+        self.assertIn("events_json", insert.args[0])
+        self.assertEqual(insert.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)

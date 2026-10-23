@@ -144,9 +144,6 @@ def test_signals_readonly_queries_keep_dedicated_credentials_and_offline_host(
 
 
 def test_native_events_pool_is_separate_from_legacy_pool(settings, monkeypatch):
-    from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
-    from posthog.models.event.new_events_schema import new_events_cluster_host_scope
-
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "env.example.com"
     host = "native.example.com"
     monkeypatch.setattr("posthog.models.event.new_events_schema.get_instance_setting", lambda key: host)
@@ -156,12 +153,8 @@ def test_native_events_pool_is_separate_from_legacy_pool(settings, monkeypatch):
     native = get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44)
     assert native is not legacy
     assert native.connection_args["host"] == "native.example.com"
-    with new_events_cluster_host_scope():
-        assert get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44) is native
-        host = "replacement.example.com"
-        pools = []
-        run_in_parallel_threads([lambda: pools.append(get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44))])
-        assert pools == [native]
+    assert get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44) is native
+    host = "replacement.example.com"
     replacement = get_pool(Workload.NEW_EVENTS_CLUSTER, team_id=44)
     assert replacement is not native
     assert replacement.connection_args["host"] == host

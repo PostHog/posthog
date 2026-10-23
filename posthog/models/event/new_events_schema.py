@@ -5,16 +5,17 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
+from posthog.clickhouse.workload import MAIN_CLUSTER_WORKLOADS, Workload
 from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
+    from posthog.hogql.context import HogQLContext
 
-# TODO: Remove the per-query rollout option, and the route helpers in this block, after the events cluster
-# migration is complete.
-EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
-_query_host: ContextVar[list[str | None] | None] = ContextVar("new_events_cluster_host", default=None)
+
+# TODO: Remove the route helpers in this block after the events cluster migration is complete.
+EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema",)
 _query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
 
 
@@ -54,10 +55,7 @@ def with_pinned_events_route(query: dict[str, Any], modifiers: "HogQLQueryModifi
     if "modifiers" not in _copy_source_chain(query)[-1]:
         return query
     nodes = _copy_source_chain(strip_events_route_modifiers(query))
-    route: dict[str, Any] = {"useNewEventsSchema": modifiers.useNewEventsSchema}
-    if modifiers.useNewEventsCluster is not None:
-        route["useNewEventsCluster"] = modifiers.useNewEventsCluster
-    nodes[-1]["modifiers"] = {**(nodes[-1]["modifiers"] or {}), **route}
+    nodes[-1]["modifiers"] = {**(nodes[-1]["modifiers"] or {}), "useNewEventsSchema": modifiers.useNewEventsSchema}
     return nodes[0]
 
 
@@ -70,67 +68,56 @@ def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: boo
     modifiers = dict(modifiers)
     if modifiers.get("useNewEventsSchema") is False or not reads_events:
         modifiers.pop("useNewEventsSchema", None)
-    if not modifiers.get("useNewEventsCluster"):
-        modifiers.pop("useNewEventsCluster", None)
     return modifiers
 
 
 def get_new_events_cluster_host() -> str | None:
-    snapshot = _query_host.get()
-    if snapshot:
-        return snapshot[0]
     value = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_HOST")
-    host = value if isinstance(value, str) and value else None
-    if snapshot is not None:
-        snapshot.append(host)
-    return host
-
-
-@contextmanager
-def new_events_cluster_host_scope() -> Iterator[None]:
-    # Pin cache lookup and execution to one host even if settings change mid-request.
-    if _query_host.get() is not None:
-        yield
-        return
-    token = _query_host.set([])
-    try:
-        yield
-    finally:
-        _query_host.reset(token)
+    return value if isinstance(value, str) and value else None
 
 
 def get_events_route() -> "HogQLQueryModifiers | None":
-    """The events cluster and table of the query run in progress, or None outside a query run."""
+    """The events table of the query run in progress, or None outside a query run."""
     return _query_route.get()
 
 
 @contextmanager
 def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
-    # Lookups inside a run, such as an all-time range's earliest event, must read the query's cluster and table.
+    # Lookups inside a run, such as an all-time range's earliest event, must read the query's events table.
     from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
-    token = _query_route.set(
-        HogQLQueryModifiers(
-            useNewEventsCluster=modifiers.useNewEventsCluster, useNewEventsSchema=modifiers.useNewEventsSchema
-        )
-    )
+    token = _query_route.set(HogQLQueryModifiers(useNewEventsSchema=modifiers.useNewEventsSchema))
     try:
         yield
     finally:
         _query_route.reset(token)
 
 
-def use_new_events_cluster(team_id: int | None, modifiers: "HogQLQueryModifiers | None") -> bool:
-    from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
+def use_new_events_cluster(team_id: int | None) -> bool:
+    """Whether the project's reads of events_json run on the events cluster.
 
-    if modifiers is None or not modifiers.useNewEventsCluster:
-        return False
+    The main cluster reaches events_json through a Distributed table. While it runs an older ClickHouse than the
+    events cluster, a query started on one of its nodes fails for common shapes, so the query starts on the events
+    cluster instead, when CLICKHOUSE_NATIVE_EVENTS_HOST is set and the project is in CLICKHOUSE_NATIVE_EVENTS_TEAMS.
+    """
     if not get_new_events_cluster_host():
-        raise ExposedHogQLError("The native events cluster host is not configured.")
+        return False
     allowed = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_TEAMS")
-    if not isinstance(allowed, list) or any(type(value) is not int for value in allowed) or team_id not in allowed:
-        raise ExposedHogQLError("This project is not enabled for native events cluster queries.")
-    return True
+    return isinstance(allowed, list) and all(type(value) is int for value in allowed) and team_id in allowed
+
+
+def events_read_workload(workload: Workload, context: "HogQLContext") -> Workload:
+    """The workload a printed query runs under.
+
+    The events cluster when the SQL read events_json for a project whose reads run there, otherwise the caller's choice.
+    """
+    if (
+        workload in MAIN_CLUSTER_WORKLOADS
+        and context.reads_native_events_table
+        and use_new_events_cluster(context.team_id)
+    ):
+        return Workload.NEW_EVENTS_CLUSTER
+    return workload
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:

@@ -15,3 +15,7 @@ class Workload(StrEnum):
     NEW_EVENTS_CLUSTER = "NEW_EVENTS_CLUSTER"
     # Endpoints (the product) queries
     ENDPOINTS = "ENDPOINTS"
+
+
+# A query on one of these can be moved to another cluster by the table it reads. LOGS and ENDPOINTS already pin a host.
+MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
