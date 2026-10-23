@@ -173,7 +173,14 @@ class TestTemplateUpload(APIBaseTest):
         made_in_posthog = MessageTemplate.objects.create(
             team=self.team,
             name="Welcome",
-            content={"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
+            content={
+                "email": {
+                    "subject": "Hello",
+                    "html": "<p>Hello</p>",
+                    "from": {"email": "hello@example.com", "name": "Example team"},
+                    "replyTo": "replies@example.com",
+                }
+            },
             draft_content={"email": {"subject": "Hello draft", "html": "<p>Hello draft</p>"}},
             type="email",
         )
@@ -197,7 +204,11 @@ class TestTemplateUpload(APIBaseTest):
         workflow = self._workflow(str(hog_flow_id))
         assert workflow["status"] == "archived"
         email = self._sent_email(str(hog_flow_id))
-        assert (email["subject"], email["from"]["integrationId"]) == (WELCOME["subject"], other_sender.id)
+        assert (email["subject"], email["from"], email["replyTo"]) == (
+            WELCOME["subject"],
+            {"integrationId": other_sender.id, "email": "hello@example.com", "name": "Example team"},
+            "replies@example.com",
+        )
         made_in_posthog.refresh_from_db()
         assert made_in_posthog.draft_content is None
 

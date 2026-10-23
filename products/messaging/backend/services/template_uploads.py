@@ -120,7 +120,9 @@ def _write_upload(template: MessageTemplate, upload: TemplateUpload) -> None:
     template.name = upload.name
     template.type = "email"
     template.managed_by = TemplateManagedBy.CODE
-    template.content = {**(template.content or {}), "templating": "liquid", "email": _email(upload)}
+    content = template.content or {}
+    stored_email = content.get("email") or {}
+    template.content = {**content, "templating": "liquid", "email": {**stored_email, **_email(upload)}}
     # The upload publishes, so a draft made in PostHog would show stale edits after a release.
     template.draft_content = None
     _write_source(template, upload.source)
