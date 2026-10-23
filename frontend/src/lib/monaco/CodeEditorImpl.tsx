@@ -109,7 +109,8 @@ function initEditor(
     }
 
     editor.onKeyDown((evt) => {
-        if (evt.keyCode === monaco.KeyCode.Space) {
+        // Monaco handles Ctrl+Space on a parent DOM listener, including in an empty editor.
+        if (evt.keyCode === monaco.KeyCode.Space && !evt.ctrlKey) {
             evt.stopPropagation()
         }
 

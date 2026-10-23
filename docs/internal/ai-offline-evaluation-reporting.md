@@ -77,6 +77,13 @@ Each scorer chart displays the loaded versions with results in the selected date
 while the summary defaults to the latest matching version. The version arrows change only the summary.
 Opening a scorer's history preserves the author and date filters and selects the version shown in the summary.
 The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
+By default, scorers are sorted by last updated, newest first.
+Creating and editing scorers stays under Evaluations → Scorers, with a detail heading and a back link to the list.
+Successful creation and edits return to the scorer list; failed saves keep the form open with your changes.
+
+Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
+These views use the full name when the short name is blank. Editing or clearing a short name updates existing
+experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
 
 The SQL suite uses these existing scorers:
 
@@ -553,6 +560,23 @@ Opening those resources requires their own permissions.
 ## Inspecting offline results
 
 Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
+When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
+with `tab=datasets` in the query string. MCP-generated dataset-list links retain this tab selector.
+Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
+links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
+`/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
+detail routes redirect there, preserving item deep links, revisions, tabs, filters, and hashes.
+The Evaluations heading and navigation stay in place on dataset creation and detail pages. Dataset items appear
+directly in the detail view; **Details** opens the dataset metadata without replacing the items table.
+The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
+Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
+experiment search and filters and restores the saved dataset tag selection.
+Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
+including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
+When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
+The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
+your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
+keep their data when collapsed and expanded again. Refresh or a filter change updates loaded charts.
 A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
 The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
 Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.

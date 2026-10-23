@@ -3986,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -8974,6 +8974,7 @@ dependencies = [
  "personhog-proto",
  "pin-project",
  "rstest",
+ "serde",
  "serde_json",
  "sqlx",
  "thiserror 2.0.18",

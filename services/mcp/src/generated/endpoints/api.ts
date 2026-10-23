@@ -473,8 +473,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                         ),
                         zod.null(),
                     ])
-                    .optional()
-                    .describe('Metric label matchers ANDed into every metrics tile. Other tiles ignore them.'),
+                    .optional(),
                 metricVariables: zod
                     .union([
                         zod.array(

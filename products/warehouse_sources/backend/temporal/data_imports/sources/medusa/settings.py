@@ -67,8 +67,9 @@ class MedusaEndpointConfig:
 
 
 # Medusa v2 Admin API list routes. Every entry is a documented list route on a stock v2 server;
-# all carry `created_at`/`updated_at` operator filters except price lists, whose list route
-# documents no timestamp filters. Fulfillments have no list route in v2, so they are absent.
+# all carry `created_at`/`updated_at` operator filters except price lists and inventory items,
+# whose list routes document no timestamp filters (the inventory item validator is strict and
+# rejects them). Fulfillments have no list route in v2, so they are absent.
 MEDUSA_ENDPOINTS: dict[str, MedusaEndpointConfig] = {
     "Orders": MedusaEndpointConfig(name="Orders", path="/orders", data_selector="orders"),
     "DraftOrders": MedusaEndpointConfig(name="DraftOrders", path="/draft-orders", data_selector="draft_orders"),
@@ -83,6 +84,14 @@ MEDUSA_ENDPOINTS: dict[str, MedusaEndpointConfig] = {
         name="PriceLists", path="/price-lists", data_selector="price_lists", incremental_field_name=None
     ),
     "Returns": MedusaEndpointConfig(name="Returns", path="/returns", data_selector="returns"),
+    "Exchanges": MedusaEndpointConfig(name="Exchanges", path="/exchanges", data_selector="exchanges"),
+    "Claims": MedusaEndpointConfig(name="Claims", path="/claims", data_selector="claims"),
+    "StockLocations": MedusaEndpointConfig(
+        name="StockLocations", path="/stock-locations", data_selector="stock_locations"
+    ),
+    "InventoryItems": MedusaEndpointConfig(
+        name="InventoryItems", path="/inventory-items", data_selector="inventory_items", incremental_field_name=None
+    ),
 }
 
 ENDPOINTS = tuple(MEDUSA_ENDPOINTS)

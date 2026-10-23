@@ -791,7 +791,8 @@ class MessageTemplatesViewSet(
         summary="Make a template transactional",
         description=(
             "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
-            "with its own metrics, run history and versions. Calling it again on a transactional template changes "
+            "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
+            "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
             "nothing."
         ),
         parameters=[TEMPLATE_ID_PARAMETER],

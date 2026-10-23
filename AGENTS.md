@@ -208,6 +208,10 @@ Each rule is tagged with what catches a violation.
 
 - **A new DNS-resolution or outbound-host entry point calls the shared out-of-band domain check.** `[lint: test_oob_denylist_coverage.py]` Every host guard here is IP-based, and an out-of-band interaction domain resolves to an ordinary public IP, so a resolver that skips the check restores the gap in silence. The list and the edit procedure live in `posthog/security/crosslang/`.
 
+### Configuration and secrets
+
+- **A key in `posthog/settings/dynamic_settings.py` exists only because operators must change its value live, without a deploy.** `[review]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. Kill switches and tuning knobs for incidents qualify. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. Never store a secret as an instance setting, because the database keeps it as plain text. A per-team rollout or a team allowlist is a feature flag.
+
 ### Django admin
 
 - **A new `ForeignKey`/`OneToOneField` on an admin-exposed model needs explicit widget config.** `[review]` List the field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model, including inlines attached to a related admin. Otherwise the default `<select>` loads the entire target table per row on each change-page render. Declare it on a shared base inline so per-parent variants inherit it.

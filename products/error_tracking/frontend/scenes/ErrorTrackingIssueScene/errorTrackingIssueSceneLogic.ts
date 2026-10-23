@@ -67,6 +67,7 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../qu
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
 import { linkedReportsLogic } from './linkedReportsLogic'
+import { issueAffectedBroadcastLogic } from './ScenePanel/issueAffectedBroadcastLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -1097,6 +1098,17 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         },
                         router.values.hashParams
                     )
+                }
+            },
+            [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName, issueId }) => {
+                if (
+                    mutationName === 'updateIssueStatus' &&
+                    issueId === props.id &&
+                    values.issue?.status === 'resolved'
+                ) {
+                    issueAffectedBroadcastLogic
+                        .findMounted({ issueId: props.id, issueName: values.issue.name })
+                        ?.actions.offerAfterResolve()
                 }
             },
         }

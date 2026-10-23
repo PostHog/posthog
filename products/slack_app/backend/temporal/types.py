@@ -127,6 +127,9 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # True when the author already accepted the private offer to answer, so the run
     # skips the classifier and the offer on the way back through.
     untagged_question_confirmed: bool = False
+    # True when the thread creator let this person join and the message that asked is sent
+    # again. The same Slack event already came through once to raise the join prompt.
+    thread_join_approved: bool = False
     # Slack sets this on the event envelope for Slack Connect channels. It is
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.

@@ -1110,6 +1110,8 @@ describe('Tool Filtering - Feature Flags', () => {
             'marketing-analytics-conversion-setup-ai',
             'insight-data-checks',
             'logs-agent-tools',
+            'workflows-transactional-email-api',
+            'activity-summary',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and

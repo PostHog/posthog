@@ -429,6 +429,44 @@ describe('workflowLogic auto-save', () => {
             expect(patchBodies[0].status).toBe('draft')
         })
 
+        it('disables with unsaved edits in the form, without saving or dropping them', async () => {
+            useMocks(activeMocks(activeWorkflow))
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            let scheduleWrites = 0
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules/:schedule_id/': () => {
+                        scheduleWrites += 1
+                        return [200, {}]
+                    },
+                },
+            })
+            logic.actions.setSchedules([
+                { id: 'schedule-1', rrule: 'FREQ=DAILY', starts_at: '2026-05-02T09:00:00.000Z', timezone: 'UTC' },
+            ])
+            logic.actions.setScheduleStartsAt('2026-05-03T09:00:00.000Z')
+            logic.actions.setWorkflowValues({
+                name: 'Unsaved name',
+                actions: renameExit(logic.values.workflow.actions, 'Unsaved exit'),
+            })
+            expect(logic.values.statusToggleDisabledReason).toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflowPartial({ status: 'draft' })
+            }).toDispatchActions(['saveWorkflowSuccess', 'resetWorkflow'])
+
+            expect(patchBodies[0]).toMatchObject({ status: 'draft', name: 'Autosave test' })
+            expect(logic.values.workflow).toMatchObject({ status: 'draft', name: 'Unsaved name' })
+            expect(logic.values.workflow.actions.find((a) => a.id === 'exit_node')?.name).toBe('Unsaved exit')
+            expect(scheduleWrites).toBe(0)
+            expect(logic.values.pendingSchedule).toMatchObject({ starts_at: '2026-05-03T09:00:00.000Z' })
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
         it('an edit to a disabled workflow with a leftover draft clears the draft and keeps the edit', async () => {
             useMocks(
                 activeMocks({

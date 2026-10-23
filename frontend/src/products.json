@@ -22,18 +22,11 @@
             "intents": ["llm_clusters"]
         },
         {
-            "path": "Datasets",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_datasets",
-            "intents": ["llm_datasets"]
-        },
-        {
             "path": "Evaluations",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_evaluations",
-            "intents": ["llm_evaluations"]
+            "intents": ["llm_evaluations", "llm_datasets"]
         },
         {
             "path": "Taggers",
