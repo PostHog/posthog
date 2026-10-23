@@ -624,6 +624,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "invalid_request",
                 "to",
             ),
+            ("quoted_reply_to", {"reply_to": ['"help,desk"@example.com']}, "invalid_request", "reply_to__0"),
             ("not_an_address", {"from": "Example"}, "invalid_request", "from"),
             ("quoted_local_part", {"from": '"security"@example.com'}, "invalid_request", "from"),
             ("sender_too_long", {"from": f"{'s' * 250}@example.com"}, "invalid_request", "from"),
@@ -652,9 +653,17 @@ class TestTransactionalEmail(APIBaseTest):
         assert error["why"] and error["fix"]
         if expected_code == "invalid_request":
             # The why explains the field that failed, not what a send needs in general.
-            assert f"`{expected_attr.split('__')[0]}" in error["why"], error["why"]
+            named = {"reply_to__0": "reply_to"}.get(expected_attr, expected_attr)
+            assert f"`{named.split('__')[0]}" in error["why"], error["why"]
         if expected_attr == "to":
             assert error["detail"] == f"to: `{fields['to']}` is not a bare address. Send it as `jane@example.com`."
+        mock_post.assert_not_called()
+
+    def test_the_url_id_route_refuses_a_recipient_the_pipeline_would_split(self, mock_post, _flag, _capture):
+        response = self.client.post(self.url, {**self.body, "to": '"help,desk"@example.com'}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "to"
         mock_post.assert_not_called()
 
     @parameterized.expand(

@@ -28,6 +28,7 @@ from products.messaging.backend.facade.transactional_email import (
     Unavailable,
     send_email,
 )
+from products.messaging.backend.presentation.views.send_email_fields import PlainAddressField
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.workflows import get_workflow
 
@@ -50,7 +51,7 @@ class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
 
 
 class SendTransactionalEmailSerializer(serializers.Serializer):
-    to = serializers.EmailField(help_text="Email address of the recipient.")
+    to = PlainAddressField(help_text="Email address of the recipient.")
     identifiers = TransactionalEmailIdentifiersSerializer(
         required=False, help_text="Who the email is for, used to attribute engagement events."
     )

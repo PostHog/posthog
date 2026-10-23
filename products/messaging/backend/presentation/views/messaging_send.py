@@ -124,7 +124,7 @@ class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmail
         "its own sender. Not with `template.id`.",
     )
     reply_to = serializers.ListField(
-        child=serializers.EmailField(),
+        child=PlainAddressField(),
         required=False,
         allow_empty=False,
         max_length=10,
