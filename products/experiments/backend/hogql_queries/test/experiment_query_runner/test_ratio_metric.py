@@ -24,8 +24,10 @@ from posthog.schema import (
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.experiments.backend.llm_metric_templates import build_eval_pass_rate_metric
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -181,6 +183,72 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         # Check main-denominator sum product
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    def test_eval_pass_rate_grades_with_current_evaluation_rules(self, name: str, use_precomputation: bool) -> None:
+        self._setup_precomputation_test(use_precomputation)
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        metric = build_eval_pass_rate_metric("my-prompt")
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+        detector = Evaluation.objects.create(
+            team=self.team,
+            name="detector",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={"true_is_failure": True},
+        )
+
+        # A detector run passes when it detects nothing, so control passes 3 of 4 runs and test passes 1 of 4.
+        for variant, results in (("control", [False, False, False, True]), ("test", [False, True, True, True])):
+            for i, result in enumerate(results):
+                distinct_id = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={"$feature_flag_response": variant, "$feature_flag": feature_flag.key},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$ai_evaluation",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        "$ai_prompt_name": "my-prompt",
+                        "$ai_evaluation_id": str(detector.id),
+                        "$ai_evaluation_result": result,
+                    },
+                )
+        flush_persons_and_events()
+
+        def passed_and_graded() -> list[tuple[float, float | None]]:
+            query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+            runner = ExperimentQueryRunner(query=query, team=self.team)
+            result = cast(ExperimentQueryResponse, runner.calculate())
+            assert runner._metric_events_precomputed is use_precomputation
+            assert result.baseline is not None and result.variant_results is not None
+            assert result.hogql is None and result.clickhouse_sql is None
+            return [(variant.sum, variant.denominator_sum) for variant in [result.baseline, *result.variant_results]]
+
+        self.assertEqual(passed_and_graded(), [(3, 4), (1, 4)])
+
+        # The experiment stores no rules, so the next query grades with the edited ones. On the precomputed path this
+        # also proves that the edit changed the job hash, because reused jobs would still hold the old pass counts.
+        detector.output_config = {}
+        detector.save()
+        self.assertEqual(passed_and_graded(), [(1, 4), (3, 4)])
 
     @parameterized.expand(
         [

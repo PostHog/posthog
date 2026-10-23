@@ -74,6 +74,7 @@ from posthog.models.integration import (
     StripeIntegration,
     github_account_type,
 )
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -857,7 +858,7 @@ class TestDatabricksIntegration:
             {
                 "kind": "databricks",
                 "config": {
-                    "server_hostname": "databricks.com",
+                    "server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com",
                     "client_id": "client_id",
                     "client_secret": "client_secret",
                 },
@@ -873,22 +874,22 @@ class TestDatabricksIntegration:
         integration = Integration.objects.get(id=id)
         assert integration.kind == "databricks"
         assert integration.team == self.team
-        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.config == {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com"}
         assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
         assert integration.created_by == self.user
-        assert integration.integration_id == "databricks.com"
+        assert integration.integration_id == "dbc-a1b2c3d4-e5f6.cloud.databricks.com"
 
     @pytest.mark.parametrize(
         "invalid_config,expected_error_message",
         [
             # missing client_secret
             (
-                {"server_hostname": "databricks.com", "client_id": "client_id"},
+                {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com", "client_id": "client_id"},
                 "Server hostname, client ID, and client secret must be provided",
             ),
             # missing client_id
             (
-                {"server_hostname": "databricks.com", "client_secret": "client_secret"},
+                {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com", "client_secret": "client_secret"},
                 "Server hostname, client ID, and client secret must be provided",
             ),
             # missing server_hostname
@@ -900,7 +901,11 @@ class TestDatabricksIntegration:
             ({}, "Server hostname, client ID, and client secret must be provided"),
             # wrong type for client_secret
             (
-                {"server_hostname": "databricks.com", "client_id": "client_id", "client_secret": 1},
+                {
+                    "server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com",
+                    "client_id": "client_id",
+                    "client_secret": 1,
+                },
                 "Server hostname, client ID, and client secret must be strings",
             ),
         ],
@@ -932,17 +937,17 @@ class TestDatabricksIntegration:
             "127.0.0.1",
             "10.0.0.1",
             "192.168.1.1",
+            "evil.example.com",
         ],
     )
     # FORCE_URL_VALIDATION exercises the real SSRF guard; otherwise is_url_allowed short-circuits
     # in dev/DEBUG, which is on under tests.
     @override_settings(FORCE_URL_VALIDATION=True)
-    def test_integration_from_config_rejects_internal_host(
+    def test_integration_from_config_rejects_non_databricks_host(
         self,
         host,
         client: HttpClient,
     ):
-        """Member-supplied Databricks hosts that resolve to internal IPs must be rejected (SSRF guard)."""
         client.force_login(self.user)
 
         response = client.post(
@@ -959,7 +964,7 @@ class TestDatabricksIntegration:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert host in response.json()["detail"]
+        assert response.json()["detail"] == NOT_A_DATABRICKS_HOST_MESSAGE
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 

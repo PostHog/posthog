@@ -238,7 +238,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         else:
             await database_sync_to_async(create_subscription)(team_id=self.team.id, insight_id=insight.id)
 
-        with patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted table"]):
+        with patch("posthog.api.sharing_publish_gate.denied_query_resources", return_value=["restricted table"]):
             with self.assertRaisesRegex(MaxToolRetryableError, expected_reason):
                 await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
 
