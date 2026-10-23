@@ -92,6 +92,12 @@ const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'o
 // While history is being built, flags can't target the cohort yet, so the scene keeps asking. The
 // build takes tens of minutes, so this is slow polling, unlike the 1s loop the daily calculation uses.
 export const REALTIME_POLL_INTERVAL_MS = 15_000
+
+// Mirrors COHORT_CSV_UPLOAD_MAX_BYTES. A larger body can hit a proxy limit and return a 413 with no detail.
+export const COHORT_CSV_MAX_BYTES = 20 * 1024 * 1024
+export const COHORT_CSV_TOO_LARGE_MESSAGE =
+    'CSV file is larger than the limit of 20 MB. Split the file into smaller parts and upload them one at a time.'
+
 const BUILDING_STATES: CohortRealtimeStateEnumApi[] = ['building', 'rebuilding']
 
 const isBuildingHistory = (cohort: CohortType): boolean =>
@@ -851,9 +857,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ name, is_static, filters }) => ({
+            errors: ({ name, is_static, filters, csv }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
-                csv: undefined,
+                csv: csv && csv.size > COHORT_CSV_MAX_BYTES ? COHORT_CSV_TOO_LARGE_MESSAGE : undefined,
                 filters: {
                     properties: {
                         values:
@@ -1009,6 +1015,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 })
                                 return values.cohort
                             }
+                        }
+
+                        if (error.status === 413) {
+                            lemonToast.error(COHORT_CSV_TOO_LARGE_MESSAGE)
+                            return values.cohort
                         }
 
                         lemonToast.error(error.detail || 'Failed to save cohort')

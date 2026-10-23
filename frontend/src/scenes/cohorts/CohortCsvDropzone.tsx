@@ -43,7 +43,7 @@ export function CohortCsvDropzone({
                     ) : (
                         <>
                             <div>Drag a file here or click to browse for a file</div>
-                            <div className="text-secondary text-xs">Accepts .csv files only</div>
+                            <div className="text-secondary text-xs">Accepts .csv files up to 20 MB</div>
                         </>
                     )}
                 </div>

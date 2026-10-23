@@ -5,11 +5,18 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
+import { ApiError } from 'lib/api-error'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
-import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import {
+    COHORT_CSV_MAX_BYTES,
+    COHORT_CSV_TOO_LARGE_MESSAGE,
+    CohortLogicProps,
+    REALTIME_POLL_INTERVAL_MS,
+    cohortEditLogic,
+} from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1182,6 +1189,35 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
+        })
+
+        it('do not save static cohort with csv over the size limit', async () => {
+            await initCohortLogic({ id: 1 })
+            const csv = new File(['user_1'], 'ids.csv')
+            Object.defineProperty(csv, 'size', { value: COHORT_CSV_MAX_BYTES + 1 })
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({ ...mockCohort, is_static: true, groups: [], csv })
+                logic.actions.setStaticCohortMode('people')
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortFailure'])
+            expect(logic.values.cohortValidationErrors.csv).toEqual(COHORT_CSV_TOO_LARGE_MESSAGE)
+            expect(api.update).toHaveBeenCalledTimes(0)
+        })
+
+        it('shows the size limit when the save is rejected with a 413', async () => {
+            await initCohortLogic({ id: 1 })
+            ;(api.update as jest.Mock).mockRejectedValueOnce(new ApiError('Payload too large', 413))
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    is_static: true,
+                    groups: [],
+                    csv: new File(['user_1'], 'ids.csv'),
+                })
+                logic.actions.setStaticCohortMode('people')
+                logic.actions.submitCohort()
+            }).toDispatchActions(['submitCohort', 'saveCohortSuccess'])
+            expect(lemonToast.error).toHaveBeenCalledWith(COHORT_CSV_TOO_LARGE_MESSAGE)
         })
 
         it('calls scrollToFormError with fallback message on submitCohortFailure', async () => {
