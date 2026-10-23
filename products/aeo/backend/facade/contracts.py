@@ -36,6 +36,7 @@ class EngineAnswer:
 @frozen
 class CitationGap:
     prompt_id: str
+    # Hash of the prompt's first version: stays the same when the text is edited, so it can key the gap.
     prompt_hash: str
     prompt_text: str
     checks: int

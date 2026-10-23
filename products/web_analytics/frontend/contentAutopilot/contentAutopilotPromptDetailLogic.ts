@@ -260,8 +260,11 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         versions: [
             null as AEOPromptVersionApi[] | null,
             {
-                loadAeoPromptVersions: async (promptId: string) =>
-                    aeoPromptsVersions(String(values.currentTeamIdStrict), promptId),
+                loadAeoPromptVersions: async (promptId: string, breakpoint) => {
+                    const versions = await aeoPromptsVersions(String(values.currentTeamIdStrict), promptId)
+                    breakpoint()
+                    return versions
+                },
             },
         ],
         stats: [
@@ -473,10 +476,15 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 )
                 actions.loadAeoPrompts()
                 actions.loadAeoPromptTopics()
-            } catch {
+            } catch (error) {
                 actions.setPromptArchivedFailure()
+                // A 400 explains why the change was refused, so show it rather than asking for a retry.
+                const detail = error instanceof ApiError && error.status === 400 ? error.detail : null
                 lemonToast.error(
-                    archived ? "Couldn't archive the prompt. Try again." : "Couldn't restore the prompt. Try again."
+                    detail ||
+                        (archived
+                            ? "Couldn't archive the prompt. Try again."
+                            : "Couldn't restore the prompt. Try again.")
                 )
             }
         },

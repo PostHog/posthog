@@ -130,8 +130,10 @@ class TestAEOPromptAPI(APIBaseTest):
             (1, "tracked?", "", False),
         ]
         assert versions[0]["created_by"]["email"] == self.user.email
+        with team_scope(self.team.pk):
+            AEOCitationCheck.objects.filter(prompt_id=prompt_id, prompt_version=1).update(prompt_version=None)
         checks = self.client.get(f"{self.url}{prompt_id}/checks/?version=1").json()["results"]
-        assert [check["prompt_version"] for check in checks] == [1]
+        assert [check["prompt_version"] for check in checks] == [None]
 
         response = self.client.patch(f"{self.url}{prompt_id}/", {"current_version": 1}, format="json")
 

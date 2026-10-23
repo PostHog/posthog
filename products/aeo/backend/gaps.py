@@ -6,13 +6,14 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from django.conf import settings
-from django.db.models import BooleanField, Case, Q, Value, When
+from django.db.models import BooleanField, Case, F, Q, Value, When
 
 import tldextract
 
 from products.aeo.backend.engines import is_target_url, top_domains
 from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.models import AEOCitationCheck, AEOPromptVersion
+from products.aeo.backend.seeding import prompt_hash
 
 MAX_GAP_URLS = 10
 MAX_GAP_QUERIES = 10
@@ -32,8 +33,15 @@ def _brand_regex(target_domains: list[str]) -> str | None:
 
 def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]:
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
-    checks_in_window = AEOCitationCheck.objects.for_team(team_id).filter(
-        created_at__gte=since, check_failed=False, prompt__active=True
+    # Only the wording in use counts: checks of an older version describe a question nobody asks any more.
+    # Checks recorded before versions existed carry no version and ran version 1.
+    current_version = Q(prompt_version=F("prompt__current_version")) | Q(
+        prompt_version__isnull=True, prompt__current_version=1
+    )
+    checks_in_window = (
+        AEOCitationCheck.objects.for_team(team_id)
+        .filter(created_at__gte=since, check_failed=False, prompt__active=True)
+        .filter(current_version)
     )
     mention = Q(cited=True)
     if brand := _brand_regex(target_domains):
@@ -75,6 +83,12 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
             )
         )
 
+    # A text edit changes `prompt_hash`, so the gap key comes from version 1, which never changes.
+    first_versions = AEOPromptVersion.objects.for_team(team_id).filter(prompt_id__in=grouped.keys(), version=1)
+    stable_keys = {
+        str(prompt_id): prompt_hash(text) for prompt_id, text in first_versions.values_list("prompt_id", "text")
+    }
+
     gaps: list[CitationGap] = []
     for prompt_id, checks in grouped.items():
         cited_checks = sum(1 for check in checks if check["cited"])
@@ -102,7 +116,7 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
         gaps.append(
             CitationGap(
                 prompt_id=prompt_id,
-                prompt_hash=latest["prompt_hash"],
+                prompt_hash=stable_keys.get(prompt_id, latest["prompt_hash"]),
                 prompt_text=latest["prompt_text"],
                 checks=len(checks),
                 cited_checks=cited_checks,

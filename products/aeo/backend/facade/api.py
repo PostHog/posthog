@@ -172,7 +172,11 @@ def list_prompt_checks(
     if engine is not None:
         checks = checks.filter(engine=engine)
     if version is not None:
-        checks = checks.filter(prompt_version=version)
+        # Checks recorded before versions existed carry no version and ran version 1.
+        in_version = (
+            Q(prompt_version=version) | Q(prompt_version__isnull=True) if version == 1 else Q(prompt_version=version)
+        )
+        checks = checks.filter(in_version)
     page = checks.order_by("-created_at", "-id").values(*_CHECK_FIELDS)[offset : offset + limit]
     return [_to_prompt_check(row) for row in page], checks.count()
 
