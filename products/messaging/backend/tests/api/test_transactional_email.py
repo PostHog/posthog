@@ -841,7 +841,7 @@ class TestTransactionalEmail(APIBaseTest):
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
         MessageTemplate.objects.filter(id=self.template.id).update(draft_content={"email": {"subject": "Draft"}})
         security = Integration.objects.create(
@@ -860,9 +860,10 @@ class TestTransactionalEmail(APIBaseTest):
                 {"content": {"email": email_content}},
                 format="json",
             )
+            # A worker reloading before the commit would cache the old version.
+            reload.assert_not_called()
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        # Workers reload once the new version is committed, not only from inside the transaction.
         reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(self.hog_flow_id)])
         workflow = self._workflow(self.hog_flow_id)
         assert workflow["version"] == 2

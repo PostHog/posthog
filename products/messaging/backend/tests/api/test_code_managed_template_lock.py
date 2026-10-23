@@ -131,9 +131,8 @@ class TestCodeManagedTemplateLock(APIBaseTest):
 
         assert refusal["fix"].startswith(f"Change {expected_file} and upload it again.")
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_code_managed_template_still_sends_takes_the_sensitive_setting_and_tags_and_stays_transactional(
-        self, _reload, post: MagicMock, _flag, _capture
+        self, post: MagicMock, _flag, _capture
     ):
         uploaded = self._upload(WELCOME)
         post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})

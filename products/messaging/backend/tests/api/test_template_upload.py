@@ -165,8 +165,7 @@ class TestTemplateUpload(APIBaseTest):
         email = self._sent_email(uploaded.json()["transactional_hog_flow_id"])
         assert (email["html"], email["text"]) == ("", WELCOME_TEXT["text"])
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
-    def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
+    def test_a_changed_upload_is_what_the_next_send_delivers(self, post: MagicMock, _flag, _capture):
         first = self._upload(WELCOME)
         post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
 
@@ -476,9 +475,8 @@ class TestTemplateUpload(APIBaseTest):
             ("outdated", f"v1:{'0' * 64}", status.HTTP_409_CONFLICT, None),
         ]
     )
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_send_by_key_with_a_hash_only_ever_sends_the_published_content(
-        self, hash_state, sent_hash, expected_status, expected_warnings, _reload, post: MagicMock, _flag, capture
+        self, post: MagicMock, _flag, capture, hash_state, sent_hash, expected_status, expected_warnings
     ):
         post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
         self._upload(WELCOME)
