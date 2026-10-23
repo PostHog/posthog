@@ -132,6 +132,33 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(str(warehouse_job.id), [job["id"] for job in response.json()["results"]])
 
+    def test_all_engines_includes_managed_warehouse_jobs_with_usage(self):
+        warehouse_job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            last_run_at=timezone.now(),
+            read_bytes=1024,
+            read_rows=20,
+            cpu_microseconds=300,
+            query_count=4,
+            usage_updated_at=timezone.now(),
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/?all_engines=true")
+
+        self.assertEqual(response.status_code, 200)
+        jobs_by_id = {job["id"]: job for job in response.json()["results"]}
+        self.assertIn(str(warehouse_job.id), jobs_by_id)
+        self.assertNotIn(str(self.other_team_job.id), jobs_by_id)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["engine"], DataModelingJobEngine.MANAGED_WAREHOUSE)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["read_bytes"], 1024)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["read_rows"], 20)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["cpu_microseconds"], 300)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["query_count"], 4)
+        self.assertIsNotNone(jobs_by_id[str(warehouse_job.id)]["usage_updated_at"])
+
     def test_pagination_honors_offset_and_returns_count(self):
         paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")
         for _ in range(12):

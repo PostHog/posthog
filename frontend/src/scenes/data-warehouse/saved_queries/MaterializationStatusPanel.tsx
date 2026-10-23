@@ -17,7 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, LogEntryLevel } from '~/types'
 
-import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
+import { SERVING_ENGINE, suspendedScheduleMessage } from 'products/data_modeling/frontend/suspension'
 import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
@@ -206,22 +206,14 @@ export function MaterializationStatusPanel({
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         {!hideTitle && <h3 className="mb-0">Materialization</h3>}
-                        {showStatusSummary && savedQuery?.latest_error && savedQuery.status === 'Failed' && (
-                            <Tooltip title={savedQuery.latest_error} interactive>
-                                <LemonTag type="danger">Error</LemonTag>
-                            </Tooltip>
-                        )}
                     </div>
                     {showStatusSummary && showSuspendedBanner && suspension && (
                         <LemonBanner type="error" className="mt-2">
                             <div data-attr="materialization-suspended-banner">
-                                <div>
-                                    Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
-                                    because materialization kept failing. Fix the query, then resume.
-                                </div>
+                                <div>{suspendedScheduleMessage(kind === 'endpoint' ? 'endpoint' : 'view')}</div>
                                 <Tooltip title={suspension.reason} interactive>
                                     <div className="mt-1 text-xs font-normal line-clamp-2">
-                                        Paused {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
+                                        Suspended {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
                                     </div>
                                 </Tooltip>
                             </div>

@@ -5,6 +5,7 @@ from the `$anomaly_score` events. `selection.pick_order` then orders the due ins
 """
 
 import datetime
+import itertools
 from collections.abc import Collection
 from typing import Any, cast
 
@@ -46,7 +47,8 @@ _MAX_SCORED_SERIES = 50_000
 # An insight is not picked again in this time after an attempt. Events take a moment to reach
 # ClickHouse, and an insight that writes nothing would otherwise stay at the head of the queue.
 ATTEMPT_COOLDOWN = datetime.timedelta(hours=1)
-UNSUPPORTED_COOLDOWN = datetime.timedelta(days=1)
+# For a failure that the next hour does not fix: an unsupported shape, a query that is too expensive, or no access.
+SKIP_COOLDOWN = datetime.timedelta(days=1)
 
 _CALENDAR_INTERVALS = {
     IntervalType.HOUR: CalendarInterval.HOURLY,
@@ -88,6 +90,7 @@ class InsightPick:
     insight_id: int
     # The newest scored bucket start of each series, in UTC. Empty when the insight was never scored.
     scored_through: dict[str, datetime.datetime]
+    interval: IntervalType | None = None
 
 
 @frozen
@@ -158,7 +161,7 @@ def scored_buckets(
             "limit": ast.Constant(value=_MAX_SCORED_SERIES),
         },
         workload=Workload.OFFLINE,
-        ch_user=ClickHouseUser.SIGNALS,
+        ch_user=ClickHouseUser.DEFAULT,
     )
     state: dict[int, dict[str, datetime.datetime]] = {}
     for insight_id, series_key, newest_bucket in cast(list[tuple[Any, ...]], response.results or []):
@@ -223,10 +226,10 @@ def select_insights(
     for team_id in sorted({insight.team_id for insight in due_by_id.values()}):
         due_ids = [insight.insight_id for insight in due_by_id.values() if insight.team_id == team_id]
         usage.update(insight_usage(team_id=team_id, insight_ids=due_ids, now=now))
-    candidates = []
+    candidates_by_team: dict[int, list[Candidate]] = {}
     for insight in due_by_id.values():
         newest = newest_buckets[insight.insight_id]
-        candidates.append(
+        candidates_by_team.setdefault(insight.team_id, []).append(
             Candidate(
                 insight_id=insight.insight_id,
                 interval=insight.interval,
@@ -237,12 +240,25 @@ def select_insights(
                 usage=usage[insight.insight_id],
             )
         )
-    order = pick_order(
-        candidates, config=selection_config, tick_start=now, max_staleness=config.limits.max_backfill_buckets
-    )
+    team_orders = [
+        pick_order(
+            candidates_by_team[team_id],
+            config=selection_config,
+            tick_start=now,
+            max_staleness=config.limits.max_backfill_buckets,
+        )
+        for team_id in sorted(candidates_by_team)
+    ]
+    # Projects take turns, so one large project cannot take every slot of the tick budget.
+    order = [
+        insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None
+    ]
     picks = [
         InsightPick(
-            team_id=due_by_id[insight_id].team_id, insight_id=insight_id, scored_through=state.get(insight_id, {})
+            team_id=due_by_id[insight_id].team_id,
+            insight_id=insight_id,
+            scored_through=state.get(insight_id, {}),
+            interval=due_by_id[insight_id].interval,
         )
         for insight_id in order[:limit]
     ]

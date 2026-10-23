@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
@@ -13,7 +13,10 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
-from posthog.models import Organization, Team
+from posthog.hogql.errors import TableAccessDeniedError
+
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.models import Organization, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -22,6 +25,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.config import DISABLED, AnomalyScoringConfig, parse_config
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
 from products.signals.backend.anomaly_scores.queue import (
+    SKIP_COOLDOWN,
+    InsightPick,
     WatchedInsight,
     _cooldown_key,
     eligible_teams,
@@ -30,9 +35,14 @@ from products.signals.backend.anomaly_scores.queue import (
     select_insights,
     watched_insights,
 )
-from products.signals.backend.anomaly_scores.scoring import InsightScores, ScoredPoint, ScoredSeries
+from products.signals.backend.anomaly_scores.scoring import (
+    InsightScores,
+    ScoredPoint,
+    ScoredSeries,
+    UnsupportedInsightError,
+)
 from products.signals.backend.anomaly_scores.selection import SelectionConfig, Weighting
-from products.signals.backend.anomaly_scores.tick import plan_tick
+from products.signals.backend.anomaly_scores.tick import ScoreInsightInput, plan_tick, run_insight
 
 NEW_YORK = ZoneInfo("America/New_York")
 ORGANIZATION_ID = "4dc8564d-bd82-1065-2f40-97f7c50f67cf"
@@ -175,6 +185,23 @@ class TestScoreEvents(SimpleTestCase):
             ("new", start.isoformat()) for start in starts
         ]
 
+    def test_a_bucket_repeated_at_a_dst_fall_back_is_emitted_once(self) -> None:
+        # Trends returns the 01:00 bucket twice on the fall-back night, and both parse to the same instant.
+        starts = [datetime(2026, 11, 1, 0, tzinfo=NEW_YORK), datetime(2026, 11, 1, 1, tzinfo=NEW_YORK)]
+        starts.append(starts[-1])
+
+        events = score_events(
+            team_id=1,
+            insight_id=7,
+            scores=_scores(_series("hourly", starts)),
+            scored_through={},
+            scored_at=datetime(2026, 11, 2, tzinfo=UTC),
+        )
+
+        assert [event["properties"]["$anomaly_bucket_start"] for event in events] == [
+            start.isoformat() for start in starts[:2]
+        ]
+
     def test_the_event_carries_the_bucket_start_and_null_score_and_flag_during_warm_up(self) -> None:
         start = datetime(2026, 10, 19, tzinfo=NEW_YORK)
         series = ScoredSeries(
@@ -206,6 +233,59 @@ class TestScoreEvents(SimpleTestCase):
             warm_up["event_uuid"],
             flagged["event_uuid"],
         ]
+
+
+class TestRunInsight(SimpleTestCase):
+    def _run(self, error: Exception) -> tuple[str, list[Any], MagicMock]:
+        tick = "products.signals.backend.anomaly_scores.tick"
+        client = MagicMock()
+        with (
+            patch(
+                f"{tick}.insights_including_soft_deleted_for_team",
+                return_value=[Insight(id=7, saved=True, deleted=False)],
+            ),
+            patch(f"{tick}.Team"),
+            patch(f"{tick}.score_insight", side_effect=error),
+            patch(f"{tick}.mark_attempted") as mark_attempted,
+            patch("products.signals.backend.anomaly_scores.metrics.posthoganalytics.default_client", client),
+        ):
+            pick = InsightPick(team_id=1, insight_id=7, scored_through={}, interval=IntervalType.DAY)
+            try:
+                status = run_insight(ScoreInsightInput(pick=pick), NOW).status
+            except Exception:
+                status = "raised"
+        cooldowns = [call.args[1] for call in mark_attempted.call_args_list]
+        return status, cooldowns, client.metrics
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
+            ("access_denied", TableAccessDeniedError("no access"), "access_denied"),
+            ("unsupported", UnsupportedInsightError("not trends"), "unsupported"),
+        ]
+    )
+    def test_a_known_failure_returns_its_status_and_waits_a_day(
+        self, _name: str, error: Exception, expected: str
+    ) -> None:
+        status, cooldowns, metrics = self._run(error)
+
+        assert status == expected
+        assert cooldowns[-1] == SKIP_COOLDOWN
+        metrics.count.assert_any_call(
+            "anomaly_scoring.picks", 1, attributes={"status": expected, "interval": IntervalType.DAY.value}
+        )
+
+    @parameterized.expand(
+        [
+            ("cluster_memory", ClickHouseClusterMemoryLimitExceeded()),
+            ("unknown", RuntimeError("boom")),
+        ]
+    )
+    def test_any_other_failure_raises_and_waits_an_hour(self, _name: str, error: Exception) -> None:
+        status, cooldowns, _metrics = self._run(error)
+
+        assert status == "raised"
+        assert SKIP_COOLDOWN not in cooldowns
 
 
 class TestEligibleTeams(BaseTest):
@@ -339,3 +419,35 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
         assert [pick.insight_id for pick in selection.picks] == [insights["never_scored"].id, insights["stale"].id]
         assert selection.picks[1].scored_through == {"stale": today - timedelta(days=3)}
+
+    @time_machine.travel(NOW, tick=False)
+    def test_select_insights_lets_each_project_pick_before_any_project_picks_twice(self) -> None:
+        small_team = Team.objects.create(organization=self.organization, name="Small")
+        viewers = [
+            User.objects.create_and_join(self.organization, f"viewer{index}@example.com", "password")
+            for index in range(5)
+        ]
+        large_insights = []
+        for index in range(3):
+            insight = Insight.objects.create(team=self.team, name=f"large_{index}", query=_trends(interval="day"))
+            for viewer in viewers:
+                record_insight_view(insight_id=insight.id, team_id=self.team.id, user_id=viewer.id)
+            large_insights.append(insight)
+        small_insight = Insight.objects.create(team=small_team, name="small", query=_trends(interval="day"))
+        small_dashboard = Dashboard.objects.create(team=small_team, name="Main")
+        DashboardTile.objects.create(dashboard=small_dashboard, insight=small_insight)
+        for insight in [*large_insights, small_insight]:
+            cache.delete(_cooldown_key(insight.id))
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=(self.team.id, small_team.id),
+        )
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.WEIGHTED), NOW, limit=2)
+
+        assert [pick.team_id for pick in selection.picks] == [self.team.id, small_team.id]
+        assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
+        assert selection.picks[1].insight_id == small_insight.id
+        assert selection.candidates == 4

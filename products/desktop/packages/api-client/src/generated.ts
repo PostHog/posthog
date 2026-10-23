@@ -6176,9 +6176,30 @@ export namespace Schemas {
      * * `stable` - stable
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
+    /**
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupColorEnum =
+        | "blue"
+        | "purple"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red";
+    export type DashboardTileGroup = Partial<{
+        title: string;
+        collapsed: boolean;
+        color: DashboardTileGroupColorEnum | NullEnum;
+    }>;
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        groups: Record<string, DashboardTileGroup>;
         group_titles: Record<string, string>;
     }>;
     /**
@@ -6261,6 +6282,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -9767,6 +9792,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9785,7 +9811,8 @@ export namespace Schemas {
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
         | "release_conditions_changed_mid_run"
-        | "new_flag_no_traffic";
+        | "new_flag_no_traffic"
+        | "early_significance";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9835,6 +9862,7 @@ export namespace Schemas {
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `early_significance` - Early Significance
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -9882,6 +9910,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -9899,6 +9928,7 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "exposure_criteria_cannot_match"
+        | "early_significance"
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
@@ -9929,6 +9959,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -19435,6 +19466,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        groups: Record<string, DashboardTileGroup> | null;
         group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
