@@ -8,7 +8,7 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Callable, Sequence
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from functools import partial
 from typing import Any
@@ -69,7 +69,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner
+from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner, _pick_interval
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -431,6 +431,19 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             else series_by_clause[clause.name]
         )
     ]
+
+
+def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
+    """Hold the concurrency slots of a metrics query runner around `run_metric_query`.
+
+    Use it when you call `run_metric_query` outside a query runner, so the query counts against the same limits.
+    """
+    return query_concurrency_slots(team)
+
+
+def pick_metric_query_interval(*, date_from: dt.datetime, date_to: dt.datetime, max_buckets: int) -> str:
+    """The finest `MetricQueryRequest.interval` that keeps the bucket count at or below `max_buckets`."""
+    return _pick_interval(date_from, date_to, target_bucket_count=max_buckets)
 
 
 def list_metric_names(

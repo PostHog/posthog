@@ -10,7 +10,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect, type LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
 import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetConfigShared'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
@@ -18,7 +17,11 @@ import {
     type MetricsTableOrderDirection,
     editMetricsTableWidgetModalLogic,
 } from './editMetricsTableWidgetModalLogic'
-import type { MetricsTableAggregation, MetricsTableColumn } from './metricsTableWidgetConfigValidation'
+import {
+    METRICS_TABLE_DATE_RANGE_OPTIONS,
+    type MetricsTableAggregation,
+    type MetricsTableColumn,
+} from './metricsTableWidgetConfigValidation'
 
 type MetricsTableFilter = NonNullable<MetricsTableColumn['filters']>[number]
 type MetricsTableFilterOp = NonNullable<MetricsTableFilter['op']>
@@ -215,7 +218,7 @@ function EditMetricsTableWidgetModalContents(): JSX.Element {
                             <LemonSelect
                                 value={dateFrom}
                                 disabled={saving}
-                                options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
+                                options={METRICS_TABLE_DATE_RANGE_OPTIONS}
                                 onChange={(value) => value && setDateFrom(value)}
                                 fullWidth
                             />

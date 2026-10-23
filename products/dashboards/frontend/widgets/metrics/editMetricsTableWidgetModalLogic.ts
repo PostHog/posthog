@@ -11,7 +11,11 @@ import {
     widgetEditModalTileActions,
 } from '../editWidgetModalBuilders'
 import type { DashboardWidgetEditModalProps } from '../registry'
-import { type MetricsTableColumn, parseMetricsTableWidgetConfig } from './metricsTableWidgetConfigValidation'
+import {
+    METRICS_TABLE_MAX_LIMIT,
+    type MetricsTableColumn,
+    parseMetricsTableWidgetConfig,
+} from './metricsTableWidgetConfigValidation'
 
 export type EditMetricsTableWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
 export type MetricsTableOrderDirection = 'ASC' | 'DESC'
@@ -198,6 +202,13 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                 }
                 if (columns.some((column) => !column.label.trim())) {
                     return 'Name every column'
+                }
+                if (
+                    !Number.isInteger(config.limit) ||
+                    (config.limit ?? 0) < 1 ||
+                    (config.limit ?? 0) > METRICS_TABLE_MAX_LIMIT
+                ) {
+                    return `Enter a whole number of rows from 1 to ${METRICS_TABLE_MAX_LIMIT}`
                 }
                 return metricsTableWidgetConfigSchema.safeParse(config).success
                     ? undefined

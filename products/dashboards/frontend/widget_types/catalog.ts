@@ -12,6 +12,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey, QuickFilterContext } from '~/queries/schema/schema-general'
@@ -168,6 +169,8 @@ export type DashboardWidgetCatalogEntry = {
     description: string
     defaultConfig: Record<string, unknown>
     hideFromPicker?: boolean
+    /** Hides the widget from the Add widget picker while this flag is off. Tiles already placed keep rendering. */
+    featureFlag?: FeatureFlagKey
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
     productAccess?: DashboardWidgetProductAccess
     headerLayout?: DashboardWidgetHeaderLayout
@@ -356,6 +359,8 @@ export const DASHBOARD_WIDGET_CATALOG = {
         label: 'Metrics table',
         description: 'One row per label value, such as each endpoint, with a sparkline for each metric.',
         headerTitle: 'Metrics table',
+        productAccess: 'metrics',
+        featureFlag: FEATURE_FLAGS.METRICS,
         defaultConfig: metricsTableWidgetConfigSchema.parse({
             dateRange: { date_from: '-1h' },
         }),

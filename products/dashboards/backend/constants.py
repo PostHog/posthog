@@ -26,8 +26,11 @@ METRICS_TABLE_MAX_COLUMNS = 4
 METRICS_TABLE_MAX_FILTERS = 5
 METRICS_TABLE_MAX_LIMIT = 100
 METRICS_TABLE_DEFAULT_LIMIT = 25
-# Points per sparkline. Longer series are averaged into this many buckets to keep the payload small.
-METRICS_TABLE_SPARKLINE_POINTS = 60
+# Points per sparkline, and also the bucket count of the query. A query returns one row per bucket and label
+# value, and the metrics query fails above its row budget, so fewer buckets leave room for more label values.
+METRICS_TABLE_SPARKLINE_POINTS = 30
+# Metrics queries span at most 31 days, so the longer widget presets are not allowed.
+METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES = frozenset({"-90d"})
 
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10

@@ -7,7 +7,15 @@ import {
     metricsTableWidgetFormSchema,
     type MetricsTableWidgetConfig,
 } from '../../generated/widget-configs.zod'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetConfigShared'
 import { fieldErrorsFromZodError, parseWidgetConfig } from '../widgetConfigValidation'
+
+export { metricsTableWidgetConfigLimitMax as METRICS_TABLE_MAX_LIMIT } from '../../generated/widget-config-schemas/metricsTableWidgetConfig.zod'
+
+/** Metrics queries span at most 31 days, so longer presets are left out. Matches the backend config check. */
+export const METRICS_TABLE_DATE_RANGE_OPTIONS = WIDGET_DATE_RANGE_SELECT_OPTIONS.filter(
+    (option) => option.value !== '-90d'
+)
 
 export type MetricsTableColumn = NonNullable<MetricsTableWidgetConfig['columns']>[number]
 export type MetricsTableAggregation = MetricsTableColumn['aggregation']

@@ -20,6 +20,7 @@ from products.dashboards.backend.constants import (
     METRICS_TABLE_DEFAULT_LIMIT,
     METRICS_TABLE_MAX_COLUMNS,
     METRICS_TABLE_MAX_FILTERS,
+    METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES,
 )
 from products.dashboards.backend.widget_specs.common import (
     ActivityWidgetLimit,
@@ -436,4 +437,10 @@ class MetricsTableWidgetConfig(WidgetDateRangeConfigBase):
     def validate_order_by_column(self) -> Self:
         if self.columns and self.orderByColumn >= len(self.columns):
             raise ValueError("orderByColumn must point to a column.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_metrics_query_span(self) -> Self:
+        if self.dateRange is not None and self.dateRange.date_from in METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES:
+            raise ValueError("Metrics queries cover at most 30 days. Pick a shorter date range.")
         return self

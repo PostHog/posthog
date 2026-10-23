@@ -10,6 +10,11 @@ import {
     WidgetLoadingState,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import {
+    type MetricsTableSparklineDomain,
+    metricsTableSparklineCoordinates,
+    metricsTableSparklineDomains,
+} from './metricsTableSparkline'
 
 export type MetricsTableResultColumn = {
     label: string
@@ -37,16 +42,21 @@ const SPARKLINE_WIDTH = 96
 const SPARKLINE_HEIGHT = 24
 
 /** An SVG line instead of a chart instance, so a table with 100 rows stays cheap to render. */
-function MetricsTableSparkline({ points, max }: { points: (number | null)[]; max: number }): JSX.Element | null {
-    const values = points.map((point) => point ?? 0)
-    if (values.length < 2) {
+function MetricsTableSparkline({
+    points,
+    domain,
+}: {
+    points: (number | null)[]
+    domain: MetricsTableSparklineDomain
+}): JSX.Element | null {
+    if (points.length < 2) {
         return null
     }
-    const step = SPARKLINE_WIDTH / (values.length - 1)
-    const scale = max > 0 ? (SPARKLINE_HEIGHT - 2) / max : 0
-    const line = values
-        .map((value, index) => `${(index * step).toFixed(1)},${(SPARKLINE_HEIGHT - 1 - value * scale).toFixed(1)}`)
-        .join(' ')
+    const coordinates = metricsTableSparklineCoordinates(points, domain, {
+        width: SPARKLINE_WIDTH,
+        height: SPARKLINE_HEIGHT,
+    })
+    const line = coordinates.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
     return (
         <svg
             width={SPARKLINE_WIDTH}
@@ -64,13 +74,6 @@ function MetricsTableSparkline({ points, max }: { points: (number | null)[]; max
     )
 }
 
-/** The peak of each column across all rows, so the sparklines in one column share a scale. */
-function columnPeaks(rows: MetricsTableResultRow[], columnCount: number): number[] {
-    return Array.from({ length: columnCount }, (_, index) =>
-        Math.max(0, ...rows.flatMap((row) => (row.sparklines[index] ?? []).map((point) => point ?? 0)))
-    )
-}
-
 export function MetricsTableView({
     groupBy,
     columns,
@@ -80,7 +83,7 @@ export function MetricsTableView({
     columns: MetricsTableResultColumn[]
     rows: MetricsTableResultRow[]
 }): JSX.Element {
-    const peaks = columnPeaks(rows, columns.length)
+    const domains = metricsTableSparklineDomains(rows, columns.length)
     const tableColumns: LemonTableColumns<MetricsTableResultRow> = [
         {
             key: 'key',
@@ -99,7 +102,7 @@ export function MetricsTableView({
                 const value = row.values[index]
                 return (
                     <div className="flex items-center justify-end gap-3">
-                        <MetricsTableSparkline points={row.sparklines[index] ?? []} max={peaks[index]} />
+                        <MetricsTableSparkline points={row.sparklines[index] ?? []} domain={domains[index]} />
                         <span className="tabular-nums w-28 shrink-0 text-right">
                             {value == null ? '–' : formatMetricValue(value, column.unit ?? undefined)}
                         </span>

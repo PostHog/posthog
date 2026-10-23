@@ -5,16 +5,24 @@ from typing import Any
 
 from django.utils import timezone
 
+from rest_framework import exceptions
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
 from products.dashboards.backend.constants import METRICS_TABLE_SPARKLINE_POINTS
+from products.dashboards.backend.feature_flags import widget_flag_enabled
 from products.dashboards.backend.widget_specs.configs import METRICS_TABLE_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
-from products.metrics.backend.facade.api import run_metric_query
+from products.metrics.backend.facade.api import (
+    metric_query_concurrency_slots,
+    pick_metric_query_interval,
+    run_metric_query,
+)
 from products.metrics.backend.facade.contracts import (
+    METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -77,19 +85,30 @@ def run_metrics_table_widget(
     *,
     include_total_count: bool = True,
 ) -> dict[str, Any]:
+    # The creation flag only blocks new tiles. Metrics is in private alpha, so every run checks the flag too.
+    if not widget_flag_enabled(METRICS_FEATURE_FLAG, team=team, user=user):
+        raise exceptions.PermissionDenied("Metrics are not enabled for this project.")
     typed_config = validate_widget_config(METRICS_TABLE_WIDGET_TYPE, config)
     group_by = typed_config.get("groupBy")
     columns: list[dict[str, Any]] = typed_config["columns"]
     if not group_by or not columns:
         return {"needsConfiguration": True, "groupBy": group_by, "columns": [], "rows": [], "totalCount": 0}
 
-    date_from = (typed_config.get("dateRange") or {}).get("date_from") or DEFAULT_METRICS_TABLE_DATE_FROM
+    date_from_value = (typed_config.get("dateRange") or {}).get("date_from") or DEFAULT_METRICS_TABLE_DATE_FROM
+    date_from = relative_date_parse(date_from_value, team.timezone_info)
+    date_to = timezone.now()
     request = MetricQueryRequest(
         clauses=tuple(_clause(index, column, group_by) for index, column in enumerate(columns)),
-        date_from=relative_date_parse(date_from, team.timezone_info),
-        date_to=timezone.now(),
+        date_from=date_from,
+        date_to=date_to,
+        interval=pick_metric_query_interval(
+            date_from=date_from, date_to=date_to, max_buckets=METRICS_TABLE_SPARKLINE_POINTS
+        ),
     )
-    with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team.pk):
+    with (
+        tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team.pk),
+        metric_query_concurrency_slots(team),
+    ):
         series = run_metric_query(team=team, request=request)
 
     rows_by_key: dict[str, dict[str, Any]] = {}

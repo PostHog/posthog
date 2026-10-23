@@ -54,6 +54,14 @@ describe('editMetricsTableWidgetModalLogic', () => {
         expect(logic.values.saveDisabledReason).toBeUndefined()
     })
 
+    it.each([2.5, 0])('blocks the save for a row limit of %s', (limit) => {
+        const { logic } = mountLogic({ groupBy: 'http.route', columns: [REQUESTS] })
+
+        logic.actions.setLimit(limit)
+
+        expect(logic.values.saveDisabledReason).toEqual('Enter a whole number of rows from 1 to 100')
+    })
+
     it('adds a quantile only while the column reads a histogram', () => {
         const { logic } = mountLogic({ groupBy: 'http.route', columns: [REQUESTS] })
 

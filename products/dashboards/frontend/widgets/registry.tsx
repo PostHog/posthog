@@ -320,6 +320,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         Component: MetricsTableWidget,
         EditModal: EditMetricsTableWidgetModal,
         parseConfigApiError: parseMetricsTableWidgetConfigApiError,
+        productAccess: 'metrics',
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

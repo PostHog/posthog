@@ -32,6 +32,7 @@ from products.dashboards.backend.widget_specs.configs import (
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
 )
+from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG
 
 DashboardWidgetType = Literal[
     "notebook_widget",
@@ -298,19 +299,20 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             widget_type=METRICS_TABLE_WIDGET_TYPE,
             config_model=MetricsTableWidgetConfig,
             query_fn=run_metrics_table_widget,
-            required_scopes=("query:read",),
+            required_scopes=("query:read", "metrics:read"),
             group_id="metrics",
             group_label="Metrics",
             label="Metrics table",
             description="One row per label value, such as each endpoint, with a sparkline for each metric.",
-            required_product_access=None,
-            product_access_denied_message=None,
+            required_product_access="metrics",
+            product_access_denied_message="You do not have access to metrics.",
             availability_requirements=(),
             form_fields=("limit", "dateRange"),
             filter_fields=("dateRange",),
             # Full width, like a Grafana row: each row is one label value, and the columns need the room.
             default_width=DASHBOARD_GRID_COLUMN_COUNT,
             default_height=6,
+            creation_flag=METRICS_FEATURE_FLAG,
         ),
     }
 
