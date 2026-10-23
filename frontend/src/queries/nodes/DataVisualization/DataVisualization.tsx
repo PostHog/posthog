@@ -239,7 +239,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
     }
     const drilldownLogic = biDrilldownLogic(drilldownProps)
-    const { inspect, setInteraction } = useActions(drilldownLogic)
+    const { inspect: inspectResult, setInteraction } = useActions(drilldownLogic)
+    const resultMenuTriggerRef = useRef<HTMLDivElement>(null)
+    const inspectedPoint = useRef(false)
+    const inspect = useCallback(
+        (record: Record<string, unknown>): void => {
+            inspectedPoint.current = true
+            inspectResult(record)
+        },
+        [inspectResult]
+    )
     const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
     const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
 
@@ -681,7 +690,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 {canDrill ? (
                     <>
                         {(drilldownProps.dashboardMenu || drilldownProps.onFilterDashboard) && (
-                            <BIDrilldownMenu logicProps={drilldownProps} />
+                            <BIDrilldownMenu logicProps={drilldownProps} triggerRef={resultMenuTriggerRef} />
                         )}
                         <BIDrilldownModal
                             logicProps={drilldownProps}
@@ -699,6 +708,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     if (props.embedded) {
         return (
             <div
+                ref={resultMenuTriggerRef}
                 className={clsx(
                     'DataVisualization InsightCard__viz',
                     effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
@@ -709,7 +719,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                               if (
                                   event.currentTarget.contains(event.target as Node) &&
                                   !!drilldownLogic.values.interaction &&
-                                  !drilldownLogic.values.record &&
+                                  !inspectedPoint.current &&
                                   !(event.target as Element).closest('a, button, input, select, [role="button"]')
                               ) {
                                   inspect({})
@@ -721,6 +731,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     canDrill && (drilldownProps.dashboardMenu || drilldownProps.onFilterDashboard)
                         ? (event) => {
                               if (event.currentTarget.contains(event.target as Node)) {
+                                  inspectedPoint.current = false
                                   const rect = (event.target as Element).getBoundingClientRect()
                                   setInteraction({
                                       x: event.detail ? event.clientX : rect.x + rect.width / 2,

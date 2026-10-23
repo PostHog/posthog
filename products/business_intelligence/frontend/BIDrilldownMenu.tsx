@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { RefObject } from 'react'
 
 import { IconCode, IconFilter, IconExternal } from '@posthog/icons'
 
@@ -8,7 +9,13 @@ import { urls } from 'scenes/urls'
 
 import { BIDrilldownProps, biDrilldownLogic } from './biDrilldownLogic'
 
-export function BIDrilldownMenu({ logicProps }: { logicProps: BIDrilldownProps }): JSX.Element | null {
+export function BIDrilldownMenu({
+    logicProps,
+    triggerRef,
+}: {
+    logicProps: BIDrilldownProps
+    triggerRef?: RefObject<HTMLDivElement>
+}): JSX.Element | null {
     const { selection, record, queries, interaction, showRows, dashboardFilterDisabledReason } = useValues(
         biDrilldownLogic(logicProps)
     )
@@ -62,6 +69,7 @@ export function BIDrilldownMenu({ logicProps }: { logicProps: BIDrilldownProps }
 
     return (
         <ResultMenu
+            triggerRef={triggerRef}
             selectedResult={selectedResult}
             caption={selection.previous ? 'Comparison period' : 'Current period'}
             interaction={interaction}

@@ -1,6 +1,6 @@
 import './ResultMenu.scss'
 
-import { KeyboardEvent, MouseEvent, ReactNode, useCallback, useRef } from 'react'
+import { KeyboardEvent, MouseEvent, ReactNode, RefObject, useCallback, useRef } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -8,6 +8,13 @@ import { Button } from '@posthog/quill'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import {
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
+    formatBreakdownLabel,
+} from 'scenes/insights/utils'
 
 export interface ResultMenuAction {
     name: string
@@ -25,13 +32,28 @@ export function ResultMenu({
     interaction,
     actions,
     close,
+    triggerRef,
 }: {
     selectedResult: ReactNode
     caption: string
     interaction: { x: number; y: number; timestamp?: number } | null
     actions: ResultMenuAction[]
     close: () => void
+    triggerRef?: RefObject<HTMLDivElement>
 }): JSX.Element {
+    if (typeof selectedResult === 'string') {
+        selectedResult = formatBreakdownLabel(
+            selectedResult,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            false
+        )
+            .replaceAll(BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY)
+            .replaceAll(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY)
+    }
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const previousFocus = useRef<HTMLElement | null>(null)
     const focusMenu = useCallback((element: HTMLDivElement | null): void => {
@@ -66,6 +88,7 @@ export function ResultMenu({
     return (
         <Popover
             visible
+            additionalRefs={triggerRef ? [triggerRef] : []}
             onClickOutside={close}
             padded={false}
             delayMs={0}

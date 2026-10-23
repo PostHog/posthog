@@ -8,6 +8,7 @@ import { capturePersonsModalForClick, CapturedPersonsModal } from 'lib/component
 import { ResultChartSelectionContext, ResultChartPoint } from 'lib/components/ResultMenu/resultChartSelection'
 import { ResultMenu } from 'lib/components/ResultMenu/ResultMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { objectsEqual } from 'lib/utils/objects'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +40,8 @@ export function DashboardInsightResultMenu({
     const { selectResult } = useActions(dashboardResultFilterLogic({ dashboardId: dashboardId ?? 0 }))
     const [position, setPosition] = useState<{ x: number; y: number; timestamp: number } | null>(null)
     const [actors, setActors] = useState<CapturedPersonsModal | null>(null)
+    const triggerRef = useRef<HTMLDivElement>(null)
+    const menuPoint = useRef<ResultChartPoint>()
     const captured = useRef(false)
     const clickedPoint = useRef<ResultChartPoint>()
     const capturePoint = useCallback((point: PointClickData): void => {
@@ -106,6 +109,7 @@ export function DashboardInsightResultMenu({
         : insight.name || 'Untitled insight'
     return (
         <div
+            ref={triggerRef}
             className="flex flex-1 flex-col min-h-0 h-full"
             onClickCapture={(event) => {
                 if (
@@ -128,6 +132,17 @@ export function DashboardInsightResultMenu({
                 }
                 capturePersonsModalForClick((request) => {
                     captured.current = true
+                    if (
+                        position &&
+                        actors &&
+                        objectsEqual(actors.query, request.query) &&
+                        objectsEqual(actors.rowsQuery, request.rowsQuery) &&
+                        objectsEqual(menuPoint.current, clickedPoint.current)
+                    ) {
+                        close()
+                        return
+                    }
+                    menuPoint.current = clickedPoint.current
                     setActors(request)
                     setPosition(point)
                 })
@@ -157,6 +172,7 @@ export function DashboardInsightResultMenu({
             </ResultChartSelectionContext.Provider>
             {position && (
                 <ResultMenu
+                    triggerRef={triggerRef}
                     selectedResult={selectedResult}
                     caption={actors ? insight.name || 'Insight result' : 'Dashboard insight'}
                     interaction={position}

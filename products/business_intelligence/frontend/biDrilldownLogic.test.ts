@@ -43,7 +43,7 @@ describe('dashboard result exploration', () => {
         const logic = biDrilldownLogic({ key: 'active', query, onFilterDashboard, dashboardFilterActive: true })
         const unmount = logic.mount()
         try {
-            for (const status of ['paid', 'refunded', 'refunded']) {
+            for (const status of ['paid', 'refunded']) {
                 logic.actions.setInteraction({ x: 300, y: 250, clickCount: 1 })
                 logic.actions.inspect({ status })
                 expect(onFilterDashboard).not.toHaveBeenCalled()
@@ -51,6 +51,8 @@ describe('dashboard result exploration', () => {
             }
             expect(onFilterDashboard).not.toHaveBeenCalled()
             logic.actions.setInteraction({ x: 300, y: 250, clickCount: 1 })
+            logic.actions.inspect({ status: 'refunded' })
+            expect(logic.values.record).toBeNull()
             logic.actions.inspect({ count: 8 })
             expect(onFilterDashboard).not.toHaveBeenCalled()
             expect(logic.values.record).toEqual({ count: 8 })
@@ -72,6 +74,7 @@ describe('dashboard result exploration', () => {
                 expect(onFilterDashboard).not.toHaveBeenCalled()
                 expect(logic.values.dashboardFilterDisabledReason).toBeTruthy()
                 expect(logic.values.record).toEqual(record)
+                logic.actions.close()
                 logic.actions.setInteraction({ x: 300, y: 250, clickCount: 1 })
                 logic.actions.inspect(record)
                 expect(logic.values.queries?.rows).toBeTruthy()

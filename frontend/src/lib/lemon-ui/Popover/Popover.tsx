@@ -262,7 +262,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         []
     )
     const mergedReferenceRef = useMergeRefs([
-        referenceRef,
+        setReference,
         extraReferenceRef || null,
         (children as any)?.ref,
     ]) as React.RefCallback<HTMLElement>

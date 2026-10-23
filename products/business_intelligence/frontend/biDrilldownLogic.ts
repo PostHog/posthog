@@ -1,5 +1,7 @@
 import { MakeLogicType, actions, kea, key, path, props, reducers, selectors, listeners } from 'kea'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import { VisualizationNode, NodeKind, DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 
 import { createBIDashboardSelection } from './biDashboardCrossFilters'
@@ -97,7 +99,7 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
         close: true,
         viewRows: true,
     }),
-    reducers({
+    reducers(({ props }) => ({
         interaction: [
             null as BIDrillInteraction | null,
             { setInteraction: (_, { interaction }) => interaction, close: () => null },
@@ -105,13 +107,17 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
         record: [
             null as Record<string, unknown> | null,
             {
-                inspect: (_, { record }) => record,
-                setInteraction: () => null,
+                inspect: (previous, { record }) =>
+                    props.dashboardMenu || props.onFilterDashboard
+                        ? objectsEqual(previous, record)
+                            ? null
+                            : record
+                        : record,
                 close: () => null,
             },
         ],
         showRows: [false, { inspect: () => false, viewRows: () => true, close: () => false }],
-    }),
+    })),
     selectors({
         dashboardFilterDisabledReason: [
             (s) => [s.record, s.query],
@@ -150,6 +156,10 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
     }),
     listeners(({ values, actions, props, cache }) => ({
         inspect: () => {
+            if (!values.record) {
+                actions.close()
+                return
+            }
             if (props.dashboardMenu || props.onFilterDashboard) {
                 cache.disposables.add(() => {
                     const onScroll = (event: Event): void => {

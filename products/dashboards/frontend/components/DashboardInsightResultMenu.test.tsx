@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
@@ -84,9 +85,9 @@ it.each([undefined, 0] as const)(
     }
 )
 
-it('filters a normal insight from the context menu and clears on the same datapoint', () => {
+it('toggles the menu on the same datapoint without changing the filter', async () => {
     const request: OpenPersonsModalProps = {
-        title: 'US',
+        title: '$$_posthog_breakdown_null_$$',
         query: {
             kind: NodeKind.InsightActorsQuery,
             source: {
@@ -95,7 +96,7 @@ it('filters a normal insight from the context menu and clears on the same datapo
                 breakdownFilter: { breakdown: 'country', breakdown_type: 'event' },
             },
             day: '2026-01-02',
-            breakdown: ['US'],
+            breakdown: ['$$_posthog_breakdown_null_$$'],
         },
     }
     const insight = insightOnDashboard(1, [1])
@@ -108,10 +109,18 @@ it('filters a normal insight from the context menu and clears on the same datapo
             </DashboardInsightResultMenu>
         )
         fireEvent.click(screen.getByText('Chart point'))
+        expect(screen.getByText('None (i.e. no value)')).toBeInTheDocument()
+        await userEvent.click(screen.getByText('Chart point'))
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+        expect(logic.values.selection).toBeNull()
+        await userEvent.click(screen.getByText('Chart point'))
         const center = screen.getByText('Filter dashboard by this result').closest('a')!
         expect(center.href).toContain('insight_filter=')
         fireEvent.click(center)
-        expect(logic.values.selection?.query.source).toMatchObject({ day: '2026-01-02', breakdown: 'US' })
+        expect(logic.values.selection?.query.source).toMatchObject({
+            day: '2026-01-02',
+            breakdown: '$$_posthog_breakdown_null_$$',
+        })
         fireEvent.click(screen.getByText('Chart point'))
         expect(logic.values.selection).not.toBeNull()
         fireEvent.click(screen.getByText('Filter dashboard by this result'))
