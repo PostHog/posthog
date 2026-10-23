@@ -23,6 +23,7 @@ from django.conf import settings
 import httpx
 import requests
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from google.genai import (
     errors as genai_errors,
     types as genai_types,
@@ -62,7 +63,7 @@ OPENAI_MAX_OUTPUT_TOKENS = 12000
 
 GEMINI_AI_PRODUCT = "aeo"
 # The Gemini API grounding chunk carries this redirect host as its uri and the
-# source domain as its title.
+# source domain in its `domain` field.
 GEMINI_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 _BARE_DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$")
 
@@ -113,6 +114,7 @@ class ParsedAnswer:
     cost_usd: float | None = None
     # Gemini grounding chunks whose redirect could not be mapped back to a source domain (Gemini only).
     unresolved_chunks: int = 0
+    unresolved_cited_chunks: int = 0
 
 
 class CitationEngine(Protocol):
@@ -281,11 +283,11 @@ def _gemini_chunk_url(web: genai_types.GroundingChunkWeb) -> str | None:
         return uri or None
     # is_target_url matches on host, so a redirect uri never counts as a citation of the
     # source. Record the source domain from the chunk instead of following the redirect.
-    # The title is third-party page text, so it only counts when it is a bare domain.
-    for candidate in (web.domain, web.title):
-        domain = (candidate or "").strip().lower()
-        if _BARE_DOMAIN.match(domain):
-            return f"https://{domain}"
+    # The title is the page's own text, so a third-party page titled like a target
+    # domain would forge a citation; only the SDK's domain field names the source.
+    domain = (web.domain or "").strip().lower()
+    if _BARE_DOMAIN.match(domain):
+        return f"https://{domain}"
     return None
 
 
@@ -294,8 +296,9 @@ def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> Par
 
     Retrieved = every grounding chunk; cited = the chunks a grounding support
     attaches to a span of the answer, in first-reference order. A redirect chunk
-    that names no source domain is dropped and counted in unresolved_chunks, so
-    the engine can fail the check instead of recording a redirect URL nothing matches.
+    that names no source domain is dropped and counted in unresolved_chunks, and
+    in unresolved_cited_chunks when a support cites it, so the engine can fail the
+    check instead of recording a redirect URL nothing matches.
     """
     candidate = response.candidates[0] if response.candidates else None
     if candidate is None:
@@ -310,17 +313,24 @@ def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> Par
     # Positional, so a support's chunk index still lands on the right chunk.
     chunk_urls = [_gemini_chunk_url(chunk.web) if chunk.web is not None else None for chunk in chunks]
     cited: list[str] = []
+    cited_indices: set[int] = set()
     for support in metadata.grounding_supports or []:
         for index in support.grounding_chunk_indices or []:
-            if 0 <= index < len(chunk_urls) and (url := chunk_urls[index]):
-                cited.append(url)
+            if 0 <= index < len(chunk_urls):
+                cited_indices.add(index)
+                if url := chunk_urls[index]:
+                    cited.append(url)
+    unresolved_indices = [
+        index for index, (chunk, url) in enumerate(zip(chunks, chunk_urls)) if chunk.web is not None and url is None
+    ]
 
     return ParsedAnswer(
         answer_text=answer_text,
         cited_urls=_dedupe_urls(cited),
         retrieved_urls=_dedupe_urls([url for url in chunk_urls if url]),
         search_queries=list(metadata.web_search_queries or []),
-        unresolved_chunks=sum(1 for chunk, url in zip(chunks, chunk_urls) if chunk.web is not None and url is None),
+        unresolved_chunks=len(unresolved_indices),
+        unresolved_cited_chunks=sum(1 for index in unresolved_indices if index in cited_indices),
     )
 
 
@@ -344,11 +354,14 @@ def gemini_response_error(response: genai_types.GenerateContentResponse, cited_u
 
 
 def gemini_unresolved_error(parsed: ParsedAnswer) -> str | None:
-    """Every grounding chunk was a redirect naming no source domain, so the answer may
-    well have cited us and the check cannot tell. That is a failed check, not a
-    zero-citation answer."""
-    if parsed.unresolved_chunks and not parsed.retrieved_urls:
-        return f"unresolved_grounding_redirects: {parsed.unresolved_chunks} chunks"
+    """A cited chunk that is a redirect naming no source domain may well be us, so
+    the check cannot tell whether the answer cited us. The same holds when every
+    chunk is unresolved, cited or not. Both are a failed check, not a zero-citation
+    answer."""
+    if parsed.unresolved_cited_chunks or (parsed.unresolved_chunks and not parsed.retrieved_urls):
+        return (
+            f"unresolved_grounding_redirects: {parsed.unresolved_chunks} chunks, {parsed.unresolved_cited_chunks} cited"
+        )
     return None
 
 
@@ -570,6 +583,10 @@ class GeminiGroundedEngine:
                 response = client.models.generate_content(model=self.model, contents=prompt, config=config)
         except (genai_errors.APIError, httpx.HTTPError) as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_gemini_request_error(e))
+        except SoftTimeLimitExceeded:
+            # Celery raises this inside whatever call is in flight. Swallowing it as a failed
+            # check would let the scheduled run keep making billed calls past its soft limit.
+            raise
         except Exception as e:
             # The SDK raises plain ValueError and pydantic errors on a malformed 2xx body, and
             # the gateway client raises its own host error. One escaped exception would abort
@@ -582,6 +599,7 @@ class GeminiGroundedEngine:
             logger.warning(
                 "aeo_gemini_unresolved_grounding_redirects",
                 unresolved=parsed.unresolved_chunks,
+                unresolved_cited=parsed.unresolved_cited_chunks,
                 resolved=len(parsed.retrieved_urls),
                 trace_id=trace_id,
             )

@@ -9,6 +9,7 @@ from django.core.management.base import CommandError
 from django.test import override_settings
 
 import httpx
+from celery.exceptions import SoftTimeLimitExceeded
 from google.genai import (
     errors as genai_errors,
     types as genai_types,
@@ -306,7 +307,12 @@ def _gemini_response(
 
 
 GEMINI_UNRESOLVED = _gemini_response([(GEMINI_REDIRECT, "A page title, not a domain")], [[0]])
-GEMINI_MIXED = _gemini_response([(GEMINI_REDIRECT, "posthog.com"), (GEMINI_REDIRECT + "x", "Not a domain")], [[0, 1]])
+GEMINI_CITED_UNRESOLVED = _gemini_response(
+    [(GEMINI_REDIRECT, "A page title"), (GEMINI_REDIRECT + "x", "Example", "example.com")], [[0]]
+)
+GEMINI_UNCITED_UNRESOLVED = _gemini_response(
+    [(GEMINI_REDIRECT, "PostHog", "posthog.com"), (GEMINI_REDIRECT + "x", "A page title")], [[0]]
+)
 
 
 @parameterized.expand(
@@ -319,25 +325,43 @@ GEMINI_MIXED = _gemini_response([(GEMINI_REDIRECT, "posthog.com"), (GEMINI_REDIR
             ["https://example.com/a", "https://posthog.com/docs"],
             ["https://posthog.com/docs", "https://example.com/a"],
             0,
+            0,
         ),
-        # A redirect chunk whose title is a page title is dropped and counted, not recorded as the redirect URL.
-        ("redirect_uri_uses_domain_title", GEMINI_MIXED, ["https://posthog.com"], ["https://posthog.com"], 1),
         (
-            "redirect_prefers_domain_over_title",
+            "redirect_uses_domain",
             _gemini_response([(GEMINI_REDIRECT, "PostHog - Product analytics", "posthog.com")], [[0]]),
             ["https://posthog.com"],
             ["https://posthog.com"],
             0,
+            0,
         ),
-        ("all_redirects_unresolved", GEMINI_UNRESOLVED, [], [], 1),
+        (
+            "redirect_title_is_not_a_source",
+            _gemini_response([(GEMINI_REDIRECT, "posthog.com")], [[0]]),
+            [],
+            [],
+            1,
+            1,
+        ),
+        ("all_redirects_unresolved", GEMINI_UNRESOLVED, [], [], 1, 1),
+        ("cited_unresolved_uncited_resolved", GEMINI_CITED_UNRESOLVED, [], ["https://example.com"], 1, 1),
+        (
+            "cited_resolved_uncited_unresolved",
+            GEMINI_UNCITED_UNRESOLVED,
+            ["https://posthog.com"],
+            ["https://posthog.com"],
+            1,
+            0,
+        ),
         (
             "duplicate_and_out_of_range_refs",
             _gemini_response([("https://posthog.com/a", "A"), ("https://example.com/b", "B")], [[1, 0], [0, 1, 7]]),
             ["https://example.com/b", "https://posthog.com/a"],
             ["https://posthog.com/a", "https://example.com/b"],
             0,
+            0,
         ),
-        ("no_grounding_metadata", _gemini_response(None, []), [], [], 0),
+        ("no_grounding_metadata", _gemini_response(None, []), [], [], 0, 0),
     ]
 )
 def test_parse_gemini_grounding(
@@ -346,12 +370,14 @@ def test_parse_gemini_grounding(
     expected_cited: list[str],
     expected_retrieved: list[str],
     expected_unresolved: int,
+    expected_unresolved_cited: int,
 ) -> None:
     parsed = parse_gemini_grounding(response)
     assert parsed.answer_text == "PostHog is one option."
     assert parsed.cited_urls == expected_cited
     assert parsed.retrieved_urls == expected_retrieved
     assert parsed.unresolved_chunks == expected_unresolved
+    assert parsed.unresolved_cited_chunks == expected_unresolved_cited
     assert response.candidates is not None
     assert parsed.search_queries == (
         [] if response.candidates[0].grounding_metadata is None else ["best product analytics"]
@@ -374,7 +400,9 @@ def test_parse_gemini_grounding(
         ),
         (
             "stop_with_citations",
-            _gemini_response([(GEMINI_REDIRECT, "posthog.com")], [[0]], finish_reason=genai_types.FinishReason.STOP),
+            _gemini_response(
+                [(GEMINI_REDIRECT, "PostHog", "posthog.com")], [[0]], finish_reason=genai_types.FinishReason.STOP
+            ),
             ["https://posthog.com"],
             None,
         ),
@@ -382,7 +410,7 @@ def test_parse_gemini_grounding(
         (
             "max_tokens_after_citing",
             _gemini_response(
-                [(GEMINI_REDIRECT, "posthog.com")], [[0]], finish_reason=genai_types.FinishReason.MAX_TOKENS
+                [(GEMINI_REDIRECT, "PostHog", "posthog.com")], [[0]], finish_reason=genai_types.FinishReason.MAX_TOKENS
             ),
             ["https://posthog.com"],
             None,
@@ -418,16 +446,32 @@ class _FakeGeminiClient:
 
 @parameterized.expand(
     [
-        ("grounded_answer", _gemini_response([(GEMINI_REDIRECT, "posthog.com")], [[0]]), None, ["https://posthog.com"]),
+        (
+            "grounded_answer",
+            _gemini_response([(GEMINI_REDIRECT, "PostHog", "posthog.com")], [[0]]),
+            None,
+            ["https://posthog.com"],
+        ),
         (
             "blocked_candidate_is_failed_check",
             _gemini_response(None, [], finish_reason=genai_types.FinishReason.SAFETY, with_content=False),
             "safety_response: no content",
             [],
         ),
-        # Every chunk unresolved means the answer may have cited us and the check cannot tell.
-        ("all_redirects_unresolved_is_failed_check", GEMINI_UNRESOLVED, "unresolved_grounding_redirects: 1 chunks", []),
-        ("some_redirects_unresolved_still_answers", GEMINI_MIXED, None, ["https://posthog.com"]),
+        # An unresolved cited chunk means the answer may have cited us and the check cannot tell.
+        (
+            "all_redirects_unresolved_is_failed_check",
+            GEMINI_UNRESOLVED,
+            "unresolved_grounding_redirects: 1 chunks, 1 cited",
+            [],
+        ),
+        (
+            "cited_redirect_unresolved_is_failed_check",
+            GEMINI_CITED_UNRESOLVED,
+            "unresolved_grounding_redirects: 1 chunks, 1 cited",
+            [],
+        ),
+        ("uncited_redirect_unresolved_still_answers", GEMINI_UNCITED_UNRESOLVED, None, ["https://posthog.com"]),
         (
             "blocked_prompt_is_failed_check",
             genai_types.GenerateContentResponse(
@@ -473,6 +517,20 @@ def test_gemini_engine_run(_name: str, outcome: object, expected_error: str | No
     assert check.trace_id == "t1"
     assert check.error == expected_error
     assert check.cited_urls == expected_cited
+
+
+def test_gemini_engine_propagates_the_celery_soft_time_limit() -> None:
+    with (
+        patch(
+            "products.aeo.backend.engines.resolve_ai_gateway_config",
+            return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
+        ),
+        patch(
+            "products.aeo.backend.engines.build_gemini_client", return_value=_FakeGeminiClient(SoftTimeLimitExceeded())
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        GeminiGroundedEngine(model="gemini-test").run("best product analytics", trace_id="t1", custom_properties={})
 
 
 @parameterized.expand(
