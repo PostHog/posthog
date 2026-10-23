@@ -203,6 +203,24 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
 
 
 class TestScoutHarnessRunsAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_runs_are_available_through_the_api(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        run = _make_run(self.team, skill_name=config.skill_name, scout_config=config)
+        ordinary = _make_run(self.team)
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        assert self.client.get(self._detail_url(str(run.id))).status_code == 200
+        response = self.client.get(self._list_url() + "recent-per-scout/")
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        response = self.client.post(self._list_url() + "emissions/batch/", {"run_ids": [str(run.id)]}, format="json")
+        assert response.status_code == 200
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/"
 
@@ -3177,6 +3195,19 @@ class TestPrecheckQueryValidation(SimpleTestCase):
 
 
 class TestScoutHarnessConfigAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_config_is_available_but_cannot_be_rerun(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        self._make_skill("signals-scout-first-report")
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert [row["skill_name"] for row in response.json()] == [config.skill_name]
+        assert self.client.post(f"{self._detail_url(str(config.id))}run/").status_code == 400
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
 
@@ -4338,7 +4369,9 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     @parameterized.expand([(None, True), ("onboarding", False)])
     def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
-        scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
+        scout_names = {
+            n for n in canonical_names if n.startswith("signals-scout-") and n != "signals-scout-first-report"
+        }
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
         assert "authoring-scouts" in companion_names
