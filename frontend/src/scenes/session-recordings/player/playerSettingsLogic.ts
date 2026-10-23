@@ -128,7 +128,7 @@ export interface playerSettingsLogicMeta {
             staffLayoutOverride: ReplayLayout | null,
             canOverrideLayout: boolean
         ) => ReplayLayout
-        debugMode: (debugModePreference: any, urlOverrideSidebarOpen: boolean | null) => boolean
+        debugMode: (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         sidebarOpen: (userPreferenceSidebarOpen: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         isVerticallyStacked: (preferredSidebarStacking: SessionRecordingSidebarStacking) => boolean
     }
