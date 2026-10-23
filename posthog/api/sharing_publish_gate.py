@@ -111,7 +111,7 @@ def check_can_add_insight_to_dashboard(
         )
 
 
-def blocked_access_for_publisher(user: User, team: Team, config: SharingConfiguration) -> list[str]:
+def denied_resources_in_share(user: User, team: Team, config: SharingConfiguration) -> list[str]:
     """
     Tables and runner-level resources that stop the publisher from running the shared
     artifact's queries. Each query is compiled (resolved, not executed) as the publisher,

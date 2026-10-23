@@ -30,7 +30,7 @@ from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_publisher
+from posthog.api.sharing_publish_gate import denied_resources_in_share
 from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -559,7 +559,7 @@ class SharingConfigurationViewSet(
             # org admins have full access, so skip the gate for a faster enable
             and not self.user_access_control.is_organization_admin
         ):
-            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
+            blocked_names = denied_resources_in_share(cast(User, request.user), self.team, instance)
             if blocked_names:
                 blocked = ", ".join(f"`{name}`" for name in blocked_names)
                 raise ValidationError(
