@@ -120,14 +120,14 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Autumn",
             caption=(
-                "Sync customers, usage events, features, plans, entities, invoices, and rewards from Autumn. "
+                "Sync customers, usage events, features, plans, entities, invoices, rewards, and licenses from Autumn. "
                 "Create a secret key (`am_sk_...`) in the Autumn dashboard under Developer settings. "
                 "Sandbox and production have separate keys, so use the key for the environment you want to sync."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/autumn",
             iconPath="/static/services/autumn.png",
             keywords=["billing", "subscriptions", "useautumn"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

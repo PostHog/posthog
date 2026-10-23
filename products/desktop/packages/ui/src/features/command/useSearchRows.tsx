@@ -31,7 +31,6 @@ type UseSearchRowsOptions = {
   tasks: Task[];
   taskSections: CommandSection[];
   channels: SearchChannel[];
-  bluebirdEnabled: boolean;
 };
 
 const SEARCH_ACTIONS: Record<TaskSearchResult["kind"], CommandMenuAction> = {
@@ -54,7 +53,6 @@ export function useSearchRows({
   tasks,
   taskSections,
   channels,
-  bluebirdEnabled,
 }: UseSearchRowsOptions): ResultRow[] {
   return useMemo(() => {
     if (!remoteQuery || searchResults.length === 0) return [];
@@ -71,7 +69,6 @@ export function useSearchRows({
     const rows: ResultRow[] = [];
 
     for (const result of searchResults) {
-      if (result.kind === "channel" && !bluebirdEnabled) continue;
       if (
         (result.kind === "task" &&
           result.task_id &&
@@ -105,18 +102,12 @@ export function useSearchRows({
           detailPrefix: "",
           keywords: `${remoteQuery} ${result.subtitle} ${Object.values(result.metadata).join(" ")}`,
           icon: searchResultIcon(result, { title, task }),
-          href: searchResultHref(result, { task, bluebirdEnabled }),
+          href: searchResultHref(result, { task }),
           action: SEARCH_ACTIONS[result.kind],
-          channelId: bluebirdEnabled
-            ? (result.channel_id ?? undefined)
-            : undefined,
+          channelId: result.channel_id ?? undefined,
           onRun: () => {
             closeSettings();
-            if (
-              bluebirdEnabled &&
-              result.kind === "channel" &&
-              result.channel_id
-            ) {
+            if (result.kind === "channel" && result.channel_id) {
               navigateToChannel(result.channel_id);
             } else if (result.kind === "canvas" && canvasId) {
               if (result.channel_id) {
@@ -133,7 +124,7 @@ export function useSearchRows({
                   ? { channelId: result.channel_id }
                   : undefined,
               );
-            } else if (bluebirdEnabled && result.task_id && result.channel_id) {
+            } else if (result.task_id && result.channel_id) {
               navigateToChannelTask(result.channel_id, result.task_id);
             } else if (result.task_id) {
               navigateToTaskDetail(result.task_id);
@@ -144,12 +135,5 @@ export function useSearchRows({
     }
 
     return rows;
-  }, [
-    remoteQuery,
-    searchResults,
-    tasks,
-    taskSections,
-    channels,
-    bluebirdEnabled,
-  ]);
+  }, [remoteQuery, searchResults, tasks, taskSections, channels]);
 }

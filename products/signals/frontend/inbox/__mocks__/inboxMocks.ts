@@ -291,6 +291,8 @@ export function mockSourceMetadata(
 export function mockSignals(reportId: string, count = 4): SignalNode[] {
     return Array.from({ length: count }).map((_, i) => ({
         signal_id: `${reportId}-sig-${i}`,
+        total_spend: null,
+        spend_accounting_failed_stages: [],
         content: [
             'User clicked **Submit** with an empty recipient row; the request returned `500` from `/api/invites`.',
             'Session shows three retries of the same failing checkout call before the user gave up.',

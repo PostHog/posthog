@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db.models.query import QuerySet
+from django.db.utils import OperationalError as DjangoOperationalError
 from django.test import override_settings
 
 from temporalio.testing import ActivityEnvironment
@@ -39,6 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 pytestmark = pytest.mark.django_db
 
 _USAGE = {"model": "claude-haiku-4-5", "prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}
+_UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
 
 
 @pytest.fixture(autouse=True)
@@ -477,6 +480,42 @@ class TestCanonicalDescriptionsResolver:
 
 
 class TestEnrichTableSemanticsSync:
+    def test_retries_transient_internal_db_error_on_initial_team_lookup(self):
+        # A DNS blip resolving PostHog's own database must be retried, not raised straight through -
+        # it would otherwise reach error tracking as an unactionable OperationalError on every sync.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}],
+            description="Stripe charges",
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+
+        failures = 0
+        original_get = QuerySet.get
+
+        def flaky_team_get(self, *args, **kwargs):
+            nonlocal failures
+            if self.model is Team and failures == 0:
+                failures += 1
+                raise DjangoOperationalError("[Errno -2] Name or service not known")
+            return original_get(self, *args, **kwargs)
+
+        with (
+            patch.object(QuerySet, "get", flaky_team_get),
+            patch(f"{_UTIL_MODULE}.close_stale_db_connections") as mock_close,
+            patch("time.sleep"),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_generate_descriptions") as mock_llm,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        mock_llm.assert_not_called()
+        # The helper evicts the connection once per retry, so exactly one retry happened.
+        assert failures == 1
+        mock_close.assert_called_once()
+        assert result == {"status": "done", "canonical_annotations": 1, "ai_annotations": 0}
+
     def test_skipped_when_ai_data_processing_not_approved(self):
         team = _team()
         team.organization.is_ai_data_processing_approved = False
@@ -487,6 +526,28 @@ class TestEnrichTableSemanticsSync:
         mock_llm.assert_not_called()
         assert result["status"] == "skipped"
         assert result["reason"] == "ai_data_processing_not_approved"
+        assert _annotations(team, table) == {}
+
+    def test_skipped_when_team_was_deleted(self):
+        # Same fire-and-forget race as the schema case below, but for the team itself.
+        team = _team()
+        team_id = team.pk
+        team.delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team_id, uuid.uuid4())
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "team_deleted"}
+
+    def test_skipped_when_schema_was_deleted(self):
+        # This activity is a fire-and-forget child workflow started after a sync completes, so the
+        # schema can be deleted by the user before it actually runs. That's a benign race, not a bug.
+        team = _team()
+        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        schema.soft_delete()
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+        mock_llm.assert_not_called()
+        assert result == {"status": "skipped", "reason": "schema_deleted"}
         assert _annotations(team, table) == {}
 
     def test_skipped_when_table_has_no_columns(self):

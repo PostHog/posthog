@@ -32,8 +32,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MANAGEMENT_KEY_REQUIRED = (
-    "Requires an OpenRouter management API key. This key is a regular inference key, which can only "
-    "read the models and providers catalogs."
+    "Requires an OpenRouter management API key. This key is a regular inference key, which can read only "
+    "the models, providers, and batches tables."
+)
+
+_INFERENCE_KEY_REQUIRED = (
+    "Requires a regular OpenRouter API key. Batches belong to the workspace of the key that reads them, "
+    "and a management key isn't tied to a workspace."
 )
 
 # The organization members and workspaces endpoints resolve only when the management key's account
@@ -68,10 +73,12 @@ class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeC
             name=ExternalDataSourceType.OPENROUTER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenRouter",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenRouter API key to pull your OpenRouter usage and account data into the PostHog Data warehouse.
 
-Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, organization members, and workspaces tables can sync. A regular inference key can only read the models and providers catalogs.""",
+Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, end users, organization members, and workspaces tables can sync. A regular inference key can read only the models, providers, and batches tables.
+
+A management key can't read batches. To sync them, connect a second OpenRouter source with a regular API key.""",
             iconPath="/static/services/openrouter.png",
             docsUrl="https://posthog.com/docs/cdp/sources/openrouter",
             keywords=["llm", "ai gateway", "usage", "inference"],
@@ -122,6 +129,8 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
         def _description(endpoint: str) -> str | None:
             if endpoint == "activity":
                 return "Daily usage rollups; only the last 30 completed UTC days are available"
+            if endpoint == "batches":
+                return "Batch jobs in the API key's workspace; needs a regular API key, not a management key"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -162,6 +171,8 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
             endpoint = OPENROUTER_ENDPOINTS.get(schema_name)
             if endpoint is not None and endpoint.requires_management_key and not info.get("is_management_key"):
                 return False, f"The '{schema_name}' table requires an OpenRouter management API key."
+            if endpoint is not None and endpoint.requires_inference_key and info.get("is_management_key"):
+                return False, f"The '{schema_name}' table requires a regular OpenRouter API key, not a management key."
 
         return True, None
 
@@ -181,6 +192,8 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
             endpoint = OPENROUTER_ENDPOINTS.get(name)
             if endpoint is not None and endpoint.requires_management_key and not is_management_key:
                 result[name] = _MANAGEMENT_KEY_REQUIRED
+            elif endpoint is not None and endpoint.requires_inference_key and is_management_key:
+                result[name] = _INFERENCE_KEY_REQUIRED
             else:
                 result[name] = None
         return result

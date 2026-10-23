@@ -18,28 +18,36 @@ use metrics::{counter, histogram};
 use rocksdb::properties::{self, PropName};
 use rocksdb::statistics::{StatsLevel, Ticker};
 use rocksdb::{
-    Cache, ColumnFamily, DBWithThreadMode, Direction, FlushOptions, IteratorMode, Options,
-    ReadOptions, SingleThreaded, WriteBatch, WriteOptions,
+    BottommostLevelCompaction, Cache, ColumnFamily, CompactOptions, DBWithThreadMode, Direction,
+    FlushOptions, IteratorMode, Options, ReadOptions, SingleThreaded, WriteBatch, WriteOptions,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::warn;
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
+
+use cohort_core::partitioner::COHORT_PARTITION_COUNT;
+use cohort_core::seed::CoverageStartMs;
 
 use super::column_families::{self, Cf, OpaqueCf};
+use super::coverage::{SliceCoverage, SliceTenure};
 use super::keys::{
     self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
     Stage2Key, Stage2TransferredRegisterKey, Stage2TransferredRegisterPersonPrefix, TombstoneKey,
     STAGE2_DIRTY_KEY_LEN,
 };
 use super::keyspace::{
-    BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_SCHEMA_VERSION,
+    BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, SliceCoverageKey, SliceCoverages,
+    META_POD_PARTITIONS, META_SCHEMA_VERSION, META_SLICE_COVERAGE,
 };
 use super::staged::{StagedBatch, StagedOp};
 use crate::observability::metrics::{
-    CHECKPOINT_DURATION_SECONDS, STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL, STORE_ERRORS_TOTAL,
-    STORE_READS_TOTAL, STORE_READ_DURATION_SECONDS, STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
-    STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS, WAL_FSYNC_DURATION_SECONDS,
-    WAL_FSYNC_ERRORS_TOTAL,
+    CHECKPOINT_DURATION_SECONDS, SLICES_ADOPTED_TOTAL, STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL,
+    STORE_ERRORS_TOTAL, STORE_READS_TOTAL, STORE_READ_DURATION_SECONDS,
+    STORE_SCHEMA_MISMATCH_WIPES_TOTAL, STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS,
+    WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
 };
+use crate::partitions::PartitionOwnership;
 
 /// On-disk store schema version, stamped into `cf_meta` at first open and checked on every reopen.
 /// A layout revision (key codec, value shape) that keeps the same CF set MUST bump this so an older
@@ -47,9 +55,9 @@ use crate::observability::metrics::{
 /// by `open_cf_descriptors` (see [`CohortStore::open_inner`]).
 ///
 /// The same version is also stamped into checkpoint `metadata.json` and checked on restore
-/// (`store/durability/import.rs`), which has *different* failure semantics: a mismatched checkpoint is
-/// silently skipped (falling through to the next candidate, then to a cold start), never a hard fail.
-/// A future bump must keep both guards in mind.
+/// (`store/durability/recovery.rs`) with the live store's rule: a mismatched checkpoint blocks the
+/// boot, unless `wipe_on_schema_mismatch` lets the restore pass over it as unusable. A future bump
+/// must keep both guards in mind.
 pub const STORE_SCHEMA_VERSION: u32 = 3;
 
 const OP_OPEN: &str = "open";
@@ -58,6 +66,8 @@ const OP_GET: &str = "get";
 const OP_MULTI_GET: &str = "multi_get";
 const OP_WRITE_BATCH: &str = "write_batch";
 const OP_DELETE_PARTITION: &str = "delete_partition";
+const OP_RESET_SLICES: &str = "reset_slices";
+const OP_DB_IDENTITY: &str = "db_identity";
 const OP_FLUSH: &str = "flush";
 const OP_FLUSH_WAL: &str = "flush_wal";
 const OP_SCAN: &str = "scan";
@@ -72,6 +82,11 @@ const DEFAULT_READ_SAMPLE_RATIO: u32 = 64;
 const DEFAULT_COMPACT_ON_DELETION_WINDOW: usize = 1000;
 const DEFAULT_COMPACT_ON_DELETION_NUM_DELS_TRIGGER: usize = 500;
 const DEFAULT_COMPACT_ON_DELETION_RATIO: f64 = 0.5;
+
+/// RocksDB keeps the active info `LOG` and the newest rolled ones, `DEFAULT_KEEP_LOG_FILE_NUM` files
+/// in total, so the info logs use at most about 10 × 256 MiB of the store volume.
+const DEFAULT_MAX_LOG_FILE_SIZE_BYTES: NonZeroUsize = NonZeroUsize::new(256 * 1024 * 1024).unwrap();
+const DEFAULT_KEEP_LOG_FILE_NUM: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 /// Resolved RocksDB settings.
 #[derive(Debug, Clone)]
@@ -112,6 +127,15 @@ pub struct StoreConfig {
     /// `cf_person_records` **only** — never `cf_behavioral`, whose eviction deadlines are the sweep's
     /// contract. See [`super::ttl_filter`].
     pub person_record_ttl_days: u32,
+    /// The partitions this pod owns. The store records it, and refuses to open under a split its
+    /// record does not cover. A store that predates coverage records adopts all of its partitions
+    /// as complete.
+    pub ownership: PartitionOwnership,
+    /// Size at which RocksDB rolls the info `LOG` file. RocksDB reads `0` as "never roll", which
+    /// lets one info log grow without bound.
+    pub max_log_file_size_bytes: NonZeroUsize,
+    /// Number of info `LOG` files RocksDB keeps. RocksDB refuses to open with `0`.
+    pub keep_log_file_num: NonZeroUsize,
 }
 
 impl Default for StoreConfig {
@@ -134,6 +158,9 @@ impl Default for StoreConfig {
             periodic_compaction_seconds: 0,
             max_background_jobs: 0,
             person_record_ttl_days: 0,
+            ownership: PartitionOwnership::single(COHORT_PARTITION_COUNT as u16),
+            max_log_file_size_bytes: DEFAULT_MAX_LOG_FILE_SIZE_BYTES,
+            keep_log_file_num: DEFAULT_KEEP_LOG_FILE_NUM,
         }
     }
 }
@@ -181,6 +208,18 @@ pub enum StoreError {
     )]
     SchemaMismatch { found: Option<u32>, expected: u32 },
 
+    /// The store's slices belong to a split that does not cover this pod's partitions, so its
+    /// slices for them may be missing or another pod's. `None` when the record is unreadable.
+    #[error(
+        "store ownership mismatch: the store was written as {}, which does not cover {expected}; \
+         refusing to open (wipe the store to start this pod's slices over)",
+        .found.map_or_else(|| "an unreadable ownership record".to_owned(), |found| found.to_string())
+    )]
+    OwnershipMismatch {
+        found: Option<PartitionOwnership>,
+        expected: PartitionOwnership,
+    },
+
     /// A batched read answered fewer slots than it was asked keys. RocksDB answers one slot per
     /// key, so this is a backend contract break rather than a data problem, and pairing a slot
     /// with the wrong key would attribute one person's stored state to another.
@@ -193,6 +232,18 @@ pub enum StoreError {
 
     #[error("store offload cancelled by runtime shutdown")]
     OffloadCancelled,
+}
+
+/// The RocksDB DB id. A reopen and a checkpoint keep it; a created store gets a new one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DbIdentity(String);
+
+#[cfg(test)]
+impl DbIdentity {
+    pub(crate) fn for_test(id: &str) -> Self {
+        Self(id.to_owned())
+    }
 }
 
 /// One scanned key/value pair as raw bytes — the merge-CF GC decodes each per CF.
@@ -292,6 +343,27 @@ impl Drop for Stage2DirtyTrackingGuard {
     }
 }
 
+/// One partitioned CF's range of a partition another pod owns, with its estimated SST size.
+#[derive(Debug)]
+struct UnownedRange {
+    cf: Cf,
+    partition: u16,
+    bytes: u64,
+}
+
+/// What one [`CohortStore::compact_unowned`] pass did. Sizes are RocksDB's estimates.
+#[derive(Debug)]
+pub struct UnownedCompaction {
+    /// The unowned ranges above the threshold when the pass began.
+    pub ranges: usize,
+    /// The bytes of those ranges.
+    pub bytes_before: u64,
+    /// The ranges compacted. Fewer than `ranges` when the stop fired.
+    pub compacted: usize,
+    /// The bytes of the ranges still above the threshold after the pass.
+    pub bytes_after: u64,
+}
+
 /// Handle to the per-process state store.
 ///
 /// Writes have two layers. The closure-based [`Self::write_batch`] is for synchronous callers that
@@ -320,6 +392,8 @@ impl CohortStore {
     /// which destroys and recreates the store, then stamps the fresh one. A store carrying a CF outside
     /// `Cf::ALL` never reaches this guard: it fails earlier in [`Self::open_inner`] (see there for the
     /// extra-vs-subset asymmetry the version key exists to close).
+    ///
+    /// An existing store without the coverage stamp adopts every partition as complete.
     pub fn open(config: &StoreConfig) -> Result<Self, StoreError> {
         let db_opts = db_options(config);
 
@@ -331,7 +405,13 @@ impl CohortStore {
         loop {
             let store = Self::open_inner(config, &db_opts)?;
             match store.check_schema(path_existed, config.wipe_on_schema_mismatch)? {
-                SchemaCheck::Ok => return Ok(store),
+                SchemaCheck::Ok => {
+                    store.claim_ownership(config.ownership)?;
+                    if path_existed {
+                        store.settle_coverage(config.ownership.partition_count())?;
+                    }
+                    return Ok(store);
+                }
                 SchemaCheck::WipeAndRetry => {
                     // Drop the handle before destroy: RocksDB cannot destroy an open DB.
                     drop(store);
@@ -378,13 +458,58 @@ impl CohortStore {
             }
         })?;
 
-        Ok(Self {
+        Ok(Self::from_db(db, db_opts, config))
+    }
+
+    fn from_db(
+        db: DBWithThreadMode<SingleThreaded>,
+        db_opts: &Options,
+        config: &StoreConfig,
+    ) -> Self {
+        Self {
             db: Arc::new(db),
             db_opts: Arc::new(db_opts.clone()),
             // Floor at 1: `next % ratio` must not divide by zero.
             read_sample_ratio: config.read_sample_ratio.max(1),
             dirty_tracking: Arc::new(Stage2DirtyTracking::default()),
-        })
+        }
+    }
+
+    /// Check that the store at `path` is whole and of this build's schema, without writing to it: it
+    /// opens read-only with this build's column families and carries [`STORE_SCHEMA_VERSION`]. The
+    /// open's consistency check, on under RocksDB's default `paranoid_checks`, refuses a store
+    /// missing any SST its MANIFEST names or holding one at another size.
+    pub fn validate_read_only(path: &Path) -> Result<(), StoreError> {
+        let config = StoreConfig {
+            path: path.to_path_buf(),
+            ..StoreConfig::default()
+        };
+        let db_opts = db_options(&config);
+        let cache = Cache::new_lru_cache(config.block_cache_bytes);
+        let db = DBWithThreadMode::<SingleThreaded>::open_cf_descriptors_read_only(
+            &db_opts,
+            path,
+            column_families::descriptors(&config, &cache),
+            false,
+        )
+        .map_err(|source| StoreError::Open {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let store = Self::from_db(db, &db_opts, &config);
+        store.check_schema(true, false)?;
+        Ok(())
+    }
+
+    pub fn db_identity(&self) -> Result<DbIdentity, StoreError> {
+        let id = self
+            .db
+            .get_db_identity()
+            .map_err(|source| StoreError::Backend {
+                op: OP_DB_IDENTITY,
+                source,
+            })?;
+        Ok(DbIdentity(String::from_utf8_lossy(&id).into_owned()))
     }
 
     /// Compare the `cf_meta` schema stamp against [`STORE_SCHEMA_VERSION`]. A fresh store (one that
@@ -396,7 +521,7 @@ impl CohortStore {
         wipe_on_schema_mismatch: bool,
     ) -> Result<SchemaCheck, StoreError> {
         if !path_existed {
-            self.stamp_schema_version()?;
+            self.stamp_new_store()?;
             return Ok(SchemaCheck::Ok);
         }
         let found = self
@@ -418,11 +543,95 @@ impl CohortStore {
         }
     }
 
-    /// Stamp `cf_meta[b"schema_version"]` with the current schema version (big-endian `u32`).
-    fn stamp_schema_version(&self) -> Result<(), StoreError> {
+    /// Stamp a new store with the schema version (big-endian `u32`) and the coverage stamp.
+    fn stamp_new_store(&self) -> Result<(), StoreError> {
         self.write_batch(|batch| {
             batch.put::<Meta>(&META_SCHEMA_VERSION, &STORE_SCHEMA_VERSION.to_be_bytes());
+            batch.put::<Meta>(&META_SLICE_COVERAGE, &[]);
         })
+    }
+
+    /// Records `ownership` in a store written under a split that covers it, and refuses any other
+    /// store. A covering split is this pod's own, or in a reshard the split that wrote the
+    /// parent's store or checkpoint. A store from before ownership records adopts the configured
+    /// one.
+    fn claim_ownership(&self, ownership: PartitionOwnership) -> Result<(), StoreError> {
+        if let Some(recorded) = self.get(Meta::CF, &Meta::encode(&META_POD_PARTITIONS))? {
+            match PartitionOwnership::decode(&recorded) {
+                Some(found) if found == ownership => return Ok(()),
+                Some(found) if found.covers(&ownership) => {}
+                found => {
+                    return Err(StoreError::OwnershipMismatch {
+                        found,
+                        expected: ownership,
+                    })
+                }
+            }
+        }
+        self.write_batch(|batch| {
+            batch.put::<Meta>(&META_POD_PARTITIONS, &ownership.encode());
+        })?;
+        info!(%ownership, "recorded the store's partition ownership");
+        Ok(())
+    }
+
+    /// Adopt every partition as complete in a store without the coverage stamp. The stamp rides the
+    /// same batch, so adoption happens once.
+    fn settle_coverage(&self, partition_count: u16) -> Result<(), StoreError> {
+        if self
+            .get(Meta::CF, &Meta::encode(&META_SLICE_COVERAGE))?
+            .is_some()
+        {
+            return Ok(());
+        }
+        let complete = SliceCoverage::Complete.encode();
+        self.write_batch(|batch| {
+            for partition_id in 0..partition_count {
+                batch.put::<SliceCoverages>(&SliceCoverageKey(partition_id), &complete);
+            }
+            batch.put::<Meta>(&META_SLICE_COVERAGE, &[]);
+        })?;
+        counter!(SLICES_ADOPTED_TOTAL).increment(u64::from(partition_count));
+        info!(
+            partitions = partition_count,
+            "store predates slice coverage records; adopted every partition as complete",
+        );
+        Ok(())
+    }
+
+    /// `None` when the slice has no readable record.
+    pub fn slice_coverage(&self, partition_id: u16) -> Result<Option<SliceCoverage>, StoreError> {
+        let key = SliceCoverages::encode(&SliceCoverageKey(partition_id));
+        let Some(value) = self.get(SliceCoverages::CF, &key)? else {
+            return Ok(None);
+        };
+        let coverage = SliceCoverage::decode(&value);
+        if coverage.is_none() {
+            warn!(
+                partition_id,
+                "undecodable slice coverage record; the slice begins again"
+            );
+        }
+        Ok(coverage)
+    }
+
+    /// Begins the slice at `start` when it has no record. The commit loop's fsync makes the write
+    /// durable before any offset commits.
+    pub fn resume_or_begin_slice(
+        &self,
+        partition_id: u16,
+        start: CoverageStartMs,
+    ) -> Result<SliceTenure, StoreError> {
+        if let Some(coverage) = self.slice_coverage(partition_id)? {
+            return Ok(SliceTenure::Resumed(coverage));
+        }
+        self.write_batch(|batch| {
+            batch.put::<SliceCoverages>(
+                &SliceCoverageKey(partition_id),
+                &SliceCoverage::Since(start).encode(),
+            );
+        })?;
+        Ok(SliceTenure::Begun(start))
     }
 
     /// Read a raw value from any CF.
@@ -978,20 +1187,182 @@ impl CohortStore {
         Ok(out)
     }
 
-    /// Reclaim all state for one partition on rebalance. Non-partitioned CFs (`cf_meta`) are skipped:
-    /// their short literal keys collide with an arbitrary partition's byte range, so a range delete
-    /// would wipe store-wide guards like the schema stamp.
-    pub fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
-        let (start, end) = keys::partition_range(partition_id);
+    /// Reclaim all state for one partition on rebalance, and return whether it held any key.
+    /// Non-partitioned CFs (`cf_meta`) are skipped: their short literal keys collide with an
+    /// arbitrary partition's byte range, so a range delete would wipe store-wide guards like the
+    /// schema stamp.
+    ///
+    /// The SST files that lie wholly inside the partition are dropped only after the range deletes
+    /// are durable. A file that straddles the partition boundary can hold older versions of keys
+    /// that a dropped file overwrote, and only the range deletes keep those versions hidden.
+    /// RocksDB syncs a file drop to its MANIFEST at once, so the WAL fsync comes first: a host crash
+    /// must not keep the drop and lose the range deletes, because the partition can be owned again
+    /// later.
+    pub fn delete_partition(&self, partition_id: u16) -> Result<bool, StoreError> {
+        let held_keys = self.slice_holds_keys(partition_id)?;
         let mut batch = WriteBatch::default();
+        self.delete_partition_ranges(&mut batch, partition_id)?;
+        self.commit(batch, OP_DELETE_PARTITION)?;
+        self.flush_wal_sync()?;
+        let (start, end) = keys::partition_range(partition_id);
         for cf in Cf::ALL {
             if !cf.partitioned() {
                 continue;
             }
-            let handle = self.cf(cf)?;
-            batch.delete_range_cf(handle, start.as_slice(), end.as_slice());
+            self.db
+                .delete_file_in_range_cf(self.cf(cf)?, &start, &end)
+                .map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_DELETE_PARTITION).increment(1);
+                    StoreError::Backend {
+                        op: OP_DELETE_PARTITION,
+                        source,
+                    }
+                })?;
         }
-        self.commit(batch, OP_DELETE_PARTITION)
+        Ok(held_keys)
+    }
+
+    /// Total-order seek, because `cf_behavioral`'s prefix extractor would otherwise end the seek at
+    /// the first person boundary.
+    fn slice_holds_keys(&self, partition_id: u16) -> Result<bool, StoreError> {
+        let (start, end) = keys::partition_range(partition_id);
+        for cf in Cf::ALL {
+            if !cf.partitioned() {
+                continue;
+            }
+            let mut read_opts = ReadOptions::default();
+            read_opts.set_iterate_upper_bound(end.clone());
+            read_opts.set_total_order_seek(true);
+            let first = self
+                .db
+                .iterator_cf_opt(
+                    self.cf(cf)?,
+                    read_opts,
+                    IteratorMode::From(&start, Direction::Forward),
+                )
+                .next()
+                .transpose()
+                .map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                    StoreError::Backend {
+                        op: OP_SCAN,
+                        source,
+                    }
+                })?;
+            if first.is_some() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Delete the slices a checkpoint restore cannot replay, with their coverage records, so each
+    /// begins again behind the coverage fence. The fsync makes the deletes outlive a crash: a
+    /// restore ends by deleting its marker, and a reset still in the async WAL would come back with
+    /// a `Complete` coverage record and positions past the events it lost.
+    pub fn reset_slices(
+        &self,
+        partitions: impl IntoIterator<Item = u16>,
+    ) -> Result<(), StoreError> {
+        let mut batch = WriteBatch::default();
+        for partition_id in partitions {
+            self.delete_partition_ranges(&mut batch, partition_id)?;
+        }
+        self.commit(batch, OP_RESET_SLICES)?;
+        self.flush_wal_sync()
+    }
+
+    fn delete_partition_ranges(
+        &self,
+        batch: &mut WriteBatch,
+        partition_id: u16,
+    ) -> Result<(), StoreError> {
+        let (start, end) = keys::partition_range(partition_id);
+        for cf in Cf::ALL {
+            if !cf.partitioned() {
+                continue;
+            }
+            batch.delete_range_cf(self.cf(cf)?, start.as_slice(), end.as_slice());
+        }
+        Ok(())
+    }
+
+    /// Compact through the bottom level every range of a partition outside `ownership` that holds
+    /// more than `threshold` bytes of SST data in a partitioned CF, which drops the data its range
+    /// deletes cover. A manual compaction cannot be interrupted, so the ranges compact one at a
+    /// time, and none starts after `stop` fires.
+    pub fn compact_unowned(
+        &self,
+        ownership: &PartitionOwnership,
+        threshold: u64,
+        stop: &CancellationToken,
+    ) -> Result<UnownedCompaction, StoreError> {
+        let ranges = self.unowned_ranges_above(ownership, threshold)?;
+        let mut opts = CompactOptions::default();
+        opts.set_bottommost_level_compaction(BottommostLevelCompaction::ForceOptimized);
+        let mut compacted = 0;
+        for range in &ranges {
+            if stop.is_cancelled() {
+                break;
+            }
+            let (start, end) = keys::partition_range(range.partition);
+            self.db
+                .compact_range_cf_opt(self.cf(range.cf)?, Some(start), Some(end), &opts);
+            compacted += 1;
+        }
+        // rust-rocksdb discards the compaction's error, so only a second measure shows what the
+        // pass dropped.
+        let bytes_after = self
+            .unowned_ranges_above(ownership, threshold)?
+            .iter()
+            .map(|range| range.bytes)
+            .sum();
+        Ok(UnownedCompaction {
+            ranges: ranges.len(),
+            bytes_before: ranges.iter().map(|range| range.bytes).sum(),
+            compacted,
+            bytes_after,
+        })
+    }
+
+    /// The ranges of the partitions outside `ownership` that hold more than `threshold` bytes of
+    /// SST data in a partitioned CF. RocksDB estimates the size from index blocks, and range deletes
+    /// do not shrink the estimate, so it counts deleted data that no compaction has dropped yet.
+    fn unowned_ranges_above(
+        &self,
+        ownership: &PartitionOwnership,
+        threshold: u64,
+    ) -> Result<Vec<UnownedRange>, StoreError> {
+        let partitions: Vec<u16> = (0..ownership.partition_count())
+            .filter(|&partition| !ownership.owns(partition))
+            .collect();
+        let bounds: Vec<(Vec<u8>, Vec<u8>)> = partitions
+            .iter()
+            .map(|&partition| keys::partition_range(partition))
+            .collect();
+        let ranges: Vec<rocksdb::Range<'_>> = bounds
+            .iter()
+            .map(|(start, end)| rocksdb::Range::new(start, end))
+            .collect();
+        let mut above = Vec::new();
+        for cf in Cf::ALL {
+            if !cf.partitioned() {
+                continue;
+            }
+            let sizes = self.db.get_approximate_sizes_cf(self.cf(cf)?, &ranges);
+            above.extend(
+                partitions
+                    .iter()
+                    .zip(sizes)
+                    .filter(|&(_, bytes)| bytes > threshold)
+                    .map(|(&partition, bytes)| UnownedRange {
+                        cf,
+                        partition,
+                        bytes,
+                    }),
+            );
+        }
+        Ok(above)
     }
 
     /// Flush all CF memtables to SST. Checkpoint path and tests only.
@@ -1453,6 +1824,8 @@ fn db_options(config: &StoreConfig) -> Options {
     if config.max_background_jobs > 0 {
         opts.set_max_background_jobs(config.max_background_jobs);
     }
+    opts.set_max_log_file_size(config.max_log_file_size_bytes.get());
+    opts.set_keep_log_file_num(config.keep_log_file_num.get());
     opts
 }
 
@@ -1464,6 +1837,7 @@ mod tests {
 
     use super::super::keyspace::{Behavioral, PersonRecords};
     use crate::stage1::key::LeafStateKey;
+    use crate::store::durability::PodOrdinal;
 
     fn behavioral_key() -> BehavioralKey {
         BehavioralKey::new(3, 7, Uuid::from_u128(1), LeafStateKey([0xAB; 16]))
@@ -2383,6 +2757,18 @@ mod tests {
             restored.get_behavioral(&key).unwrap().as_deref(),
             Some(b"snapshot".as_slice()),
         );
+        assert_eq!(
+            restored.db_identity().unwrap(),
+            store.db_identity().unwrap(),
+            "a restored checkpoint is the same DB, so an incremental upload may reuse its files",
+        );
+
+        let created = CohortStore::open(&StoreConfig {
+            path: dir.path().join("other"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        assert_ne!(created.db_identity().unwrap(), store.db_identity().unwrap());
     }
 
     // RocksDB's Checkpoint::create_checkpoint creates the destination dir itself and requires
@@ -2618,6 +3004,140 @@ mod tests {
     }
 
     #[test]
+    fn slice_coverage_is_settled_once_per_store_and_dies_with_its_slice() {
+        let t = CoverageStartMs(1_791_547_200_000);
+        let later = CoverageStartMs(t.0 + 60_000);
+        let created = TempDir::new().unwrap();
+        let config = StoreConfig {
+            path: created.path().join("db"),
+            ownership: PartitionOwnership::single(4),
+            ..StoreConfig::default()
+        };
+        {
+            let store = CohortStore::open(&config).unwrap();
+            assert_eq!(
+                store.slice_coverage(0).unwrap(),
+                None,
+                "a created store adopts nothing"
+            );
+            for partition_id in [1, 2] {
+                assert_eq!(
+                    store.resume_or_begin_slice(partition_id, t).unwrap(),
+                    SliceTenure::Begun(t),
+                );
+            }
+        }
+
+        // Reopened: records resume, and nothing is adopted.
+        let store = CohortStore::open(&config).unwrap();
+        assert_eq!(store.slice_coverage(0).unwrap(), None);
+        assert_eq!(
+            store.resume_or_begin_slice(1, later).unwrap(),
+            SliceTenure::Resumed(SliceCoverage::Since(t)),
+        );
+
+        // The record dies with its slice.
+        store.delete_partition(1).unwrap();
+        assert_eq!(
+            store.resume_or_begin_slice(1, later).unwrap(),
+            SliceTenure::Begun(later),
+        );
+        assert_eq!(
+            store.slice_coverage(2).unwrap(),
+            Some(SliceCoverage::Since(t))
+        );
+
+        // A store without the stamp adopts every partition.
+        let legacy = TempDir::new().unwrap();
+        let config = StoreConfig {
+            path: legacy.path().join("db"),
+            ..config
+        };
+        CohortStore::open(&config)
+            .unwrap()
+            .write_batch(|batch| batch.delete::<Meta>(&META_SLICE_COVERAGE))
+            .unwrap();
+        let store = CohortStore::open(&config).unwrap();
+        assert_eq!(
+            (0..5)
+                .map(|partition_id| store.slice_coverage(partition_id).unwrap())
+                .collect::<Vec<_>>(),
+            [[Some(SliceCoverage::Complete); 4].as_slice(), &[None]].concat(),
+        );
+
+        // Adoption happens once.
+        store.delete_partition(0).unwrap();
+        drop(store);
+        assert_eq!(
+            CohortStore::open(&config)
+                .unwrap()
+                .slice_coverage(0)
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_store_opens_only_under_a_split_its_record_covers_and_then_records_that_split() {
+        let pods = std::num::NonZeroU16::new(2).unwrap();
+        let pod_zero = PartitionOwnership::new(pods, PodOrdinal::STANDALONE, 4).unwrap();
+        let pod_one = PartitionOwnership::new(pods, PodOrdinal::from(1), 4).unwrap();
+        let dir = TempDir::new().unwrap();
+        let under = |ownership| StoreConfig {
+            path: dir.path().join("db"),
+            ownership,
+            ..StoreConfig::default()
+        };
+
+        drop(CohortStore::open(&under(pod_one)).unwrap());
+        CohortStore::open(&under(pod_one)).expect("the recorded ownership reopens");
+        for other in [pod_zero, PartitionOwnership::single(4)] {
+            assert!(
+                matches!(
+                    CohortStore::open(&under(other)),
+                    Err(StoreError::OwnershipMismatch { found: Some(found), expected })
+                        if found == pod_one && expected == other
+                ),
+                "{other}",
+            );
+        }
+
+        // A store from before ownership records adopts the ownership it opens under.
+        CohortStore::open(&under(pod_one))
+            .unwrap()
+            .write_batch(|batch| batch.delete::<Meta>(&META_POD_PARTITIONS))
+            .unwrap();
+        drop(CohortStore::open(&under(pod_zero)).unwrap());
+        assert!(matches!(
+            CohortStore::open(&under(pod_one)),
+            Err(StoreError::OwnershipMismatch { .. })
+        ));
+
+        CohortStore::open(&under(pod_zero))
+            .unwrap()
+            .write_batch(|batch| batch.put::<Meta>(&META_POD_PARTITIONS, &[0xFF]))
+            .unwrap();
+        assert!(matches!(
+            CohortStore::open(&under(pod_zero)),
+            Err(StoreError::OwnershipMismatch { found: None, .. })
+        ));
+
+        // A parent's store, or a checkpoint of it, opens under a split it covers and records it.
+        let parent = TempDir::new().unwrap();
+        let resharded = |ownership| StoreConfig {
+            path: parent.path().join("db"),
+            ownership,
+            ..StoreConfig::default()
+        };
+        drop(CohortStore::open(&resharded(PartitionOwnership::single(4))).unwrap());
+        drop(CohortStore::open(&resharded(pod_one)).expect("a covering record opens"));
+        assert!(matches!(
+            CohortStore::open(&resharded(PartitionOwnership::single(4))),
+            Err(StoreError::OwnershipMismatch { found: Some(found), .. }) if found == pod_one
+        ));
+    }
+
+    #[test]
     fn delete_partition_wipes_partitioned_cfs_but_preserves_the_schema_stamp() {
         let dir = TempDir::new().unwrap();
         let store = CohortStore::open(&StoreConfig {
@@ -2646,6 +3166,52 @@ mod tests {
                 .as_deref(),
             Some(STORE_SCHEMA_VERSION.to_be_bytes().as_slice()),
             "cf_meta is exempt from the partition wipe, so the schema guard survives a rebalance",
+        );
+    }
+
+    #[test]
+    fn reset_slices_deletes_each_slice_and_its_coverage_record_durably() {
+        let dir = TempDir::new().unwrap();
+        let config = StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        };
+        let start = CoverageStartMs(1_791_547_200_000);
+        {
+            let store = CohortStore::open(&config).unwrap();
+            for partition in [4, 5, 6] {
+                store
+                    .write_batch(|b| {
+                        b.put::<Behavioral>(&behavioral_key_for(partition, 1), b"state")
+                    })
+                    .unwrap();
+                store.resume_or_begin_slice(partition, start).unwrap();
+            }
+            store.reset_slices([4, 6]).unwrap();
+        }
+
+        let reopened = CohortStore::open(&config).unwrap();
+        for partition in [4, 6] {
+            assert_eq!(
+                reopened
+                    .get_behavioral(&behavioral_key_for(partition, 1))
+                    .unwrap(),
+                None,
+                "partition {partition}",
+            );
+            assert_eq!(
+                reopened.slice_coverage(partition).unwrap(),
+                None,
+                "partition {partition}",
+            );
+        }
+        assert!(reopened
+            .get_behavioral(&behavioral_key_for(5, 1))
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            reopened.slice_coverage(5).unwrap(),
+            Some(SliceCoverage::Since(start)),
         );
     }
 
@@ -2738,6 +3304,109 @@ mod tests {
             survivors,
             vec![1, 3, 5, 7, 9],
             "compaction drops the deleted evens and keeps the odds ordered and bounded",
+        );
+    }
+
+    #[test]
+    fn deleting_unowned_partitions_drops_their_files_and_compaction_removes_the_rest() {
+        const KEYS: u128 = 1_000;
+        const THRESHOLD: u64 = 64 * 1024;
+        // Distinct in every 16-byte chunk, so LZ4 keeps each value near its 256 bytes and the size
+        // estimates stay far above `THRESHOLD`.
+        let value = |partition: u16, person: u128| -> Vec<u8> {
+            (0..16u128)
+                .flat_map(|chunk| {
+                    ((u128::from(partition) << 96) | (person << 8) | chunk)
+                        .wrapping_mul(0x2545_F491_4F6C_DD1D_9E37_79B9_7F4A_7C15)
+                        .to_le_bytes()
+                })
+                .collect()
+        };
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        // Partitions 0 and 1 each get a file of their own, and partitions 2 and 3 share one.
+        for partitions in [0..1u16, 1..2, 2..4] {
+            store
+                .write_batch(|batch| {
+                    for partition in partitions.clone() {
+                        for person in 0..KEYS {
+                            batch.put::<Behavioral>(
+                                &behavioral_key_for(partition, person),
+                                &value(partition, person),
+                            );
+                        }
+                    }
+                })
+                .unwrap();
+            store.flush().unwrap();
+            store.db.compact_range_cf(
+                store.cf(Cf::Behavioral).unwrap(),
+                Some(keys::partition_range(partitions.start).0),
+                Some(keys::partition_range(partitions.end - 1).1),
+            );
+        }
+        let behavioral_files = || -> Vec<rocksdb::LiveFile> {
+            store
+                .db
+                .live_files()
+                .unwrap()
+                .into_iter()
+                .filter(|file| file.column_family_name == Cf::Behavioral.as_str())
+                .collect()
+        };
+        assert_eq!(behavioral_files().len(), 3);
+        let pod_zero_of_two = PartitionOwnership::new(
+            std::num::NonZeroU16::new(2).unwrap(),
+            PodOrdinal::STANDALONE,
+            4,
+        )
+        .unwrap();
+
+        assert!(store.delete_partition(1).unwrap());
+        assert!(store.delete_partition(3).unwrap());
+        assert_eq!(behavioral_files().len(), 2);
+        assert_eq!(
+            store
+                .unowned_ranges_above(&pod_zero_of_two, THRESHOLD)
+                .unwrap()
+                .iter()
+                .map(|range| (range.cf, range.partition))
+                .collect::<Vec<_>>(),
+            [(Cf::Behavioral, 3)],
+        );
+        let stopped = CancellationToken::new();
+        stopped.cancel();
+        let skipped = store
+            .compact_unowned(&pod_zero_of_two, THRESHOLD, &stopped)
+            .unwrap();
+        assert_eq!(
+            (skipped.ranges, skipped.compacted, skipped.bytes_after),
+            (1, 0, skipped.bytes_before),
+        );
+        let pass = store
+            .compact_unowned(&pod_zero_of_two, THRESHOLD, &CancellationToken::new())
+            .unwrap();
+        assert_eq!((pass.ranges, pass.compacted, pass.bytes_after), (1, 1, 0));
+
+        let held: Vec<usize> = (0..4)
+            .map(|partition| {
+                store
+                    .scan_behavioral(partition, None, usize::MAX)
+                    .unwrap()
+                    .len()
+            })
+            .collect();
+        assert_eq!(held, [KEYS as usize, 0, KEYS as usize, 0]);
+        assert_eq!(
+            behavioral_files()
+                .iter()
+                .map(|file| file.num_entries)
+                .sum::<u64>(),
+            2 * KEYS as u64,
         );
     }
 
@@ -2909,6 +3578,37 @@ mod tests {
             stats.block_cache_hits,
             stats.block_cache_misses,
         );
+    }
+
+    #[test]
+    fn info_log_caps_reach_the_persisted_rocksdb_options() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("db");
+        let _store = CohortStore::open(&StoreConfig {
+            path: path.clone(),
+            max_log_file_size_bytes: NonZeroUsize::new(1_048_576).unwrap(),
+            keep_log_file_num: NonZeroUsize::new(3).unwrap(),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let options_file = std::fs::read_dir(&path)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("OPTIONS-")
+            })
+            .expect("RocksDB writes an OPTIONS file at open");
+        let options = std::fs::read_to_string(options_file).unwrap();
+        for line in ["max_log_file_size=1048576", "keep_log_file_num=3"] {
+            assert!(
+                options.lines().any(|l| l.trim() == line),
+                "missing `{line}`"
+            );
+        }
     }
 
     #[test]

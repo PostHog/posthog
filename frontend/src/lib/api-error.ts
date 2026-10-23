@@ -93,8 +93,16 @@ export function isScopeNotFoundError(error: unknown): boolean {
     if (failure?.status !== 404) {
         return false
     }
-    const detail = failure.detail ?? failure.data?.detail
-    return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
+    return isScopeNotFoundMessage(failure.detail ?? failure.data?.detail)
+}
+
+/**
+ * Whether a message is the `detail` of a dead scope. An `ApiError` takes its message from that
+ * `detail`, and the automatic unhandled-rejection capture keeps the message but not the status, so
+ * `before_send` can only match on this.
+ */
+export function isScopeNotFoundMessage(message: unknown): boolean {
+    return typeof message === 'string' && SCOPE_NOT_FOUND_DETAILS.has(message)
 }
 
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */

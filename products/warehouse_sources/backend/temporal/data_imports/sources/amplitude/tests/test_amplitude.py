@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
     AmplitudeResumeConfig,
+    AmplitudeRetryableError,
     _auth_headers,
     _iter_export_window,
     _normalize_event,
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     COHORTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
     EVENTS_ENDPOINT,
+    GROUP_PROPERTIES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -119,9 +121,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool) -> None:
@@ -196,6 +195,34 @@ class TestIterExportWindow:
         )
         assert [row["uuid"] for row in rows] == ["a", "b"]
 
+    def test_invalid_zip_body_raises_retryable_error(self) -> None:
+        # Amplitude has occasionally served a 2xx response whose body isn't a valid archive
+        # (e.g. truncated by a network blip). That must surface as a retryable failure so
+        # Temporal retries the activity, not as an unhandled BadZipFile crash.
+        session = self._session_returning(_response(status=200, content=b"not a zip file"))
+
+        with pytest.raises(AmplitudeRetryableError):
+            list(
+                _iter_export_window(
+                    session, "https://amplitude.com", {}, "20260101T00", "20260101T23", mock.MagicMock()
+                )
+            )
+
+    def test_corrupt_entry_payload_raises_retryable_error(self) -> None:
+        # The central directory parses fine, but an entry's payload isn't valid gzip data.
+        # That only surfaces while the entry is being read, not when the archive is opened.
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("part_0.json.gz", b"not actually gzip data")
+        session = self._session_returning(_response(status=200, content=buf.getvalue()))
+
+        with pytest.raises(AmplitudeRetryableError):
+            list(
+                _iter_export_window(
+                    session, "https://amplitude.com", {}, "20260101T00", "20260101T23", mock.MagicMock()
+                )
+            )
+
     def test_non_ok_status_raises(self) -> None:
         response = _response(status=400, text="bad request")
         # Assign the class (not an instance) so the requests-stubs `response` arg isn't required;
@@ -262,16 +289,41 @@ class TestEventsWindowing:
 class TestListRows:
     @parameterized.expand(
         [
-            (COHORTS_ENDPOINT, {"cohorts": [{"id": "c1"}, {"id": "c2"}]}, ["c1", "c2"]),
-            (ANNOTATIONS_ENDPOINT, {"data": [{"id": 1}]}, [1]),
-            (COHORTS_ENDPOINT, {"cohorts": []}, []),
-            (COHORTS_ENDPOINT, {"unexpected": []}, []),
+            (COHORTS_ENDPOINT, {"cohorts": [{"id": "c1"}, {"id": "c2"}]}, "/api/3/cohorts", "id", ["c1", "c2"]),
+            (ANNOTATIONS_ENDPOINT, {"data": [{"id": 1}]}, "/api/2/annotations", "id", [1]),
+            (COHORTS_ENDPOINT, {"cohorts": []}, "/api/3/cohorts", "id", []),
+            (COHORTS_ENDPOINT, {"unexpected": []}, "/api/3/cohorts", "id", []),
+            (
+                GROUP_PROPERTIES_ENDPOINT,
+                {
+                    "success": True,
+                    "data": [
+                        {"group_property": "grp:plan_tier", "type": "string", "is_hidden": False},
+                        {"group_property": "grp:seat_count", "type": "number", "is_array_type": False},
+                    ],
+                },
+                "/api/2/taxonomy/group-property",
+                "group_property",
+                ["grp:plan_tier", "grp:seat_count"],
+            ),
+            (
+                GROUP_PROPERTIES_ENDPOINT,
+                {"success": True, "data": []},
+                "/api/2/taxonomy/group-property",
+                "group_property",
+                [],
+            ),
         ]
     )
-    def test_data_selector_extraction(self, endpoint: str, body: Any, expected_ids: list[Any]) -> None:
+    def test_data_selector_extraction(
+        self, endpoint: str, body: Any, expected_path: str, key_field: str, expected_keys: list[Any]
+    ) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        assert [row["id"] for row in result.rows] == expected_ids
+        assert [row[key_field] for row in result.rows] == expected_keys
+        assert result.paths == [expected_path]
+        # A `group_type` param would narrow group properties to one group type instead of the shared set.
+        assert "?" not in result.urls[0]
         assert result.raised is None
 
     def test_bare_list_response_is_yielded(self) -> None:

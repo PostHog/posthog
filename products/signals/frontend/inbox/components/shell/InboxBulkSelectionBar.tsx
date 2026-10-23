@@ -5,7 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import type { SignalReport } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
 import { openDismissReportDialog } from './DismissReportDialog'
 import { openResolveReportDialog } from './ResolveReportDialog'
@@ -27,6 +27,10 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
     }
     const busy = isDismissing || isResolving || isUnassigning
     const selectedIds = new Set(selectedReportIds)
+    const selectedReports = reports.filter((report) => selectedIds.has(report.id))
+    const isMonitoring =
+        selectedReports.length === selectedCount &&
+        selectedReports.every((report) => report.status === SignalReportStatus.MONITORING)
     const hasOpenPr = reports.some((report) => selectedIds.has(report.id) && hasOpenImplementationPr(report))
     const unassignableIds = reports
         .filter((report) => selectedIds.has(report.id) && canUnassignMe(report, isScopedToMe))
@@ -50,6 +54,7 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
                         openResolveReportDialog({
                             selectedCount,
                             hasOpenPr,
+                            isMonitoring,
                             onConfirm: ({ reason, note }) => bulkResolve(reason, note),
                         })
                     }

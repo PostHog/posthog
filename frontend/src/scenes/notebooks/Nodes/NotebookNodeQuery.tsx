@@ -166,7 +166,6 @@ const Component = ({
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
-            modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
         }
 
@@ -476,6 +475,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
+    deferUntilInView: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,

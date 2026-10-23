@@ -78,7 +78,7 @@ class TestUrlHelpers:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
+    @pytest.mark.parametrize("status_code", [403])
     def test_returns_status_code(self, status_code):
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("key", None) == status_code

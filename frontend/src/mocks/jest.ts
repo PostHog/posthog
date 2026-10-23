@@ -24,6 +24,7 @@ const jestOnlyDefaultHandlers = mocksToHandlers({
             feature_flags: { results: [], total: 0, has_more: false },
             insights: { results: [], total: 0, has_more: false },
             cohorts: { results: [], total: 0, has_more: false },
+            workflows: { results: [], total: 0, hidden: 0, has_more: false },
         },
     },
 })

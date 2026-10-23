@@ -1,6 +1,20 @@
 {
     "name": "Kubernetes workloads",
     "description": "Pods, restarts, CPU, memory and network of Kubernetes workloads from cAdvisor and kube-state-metrics.",
+    "variables": [
+        {
+            "name": "namespace",
+            "label": "Namespace",
+            "source": "sql",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'namespace' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "running_pods",
@@ -17,6 +31,11 @@
                                 "key": "phase",
                                 "op": "eq",
                                 "value": "Running"
+                            },
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
                             }
                         ]
                     }
@@ -42,7 +61,14 @@
                     {
                         "name": "a",
                         "metricName": "kube_pod_container_status_restarts_total",
-                        "aggregation": "increase"
+                        "aggregation": "increase",
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -80,7 +106,14 @@
                     {
                         "name": "a",
                         "metricName": "container_cpu_usage_seconds_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -104,7 +137,14 @@
                     {
                         "name": "a",
                         "metricName": "container_memory_working_set_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -134,6 +174,13 @@
                             {
                                 "key": "namespace"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
                         ]
                     }
                 ],
@@ -161,6 +208,13 @@
                         "groupBy": [
                             {
                                 "key": "namespace"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
                             }
                         ]
                     }
@@ -191,6 +245,13 @@
                             {
                                 "key": "pod"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
                         ]
                     }
                 ],
@@ -214,12 +275,26 @@
                     {
                         "name": "received",
                         "metricName": "container_network_receive_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
+                        ]
                     },
                     {
                         "name": "sent",
                         "metricName": "container_network_transmit_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -243,12 +318,26 @@
                     {
                         "name": "available",
                         "metricName": "kube_deployment_status_replicas_available",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
+                        ]
                     },
                     {
                         "name": "desired",
                         "metricName": "kube_deployment_spec_replicas",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -275,6 +364,13 @@
                         "groupBy": [
                             {
                                 "key": "phase"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "namespace",
+                                "op": "eq",
+                                "value": "$namespace"
                             }
                         ]
                     }

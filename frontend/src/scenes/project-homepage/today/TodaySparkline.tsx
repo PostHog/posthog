@@ -1,4 +1,3 @@
-import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import {
@@ -7,30 +6,12 @@ import {
     type LineChartConfig,
     type Series,
     type TooltipContext,
+    TooltipSurface,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
-export type TodayTone = 'risk' | 'good' | 'neutral'
-
-interface TodayTonePalette {
-    risk: string
-    good: string
-    neutral: string
-    line: string
-}
-
-const PALETTE: Record<'light' | 'dark', TodayTonePalette> = {
-    light: { risk: '#d6453a', good: '#1f9d55', neutral: '#55554f', line: '#c4c4bc' },
-    dark: { risk: '#ff7b6e', good: '#5fd38d', neutral: '#c9c9c2', line: '#55554f' },
-}
-
-export function useTodayTonePalette(): TodayTonePalette {
-    const { isDarkModeOn } = useValues(themeLogic)
-    return isDarkModeOn ? PALETTE.dark : PALETTE.light
-}
+import { type TodayTone, useTodayTonePalette } from './todayTone'
 
 export function TodaySparkline({
     values,
@@ -43,7 +24,7 @@ export function TodaySparkline({
     labels: string[]
     tone: TodayTone
     emphasizeLast: number
-    formatValue: (value: number) => string
+    formatValue?: (value: number) => string
 }): JSX.Element {
     const theme = useChartTheme()
     const palette = useTodayTonePalette()
@@ -69,25 +50,25 @@ export function TodaySparkline({
             showGrid: false,
             showAxisLines: false,
             showTickMarks: false,
-            showCrosshair: true,
+            showCrosshair: !!formatValue,
             curve: 'linear',
             floatBaseline: true,
             margins: { top: 4, right: 4, bottom: 4, left: 1 },
-            tooltip: { enabled: true, placement: 'follow-data' },
+            tooltip: { enabled: !!formatValue, placement: 'follow-data' },
         }),
-        []
+        [formatValue]
     )
     const tooltip = useCallback(
         (context: TooltipContext): JSX.Element | null => {
             const value = context.seriesData[0]?.value
-            if (value === undefined || Number.isNaN(value)) {
+            if (!formatValue || value === undefined || Number.isNaN(value)) {
                 return null
             }
             return (
-                <div className="rounded-md border border-border bg-background px-2 py-1 shadow-sm">
-                    <div className="text-xs text-muted-foreground">{context.label}</div>
-                    <div className="text-xs font-medium tabular-nums text-foreground">{formatValue(value)}</div>
-                </div>
+                <TooltipSurface>
+                    <div className="opacity-70">{context.label}</div>
+                    <div className="font-medium tabular-nums">{formatValue(value)}</div>
+                </TooltipSurface>
             )
         },
         [formatValue]

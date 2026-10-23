@@ -49,7 +49,7 @@ class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
             name=ExternalDataSourceType.ORB,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Orb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Orb API key to automatically pull your Orb billing data into the PostHog Data warehouse.
 
 You can create an API key in your [Orb account settings](https://app.withorb.com/settings). A read-only key is sufficient.""",

@@ -57,6 +57,22 @@ _CONVERSATION_FANOUT = DependentEndpointConfig(
     parent_field_renames={"id": "conversation_id"},
 )
 
+_TEAMMATE_GROUP_FANOUT = DependentEndpointConfig(
+    parent_name="teammate_groups",
+    resolve_param="teammate_group_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "teammate_group_id"},
+)
+
+_CONTACT_LIST_FANOUT = DependentEndpointConfig(
+    parent_name="contact_lists",
+    resolve_param="contact_list_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "contact_list_id"},
+)
+
 
 def _datetime_incremental_field(field_name: str) -> IncrementalField:
     # Front timestamps are Unix epoch seconds, surfaced to users as a datetime cursor but
@@ -141,6 +157,13 @@ FRONT_ENDPOINTS: dict[str, FrontEndpointConfig] = {
         sort_mode="desc",
         fanout=_CONVERSATION_FANOUT,
     ),
+    # Rows are teammates, so a teammate following many conversations repeats its id: key on the pair.
+    "conversation_followers": FrontEndpointConfig(
+        name="conversation_followers",
+        path="/conversations/{conversation_id}/followers",
+        primary_keys=["conversation_id", "id"],
+        fanout=_CONVERSATION_FANOUT,
+    ),
     # Resolves the ticket status id carried on each synced conversation.
     "ticket_statuses": FrontEndpointConfig(
         name="ticket_statuses", path="/company/statuses", partition_key="created_at"
@@ -159,6 +182,35 @@ FRONT_ENDPOINTS: dict[str, FrontEndpointConfig] = {
     "inboxes": FrontEndpointConfig(name="inboxes", path="/inboxes"),
     "channels": FrontEndpointConfig(name="channels", path="/channels"),
     "teams": FrontEndpointConfig(name="teams", path="/teams"),
+    "teammate_groups": FrontEndpointConfig(name="teammate_groups", path="/teammate_groups"),
+    # Membership joins: the same teammate, team or inbox can sit in many groups.
+    "teammate_group_teammates": FrontEndpointConfig(
+        name="teammate_group_teammates",
+        path="/teammate_groups/{teammate_group_id}/teammates",
+        primary_keys=["teammate_group_id", "id"],
+        fanout=_TEAMMATE_GROUP_FANOUT,
+    ),
+    "teammate_group_teams": FrontEndpointConfig(
+        name="teammate_group_teams",
+        path="/teammate_groups/{teammate_group_id}/teams",
+        primary_keys=["teammate_group_id", "id"],
+        fanout=_TEAMMATE_GROUP_FANOUT,
+    ),
+    "teammate_group_inboxes": FrontEndpointConfig(
+        name="teammate_group_inboxes",
+        path="/teammate_groups/{teammate_group_id}/inboxes",
+        primary_keys=["teammate_group_id", "id"],
+        fanout=_TEAMMATE_GROUP_FANOUT,
+    ),
+    # Contact lists replace the deprecated contact groups, which are not synced.
+    "contact_lists": FrontEndpointConfig(name="contact_lists", path="/contact_lists"),
+    "contact_list_contacts": FrontEndpointConfig(
+        name="contact_list_contacts",
+        path="/contact_lists/{contact_list_id}/contacts",
+        primary_keys=["contact_list_id", "id"],
+        limit=100,
+        fanout=_CONTACT_LIST_FANOUT,
+    ),
 }
 
 ENDPOINTS = tuple(FRONT_ENDPOINTS.keys())

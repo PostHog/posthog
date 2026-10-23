@@ -12,6 +12,7 @@ from posthog.dags import (
     export_query_log_archive_to_s3,
     fix_person_id_overrides,
     flag_evaluations_backfill,
+    flag_evaluations_person_id_repair,
     part_breaker,
     person_overrides,
     person_pg_cleanup_drain,
@@ -19,6 +20,7 @@ from posthog.dags import (
     property_definitions,
     warehouse_object_reads_daily,
 )
+from posthog.dags.common import deletion_run_log
 
 from . import loggers, resources
 
@@ -42,6 +44,8 @@ defs = dagster.Definitions(
         backfill_materialized_column.backfill_materialized_column,
         fix_person_id_overrides.fix_person_id_overrides_job,
         flag_evaluations_backfill.flag_evaluations_backfill_job,
+        flag_evaluations_person_id_repair.cleanup_orphaned_flag_evaluations_person_id_repair,
+        flag_evaluations_person_id_repair.flag_evaluations_person_id_repair_job,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         person_pg_cleanup_drain.person_pg_cleanup_drain_job,
@@ -69,6 +73,7 @@ defs = dagster.Definitions(
         clickhouse_cleanup.run_cleanup_sweep_after_deletes,
         deletes.run_deletes_after_squash,
         deletes.run_deletes_after_manual_trigger,
+        deletion_run_log.reconcile_deletion_run_logs,
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
         warehouse_object_reads_daily.warehouse_object_reads_daily_overdue_sensor,
