@@ -57,7 +57,7 @@ def code_email_actions(key: str) -> list[dict]:
     # fails the send, so this empty step is never delivered.
     return _actions(
         name=key,
-        step_config={"message_category_id": None, "utm_tags_enabled": True, "sensitive": False},
+        step_config={"message_category_id": None, "sensitive": False},
         sender_integration_id=None,
         from_email="",
         from_name="",
