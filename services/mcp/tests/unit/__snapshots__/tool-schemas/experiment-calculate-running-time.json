@@ -106,7 +106,8 @@
         },
         "number_of_variants": {
             "default": 2,
-            "description": "Total number of variants including control (default 2).",
+            "description": "Total number of variants including control (default 2, at most 100).",
+            "maximum": 100,
             "minimum": 2,
             "type": "number"
         },
