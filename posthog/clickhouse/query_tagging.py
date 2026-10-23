@@ -239,7 +239,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY:
+        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}

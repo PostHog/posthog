@@ -292,7 +292,52 @@ export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 /**
- * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * * `blue` - Blue
+ * * `purple` - Purple
+ * * `green` - Green
+ * * `yellow` - Yellow
+ * * `orange` - Orange
+ * * `red` - Red
+ */
+export type DashboardTileGroupColorEnumApi =
+    (typeof DashboardTileGroupColorEnumApi)[keyof typeof DashboardTileGroupColorEnumApi]
+
+export const DashboardTileGroupColorEnumApi = {
+    Blue: 'blue',
+    Purple: 'purple',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+} as const
+
+export interface DashboardTileGroupApi {
+    /**
+     * Heading for the group. When it is blank or omitted, the heading shows the number of tiles.
+     * @maxLength 200
+     */
+    title?: string
+    /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+    collapsed?: boolean
+    /** Color of a dot before the group heading. Null or omitted shows no dot.
+     *
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red */
+    color?: DashboardTileGroupColorEnumApi | null
+}
+
+/**
+ * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+ * @nullable
+ */
+export type DashboardApiGroups = { [key: string]: DashboardTileGroupApi } | null
+
+/**
+ * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
  * @nullable
  */
 export type DashboardApiGroupTitles = { [key: string]: string } | null
@@ -368,7 +413,12 @@ export const LayoutCompactionEnumApi = {
 } as const
 
 /**
- * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+ */
+export type DashboardCustomizationApiGroups = { [key: string]: DashboardTileGroupApi }
+
+/**
+ * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
  */
 export type DashboardCustomizationApiGroupTitles = { [key: string]: string }
 
@@ -387,7 +437,9 @@ export interface DashboardCustomizationApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
-    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
+    groups?: DashboardCustomizationApiGroups
+    /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
     group_titles?: DashboardCustomizationApiGroupTitles
 }
 
@@ -475,7 +527,12 @@ export interface DashboardApi {
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    groups?: DashboardApiGroups
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     group_titles?: DashboardApiGroupTitles
@@ -494,7 +551,13 @@ export interface DashboardApi {
 }
 
 /**
- * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+ * @nullable
+ */
+export type PatchedPatchedDashboardOpenApiApiGroups = { [key: string]: DashboardTileGroupApi } | null
+
+/**
+ * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
  * @nullable
  */
 export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
@@ -565,21 +628,20 @@ export const DashboardTileBadgeEnumApi = {
 } as const
 
 /**
- * * `activity_events_list` - activity_events_list
- * * `canvas_app` - canvas_app
- * * `conversations_recent_tickets` - conversations_recent_tickets
- * * `error_tracking_list` - error_tracking_list
- * * `experiment_results` - experiment_results
- * * `experiments_list` - experiments_list
- * * `logs_list` - logs_list
- * * `notebook_widget` - notebook_widget
- * * `session_replay_list` - session_replay_list
- * * `survey_results` - survey_results
+ * * `activity_events_list` - Activity Events List
+ * * `canvas_app` - Canvas App
+ * * `conversations_recent_tickets` - Conversations Recent Tickets
+ * * `error_tracking_list` - Error Tracking List
+ * * `experiment_results` - Experiment Results
+ * * `experiments_list` - Experiments List
+ * * `logs_list` - Logs List
+ * * `notebook_widget` - Notebook Widget
+ * * `session_replay_list` - Session Replay List
+ * * `survey_results` - Survey Results
  */
-export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
-    (typeof DashboardPatchWidgetOpenApiWidgetTypeEnumApi)[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnumApi]
+export type DashboardWidgetTypeEnumApi = (typeof DashboardWidgetTypeEnumApi)[keyof typeof DashboardWidgetTypeEnumApi]
 
-export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
+export const DashboardWidgetTypeEnumApi = {
     ActivityEventsList: 'activity_events_list',
     CanvasApp: 'canvas_app',
     ConversationsRecentTickets: 'conversations_recent_tickets',
@@ -1049,17 +1111,17 @@ export interface DashboardPatchWidgetOpenApiApi {
     id?: string
     /** Widget type identifier (cannot be changed on update).
      *
-     * * `activity_events_list` - activity_events_list
-     * * `canvas_app` - canvas_app
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `notebook_widget` - notebook_widget
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results */
-    widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results */
+    widget_type?: DashboardWidgetTypeEnumApi
     /** Widget-specific configuration. Shape depends on the tile's widget_type. */
     config?: DashboardWidgetConfigApi
     /**
@@ -1080,7 +1142,7 @@ export interface DashboardPatchTileOpenApiApi {
     /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
     show_description?: boolean
     /**
-     * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+     * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its group.
      * @maxLength 100
      * @nullable
      */
@@ -1141,7 +1203,12 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    groups?: PatchedPatchedDashboardOpenApiApiGroups
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     group_titles?: PatchedPatchedDashboardOpenApiApiGroupTitles
@@ -1320,6 +1387,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -6673,6 +6744,18 @@ export interface PathsV2ActorsQueryApi {
     version?: number | null
 }
 
+export interface AccountUsersQueryApi {
+    /** ID of the account whose users to list. */
+    accountId: string
+    kind?: 'AccountUsersQuery'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    response?: ActorsQueryResponseApi | null
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type ExecutionTargetApi = (typeof ExecutionTargetApi)[keyof typeof ExecutionTargetApi]
 
 export const ExecutionTargetApi = {
@@ -6840,6 +6923,7 @@ export interface ActorsQueryApi {
         | ExperimentActorsQueryApi
         | StickinessActorsQueryApi
         | PathsV2ActorsQueryApi
+        | AccountUsersQueryApi
         | HogQLQueryApi
         | null
     tags?: QueryLogTagsApi | null
@@ -9528,7 +9612,6 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariableApi[] | null
@@ -9990,14 +10073,12 @@ export interface _TileLayoutsOpenApiApi {
     xs?: _TileLayoutBoxOpenApiApi
 }
 
-export type NotebookWidgetAddRequestOpenApiApiWidgetType =
-    (typeof NotebookWidgetAddRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetAddRequestOpenApiApiWidgetType]
+/**
+ * Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field.
+ */
+export type AddDashboardWidgetRequestApiConfig = { [key: string]: unknown }
 
-export const NotebookWidgetAddRequestOpenApiApiWidgetType = {
-    NotebookWidget: 'notebook_widget',
-} as const
-
-export interface NotebookWidgetAddRequestOpenApiApi {
+export interface AddDashboardWidgetRequestApi {
     /**
      * Optional custom display name for the widget tile.
      * @maxLength 400
@@ -10010,247 +10091,22 @@ export interface NotebookWidgetAddRequestOpenApiApi {
     layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
-    widget_type: NotebookWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the notebook widget widget. */
-    config: NotebookWidgetConfigApi
+    /** Widget type to add. Use dashboard-widget-catalog-list to pick one.
+     *
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results */
+    widget_type: DashboardWidgetTypeEnumApi
+    /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. */
+    config: AddDashboardWidgetRequestApiConfig
 }
-
-export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
-    (typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType]
-
-export const ActivityEventsListWidgetAddRequestOpenApiApiWidgetType = {
-    ActivityEventsList: 'activity_events_list',
-} as const
-
-export interface ActivityEventsListWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: ActivityEventsListWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the recent events widget. */
-    config: ActivityEventsListWidgetConfigApi
-}
-
-export type ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType =
-    (typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType]
-
-export const ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType = {
-    ErrorTrackingList: 'error_tracking_list',
-} as const
-
-export interface ErrorTrackingListWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the top issues widget. */
-    config: ErrorTrackingListWidgetConfigApi
-}
-
-export type SessionReplayListWidgetAddRequestOpenApiApiWidgetType =
-    (typeof SessionReplayListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetAddRequestOpenApiApiWidgetType]
-
-export const SessionReplayListWidgetAddRequestOpenApiApiWidgetType = {
-    SessionReplayList: 'session_replay_list',
-} as const
-
-export interface SessionReplayListWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: SessionReplayListWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the recent recordings widget. */
-    config: SessionReplayListWidgetConfigApi
-}
-
-export type ExperimentsListWidgetAddRequestOpenApiApiWidgetType =
-    (typeof ExperimentsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetAddRequestOpenApiApiWidgetType]
-
-export const ExperimentsListWidgetAddRequestOpenApiApiWidgetType = {
-    ExperimentsList: 'experiments_list',
-} as const
-
-export interface ExperimentsListWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: ExperimentsListWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the experiments list widget. */
-    config: ExperimentsListWidgetConfigApi
-}
-
-export type ExperimentResultsWidgetAddRequestOpenApiApiWidgetType =
-    (typeof ExperimentResultsWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetAddRequestOpenApiApiWidgetType]
-
-export const ExperimentResultsWidgetAddRequestOpenApiApiWidgetType = {
-    ExperimentResults: 'experiment_results',
-} as const
-
-export interface ExperimentResultsWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: ExperimentResultsWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the experiment results widget. */
-    config: ExperimentResultsWidgetConfigApi
-}
-
-export type SurveyResultsWidgetAddRequestOpenApiApiWidgetType =
-    (typeof SurveyResultsWidgetAddRequestOpenApiApiWidgetType)[keyof typeof SurveyResultsWidgetAddRequestOpenApiApiWidgetType]
-
-export const SurveyResultsWidgetAddRequestOpenApiApiWidgetType = {
-    SurveyResults: 'survey_results',
-} as const
-
-export interface SurveyResultsWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: SurveyResultsWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the survey results widget. */
-    config: SurveyResultsWidgetConfigApi
-}
-
-export type LogsListWidgetAddRequestOpenApiApiWidgetType =
-    (typeof LogsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof LogsListWidgetAddRequestOpenApiApiWidgetType]
-
-export const LogsListWidgetAddRequestOpenApiApiWidgetType = {
-    LogsList: 'logs_list',
-} as const
-
-export interface LogsListWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: LogsListWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the recent logs widget. */
-    config: LogsListWidgetConfigApi
-}
-
-export type ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType =
-    (typeof ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType]
-
-export const ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType = {
-    ConversationsRecentTickets: 'conversations_recent_tickets',
-} as const
-
-export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the recent tickets widget. */
-    config: ConversationsRecentTicketsWidgetConfigApi
-}
-
-export type CanvasAppWidgetAddRequestOpenApiApiWidgetType =
-    (typeof CanvasAppWidgetAddRequestOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetAddRequestOpenApiApiWidgetType]
-
-export const CanvasAppWidgetAddRequestOpenApiApiWidgetType = {
-    CanvasApp: 'canvas_app',
-} as const
-
-export interface CanvasAppWidgetAddRequestOpenApiApi {
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _TileLayoutsOpenApiApi
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    widget_type: CanvasAppWidgetAddRequestOpenApiApiWidgetType
-    /** Configuration for the canvas app widget. */
-    config: CanvasAppWidgetConfigApi
-}
-
-export type AddDashboardWidgetRequestApi =
-    | NotebookWidgetAddRequestOpenApiApi
-    | ActivityEventsListWidgetAddRequestOpenApiApi
-    | ErrorTrackingListWidgetAddRequestOpenApiApi
-    | SessionReplayListWidgetAddRequestOpenApiApi
-    | ExperimentsListWidgetAddRequestOpenApiApi
-    | ExperimentResultsWidgetAddRequestOpenApiApi
-    | SurveyResultsWidgetAddRequestOpenApiApi
-    | LogsListWidgetAddRequestOpenApiApi
-    | ConversationsRecentTicketsWidgetAddRequestOpenApiApi
-    | CanvasAppWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
@@ -10269,14 +10125,12 @@ export interface AddDashboardWidgetsBatchResponseApi {
     tiles: DashboardTileApi[]
 }
 
-export type NotebookWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType]
+/**
+ * Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged.
+ */
+export type UpdateDashboardWidgetRequestApiConfig = { [key: string]: unknown }
 
-export const NotebookWidgetUpdateRequestOpenApiApiWidgetType = {
-    NotebookWidget: 'notebook_widget',
-} as const
-
-export interface NotebookWidgetUpdateRequestOpenApiApi {
+export interface UpdateDashboardWidgetRequestApi {
     /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
     tile_id: number
     /**
@@ -10287,229 +10141,22 @@ export interface NotebookWidgetUpdateRequestOpenApiApi {
     name?: string | null
     /** New markdown description for the widget. Omit to leave unchanged. */
     description?: string
-    widget_type: NotebookWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the notebook widget widget. Omit to leave unchanged. */
-    config?: NotebookWidgetConfigApi
+    /** The tile's widget type. It cannot be changed, so omit it or pass the current type.
+     *
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results */
+    widget_type?: DashboardWidgetTypeEnumApi
+    /** Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each invalid field. Each top-level key you send replaces the stored value, and keys you leave out stay as they are. Omit config to leave it unchanged. */
+    config?: UpdateDashboardWidgetRequestApiConfig
 }
-
-export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType = {
-    ActivityEventsList: 'activity_events_list',
-} as const
-
-export interface ActivityEventsListWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the recent events widget. Omit to leave unchanged. */
-    config?: ActivityEventsListWidgetConfigApi
-}
-
-export type ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType = {
-    ErrorTrackingList: 'error_tracking_list',
-} as const
-
-export interface ErrorTrackingListWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the top issues widget. Omit to leave unchanged. */
-    config?: ErrorTrackingListWidgetConfigApi
-}
-
-export type SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType = {
-    SessionReplayList: 'session_replay_list',
-} as const
-
-export interface SessionReplayListWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the recent recordings widget. Omit to leave unchanged. */
-    config?: SessionReplayListWidgetConfigApi
-}
-
-export type ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType = {
-    ExperimentsList: 'experiments_list',
-} as const
-
-export interface ExperimentsListWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the experiments list widget. Omit to leave unchanged. */
-    config?: ExperimentsListWidgetConfigApi
-}
-
-export type ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType = {
-    ExperimentResults: 'experiment_results',
-} as const
-
-export interface ExperimentResultsWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the experiment results widget. Omit to leave unchanged. */
-    config?: ExperimentResultsWidgetConfigApi
-}
-
-export type SurveyResultsWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof SurveyResultsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof SurveyResultsWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const SurveyResultsWidgetUpdateRequestOpenApiApiWidgetType = {
-    SurveyResults: 'survey_results',
-} as const
-
-export interface SurveyResultsWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: SurveyResultsWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the survey results widget. Omit to leave unchanged. */
-    config?: SurveyResultsWidgetConfigApi
-}
-
-export type LogsListWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const LogsListWidgetUpdateRequestOpenApiApiWidgetType = {
-    LogsList: 'logs_list',
-} as const
-
-export interface LogsListWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: LogsListWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the recent logs widget. Omit to leave unchanged. */
-    config?: LogsListWidgetConfigApi
-}
-
-export type ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType = {
-    ConversationsRecentTickets: 'conversations_recent_tickets',
-} as const
-
-export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the recent tickets widget. Omit to leave unchanged. */
-    config?: ConversationsRecentTicketsWidgetConfigApi
-}
-
-export type CanvasAppWidgetUpdateRequestOpenApiApiWidgetType =
-    (typeof CanvasAppWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetUpdateRequestOpenApiApiWidgetType]
-
-export const CanvasAppWidgetUpdateRequestOpenApiApiWidgetType = {
-    CanvasApp: 'canvas_app',
-} as const
-
-export interface CanvasAppWidgetUpdateRequestOpenApiApi {
-    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
-    tile_id: number
-    /**
-     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** New markdown description for the widget. Omit to leave unchanged. */
-    description?: string
-    widget_type: CanvasAppWidgetUpdateRequestOpenApiApiWidgetType
-    /** New configuration for the canvas app widget. Omit to leave unchanged. */
-    config?: CanvasAppWidgetConfigApi
-}
-
-export type UpdateDashboardWidgetRequestApi =
-    | NotebookWidgetUpdateRequestOpenApiApi
-    | ActivityEventsListWidgetUpdateRequestOpenApiApi
-    | ErrorTrackingListWidgetUpdateRequestOpenApiApi
-    | SessionReplayListWidgetUpdateRequestOpenApiApi
-    | ExperimentsListWidgetUpdateRequestOpenApiApi
-    | ExperimentResultsWidgetUpdateRequestOpenApiApi
-    | SurveyResultsWidgetUpdateRequestOpenApiApi
-    | LogsListWidgetUpdateRequestOpenApiApi
-    | ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi
-    | CanvasAppWidgetUpdateRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -10614,7 +10261,7 @@ export interface NotebookWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: NotebookWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10635,7 +10282,7 @@ export interface ActivityEventsListWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: ActivityEventsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10656,7 +10303,7 @@ export interface ErrorTrackingListWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: ErrorTrackingListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10677,7 +10324,7 @@ export interface SessionReplayListWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: SessionReplayListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10698,7 +10345,7 @@ export interface ExperimentsListWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: ExperimentsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10719,7 +10366,7 @@ export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: ExperimentResultsWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10740,7 +10387,7 @@ export interface SurveyResultsWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: SurveyResultsWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10761,7 +10408,7 @@ export interface LogsListWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: LogsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10782,7 +10429,7 @@ export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: ConversationsRecentTicketsWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -10803,7 +10450,7 @@ export interface CanvasAppWidgetCatalogEntryOpenApiApi {
     group_label: string
     label: string
     description: string
-    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
     readonly config_schema: CanvasAppWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
@@ -11379,6 +11026,10 @@ export const DashboardsCreateUnlistedDashboardCreateFormat = {
 
 export type DashboardsWidgetCatalogRetrieveParams = {
     format?: DashboardsWidgetCatalogRetrieveFormat
+    /**
+     * Widget types to return. Omit to return every registered widget type.
+     */
+    widget_type?: DashboardsWidgetCatalogRetrieveWidgetTypeItem[]
 }
 
 export type DashboardsWidgetCatalogRetrieveFormat =
@@ -11387,6 +11038,22 @@ export type DashboardsWidgetCatalogRetrieveFormat =
 export const DashboardsWidgetCatalogRetrieveFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsWidgetCatalogRetrieveWidgetTypeItem =
+    (typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem)[keyof typeof DashboardsWidgetCatalogRetrieveWidgetTypeItem]
+
+export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
+    ActivityEventsList: 'activity_events_list',
+    CanvasApp: 'canvas_app',
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+    ErrorTrackingList: 'error_tracking_list',
+    ExperimentResults: 'experiment_results',
+    ExperimentsList: 'experiments_list',
+    LogsList: 'logs_list',
+    NotebookWidget: 'notebook_widget',
+    SessionReplayList: 'session_replay_list',
+    SurveyResults: 'survey_results',
 } as const
 
 export type DataColorThemesListParams = {

@@ -18,8 +18,8 @@ function makeCtx(backingWidth: number): {
     return { ctx, transforms }
 }
 
-function dims(width: number): ChartDimensions {
-    return { width, height: 200, plotLeft: 48, plotTop: 16, plotWidth: width - 64, plotHeight: 152 }
+function dims(width: number, height = 200): ChartDimensions {
+    return { width, height, plotLeft: 48, plotTop: 16, plotWidth: width - 64, plotHeight: height - 48 }
 }
 
 describe('clearAndPrepare', () => {
@@ -42,6 +42,19 @@ describe('clearAndPrepare', () => {
         expect(ctx.canvas.width).toBe(expectedBackingWidth)
         expect(transforms[0][0]).toBe(dpr)
         expect(transforms[0][3]).toBe(dpr)
+    })
+
+    it('scales each axis by its own backing ratio on a capped tall canvas', () => {
+        Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true })
+        const { ctx, transforms } = makeCtx(0)
+
+        clearAndPrepare(ctx, dims(512, 34000))
+
+        // `syncCanvasSize` caps a 512×34,000 grid at 493×32,767. Width rounding alone gives
+        // 0.9629; applied to the height, it puts the bottom row about 30px above its DOM label.
+        expect([ctx.canvas.width, ctx.canvas.height]).toEqual([493, 32767])
+        expect(transforms[0][0]).toBe(493 / 512)
+        expect(transforms[0][3]).toBe(32767 / 34000)
     })
 
     it('falls back to window.devicePixelRatio when dimensions have no width', () => {

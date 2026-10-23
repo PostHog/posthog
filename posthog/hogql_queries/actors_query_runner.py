@@ -98,6 +98,18 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             analytics_props=analytics_props,
         )
 
+    def validate_query_runner_access(self, user: User) -> bool:
+        if self.source_query_runner is not None:
+            self.source_query_runner.validate_query_runner_access(user)
+        return super().validate_query_runner_access(user)
+
+    def get_cache_key_variant(self) -> str:
+        source_variant = self.source_query_runner.get_cache_key_variant() if self.source_query_runner else ""
+        return super().get_cache_key_variant() + source_variant
+
+    def query_status_labels(self) -> list[str] | None:
+        return self.source_query_runner.query_status_labels() if self.source_query_runner is not None else None
+
     @property
     def group_type_index(self) -> int | None:
         if not self.source_query_runner or not isinstance(self.source_query_runner, InsightActorsQueryRunner):

@@ -1,6 +1,6 @@
 import json
 from contextlib import AbstractContextManager, nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -25,6 +25,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import (
     MAX_SCOUT_REPORT_NOTES,
     ArtefactAttribution,
@@ -36,6 +37,7 @@ from products.signals.backend.models import (
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
@@ -44,6 +46,7 @@ from products.signals.backend.scout_report import (
     append_report_note,
     create_scout_report,
     record_content_revision,
+    scout_report_tags_in_use,
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
@@ -98,6 +101,23 @@ class TestScoutReportPersistence(BaseTest):
             skill_version=1,
         )
         return run
+
+    def test_empty_selection_enrolls_a_new_report_in_the_writer(self) -> None:
+        with (
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
+            patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
+        ):
+            result = create_scout_report(
+                team_id=self.team.id,
+                title="A report without reviewers",
+                summary="No suitable owner was selected.",
+                signals=[ScoutReportSignal(description="A synthetic finding", source_id="example", weight=1.0)],
+                attribution=ArtefactAttribution.system(),
+            )
+            snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
+            assert snapshot.state.corrections_id is not None
+            assert snapshot.reviewers == ()
+            assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)
 
     @parameterized.expand(
         [
@@ -1094,3 +1114,24 @@ class TestScoutReportSuggestedPrompts(BaseTest):
             )
         with team_scope(other_team.id):
             assert self._stored(other_report.report_id) == []
+
+
+class TestScoutReportTagsInUse(BaseTest):
+    def test_lists_the_team_s_live_tags_most_used_first(self) -> None:
+        for tags in (["billing", "api"], ["api"], ["web"], []):
+            SignalReport.objects.create(team=self.team, tags=tags)
+        SignalReport.objects.create(team=self.team, tags=["deleted-only"], status=SignalReport.Status.DELETED)
+        SignalReport.objects.create(team=self.team, tags=["unsafe-only"], status=SignalReport.Status.SUPPRESSED)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        SignalReport.objects.create(team=other_team, tags=["theirs"])
+
+        assert scout_report_tags_in_use(team_id=self.team.id) == ["api", "billing", "web"]
+
+    def test_reads_only_the_newest_reports_tagged_or_not(self) -> None:
+        now = timezone.now()
+        for days_ago, tags in ((3, ["old"]), (2, ["new"]), (1, []), (0, [])):
+            report = SignalReport.objects.create(team=self.team, tags=tags)
+            SignalReport.objects.filter(id=report.id).update(created_at=now - timedelta(days=days_ago))
+
+        with patch("products.signals.backend.scout_report.persistence._TAGS_IN_USE_REPORT_SAMPLE", 3):
+            assert scout_report_tags_in_use(team_id=self.team.id) == ["new"]

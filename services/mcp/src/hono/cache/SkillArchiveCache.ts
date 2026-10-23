@@ -32,6 +32,7 @@ export type SkillArchiveFetchResult =
 
 export interface SkillArchiveCacheOptions extends SharedBlobCacheOptions {
     archiveUrl?: string
+    expectedArchiveSha?: string
     fetchArchive?: (url: string, etag?: string) => Promise<SkillArchiveFetchResult>
     /**
      * Rejects downloaded bytes before they reach Redis. A throw keeps the previous
@@ -57,10 +58,11 @@ export class SkillArchiveCache extends SharedBlobCache {
 
     constructor(redis: RedisLike, opts: SkillArchiveCacheOptions = {}) {
         const archiveUrl = opts.archiveUrl ?? DEFAULT_SKILL_ARCHIVE_URL
-        const namespace =
+        const urlNamespace =
             archiveUrl === DEFAULT_SKILL_ARCHIVE_URL
                 ? NAMESPACE
                 : `${NAMESPACE}:${createHash('sha256').update(archiveUrl).digest('hex').slice(0, 16)}`
+        const namespace = opts.expectedArchiveSha ? `${urlNamespace}:${opts.expectedArchiveSha}` : urlNamespace
         super(redis, namespace, { cacheTtlSeconds: DEFAULT_ARCHIVE_TTL_SECONDS, ...opts })
         this.archiveUrl = archiveUrl
         this.fetchArchive = opts.fetchArchive ?? downloadArchive

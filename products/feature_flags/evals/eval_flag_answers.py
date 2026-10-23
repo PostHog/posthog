@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from products.feature_flags.evals.offline_config import offline_suite
 from products.feature_flags.evals.scorers import (
     EXPLAINED_TAG_REQUIREMENT_QUESTION,
     REFUSED_WITHOUT_BLAMING_QUESTION,
@@ -46,6 +47,8 @@ from products.feature_flags.evals.seeders import (
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+
+NO_SEND_LOGS = True
 
 _TOOL_DEFINITIONS = Path(__file__).parents[3] / "services/mcp/schema/generated-tool-definitions.json"
 FLAG_TOOL_CATEGORY = "Feature flags"
@@ -111,7 +114,22 @@ async def eval_flag_answers(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-feature-flags-answers-cli",
+        offline_suite=offline_suite(
+            "feature_flags/eval_flag_answers::eval_flag_answers",
+            metrics=[
+                "called_expected_tool",
+                "attempted_tool",
+                "avoided_tool",
+                "created_flag_with_tags",
+                "final_message_names",
+                "stale_is_not_safe_to_remove",
+                "refused_without_blaming",
+                "explained_tag_requirement",
+            ],
+        ),
+        send_to_posthog=True,
         cases=cases,
         scorers=[
             CalledExpectedTool(),

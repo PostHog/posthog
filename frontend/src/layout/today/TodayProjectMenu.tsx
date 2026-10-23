@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
@@ -46,7 +46,6 @@ export function TodayProjectMenu(): JSX.Element {
                         />
                     )}
                     <span className="max-w-48 min-w-0 truncate">{currentTeam?.name ?? 'Select project'}</span>
-                    <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
                 </Button>
             }
             open={isProjectSwitcherOpen}

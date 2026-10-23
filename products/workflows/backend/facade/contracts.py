@@ -437,6 +437,12 @@ class TwilioAccount(TypedDict, total=False):
 
 
 @frozen
+class TeamUtmDefaults:
+    enabled: bool
+    params: dict[str, str]
+
+
+@frozen
 class MessageAsset:
     invocation_id: str
     action_id: str
@@ -587,6 +593,10 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
+    # Empty values use the sender's own address, name and default reply-to.
+    from_email: str = ""
+    from_name: str = ""
+    reply_to: str = ""
 
 
 class TransactionalEmailSenderUnavailable(Exception):

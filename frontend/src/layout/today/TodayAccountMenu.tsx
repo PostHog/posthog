@@ -13,14 +13,11 @@ import {
 } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-const linkItem = (to: string, disableClientSideRouting?: boolean): JSX.Element => (
-    <Button size="row" left render={<LinkPrimitive to={to} disableClientSideRouting={disableClientSideRouting} />} />
-)
+import { todayMenuLinkItem } from './todayMenuLinkItem'
 
 export function TodayAccountMenu(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -44,7 +41,7 @@ export function TodayAccountMenu(): JSX.Element {
             />
             <DropdownMenuContent side="right" align="end" className="w-64">
                 <DropdownMenuItem
-                    render={linkItem(urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone'))}
+                    render={todayMenuLinkItem(urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone'))}
                     className="h-auto"
                     data-attr="today-rail-user-settings"
                 >
@@ -59,33 +56,36 @@ export function TodayAccountMenu(): JSX.Element {
                         <DropdownMenuSeparator />
                         <DropdownMenuGroup>
                             <DropdownMenuLabel>Staff</DropdownMenuLabel>
-                            <DropdownMenuItem render={linkItem('/admin/', true)} data-attr="today-rail-django-admin">
+                            <DropdownMenuItem
+                                render={todayMenuLinkItem('/admin/', { disableClientSideRouting: true })}
+                                data-attr="today-rail-django-admin"
+                            >
                                 <IconShieldLock />
                                 Django admin
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                                render={linkItem(urls.instanceStatus())}
+                                render={todayMenuLinkItem(urls.instanceStatus())}
                                 data-attr="today-rail-instance-panel"
                             >
                                 <IconServer />
                                 Instance panel
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                                render={linkItem(urls.featureFlagsStaffTools())}
+                                render={todayMenuLinkItem(urls.featureFlagsStaffTools())}
                                 data-attr="today-rail-flags-staff-tools"
                             >
                                 <IconToggle />
                                 Flags staff tools
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                                render={linkItem(urls.cohortsStaffTools())}
+                                render={todayMenuLinkItem(urls.cohortsStaffTools())}
                                 data-attr="today-rail-cohorts-staff-tools"
                             >
                                 <IconPeople />
                                 Cohorts staff tools
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                                render={linkItem(urls.experimentsStaffTools())}
+                                render={todayMenuLinkItem(urls.experimentsStaffTools())}
                                 data-attr="today-rail-experiments-staff-tools"
                             >
                                 <IconDatabase />

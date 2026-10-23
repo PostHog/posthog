@@ -47,7 +47,7 @@ jest.mock('kea-router', () => ({
 }))
 
 jest.mock('products/dashboards/frontend/useDashboardContainerWidth', () => ({
-    useDashboardContainerWidth: () => ({ width: 1200, containerRef: { current: null } }),
+    useDashboardContainerWidth: () => ({ width: mockGridWidth, containerRef: { current: null } }),
 }))
 
 jest.mock('lib/hooks/useFeatureFlag', () => ({
@@ -154,6 +154,7 @@ jest.mock('react-grid-layout', () => {
         },
         Responsive: ({
             className,
+            style,
             rowHeight,
             margin,
             resizeConfig,
@@ -161,23 +162,30 @@ jest.mock('react-grid-layout', () => {
             children,
         }: {
             className: string
+            style?: Record<string, number>
             rowHeight: number
             margin: [number, number]
             resizeConfig: { enabled: boolean }
             dragConfig: { enabled: boolean }
             children: any
-        }) => (
-            <div
-                data-attr="react-grid-layout"
-                data-class-name={className}
-                data-row-height={String(rowHeight)}
-                data-margin={margin.join(',')}
-                data-resize-enabled={String(resizeConfig.enabled)}
-                data-drag-enabled={String(dragConfig.enabled)}
-            >
-                {children}
-            </div>
-        ),
+        }) => {
+            jest.requireActual('react').useEffect(() => {
+                mockGridMounts++
+            }, [])
+            return (
+                <div
+                    data-attr="react-grid-layout"
+                    data-style-width={style?.width}
+                    data-class-name={className}
+                    data-row-height={String(rowHeight)}
+                    data-margin={margin.join(',')}
+                    data-resize-enabled={String(resizeConfig.enabled)}
+                    data-drag-enabled={String(dragConfig.enabled)}
+                >
+                    {children}
+                </div>
+            )
+        },
     }
 })
 
@@ -197,6 +205,9 @@ const mockedUseAsyncActions = useAsyncActions as jest.Mock
 const mockRemoveTile = jest.fn()
 const mockTriggerDashboardRefresh = jest.fn()
 const mockInsightCard = jest.fn()
+const mockUpdateContainerWidth = jest.fn()
+let mockGridWidth = 1200
+let mockGridMounts = 0
 let canEditDashboard = true
 
 describe('DashboardItems', () => {
@@ -204,6 +215,8 @@ describe('DashboardItems', () => {
         mockInsightCard.mockClear()
         jest.clearAllMocks()
         canEditDashboard = true
+        mockGridWidth = 1200
+        mockGridMounts = 0
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -233,6 +246,7 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard,
                     layoutZoom: 0.75,
+                    tileGroupSections: [],
                 }
             }
 
@@ -249,7 +263,7 @@ describe('DashboardItems', () => {
             if (logic === dashboardLogic) {
                 return {
                     updateLayouts: jest.fn(),
-                    updateContainerWidth: jest.fn(),
+                    updateContainerWidth: mockUpdateContainerWidth,
                     updateTileColor: jest.fn(),
                     toggleTileDescription: jest.fn(),
                     removeTile: mockRemoveTile,
@@ -322,6 +336,40 @@ describe('DashboardItems', () => {
     })
 
     it.each([
+        [false, true],
+        [true, false],
+    ])('with readOnly %s on a built-in dashboard, offers editing controls: %s', (readOnly, editable) => {
+        const defaultValues = mockedUseValues.getMockImplementation()!
+        mockedUseValues.mockImplementation((logic) =>
+            logic === dashboardLogic
+                ? {
+                      ...defaultValues(logic),
+                      placement: DashboardPlacement.Builtin,
+                      readOnly,
+                      layoutEditMode: false,
+                      dashboardEditing: null,
+                  }
+                : defaultValues(logic)
+        )
+
+        const setDashboardEditing = jest.fn()
+        const defaultActions = mockedUseActions.getMockImplementation()!
+        mockedUseActions.mockImplementation((logic) =>
+            logic === dashboardLogic ? { ...defaultActions(logic), setDashboardEditing } : defaultActions(logic)
+        )
+
+        render(<DashboardItems />)
+
+        const cardProps = mockInsightCard.mock.calls[mockInsightCard.mock.calls.length - 1][0]
+        expect(cardProps.showEditingControls).toBe(editable)
+        cardProps.onEnterEditModeFromEdge(
+            { target: document.body, clientX: 0, clientY: 0, nativeEvent: new MouseEvent('mousemove') },
+            'e'
+        )
+        expect(setDashboardEditing).toHaveBeenCalledTimes(editable ? 1 : 0)
+    })
+
+    it.each([
         ['tight', '8,8'],
         ['condensed', '12,12'],
         ['relaxed', '32,32'],
@@ -347,6 +395,7 @@ describe('DashboardItems', () => {
                     layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
+                    tileGroupSections: [],
                 }
             }
             if (logic === dashboardsModel) {
@@ -382,6 +431,7 @@ describe('DashboardItems', () => {
                     layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
+                    tileGroupSections: [],
                 }
             }
             if (logic === dashboardsModel) {
@@ -423,6 +473,7 @@ describe('DashboardItems', () => {
                     layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
+                    tileGroupSections: [],
                 }
             }
 
@@ -460,6 +511,7 @@ describe('DashboardItems', () => {
                     layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
+                    tileGroupSections: [],
                 }
             }
 
@@ -512,6 +564,7 @@ describe('DashboardItems', () => {
                     layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
+                    tileGroupSections: [],
                 }
             }
 
@@ -568,6 +621,7 @@ describe('DashboardItems', () => {
                     layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
+                    tileGroupSections: [],
                 }
             }
 
@@ -605,5 +659,77 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-error-status', '503')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'refresh_failed')
         expect(insightCard).toHaveAttribute('data-api-error-detail', 'The refreshed query failed')
+    })
+
+    describe('tile group bands', () => {
+        const showBands = (streamedTileIds: number[] = []): void => {
+            const defaultValues = mockedUseValues.getMockImplementation()!
+            mockedUseValues.mockImplementation((logic) => {
+                const values = defaultValues(logic)
+                const tiles = [
+                    ...values.tiles,
+                    ...streamedTileIds.map((id) => ({ id, insight: { id: 100 + id, short_id: `tile${id}` } })),
+                ]
+                const layouts = {
+                    sm: [
+                        ...values.layouts.sm,
+                        ...streamedTileIds.map((id) => ({ i: String(id), x: 6, y: 0, w: 6, h: 5 })),
+                    ],
+                }
+                return logic === dashboardLogic
+                    ? {
+                          ...values,
+                          tiles,
+                          layouts,
+                          tileGroupSections: [
+                              {
+                                  kind: 'group',
+                                  key: 'group-plans',
+                                  groupKey: 'plans',
+                                  group: { title: 'Plans' },
+                                  tiles,
+                              },
+                          ],
+                          tileGroupSectionLayouts: [layouts],
+                          collapsedTileGroupKeys: [],
+                      }
+                    : values
+            })
+        }
+
+        it.each([
+            { name: 'one grid', bands: false },
+            { name: 'tile group bands', bands: true },
+        ])('waits for the container width before it renders $name', ({ bands }) => {
+            mockGridWidth = 0
+            if (bands) {
+                showBands()
+            }
+
+            const { container } = render(<DashboardItems />)
+
+            expect(container.querySelector('[data-attr="react-grid-layout"]')).not.toBeInTheDocument()
+        })
+
+        it('gives the dashboard width to the logic when it shows tile group bands', () => {
+            showBands()
+
+            const { getByText } = render(<DashboardItems />)
+
+            expect(getByText('Plans')).toBeInTheDocument()
+            expect(mockUpdateContainerWidth).toHaveBeenCalledWith(1200, 12)
+        })
+
+        it('keeps a band grid mounted when a tile streams into the band', () => {
+            const defaultValues = mockedUseValues.getMockImplementation()!
+            showBands()
+            const { rerender } = render(<DashboardItems />)
+
+            mockedUseValues.mockImplementation(defaultValues)
+            showBands([2])
+            rerender(<DashboardItems />)
+
+            expect(mockGridMounts).toBe(1)
+        })
     })
 })

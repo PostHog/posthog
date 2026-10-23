@@ -189,7 +189,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
                 return self._skill_not_found_response(skill_name)
             if base_version is not None and base_version != current_latest.version:
                 return version_conflict_response(current_latest.version)
-            set_skill_owners(self.team, skill_name, owner_users)
+            set_skill_owners(self.team, skill_name, owner_users, acting_user=cast(User, self.request.user))
         # Reread outside the transaction, so an archive landing in between can leave nothing to
         # serialize. Answer that the same way every other `name/<slug>` action answers it.
         refreshed = get_skill_by_name_from_db(self.team, skill_name=skill_name)
@@ -231,7 +231,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
                 # Owners are keyed on the logical skill, so this runs only when the caller passed
                 # `owners` — a plain body edit never touches ownership.
                 if owner_users is not None:
-                    set_skill_owners(self.team, skill_name, owner_users)
+                    set_skill_owners(self.team, skill_name, owner_users, acting_user=cast(User, self.request.user))
         except IntegrityError as err:
             if "unique_skill_file_path" in str(err):
                 raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")

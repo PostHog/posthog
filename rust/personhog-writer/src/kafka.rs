@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use common_kafka::config::KafkaConfig;
 use metrics::counter;
+use personhog_coordination::follow::ChangelogSubscription;
 use rdkafka::consumer::{
     BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance, StreamConsumer,
 };
@@ -260,5 +261,23 @@ impl PersonConsumer {
 
     pub fn topic(&self) -> String {
         self.topic.read().expect("topic lock poisoned").clone()
+    }
+}
+
+impl ChangelogSubscription for PersonConsumer {
+    fn topic(&self) -> String {
+        PersonConsumer::topic(self)
+    }
+
+    fn resubscribe(&self, topic: &str) -> Result<(), String> {
+        PersonConsumer::resubscribe(self, topic.to_string()).map_err(|e| e.to_string())
+    }
+
+    fn set_draining(&self, draining: bool) {
+        PersonConsumer::set_draining(self, draining)
+    }
+
+    fn is_draining(&self) -> bool {
+        PersonConsumer::is_draining(self)
     }
 }

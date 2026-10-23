@@ -798,6 +798,7 @@ fn fold_tiles(
         records,
         leaves,
         recompose,
+        composed_row_candidates: BTreeMap::new(),
         schedules,
         re_keys: ReKeys::Tiles(re_keys),
         tally,

@@ -3,10 +3,47 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 68 enabled ops
+ * PostHog API - MCP 70 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * @summary Get your activity summary
+ */
+export const SignalsActivitySummaryListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary List your activity summary versions
+ */
+export const SignalsActivitySummaryVersionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsActivitySummaryVersionsRetrieveQueryLimitDefault = 5
+
+export const SignalsActivitySummaryVersionsRetrieveQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .default(signalsActivitySummaryVersionsRetrieveQueryLimitDefault)
+        .describe('The most versions to return, newest first. Capped at the number of versions kept.'),
+    version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Return only this version, with its full profile. Returns 404 when the version does not exist.'),
+})
 
 /**
  * Team-level signal autonomy config (singleton per team).
@@ -433,6 +470,12 @@ export const SignalsReportsClaimBody = () => zod.object({
         .boolean()
         .default(signalsReportsClaimBodyTakeoverDefault)
         .describe("Explicitly end another actor's claim and take ownership."),
+    takeover_claim_id: zod
+        .string()
+        .optional()
+        .describe(
+            'With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim.'
+        ),
     pr_url: zod
         .url()
         .optional()
@@ -573,6 +616,7 @@ export const SignalsReportsStateCreateBody = () => zod.object({
             'already_fixed',
             'report_unclear',
             'analysis_wrong',
+            'wrong_assignee',
             'wrong_repo',
             'wontfix_intentional',
             'wontfix_irrelevant',
@@ -582,11 +626,11 @@ export const SignalsReportsStateCreateBody = () => zod.object({
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -659,8 +703,40 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
         ),
 })
 
+export const signalsReportArtefactsCreateBodyReviewerOutcomeDefault = `selected`
+export const signalsReportArtefactsCreateBodyReviewerRetryReasonMax = 500
+
 export const SignalsReportArtefactsCreateBody = () => zod
     .object({
+        expected_reviewers: zod
+            .object({
+                reviewers_id: zod
+                    .string()
+                    .nullable()
+                    .describe('Current reviewer artefact ID, or null before the first list.'),
+                corrections_id: zod
+                    .string()
+                    .nullable()
+                    .describe('Current corrections artefact ID, or null before corrections are stored.'),
+            })
+            .optional()
+            .describe(
+                'Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.'
+            ),
+        reviewer_outcome: zod
+            .enum(['selected', 'no_suitable_owner', 'lookup_failed'])
+            .describe(
+                '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            )
+            .default(signalsReportArtefactsCreateBodyReviewerOutcomeDefault)
+            .describe(
+                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            ),
+        reviewer_retry_reason: zod
+            .string()
+            .max(signalsReportArtefactsCreateBodyReviewerRetryReasonMax)
+            .optional()
+            .describe('Reason the reviewer lookup failed.'),
         claim_id: zod
             .string()
             .optional()
@@ -728,7 +804,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -976,6 +1052,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
             'already_fixed',
             'report_unclear',
             'analysis_wrong',
+            'wrong_assignee',
             'wrong_repo',
             'wontfix_intentional',
             'wontfix_irrelevant',
@@ -985,11 +1062,11 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -1053,7 +1130,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 12
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 14
 
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1157,7 +1234,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1355,7 +1432,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 12
+export const signalsScoutConfigCreateBodyWriteScopesMax = 14
 
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
@@ -1419,7 +1496,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         lifecycle_locked: zod
             .boolean()
@@ -1605,7 +1682,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 12
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 14
 
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
@@ -1767,7 +1844,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         precheck_query: zod
             .string()
@@ -2566,7 +2643,7 @@ export const SignalsScoutRecordCheckResultBody = () => zod
     .describe('Request body for `scout-check-record-result`: the verdict on one dispatched report check.')
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -2577,6 +2654,9 @@ export const SignalsScoutEditReportParams = () => zod.object({
         ),
     run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
+
+export const signalsScoutEditReportBodyReviewerOutcomeDefault = `selected`
+export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
 export const signalsScoutEditReportBodyTitleMax = 300
 
@@ -2626,8 +2706,39 @@ export const signalsScoutEditReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEditReportBodyLinksMax = 10
 
+export const signalsScoutEditReportBodyTagsMax = 10
+
 export const SignalsScoutEditReportBody = () => zod
     .object({
+        expected_reviewers: zod
+            .object({
+                reviewers_id: zod
+                    .string()
+                    .nullable()
+                    .describe('Current reviewer artefact ID, or null before the first list.'),
+                corrections_id: zod
+                    .string()
+                    .nullable()
+                    .describe('Current corrections artefact ID, or null before corrections are stored.'),
+            })
+            .optional()
+            .describe(
+                'Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.'
+            ),
+        reviewer_outcome: zod
+            .enum(['selected', 'no_suitable_owner', 'lookup_failed'])
+            .describe(
+                '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            )
+            .default(signalsScoutEditReportBodyReviewerOutcomeDefault)
+            .describe(
+                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            ),
+        reviewer_retry_reason: zod
+            .string()
+            .max(signalsScoutEditReportBodyReviewerRetryReasonMax)
+            .optional()
+            .describe('Reason the reviewer lookup failed.'),
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
         title: zod
             .string()
@@ -2709,7 +2820,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodySuggestedReviewersMax)
             .optional()
             .describe(
-                'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
+                'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.'
             ),
         repository: zod
             .string()
@@ -2901,6 +3012,13 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
             ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutEditReportBodyTagsMax)
+            .nullish()
+            .describe(
+                "The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one."
+            ),
         supersedes_implementation: zod
             .boolean()
             .optional()
@@ -3031,6 +3149,8 @@ export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
 export const signalsScoutEmitReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEmitReportBodyLinksMax = 10
+
+export const signalsScoutEmitReportBodyTagsMax = 10
 
 export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
@@ -3322,6 +3442,13 @@ export const SignalsScoutEmitReportBody = () => zod
             .optional()
             .describe(
                 'Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutEmitReportBodyTagsMax)
+            .optional()
+            .describe(
+                'Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.'
             ),
         idempotency_key: zod
             .string()
@@ -4028,9 +4155,70 @@ export const SignalsSourceConfigsCreateBody = () => zod.object({
             'hubspot',
             'engineering_analytics',
             'google_search_console',
+            'pagerduty',
+            'opsgenie',
+            'incident_io',
+            'firehydrant',
+            'squadcast',
+            'servicenow',
+            'solarwinds_service_desk',
+            'grafana_irm',
+            'xmatters',
+            'betterstack',
+            'newrelic',
+            'trigger_dev',
+            'checkly',
+            'roark',
+            'monte_carlo',
+            'bigeye',
+            'aws_security_hub',
+            'aws_guardduty',
+            'aws_inspector',
+            'microsoft_defender_cloud_apps',
+            'clickup',
+            'wrike',
+            'trello',
+            'bugherd',
+            'dynamics365',
+            'zoho_crm',
+            'planhat',
+            'trustpilot',
+            'okendo',
+            'sleekplan',
+            'bettermode',
+            'discourse',
+            'mintlify',
+            'langsmith',
+            'sprig',
+            'gainsight_px',
+            'dynatrace',
+            'statuspage',
+            'cronitor',
+            'instatus',
+            'asana',
+            'monday',
+            'plane',
+            'azure_devops',
+            'helpscout',
+            'decagon',
+            'vitally',
+            'usersnap',
+            'typeform',
+            'qualtrics',
+            'surveymonkey',
+            'formbricks',
+            'survicate',
+            'surveysparrow',
+            'lacework',
+            'orca_security',
+            'tenable_vulnerability_management',
+            'google_play_console',
+            'azure_application_insights',
+            'appsignal',
+            'cursor',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor'
         ),
     source_type: zod
         .enum([
@@ -4054,9 +4242,10 @@ export const SignalsSourceConfigsCreateBody = () => zod.object({
             'ci_broken_default_branch',
             'ci_duration_regression',
             'search_opportunity',
+            'incident',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity\n\* `incident` - Incident'
         ),
     enabled: zod.boolean().optional(),
     config: zod
@@ -4139,9 +4328,70 @@ export const SignalsSourceConfigsUpdateBody = () => zod.object({
             'hubspot',
             'engineering_analytics',
             'google_search_console',
+            'pagerduty',
+            'opsgenie',
+            'incident_io',
+            'firehydrant',
+            'squadcast',
+            'servicenow',
+            'solarwinds_service_desk',
+            'grafana_irm',
+            'xmatters',
+            'betterstack',
+            'newrelic',
+            'trigger_dev',
+            'checkly',
+            'roark',
+            'monte_carlo',
+            'bigeye',
+            'aws_security_hub',
+            'aws_guardduty',
+            'aws_inspector',
+            'microsoft_defender_cloud_apps',
+            'clickup',
+            'wrike',
+            'trello',
+            'bugherd',
+            'dynamics365',
+            'zoho_crm',
+            'planhat',
+            'trustpilot',
+            'okendo',
+            'sleekplan',
+            'bettermode',
+            'discourse',
+            'mintlify',
+            'langsmith',
+            'sprig',
+            'gainsight_px',
+            'dynatrace',
+            'statuspage',
+            'cronitor',
+            'instatus',
+            'asana',
+            'monday',
+            'plane',
+            'azure_devops',
+            'helpscout',
+            'decagon',
+            'vitally',
+            'usersnap',
+            'typeform',
+            'qualtrics',
+            'surveymonkey',
+            'formbricks',
+            'survicate',
+            'surveysparrow',
+            'lacework',
+            'orca_security',
+            'tenable_vulnerability_management',
+            'google_play_console',
+            'azure_application_insights',
+            'appsignal',
+            'cursor',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor'
         ),
     source_type: zod
         .enum([
@@ -4165,9 +4415,10 @@ export const SignalsSourceConfigsUpdateBody = () => zod.object({
             'ci_broken_default_branch',
             'ci_duration_regression',
             'search_opportunity',
+            'incident',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity\n\* `incident` - Incident'
         ),
     enabled: zod.boolean().optional(),
     config: zod
@@ -4241,10 +4492,71 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
             'hubspot',
             'engineering_analytics',
             'google_search_console',
+            'pagerduty',
+            'opsgenie',
+            'incident_io',
+            'firehydrant',
+            'squadcast',
+            'servicenow',
+            'solarwinds_service_desk',
+            'grafana_irm',
+            'xmatters',
+            'betterstack',
+            'newrelic',
+            'trigger_dev',
+            'checkly',
+            'roark',
+            'monte_carlo',
+            'bigeye',
+            'aws_security_hub',
+            'aws_guardduty',
+            'aws_inspector',
+            'microsoft_defender_cloud_apps',
+            'clickup',
+            'wrike',
+            'trello',
+            'bugherd',
+            'dynamics365',
+            'zoho_crm',
+            'planhat',
+            'trustpilot',
+            'okendo',
+            'sleekplan',
+            'bettermode',
+            'discourse',
+            'mintlify',
+            'langsmith',
+            'sprig',
+            'gainsight_px',
+            'dynatrace',
+            'statuspage',
+            'cronitor',
+            'instatus',
+            'asana',
+            'monday',
+            'plane',
+            'azure_devops',
+            'helpscout',
+            'decagon',
+            'vitally',
+            'usersnap',
+            'typeform',
+            'qualtrics',
+            'surveymonkey',
+            'formbricks',
+            'survicate',
+            'surveysparrow',
+            'lacework',
+            'orca_security',
+            'tenable_vulnerability_management',
+            'google_play_console',
+            'azure_application_insights',
+            'appsignal',
+            'cursor',
         ])
         .optional()
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor'
         ),
     source_type: zod
         .enum([
@@ -4268,10 +4580,11 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
             'ci_broken_default_branch',
             'ci_duration_regression',
             'search_opportunity',
+            'incident',
         ])
         .optional()
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity\n\* `incident` - Incident'
         ),
     enabled: zod.boolean().optional(),
     config: zod

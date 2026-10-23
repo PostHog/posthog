@@ -66,7 +66,7 @@ _UNITS_SQL = """
 SELECT
     {unit_key} AS unit_id,
     min(timestamp) AS unit_timestamp,
-    argMin(distinct_id, timestamp) AS distinct_id,
+    argMin(distinct_id, timestamp) AS unit_distinct_id,
     argMin(properties.$session_id, timestamp) AS web_session_id,
     argMin(properties.$ai_trace_id, timestamp) AS unit_trace_id
 FROM events
