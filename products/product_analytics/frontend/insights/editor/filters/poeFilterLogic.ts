@@ -1,11 +1,11 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
-
 import type {
     FunnelsQuery,
     LifecycleQuery,
@@ -15,10 +15,9 @@ import type {
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../../queries/schema/schema-general'
-import { insightVizDataLogic } from '../insightVizDataLogic'
-import type { QuerySourceUpdate } from '../insightVizDataLogic'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
 
 export type PoeModeTypes = HogQLQueryModifiers['personsOnEventsMode'] | null
 

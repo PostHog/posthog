@@ -15,11 +15,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
-import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
 type PropertyGroupFiltersProps = {

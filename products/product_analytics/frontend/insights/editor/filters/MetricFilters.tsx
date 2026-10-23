@@ -4,6 +4,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import {
@@ -14,8 +15,6 @@ import {
     METRIC_SUMMARY_DEFAULT,
     type MetricSummary,
 } from 'products/product_analytics/frontend/insights/trends/Metric/Metric.utils'
-
-import { insightLogic } from '../insightLogic'
 
 export function MetricSummaryFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

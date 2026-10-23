@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { TrendsFilter } from '~/queries/schema/schema-general'
-
-import { insightVizDataLogic } from '../insightVizDataLogic'
 
 type LegendPosition = NonNullable<TrendsFilter['legendPosition']>
 

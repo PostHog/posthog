@@ -8,9 +8,6 @@ import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { retryImport } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
-import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
-import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
-import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -26,6 +23,9 @@ import {
     PathType,
 } from '~/types'
 
+import { GoalLines } from 'products/product_analytics/frontend/insights/editor/filters/GoalLines'
+import { PoeFilter } from 'products/product_analytics/frontend/insights/editor/filters/PoeFilter'
+import { SamplingDeprecationNotice } from 'products/product_analytics/frontend/insights/editor/filters/SamplingDeprecationNotice'
 import { FunnelAttribution } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelAttributionFilter'
 import { FunnelsAdvanced } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsQuerySteps'
@@ -57,7 +57,7 @@ import { TrendsSeries } from './TrendsSeries'
 // Only web analytics insights use these filters, and they pull in the web analytics logic and its schema validators.
 const WebAnalyticsEditorFilters = lazy(() =>
     retryImport(() =>
-        import('scenes/insights/EditorFilters/WebAnalyticsEditorFilters').then((m) => ({
+        import('products/product_analytics/frontend/insights/editor/filters/WebAnalyticsEditorFilters').then((m) => ({
             default: m.WebAnalyticsEditorFilters,
         }))
     )

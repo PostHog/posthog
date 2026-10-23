@@ -5,8 +5,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
-
-import __editorFiltersLongValue from '../../../mocks/fixtures/api/projects/team_id/insights/editorFiltersLongValue.json'
+import __editorFiltersLongValue from '~/mocks/fixtures/api/projects/team_id/insights/editorFiltersLongValue.json'
 
 type Story = StoryObj<{}>
 const meta: Meta = {

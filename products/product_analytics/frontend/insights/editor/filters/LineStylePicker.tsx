@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { TrendsFilter } from '~/queries/schema/schema-general'
-
-import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function LineStylePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

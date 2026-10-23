@@ -3,12 +3,11 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AnnotationScope } from '~/types'
 
 import { annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
-
-import { insightVizDataLogic } from '../insightVizDataLogic'
 
 type AnnotationsSelection = AnnotationScope | 'all' | 'none'
 

@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
-
-import { insightLogic } from '../insightLogic'
 
 export function StackBreakdownFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
