@@ -218,8 +218,13 @@ There is no separate assignment table, operation ledger, or writer service.
 
 The product goal is for human feedback to improve the next relevant assignment, including when another research or scout producer makes it.
 The shared write rules protect corrections on the current report. Existing notes, activity, and reviewer memory provide evidence for later selections.
-Research already reads recent corrections, and eligible reviewer edits can send notes to relevant scouts.
-Forwarding is best effort; permissions, identity coverage, retrieval, and agent judgment can each limit its effect.
+Research reads recent corrections. Eligible reviewer edits also send notes to the scouts that touched the report or hold the affected routing memory.
+The notes include members without GitHub accounts, identified by their PostHog user UUID.
+Repeat delivery is suppressed only for the same report and the latest action for that identity.
+A correction on another report, or a reversal, remains separate evidence.
+Scouts search relevant notes across producers before selection, through `scout-notes-list` without a `skill_name` filter.
+Research uses the same searchable notes. Both can inspect the source report and use the shared `reviewer:` memory.
+Forwarding is best effort; permissions, retrieval, and agent judgment can each limit its effect.
 Saving feedback alone does not establish that the next selection uses it.
 
 The first milestone is to correct an assignment, explain the intended ownership, and run selection on a new, related report through another producer.
