@@ -42,14 +42,11 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
     }
     return (
         <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-1">
-                <span>Experiment #{rule.experiment_id}</span>
-                {rule.paused && (
-                    <LemonTag type="warning" size="small">
-                        Paused
-                    </LemonTag>
-                )}
-            </div>
+            {rule.paused && (
+                <LemonTag type="warning" size="small" className="self-start">
+                    Paused
+                </LemonTag>
+            )}
             {rule.variants.map((variant) => (
                 <div key={variant.key} className="flex items-center gap-2 text-xs">
                     <span className="font-mono">{variant.key}</span>
@@ -59,7 +56,7 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
             ))}
             {rule.holdout && (
                 <span className="text-xs text-muted">
-                    Holdout #{rule.holdout.id} excludes {formatPercentage(rule.holdout.exclusion_percentage)}
+                    Holdout excludes {formatPercentage(rule.holdout.exclusion_percentage)}
                 </span>
             )}
         </div>

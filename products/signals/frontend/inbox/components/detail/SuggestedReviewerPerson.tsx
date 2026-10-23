@@ -5,6 +5,11 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
+import {
+    ReviewerClaim,
+    reviewerClaimRemoveDisabledReason,
+    SuggestedReviewerClaimControls,
+} from './SuggestedReviewerClaimControls'
 import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
 const OTHER_SOURCE_LABELS = new Set(['Code history', 'Added by teammate', 'Agent suggestion'])
@@ -40,16 +45,18 @@ export function SuggestedReviewerPerson({
     reviewer,
     disabled,
     onRemove,
+    claim,
 }: {
     reviewer: EnrichedReviewer
     disabled: boolean
     onRemove: () => void
+    claim?: ReviewerClaim
 }): JSX.Element {
     const displayName = getReviewerDisplayName(reviewer)
     const sourceLabel = getReviewerSourceLabel(reviewer)
 
     return (
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2 rounded px-1.5 py-1.5 hover:bg-fill-highlight">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-2 rounded px-1.5 py-1.5 hover:bg-fill-highlight">
             <Tooltip
                 title={
                     reviewer.user
@@ -74,11 +81,15 @@ export function SuggestedReviewerPerson({
                     {sourceLabel}
                 </LemonTag>
             )}
+            <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
             <LemonButton
                 type="tertiary"
                 size="xsmall"
                 icon={<IconX />}
-                disabledReason={disabled ? 'Updating…' : undefined}
+                disabledReason={
+                    reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
+                    (disabled ? 'Updating…' : undefined)
+                }
                 onClick={onRemove}
                 tooltip={`Remove ${displayName}`}
             />

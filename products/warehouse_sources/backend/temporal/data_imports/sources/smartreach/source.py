@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartreachSource(ResumableSource[SmartreachSourceConfig, SmartreachResumeConfig]):
+    codebase_detection = detect(env=("^SMARTREACH_",))
+
     supported_versions = (SMARTREACH_API_V1, SMARTREACH_API_V3)
     default_version = SMARTREACH_API_V3
     api_docs_url = "https://help.smartreach.io/reference/using-the-smartreach-api"
@@ -54,7 +57,7 @@ class SmartreachSource(ResumableSource[SmartreachSourceConfig, SmartreachResumeC
             name=ExternalDataSourceType.SMARTREACH,
             category=DataWarehouseSourceCategory.SALES,
             label="Smartreach",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SmartReach API key to pull your SmartReach data into the PostHog Data warehouse.
 
 You can find your API key under **Settings → Integrations** in the [SmartReach app](https://app.smartreach.io/). The key is scoped to your user and grants read access to your prospects and campaigns.

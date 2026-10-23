@@ -5,7 +5,6 @@ import { LemonButton, LemonCard, LemonInput, LemonSegmentedButton, LemonSelect }
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { DeliveryPipeline } from '../components/DeliveryPipeline'
-import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestJumpInput } from '../components/PullRequestJumpInput'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { ScopePanel } from '../components/ScopePanel'
@@ -32,7 +31,6 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         readyCount,
         thrashCount,
         sourceId,
-        activeSource,
         notConnected,
         pullRequestsLoadError,
     } = useValues(engineeringAnalyticsLogic)
@@ -86,8 +84,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-                <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
+            <div className="flex flex-wrap justify-end">
                 <PullRequestJumpInput />
             </div>
 

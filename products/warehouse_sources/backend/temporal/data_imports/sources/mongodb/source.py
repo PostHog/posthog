@@ -1,7 +1,8 @@
-from typing import Any, Optional, cast
+from typing import Any, ClassVar, Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -26,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    UNSUPPORTED_FILE_OPTION_ERROR,
     MongoResumeConfig,
+    UnsupportedConnectionOptionError,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -68,6 +71,12 @@ _MONGO_ATLAS_SQL_MESSAGE = (
     "(its host ends in .query.mongodb.net), which PostHog can't import from — those endpoints "
     "are served by a query proxy for the Atlas SQL ODBC/JDBC drivers, not the standard MongoDB "
     "driver. Use your regular cluster connection string (e.g. mongodb+srv://...mongodb.net) instead."
+)
+
+_MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
+    "Your connection string sets tlsCertificateKeyFile or tlsCRLFile. These name files on your own "
+    "machine, which PostHog can't read, so client certificate sign-in isn't supported. Remove them, "
+    "sign in with a username and password, and try again."
 )
 
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
@@ -113,6 +122,19 @@ _MONGO_KEY_NOT_FOUND_MESSAGE = (
     "and ensure all replica set members are healthy, then try again."
 )
 
+# MongoDB OperationFailure code 125 (CommandFailed) with this errmsg comes from Atlas Data
+# Federation / Online Archive: the federated database's data source still names a cluster that
+# was since renamed or deleted from the Atlas project. The cluster name and project id are
+# variable, so match the fixed phrase between them rather than the whole sentence. A retry reads
+# the same stale data source config and fails the same way every time.
+_MONGO_CLUSTER_NOT_FOUND_MESSAGE = (
+    "MongoDB reported that the cluster this connection refers to no longer exists in your Atlas "
+    "project (MongoDB error code 125: CommandFailed). This happens when connecting through an "
+    "Atlas Data Federation or Online Archive endpoint whose data source still points at a cluster "
+    "that was renamed or deleted. Update the data source in your Federated Database Instance, or "
+    "connect with your cluster's regular connection string instead, then try again."
+)
+
 # Connection succeeded but nothing importable came back. This is usually a wrong-database or
 # permission problem rather than a genuinely empty database: a connection string ending in /admin
 # or /test lands on an empty system database, and a user without read access sees no collections.
@@ -152,6 +174,94 @@ _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
 
 @SourceRegistry.register
 class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], ValidateDatabaseHostMixin):
+    # The CA bundle that verifies the server. None means the public bundle; a source for a
+    # MongoDB-compatible service with a private CA sets its own.
+    tls_ca_file: ClassVar[str | None] = None
+    # Matches both MONGO_* and MONGODB_* prefixes (e.g. MONGO_HOST,
+    # MONGODB_URI) in one pattern.
+    codebase_detection = detect(
+        env=("^MONGO(DB)?_", "^ATLAS_URI$", "^MDB_MCP_"),
+        npm=(
+            "mongodb",
+            "mongoose",
+            "mongodb-legacy",
+            "mongodb-client-encryption",
+            "mongosh",
+            "mongodb-mcp-server",
+            "@mongodb-js/charts-embed-dom",
+            "realm-web",
+            "@langchain/mongodb",
+            "@nestjs/mongoose",
+            "@typegoose/typegoose",
+            "connect-mongo",
+            "@auth/mongodb-adapter",
+        ),
+        pypi=(
+            "pymongo",
+            "motor",
+            "pymongo-auth-aws",
+            "pymongocrypt",
+            "pymongoarrow",
+            "django-mongodb-backend",
+            "langchain-mongodb",
+            "llama-index-vector-stores-mongodb",
+            "mongoengine",
+            "beanie",
+            "odmantic",
+            "flask-pymongo",
+        ),
+        cargo=("mongodb", "mongocrypt"),
+        cocoapods=("MongoSwift", "MongoKitten"),
+        composer=(
+            "mongodb/mongodb",
+            "mongodb/laravel-mongodb",
+            "jenssegers/mongodb",
+            "mongodb/builder",
+            "mongodb/mongodb-extension",
+            "mongodb/symfony-bundle",
+            "doctrine/mongodb-odm",
+            "doctrine/mongodb-odm-bundle",
+        ),
+        go=(
+            "go.mongodb.org/mongo-driver",
+            "go.mongodb.org/atlas-sdk",
+            "go.mongodb.org/atlas",
+            "github.com/globalsign/mgo",
+            "gopkg.in/mgo.v2",
+        ),
+        hex=("mongodb_driver", "mongodb", "mongodb_ecto"),
+        maven=(
+            "org.mongodb:mongodb-driver-sync",
+            "org.mongodb:mongodb-driver-reactivestreams",
+            "org.mongodb:mongodb-driver-kotlin-coroutine",
+            "org.mongodb:mongodb-driver-kotlin-sync",
+            "org.mongodb:mongodb-driver-kotlin-extensions",
+            "org.mongodb:mongodb-driver-core",
+            "org.mongodb:mongodb-driver-legacy",
+            "org.mongodb:mongo-java-driver",
+            "org.mongodb:mongodb-driver",
+            "org.mongodb:mongodb-driver-async",
+            "org.mongodb:mongodb-crypt",
+            "org.mongodb.scala:mongo-scala-driver_2.12",
+            "org.mongodb.scala:mongo-scala-driver_2.13",
+            "org.mongodb.scala:mongo-scala-driver_3",
+            "org.mongodb.spark:mongo-spark-connector",
+            "org.mongodb.spark:mongo-spark-connector_2.12",
+            "org.mongodb.spark:mongo-spark-connector_2.13",
+            "org.mongodb.kafka:mongo-kafka-connect",
+            "dev.morphia.morphia:morphia-core",
+            "org.mongodb.morphia:morphia",
+            "org.springframework.data:spring-data-mongodb",
+            "org.springframework.boot:spring-boot-starter-data-mongodb",
+            "org.springframework.boot:spring-boot-starter-data-mongodb-reactive",
+            "io.quarkus:quarkus-mongodb-client",
+            "io.quarkus:quarkus-mongodb-panache",
+        ),
+        pub=("mongo_dart",),
+        rubygems=("mongo", "mongoid", "mongo_kerberos"),
+        swiftpm=("github.com/mongodb/mongo-swift-driver", "github.com/orlandos-nl/mongokitten"),
+    )
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
@@ -160,6 +270,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
+            UNSUPPORTED_FILE_OPTION_ERROR: _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -226,6 +337,9 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # (timestamp, key id) is stable and unambiguous. Retrying the same cursor against the
             # same cluster always fails with the same error.
             "No keys found for HMAC": _MONGO_KEY_NOT_FOUND_MESSAGE,
+            # MongoDB OperationFailure code 125 (CommandFailed): an Atlas Data Federation / Online
+            # Archive data source still names a cluster that no longer exists in the project.
+            "not found in project": _MONGO_CLUSTER_NOT_FOUND_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -317,10 +431,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
+        mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names, tls_ca_file=self.tls_ca_file)
 
         connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        with mongo_client(config.connection_string, team_id=team_id) as client:
+        with mongo_client(config.connection_string, team_id=team_id, tls_ca_file=self.tls_ca_file) as client:
             db = client[connection_params["database"]]
             index_keys_by_collection = get_index_keys_by_collection(db, list(mongo_schemas))
 
@@ -380,7 +494,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
                 return False, host_errors
 
         try:
-            collection_names = get_collection_names(config, team_id=team_id)
+            collection_names = get_collection_names(config, team_id=team_id, tls_ca_file=self.tls_ca_file)
             if len(collection_names) == 0:
                 return False, _MONGO_NO_COLLECTIONS_MESSAGE
         except OperationFailure as e:
@@ -401,6 +515,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # rather than mislabelling it as an authentication problem.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except UnsupportedConnectionOptionError:
+            return False, _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE
         except HostNotAllowedError:
             # An SRV URI skips the host check above, so a cluster whose members resolve to private
             # addresses is only refused once `_make_safe_server_selector` sees them. Report the same
@@ -444,7 +560,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         return True, None
 
     def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
-        return get_mongo_server_metadata(config.connection_string, team_id)
+        return get_mongo_server_metadata(config.connection_string, team_id, tls_ca_file=self.tls_ca_file)
 
     def resume_covers_run(
         self,
@@ -452,8 +568,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         incremental_or_append: bool,
         schema_name: str | None = None,
     ) -> bool:
-        # The `_id` checkpoint covers only a full refresh. An incremental or append run restarts from
-        # its watermark, so it keeps the incremental retry budget.
+        # The `_id` checkpoint covers a full refresh. It also covers a first incremental or append
+        # sync, but this cannot see the watermark, so those runs keep the incremental retry budget.
         return not incremental_or_append
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MongoResumeConfig]:
@@ -480,6 +596,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             team_id=inputs.team_id,
             database_name=config.database_name,
             resumable_source_manager=resumable_source_manager,
+            tls_ca_file=self.tls_ca_file,
         )
 
     @property

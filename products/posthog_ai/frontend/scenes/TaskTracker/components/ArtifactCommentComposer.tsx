@@ -1,6 +1,6 @@
-import { ChangeEvent, KeyboardEvent } from 'react'
+import { ChangeEvent, KeyboardEvent, useId, useState } from 'react'
 
-import { Button, Kbd, KbdGroup, Text, Textarea } from '@posthog/quill-primitives'
+import { Button, Checkbox, Label, Textarea, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
 
 import { isMac } from 'lib/utils/dom'
 
@@ -15,15 +15,13 @@ export function ArtifactCommentComposer({
     label,
     placeholder,
     submitLabel = 'Comment',
-    quote,
     autoFocus = false,
     rows = 2,
-    showShortcut = true,
     dataAttr,
 }: {
     value: string
     onChange: (value: string) => void
-    onSubmit: () => void
+    onSubmit: (addToChat: boolean) => void
     onCancel?: () => void
     /** This box's write is in flight. */
     saving: boolean
@@ -32,16 +30,15 @@ export function ArtifactCommentComposer({
     label: string
     placeholder: string
     submitLabel?: string
-    /** The selected text the comment is about. */
-    quote?: string
     autoFocus?: boolean
     rows?: number
-    showShortcut?: boolean
     dataAttr: string
 }): JSX.Element {
+    const [addToChat, setAddToChat] = useState(false)
+    const addToChatId = useId()
     const submit = (): void => {
         if (value.trim() && !saving && !busy) {
-            onSubmit()
+            onSubmit(addToChat)
         }
     }
     return (
@@ -52,16 +49,6 @@ export function ArtifactCommentComposer({
                 submit()
             }}
         >
-            {quote && (
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<blockquote />}
-                    className="m-0 line-clamp-3 border-l-2 border-border pl-2 break-words whitespace-pre-wrap"
-                >
-                    {quote}
-                </Text>
-            )}
             <Textarea
                 autoFocus={autoFocus}
                 aria-label={label}
@@ -81,13 +68,20 @@ export function ArtifactCommentComposer({
                 }}
                 data-attr={`${dataAttr}-input`}
             />
-            <div className="flex items-center justify-end gap-2">
-                {showShortcut && (
-                    <KbdGroup className="mr-auto text-muted-foreground" aria-label="Keyboard shortcut to send">
-                        <Kbd>{isMac() ? '⌘' : 'Ctrl'}</Kbd>
-                        <Kbd>Enter</Kbd>
-                    </KbdGroup>
-                )}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="mr-auto flex items-center gap-1.5">
+                    <Checkbox
+                        id={addToChatId}
+                        size="sm"
+                        checked={addToChat}
+                        disabled={saving}
+                        onCheckedChange={(checked: boolean) => setAddToChat(checked)}
+                        data-attr={`${dataAttr}-add-to-chat`}
+                    />
+                    <Label htmlFor={addToChatId} className="text-xs text-muted-foreground">
+                        Add to chat
+                    </Label>
+                </div>
                 {onCancel && (
                     <Button
                         type="button"
@@ -100,16 +94,23 @@ export function ArtifactCommentComposer({
                         Cancel
                     </Button>
                 )}
-                <Button
-                    type="submit"
-                    size="sm"
-                    variant="primary"
-                    loading={saving}
-                    disabled={!value.trim() || busy}
-                    data-attr={`${dataAttr}-submit`}
-                >
-                    {submitLabel}
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger
+                        render={
+                            <Button
+                                type="submit"
+                                size="sm"
+                                variant="primary"
+                                loading={saving}
+                                disabled={!value.trim() || busy}
+                                data-attr={`${dataAttr}-submit`}
+                            />
+                        }
+                    >
+                        {submitLabel}
+                    </TooltipTrigger>
+                    <TooltipContent>{`Press ${isMac() ? '⌘' : 'Ctrl'} + Enter to send`}</TooltipContent>
+                </Tooltip>
             </div>
         </form>
     )

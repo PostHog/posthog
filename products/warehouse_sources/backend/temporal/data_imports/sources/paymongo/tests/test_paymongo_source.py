@@ -7,8 +7,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from posthog.cdp.validation import compile_hog
-
+from products.cdp.backend.validation import compile_hog
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,

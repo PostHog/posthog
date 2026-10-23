@@ -11,6 +11,8 @@ export interface WorkflowRun {
     conclusion: string | null
     startedAt: string | null
     finishedAt: string | null
+    /** The sync's last update of the run. Absent where the source doesn't carry it. */
+    updatedAt?: string | null
     durationSeconds: number | null
     /** GitHub Actions run id — links straight to the run page when present. */
     runId: number | null

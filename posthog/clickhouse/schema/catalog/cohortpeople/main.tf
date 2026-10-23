@@ -43,9 +43,10 @@ module "cohortpeople_family" {
     { name = "version", type = "UInt64" },
   ]
   storage = {
-    engine      = "CollapsingMergeTree"
-    engine_args = ["sign"]
-    order_by    = "(team_id, cohort_id, person_id, version)"
+    engine       = "ReplacingMergeTree"
+    engine_args  = ["version"]
+    partition_by = "team_id % 16"
+    order_by     = "(team_id, cohort_id, person_id)"
   }
   deployment = local.deployment
 }

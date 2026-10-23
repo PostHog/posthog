@@ -88,9 +88,7 @@ export interface AiOnboardingProps extends AiOnboardingLogicProps {
 export function AiOnboarding({ panelId, autoOpen }: AiOnboardingProps): JSX.Element | null {
     const logicProps: AiOnboardingLogicProps = useMemo(() => ({ panelId }), [panelId])
     const { isOpen, stepIndex, hasSeenOnboarding, user } = useValues(aiOnboardingLogic(logicProps))
-    const { openOnboarding, closeOnboarding, finishOnboarding, setStepIndex, replayMedia } = useActions(
-        aiOnboardingLogic(logicProps)
-    )
+    const { openOnboarding, closeOnboarding, setStepIndex, replayMedia } = useActions(aiOnboardingLogic(logicProps))
 
     useEffect(() => {
         // `user` gates the whole thing: the seen flag lives on it, so acting before it resolves would show
@@ -115,7 +113,6 @@ export function AiOnboarding({ panelId, autoOpen }: AiOnboardingProps): JSX.Elem
                 stepIndex={stepIndex}
                 onStepIndexChange={setStepIndex}
                 onDismiss={closeOnboarding}
-                onFinish={finishOnboarding}
                 onReplayMedia={replayMedia}
                 stepActions={{
                     connect: <ConnectGithubAction />,

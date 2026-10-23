@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
+import { AvailableFeature, PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
@@ -844,93 +844,12 @@ describe('webAnalyticsLogic URL restoration', () => {
         }
     })
 
-    const enableBackNavReset = (): void => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-        })
-    }
-
-    it('clears a drilled-in filter when navigating back to a URL without filters (flag on)', async () => {
-        enableBackNavReset()
-
+    it('leaves a drilled-in filter in place on back-navigation', async () => {
         router.actions.push('/web', { filters: [FILTER_A] })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
 
         router.actions.push('/web')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([])
-    })
-
-    it('keeps the outer filter when stepping back between two drill levels (flag on)', async () => {
-        enableBackNavReset()
-
-        router.actions.push('/web', { filters: [FILTER_A, FILTER_B] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A, FILTER_B])
-
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-    })
-
-    it.each<[string, string, () => unknown]>([
-        ['domain', 'example.com', () => logic.values.domainFilter],
-        ['device_type', 'Desktop', () => logic.values.deviceTypeFilter],
-        ['country', 'US', () => logic.values.countryFilter],
-        ['referrer', 'google.com', () => logic.values.referrerFilter],
-    ])(
-        'clears a drilled-in %s filter when navigating back to a URL without it (flag on)',
-        async (param, value, read) => {
-            // These drill-downs fold into the query like `filters` do, so a back-navigation that
-            // omits the param must clear the value — otherwise the shown data no longer matches the URL.
-            featureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
-                {
-                    [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-                    [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-                }
-            )
-
-            router.actions.push('/web/page-performance', { [param]: value })
-            await expectLogic(logic).toFinishAllListeners()
-            expect(read()).toBe(value)
-
-            router.actions.push('/web/page-performance')
-            await expectLogic(logic).toFinishAllListeners()
-            expect(read()).toBeNull()
-        }
-    )
-
-    it('leaves a drilled-in filter in place on back-navigation when the flag is off', async () => {
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-
-        router.actions.push('/web')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-    })
-
-    it('keeps filters when moving to the Live tab, which never serializes them (flag on)', async () => {
-        enableBackNavReset()
-
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-
-        router.actions.push('/web/live')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-    })
-
-    it('keeps filters when a cold /web/bots load redirects to /web with the bots flag off (reset flag on)', async () => {
-        enableBackNavReset()
-        logic.actions.setWebAnalyticsFilters([FILTER_A])
-        await expectLogic(logic).toFinishAllListeners()
-        logic.cache.hasRestoredWebUrl = false
-
-        router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })
@@ -976,5 +895,45 @@ describe('webAnalyticsLogic warmablePresetShortId', () => {
 
         expect(logic.values.appliedPresetShortId).toBe('abc123')
         expect(logic.values.warmablePresetShortId).toBeNull()
+    })
+})
+
+describe('webAnalyticsLogic path cleaning filters', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: {
+                ...MOCK_DEFAULT_USER.organization,
+                available_product_features: [{ key: AvailableFeature.PATHS_ADVANCED, name: 'Paths advanced' }],
+            },
+        } as UserType)
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        [PropertyOperator.Exact, PropertyOperator.IsCleanedPathExact],
+        [PropertyOperator.IsNot, PropertyOperator.IsCleanedPathNotExact],
+        [PropertyOperator.IContains, PropertyOperator.IContains],
+    ])('rewrites a %s path filter to %s', (operator, expectedOperator) => {
+        webAnalyticsFilterLogic.actions.setWebAnalyticsFilters([
+            { key: '$pathname', value: ['/user/:id'], operator, type: PropertyFilterType.Event },
+        ])
+
+        expect(logic.values.webAnalyticsFilters).toEqual([
+            { key: '$pathname', value: ['/user/:id'], operator: expectedOperator, type: PropertyFilterType.Event },
+        ])
     })
 })

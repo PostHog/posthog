@@ -19,13 +19,13 @@ const buttonGroupVariants = cva('quill-button-group', {
     },
 })
 
-function ButtonGroup({
-    className,
-    orientation = 'horizontal',
-    ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof buttonGroupVariants>): React.ReactElement {
+const ButtonGroup = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & VariantProps<typeof buttonGroupVariants>
+>(function ButtonGroup({ className, orientation = 'horizontal', ...props }, ref) {
     return (
         <div
+            ref={ref}
             role="group"
             data-quill
             data-slot="button-group"
@@ -34,10 +34,14 @@ function ButtonGroup({
             {...props}
         />
     )
-}
+})
 
-function ButtonGroupText({ className, render, ...props }: useRender.ComponentProps<'div'>): React.ReactElement {
+const ButtonGroupText = React.forwardRef<HTMLDivElement, useRender.ComponentProps<'div'>>(function ButtonGroupText(
+    { className, render, ...props },
+    ref
+) {
     return useRender({
+        ref,
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
@@ -50,21 +54,21 @@ function ButtonGroupText({ className, render, ...props }: useRender.ComponentPro
             slot: 'button-group-text',
         },
     })
-}
+})
 
-function ButtonGroupSeparator({
-    className,
-    orientation = 'vertical',
-    ...props
-}: React.ComponentProps<typeof Separator>): React.ReactElement {
+const ButtonGroupSeparator = React.forwardRef<
+    React.ComponentRef<typeof Separator>,
+    React.ComponentProps<typeof Separator>
+>(function ButtonGroupSeparator({ className, orientation = 'vertical', ...props }, ref) {
     return (
         <Separator
+            ref={ref}
             data-slot="button-group-separator"
             orientation={orientation}
             className={cn('quill-button-group__separator', className)}
             {...props}
         />
     )
-}
+})
 
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants }

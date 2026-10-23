@@ -54,7 +54,7 @@ module "sharded_distinct_id_usage_family" {
   columns  = local.sharded_distinct_id_usage_columns
   storage = {
     engine       = "SummingMergeTree"
-    engine_args  = ["(event_count)"]
+    engine_args  = ["event_count"]
     partition_by = "toYYYYMMDD(minute)"
     order_by     = "(team_id, minute, distinct_id)"
     ttl          = var.ttl ? "toDate(minute) + toIntervalDay(7)" : null

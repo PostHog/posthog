@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheckCircle, IconDocument, IconEllipsis, IconHide } from '@posthog/icons'
-import { Badge, Button, Heading, Text, cn } from '@posthog/quill'
+import { Badge, Button, Heading, IconStack, IconStackItem, Text, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
@@ -15,17 +14,17 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
-import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
-import { TodayActionButton } from './TodayActionButton'
-import { itemStateLabel } from './todayBriefingItems'
 import { TodayEvidenceAge } from './TodayEvidenceAge'
-import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { TodayMarkedText } from './TodayMarkedText'
 import { resolveDisabledReason } from './todayNextStep'
+import { priorityTone } from './todayPriority'
 import { todayReportLogic } from './todayReportLogic'
+import { reportStateLabel } from './todayReportState'
+import { reportIcon } from './todayRowIcons'
 import { SAMPLE_REPORT_REASON } from './todaySampleReports'
-import { priorityBadgeVariant, reportSourceLine, reportTitle } from './todaySignalReports'
+import { reportSourceLine, reportTitle } from './todaySignalReports'
+import { type TodayReportVerdict, todayVerdictLogic } from './todayVerdictLogic'
 
 function PhoneActions({
     report,
@@ -101,17 +100,18 @@ function PhoneActions({
 }
 
 export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
-    const { requestReportVerdict } = useActions(todayLogic)
+    const { requestReportVerdict } = useActions(todayVerdictLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const { lead, leadMarks, shownKeyClauses, reportState, isSample } = useValues(
         todayReportLogic({ reportId: report.id })
     )
     const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
-    const stateLabel = itemStateLabel({ state: reportState })
+    const stateLabel = reportStateLabel(reportState)
     const stateBadge = stateLabel ? (
         <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
     ) : null
     const sources = reportSourceLine(report)
+    const icon = reportIcon(report)
     const updated = dayjs(report.updated_at)
     const stillInvestigating = !report.summary?.trim()
 
@@ -134,12 +134,14 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                         phoneLayout ? 'min-w-0' : 'min-w-64'
                     )}
                 >
+                    <IconStack className="TodayReportHeader__icon" title={sources.title || sources.line}>
+                        <IconStackItem color={icon.color}>{icon.glyph}</IconStackItem>
+                    </IconStack>
                     {report.priority && (
-                        <Badge variant={priorityBadgeVariant(report.priority)}>{report.priority}</Badge>
+                        <span className="TodayRow__label" data-tone={priorityTone(report.priority)}>
+                            {report.priority}
+                        </span>
                     )}
-                    <span className="min-w-0 truncate" title={sources.title || undefined}>
-                        {sources.line}
-                    </span>
                     <span aria-hidden className="-mx-0.5">
                         ·
                     </span>
@@ -158,21 +160,20 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                 ) : (
                     <div className="-mx-2 flex shrink-0 items-center gap-0.5">
                         {!isSample && (
-                            <TodayActionButton
+                            <Button
                                 size="sm"
                                 variant="link-muted"
-                                nativeButton={false}
                                 render={<LinkPrimitive to={urls.inboxReport('reports', report.id)} />}
                                 tooltip="Open the full report in the Inbox"
                                 data-attr="today-report-open-inbox"
                             >
                                 <IconDocument />
                                 Full report
-                            </TodayActionButton>
+                            </Button>
                         )}
                         {stateBadge ?? (
                             <>
-                                <TodayActionButton
+                                <Button
                                     size="sm"
                                     variant="link-muted"
                                     onClick={() => giveVerdict('resolve')}
@@ -182,8 +183,8 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                                 >
                                     <IconCheckCircle />
                                     Resolve
-                                </TodayActionButton>
-                                <TodayActionButton
+                                </Button>
+                                <Button
                                     size="sm"
                                     variant="link-muted"
                                     onClick={() => giveVerdict('dismiss')}
@@ -193,7 +194,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                                 >
                                     <IconHide />
                                     Dismiss
-                                </TodayActionButton>
+                                </Button>
                             </>
                         )}
                     </div>
@@ -201,7 +202,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
             </div>
             <div className="flex flex-col gap-2">
                 <Heading size="xl" render={<h1 />} className="leading-snug text-balance">
-                    {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
+                    {reportTitle(report)}
                 </Heading>
                 {lead && (
                     <div data-today-figures>

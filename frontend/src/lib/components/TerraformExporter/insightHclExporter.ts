@@ -5,8 +5,9 @@ import {
     formatJsonForHcl,
     sanitizeResourceName,
 } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
-import { HogFunctionType, InsightModel } from '~/types'
+import { DashboardTileBasicType, HogFunctionType, InsightModel } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -68,10 +69,14 @@ const INSIGHT_FIELD_MAPPINGS: FieldMapping<Partial<InsightModel>, InsightHclExpo
         shouldInclude: (v) => !!v,
     },
     {
-        source: 'dashboards',
+        source: 'dashboard_tiles',
         target: 'dashboard_ids',
-        shouldInclude: (v) => Array.isArray(v) && v.length > 0,
-        transform: (v, _, options) => formatIdsWithReplacements(v as number[], options.dashboardIdReplacements),
+        shouldInclude: (v) => liveDashboardIds(v as DashboardTileBasicType[] | null | undefined).length > 0,
+        transform: (v, _, options) =>
+            formatIdsWithReplacements(
+                liveDashboardIds(v as DashboardTileBasicType[] | null | undefined),
+                options.dashboardIdReplacements
+            ),
     },
 ]
 
@@ -88,8 +93,9 @@ function validateInsight(insight: Partial<InsightModel>, options?: InsightHclExp
         )
     }
 
-    if (insight.dashboards && insight.dashboards.length > 0) {
-        const hasUnresolvedIds = insight.dashboards.some((id) => !options?.dashboardIdReplacements?.has(id))
+    const dashboardIds = liveDashboardIds(insight.dashboard_tiles)
+    if (dashboardIds.length > 0) {
+        const hasUnresolvedIds = dashboardIds.some((id) => !options?.dashboardIdReplacements?.has(id))
         if (hasUnresolvedIds) {
             warnings.push(
                 'Some `dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'

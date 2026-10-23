@@ -20,6 +20,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { conversationsDestroy } from 'products/posthog_ai/frontend/generated/api'
+import { taskEventsLogic } from 'products/posthog_ai/frontend/logics/taskEventsLogic'
 import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -27,7 +28,7 @@ import type { OrganizationType, PreflightStatus } from '../../types'
 import type { SceneConfig } from '../sceneTypes'
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { PHAI_VIEW_MODE_KEY } from './max-storage-keys'
-import { SIDE_PANEL_PANEL_ID, maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
+import { maxLogic, mergeConversationHistory, mergeConversations, sidePanelMaxLogic } from './maxLogic'
 
 /**
  * Which PostHog AI implementation the Max scene renders. `'new'` is the posthog_ai/frontend surface
@@ -402,7 +403,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         },
         // A chat and its task are deleted together on the server, so removing a task from the merged
         // list must drop the chat row too, or the chat resurfaces as a row of its own.
-        [tasksLogic.actionTypes.deleteTaskSuccess]: () => {
+        [taskEventsLogic.actionTypes.taskDeleted]: () => {
             actions.loadConversationHistory()
         },
         askSidePanelMax: ({ prompt }) => {
@@ -413,12 +414,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 actions.openSidePanel(SidePanelTab.Max)
             }
             if (conversationId) {
-                let logic = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
-                if (!logic) {
-                    logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
-                    logic.mount() // we're never unmounting this
-                }
-                logic.actions.openConversation(conversationId)
+                sidePanelMaxLogic().actions.openConversation(conversationId)
             }
         },
         // Open the side panel on a fresh chat bound to a sandbox Task (inbox "Open task" — in-place,
@@ -429,11 +425,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
                 actions.openSidePanel(SidePanelTab.Max)
             }
-            let logic = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
-            if (!logic) {
-                logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
-                logic.mount() // we're never unmounting this
-            }
+            const logic = sidePanelMaxLogic()
             logic.actions.startNewConversation()
             logic.actions.setPendingBindTaskId(taskId)
         },

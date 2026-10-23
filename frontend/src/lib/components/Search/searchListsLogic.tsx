@@ -1,13 +1,22 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBell, IconClock, IconDownload, IconLeave, IconNotification, IconTerminal } from '@posthog/icons'
+import {
+    IconBell,
+    IconClock,
+    IconDownload,
+    IconLeave,
+    IconNotification,
+    IconSupport,
+    IconTerminal,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -18,6 +27,7 @@ import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -35,6 +45,10 @@ const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet
     !flag || !!(featureFlags as Record<string, boolean>)[flag]
 
 const displayNameOf = (item: SearchItem): string => item.displayName || item.name
+
+const CATEGORY_SEARCH_KEYWORDS: Record<string, string[]> = {
+    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
+}
 
 const toSearchTabItems = (
     parents: SearchItem[],
@@ -245,17 +259,22 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 user: null | import('~/types').UserType,
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
-                const allProducts = getTreeItemsProducts()
+                const allProducts = [
+                    ...getTreeItemsProducts(),
+                    ...getTreeItemsMetadata().filter((item) => !isDefinitionsTabHref(item.href)),
+                ]
+                const seenHrefs = new Set<string>()
                 const filteredProducts = allProducts.filter((product) => {
-                    if (!product.href) {
+                    if (!product.href || seenHrefs.has(product.href)) {
                         return false
                     }
                     if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(product.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(product, featureFlags)) {
                         return false
                     }
+                    seenHrefs.add(product.href)
                     return true
                 })
 
@@ -267,7 +286,10 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     productCategory: product.category || null,
                     href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
-                    searchKeywords: product.searchKeywords,
+                    searchKeywords: [
+                        ...(product.category ? (CATEGORY_SEARCH_KEYWORDS[product.category] ?? []) : []),
+                        ...(product.searchKeywords ?? []),
+                    ],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
                     record: {
@@ -305,20 +327,16 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 user: null | import('~/types').UserType,
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
-                const allMetadata = getTreeItemsMetadata()
+                const allMetadata = getTreeItemsMetadata().filter((item) => isDefinitionsTabHref(item.href))
                 const filteredMetadata = allMetadata.filter((item) => {
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(item.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true
                 })
-
-                const categorySearchKeywords: Record<string, string[]> = {
-                    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
-                }
 
                 const items: SearchItem[] = filteredMetadata.map((item) => ({
                     id: `data-management-${item.path}`,
@@ -328,10 +346,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    searchKeywords: [
-                        ...(item.category ? (categorySearchKeywords[item.category] ?? []) : []),
-                        ...(item.searchKeywords ?? []),
-                    ],
+                    searchKeywords: item.searchKeywords,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(item),
                     record: {
@@ -359,7 +374,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(item.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true
@@ -528,6 +543,27 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     itemType: null,
                     lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
                     record: { type: 'subscriptions' },
+                },
+                // The user's own tickets with PostHog. The Support product holds tickets from their customers.
+                {
+                    id: 'misc-my-tickets',
+                    name: 'Your tickets',
+                    displayName: 'Your tickets',
+                    category: 'misc',
+                    productCategory: 'PostHog support',
+                    href: urls.myTickets(),
+                    icon: <IconSupport />,
+                    itemType: 'my_tickets',
+                    searchKeywords: [
+                        'my tickets',
+                        'support tickets',
+                        'posthog support',
+                        'contact support',
+                        'support',
+                        'help',
+                    ],
+                    lastViewedAt: sceneLogViewsByRef['MyTickets'] ?? null,
+                    record: { type: 'my_tickets' },
                 },
                 {
                     id: 'misc-logout',

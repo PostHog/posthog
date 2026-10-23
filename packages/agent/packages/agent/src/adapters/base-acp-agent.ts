@@ -19,6 +19,7 @@ import type {
 import {
   customModelMeta,
   isAnthropicModelId,
+  isRetiredModel,
   restrictedModelMeta,
 } from "@posthog/agent-contracts";
 import {
@@ -27,13 +28,9 @@ import {
   fetchGatewayModels,
   formatGatewayModelName,
   type GatewayModel,
-  isAnthropicModel,
-  isBasetenModel,
-  isCloudflareModel,
-  isCloudflareModelId,
-  isDeepseekModelId,
-  isModalModel,
-  isModalModelId,
+  isClaudeAdapterModel,
+  isClaudeAdapterModelId,
+  isServedModelId,
   pickAllowedModel,
 } from "../gateway-models";
 import { Logger } from "../utils/logger";
@@ -165,16 +162,7 @@ export abstract class BaseAcpAgent implements Agent {
         : undefined,
     );
 
-    const adapterModels = this.gatewayModels
-      // The gateway translates its inference-provider models onto the Anthropic Messages surface,
-      // so the Claude adapter can drive them alongside native Anthropic models.
-      .filter(
-        (model) =>
-          isAnthropicModel(model) ||
-          isCloudflareModel(model) ||
-          isModalModel(model) ||
-          isBasetenModel(model),
-      );
+    const adapterModels = this.gatewayModels.filter(isClaudeAdapterModel);
 
     const options = adapterModels
       .map((model) => ({
@@ -186,16 +174,6 @@ export abstract class BaseAcpAgent implements Agent {
         ...(model.allowed ? {} : { _meta: restrictedModelMeta() }),
       }))
       .sort((a, b) => compareModelsForPicker(a.value, b.value));
-
-    // Models the Claude adapter can drive: Anthropic ids, plus Cloudflare `@cf/` ids the gateway
-    // serves over its Anthropic-Messages surface. Anything else (e.g. a Codex/GPT id) is a genuine
-    // adapter/model desync and falls back to the default.
-    const isClaudeAdapterModelId = (modelId: string): boolean =>
-      modelId.startsWith("claude-") ||
-      modelId.startsWith("anthropic/") ||
-      isCloudflareModelId(modelId) ||
-      isModalModelId(modelId) ||
-      isDeepseekModelId(modelId);
 
     let currentModelId = currentModelOverride ?? DEFAULT_GATEWAY_MODEL;
 
@@ -215,11 +193,24 @@ export abstract class BaseAcpAgent implements Agent {
     }
 
     if (!options.some((opt) => opt.value === currentModelId)) {
-      if (isModalModelId(currentModelId) || isDeepseekModelId(currentModelId)) {
+      const rejectedByGateway = this.gatewayModels.some(
+        (model) => model.id === currentModelId,
+      );
+      if (
+        !isRetiredModel(currentModelId) &&
+        (rejectedByGateway || isServedModelId(currentModelId))
+      ) {
         const fallbackOption =
           options.find((option) => option.value === DEFAULT_GATEWAY_MODEL) ??
           options.find((option) => option._meta === undefined);
         if (fallbackOption) {
+          this.logger.warn(
+            "Requested model is not offered on Claude adapter; falling back to default model",
+            {
+              requestedModel: currentModelId,
+              fallbackModel: fallbackOption.value,
+            },
+          );
           currentModelId = fallbackOption.value;
         }
       } else if (!isClaudeAdapterModelId(currentModelId)) {

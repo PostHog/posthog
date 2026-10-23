@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodefreshSource(ResumableSource[CodefreshSourceConfig, CodefreshResumeConfig]):
+    codebase_detection = detect(env=("^CODEFRESH_",), npm=("codefresh",), go=("github.com/codefresh-io/go-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://codefresh.io/docs/docs/integrations/codefresh-api/"
 
@@ -51,7 +54,7 @@ class CodefreshSource(ResumableSource[CodefreshSourceConfig, CodefreshResumeConf
             name=ExternalDataSourceType.CODEFRESH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codefresh",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Codefresh API key to automatically pull your Codefresh CI/CD data into the PostHog Data warehouse.
 
 You can create an API key in your [Codefresh user settings](https://g.codefresh.io/user/settings). Codefresh API keys are scoped per resource, so grant read access for the resources you want to sync:

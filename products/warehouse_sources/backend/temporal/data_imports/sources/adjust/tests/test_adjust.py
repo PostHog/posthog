@@ -90,8 +90,8 @@ def _scripted_page(rows: list[dict[str, Any]], next_url: str | None = None) -> S
     return ScriptedResponse(json={"rows": rows, "totals": {}, "pagination": pagination})
 
 
-def _driver() -> SourceDriver:
-    return SourceDriver(AdjustSource(), AdjustSourceConfig(api_token="token"))
+def _driver(app_tokens: str | None = None) -> SourceDriver:
+    return SourceDriver(AdjustSource(), AdjustSourceConfig(api_token="token", app_tokens=app_tokens))
 
 
 def _run_get_rows(
@@ -156,7 +156,8 @@ class TestBuildReportParams:
         # A primary key that isn't a requested dimension would be absent from every row, so merges
         # would collapse the whole table onto null keys.
         config = ADJUST_REPORTS[name]
-        assert set(config.primary_keys) <= set(config.dimensions)
+        unpivoted_keys = {"event_slug"} if config.event_metrics else set()
+        assert set(config.primary_keys) <= set(config.dimensions) | unpivoted_keys
 
 
 class TestRequest:
@@ -341,6 +342,74 @@ class TestGetRows:
             "2024-06-27:2024-06-30",
         ]
 
+    @parameterized.expand(
+        [
+            ("daily_report", "2024-06-27"),
+            ("retention_report", "2024-05-30"),
+            ("skad_report", "2024-05-26"),
+        ]
+    )
+    def test_incremental_lookback_covers_the_report_revision_window(self, report: str, expected_start: str) -> None:
+        # Cohort and SKAN figures keep changing for weeks, so a short lookback would freeze them
+        # at their first, immature value.
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                report,
+                always(_scripted_page([])),
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert result.raised is None
+        assert (result.params("date_period")[0] or "").startswith(f"{expected_start}:")
+
+    def test_event_report_unpivots_event_metrics_in_day_order(self) -> None:
+        catalog = [
+            {"id": "purchase", "name": "Purchase", "is_skad_event": False},
+            {"id": "signup", "name": "Sign up", "is_skad_event": False},
+            {"id": "skad_purchase", "name": "SKAN purchase", "is_skad_event": True},
+        ]
+        dims = {"app": "App", "app_token": "abc123", "partner_name": "Organic"}
+        with (
+            mock.patch.object(adjust, "_today", return_value=TODAY),
+            mock.patch.object(adjust, "MAX_EVENT_METRICS_PER_REQUEST", 1),
+        ):
+            result = _driver(app_tokens="abc123").run(
+                "event_report",
+                [
+                    ScriptedResponse(json=catalog),
+                    _scripted_page(
+                        [
+                            {"day": "2024-06-29", **dims, "purchase_events": "2"},
+                            {"day": "2024-06-30", **dims, "purchase_events": "0"},
+                        ]
+                    ),
+                    _scripted_page([{"day": "2024-06-29", **dims, "signup_events": "5"}]),
+                ],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert result.raised is None
+        assert result.requests[0].path == "/reports-service/events"
+        assert result.requests[0].param("app_token__in") == "abc123"
+        assert result.params("metrics") == [None, "purchase_events", "signup_events"]
+        assert result.items == [
+            [
+                {**dims, "day": "2024-06-29", "event_slug": "purchase", "event_name": "Purchase", "events": "2"},
+                {**dims, "day": "2024-06-29", "event_slug": "signup", "event_name": "Sign up", "events": "5"},
+            ]
+        ]
+
+    @parameterized.expand([("no_content", ScriptedResponse(status=204)), ("empty_list", ScriptedResponse(json=[]))])
+    def test_event_report_with_empty_catalog_requests_no_report(self, _name: str, catalog: ScriptedResponse) -> None:
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run("event_report", [catalog], incremental_field="day")
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.items == []
+
     def test_exhausted_throttle_surfaces_as_retryable_without_a_second_retry_layer(self) -> None:
         # The tracked session owns 429/5xx retries. Anything that reaches get_rows has already been
         # retried, so it must propagate for Temporal to retry the job rather than being re-looped
@@ -404,10 +473,11 @@ class TestValidateCredentials:
 class TestAdjustSource:
     @parameterized.expand([(name,) for name in ADJUST_REPORTS])
     def test_source_response_shape(self, name: str) -> None:
+        script = [ScriptedResponse(json=[])] if ADJUST_REPORTS[name].event_metrics else always(_scripted_page([]))
         with mock.patch.object(adjust, "_today", return_value=TODAY):
             result = _driver().run(
                 name,
-                [_scripted_page([])],
+                script,
                 incremental_field="day",
                 db_incremental_field_last_value="2024-06-30",
             )

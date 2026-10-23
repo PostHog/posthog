@@ -116,6 +116,9 @@ module "sharded_app_metrics2_family" {
     partition_by = "toYYYYMM(timestamp)"
     order_by     = "(team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)"
     ttl          = var.ttl ? "toDate(timestamp) + toIntervalDay(90)" : null
+    indexes = [
+      { name = "timestamp_minmax", expression = "timestamp", type = "minmax", granularity = 1 },
+    ]
   }
   sharding_key = "rand()"
   kafka = {

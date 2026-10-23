@@ -6,25 +6,39 @@ repositories of an installation, and a project only stores what differs from wha
 """
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
+from functools import cached_property
 from typing import Any
+from uuid import UUID
 
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, transaction
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.review_hog.backend.activity_logging import log_repository_taken
 from products.review_hog.backend.automatic_review_rules import (
     AuthorPreferences,
-    AutomaticReviewDecision,
-    AutomaticReviewReason,
     ProjectRuleContext,
     load_author_preferences,
 )
+from products.review_hog.backend.facade.contracts import (
+    UNSET,
+    AutomaticReviewDecision,
+    GitHubRepositoryListError,
+    OwnershipConflict,
+    PersonNotActiveMemberError,
+    ProjectRef,
+    RepositorySettingsError,
+    Unset,
+)
+from products.review_hog.backend.facade.enums import AutomaticReviewReason, RepositoryOverviewView, RepositoryOwnerKind
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewRepository,
@@ -37,41 +51,21 @@ from products.review_hog.backend.preferences import DefaultReviewMode
 logger = logging.getLogger(__name__)
 
 
-class Unset:
-    """Marks a field the request did not mention, because None is a valid value."""
+def load_project_ref(team_id: int, *, viewer_organization_id: Any) -> ProjectRef:
+    """Another project, with its name only when it is in the viewer's organization."""
+    return load_project_refs([team_id], viewer_organization_id=viewer_organization_id)[team_id]
 
 
-UNSET = Unset()
-
-
-class RepositorySettingsError(Exception):
-    """A write the rules do not allow. The API answers 400 with the message."""
-
-
-@frozen
-class ProjectRef:
-    """Another project, named only inside its own organization."""
-
-    team_id: int
-    name: str | None
-
-    @classmethod
-    def load(cls, team_id: int, *, viewer_organization_id: Any) -> "ProjectRef":
-        team = Team.objects.filter(id=team_id).values("name", "organization_id").first() or {}
+def load_project_refs(team_ids: Iterable[int], *, viewer_organization_id: Any) -> dict[int, ProjectRef]:
+    """Other projects in one query, each with its name only when it is in the viewer's organization."""
+    ids = set(team_ids)
+    teams = {team["id"]: team for team in Team.objects.filter(id__in=ids).values("id", "name", "organization_id")}
+    refs: dict[int, ProjectRef] = {}
+    for team_id in ids:
+        team = teams.get(team_id, {})
         same_organization = team.get("organization_id") == viewer_organization_id
-        return cls(team_id=team_id, name=team.get("name") if same_organization else None)
-
-    @property
-    def label(self) -> str:
-        return f"the {self.name} project" if self.name else "a project in another organization"
-
-
-class OwnershipConflict(Exception):
-    """Another project already holds what this write asks for. The API answers 409."""
-
-    def __init__(self, message: str, project: ProjectRef | None) -> None:
-        super().__init__(message)
-        self.project = project
+        refs[team_id] = ProjectRef(team_id=team_id, name=team.get("name") if same_organization else None)
+    return refs
 
 
 @frozen
@@ -100,7 +94,7 @@ class ProjectRepositories:
         self.user = user
 
     def _project(self, team_id: int) -> ProjectRef:
-        return ProjectRef.load(team_id, viewer_organization_id=self.team.organization_id)
+        return load_project_ref(team_id, viewer_organization_id=self.team.organization_id)
 
     def integrations(self) -> list[Integration]:
         return list(
@@ -113,11 +107,76 @@ class ProjectRepositories:
             raise RepositorySettingsError("This project has no GitHub connection for that installation.")
         return integration
 
+    def installation_repositories(self, installation_id: str, search: str) -> Sequence[Mapping[str, Any]]:
+        """The repositories the installation can see, from the cache, whose name contains `search`."""
+        integration = self.integration_for(installation_id)
+        try:
+            repositories = GitHubIntegration(
+                integration, source="review_hog", priority=Priority.NORMAL
+            ).list_all_cached_repositories()
+        except Exception:
+            # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.
+            logger.warning("review_hog_repository_overview_list_failed", exc_info=True)
+            raise GitHubRepositoryListError("GitHub did not return the repository list. Try again shortly.")
+        search = search.strip().casefold()
+        if search:
+            repositories = [
+                repository for repository in repositories if search in str(repository["full_name"]).casefold()
+            ]
+        return repositories
+
+    def check_active_member(self, user_id: int) -> None:
+        is_member = OrganizationMembership.objects.filter(
+            organization_id=self.team.organization_id, user_id=user_id, user__is_active=True
+        ).exists()
+        if not is_member:
+            raise PersonNotActiveMemberError("This user is not an active member of the organization.")
+
+    def repositories(self) -> list[ReviewRepository]:
+        return list(
+            ReviewRepository.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .order_by("created_at")
+        )
+
+    def repository(self, repository_id: UUID) -> ReviewRepository | None:
+        return (
+            ReviewRepository.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .filter(id=repository_id)
+            .first()
+        )
+
+    def delete_repository(self, repository_id: UUID) -> bool:
+        """Delete one repository row and its lists. False when the project has no such row."""
+        row = self.repository(repository_id)
+        if row is None:
+            return False
+        row.delete()
+        return True
+
+    def claims(self) -> list[ReviewInstallationClaim]:
+        return list(
+            ReviewInstallationClaim.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .order_by("created_at")
+        )
+
+    def claim(self, claim_id: UUID) -> ReviewInstallationClaim | None:
+        return (
+            ReviewInstallationClaim.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .filter(id=claim_id)
+            .first()
+        )
+
     def verified_ref(self, ref: RepositoryRef) -> RepositoryRef:
         """The repository as the installation reports it. A client cannot store a pair GitHub does not know."""
         integration = self.integration_for(ref.installation_id)
         try:
-            repositories = GitHubIntegration(integration).list_all_cached_repositories()
+            repositories = GitHubIntegration(
+                integration, source="review_hog", priority=Priority.NORMAL
+            ).list_all_cached_repositories()
         except Exception:
             # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.
             logger.warning("review_hog_repository_write_list_failed", exc_info=True)
@@ -293,18 +352,21 @@ class ProjectRepositories:
         )
         return created
 
+    def remove_person(self, repository_id: UUID | None, person_id: UUID) -> bool:
+        """Remove one entry from a list of the project rule (no repository) or of an exception.
 
-class RepositoryOwnerKind(models.TextChoices):
-    THIS_PROJECT = "this_project", "This project"
-    OTHER_PROJECT = "other_project", "Another project"
-    NONE = "none", "No project"
-
-
-class RepositoryOverviewView(models.TextChoices):
-    ALL = "all", "All repositories"
-    IN_PROJECT = "in_project", "In this project"
-    EXCEPTIONS = "exceptions", "With exceptions"
-    MINE = "mine", "My choices"
+        False when the list has no such entry.
+        """
+        people = ReviewRepositoryPerson.objects.for_team(self.team_id, canonical=True)
+        if repository_id is None:
+            people = people.filter(repository__isnull=True)
+        else:
+            people = people.filter(repository_id=repository_id)
+        person = people.filter(id=person_id).first()
+        if person is None:
+            return False
+        person.delete()
+        return True
 
 
 @frozen
@@ -333,6 +395,7 @@ class RepositoryOverview:
         self.team = team
         self.user = user
         self.installation_id = installation_id
+        self.repositories = repositories
         self.rows = RepositoryOwnership.rows_for_listing(
             (str(repository["full_name"]) for repository in repositories),
             (repository["id"] for repository in repositories if isinstance(repository.get("id"), int)),
@@ -341,20 +404,32 @@ class RepositoryOverview:
         own_rows = [row for row in self.rows if row.team_id == team.id]
         self.rules = ProjectRuleContext.load(team.id, own_rows)
         self.viewer: AuthorPreferences = load_author_preferences(team.id, user_id=user.id, is_bot=False)
-        self._projects: dict[int, ProjectRef] = {}
+        # Some views compute every entry, so each lookup below must not scan all rows or query per owner.
+        self._rows_by_id: dict[int, list[ReviewRepository]] = defaultdict(list)
+        self._rows_by_name: dict[str, list[ReviewRepository]] = defaultdict(list)
+        for row in self.rows:
+            if row.github_repo_id is not None:
+                self._rows_by_id[row.github_repo_id].append(row)
+            self._rows_by_name[row.full_name.lower()].append(row)
+        owner_team_ids = {row.team_id for row in self.rows}
+        if self.all_claim is not None:
+            owner_team_ids.add(self.all_claim.team_id)
+        owner_team_ids.discard(team.id)
+        self._projects = load_project_refs(owner_team_ids, viewer_organization_id=team.organization_id)
 
-    def _project(self, team_id: int) -> ProjectRef:
-        if team_id not in self._projects:
-            self._projects[team_id] = ProjectRef.load(team_id, viewer_organization_id=self.team.organization_id)
-        return self._projects[team_id]
+    def _candidate_rows(self, ref: RepositoryRef) -> list[ReviewRepository]:
+        """The rows that can match `ref`. Id matches come first, which keeps the result of `find_matching_row`."""
+        by_id = self._rows_by_id.get(ref.github_repo_id, []) if ref.github_repo_id is not None else []
+        return by_id + self._rows_by_name.get(ref.full_name.lower(), [])
 
     def entry(self, repository: Mapping[str, Any]) -> OverviewEntry:
         github_repo_id = repository.get("id") if isinstance(repository.get("id"), int) else None
         ref = RepositoryRef(
             installation_id=self.installation_id, github_repo_id=github_repo_id, full_name=str(repository["full_name"])
         )
-        owner = resolve_owner(ref, self.rows, self.all_claim)
-        own_row = find_matching_row(ref, [row for row in self.rows if row.team_id == self.team.id])
+        rows = self._candidate_rows(ref)
+        owner = resolve_owner(ref, rows, self.all_claim)
+        own_row = find_matching_row(ref, [row for row in rows if row.team_id == self.team.id])
         in_project = owner is not None and owner.team_id == self.team.id
         choice = self.viewer.choice_for(ref)
         if in_project:
@@ -374,7 +449,7 @@ class RepositoryOverview:
         elif in_project:
             owner_kind, owner_project = RepositoryOwnerKind.THIS_PROJECT, None
         else:
-            owner_kind, owner_project = RepositoryOwnerKind.OTHER_PROJECT, self._project(owner.team_id)
+            owner_kind, owner_project = RepositoryOwnerKind.OTHER_PROJECT, self._projects[owner.team_id]
         has_exception = own_row is not None and own_row.flash_for is not None
         return OverviewEntry(
             full_name=ref.full_name,
@@ -397,7 +472,29 @@ class RepositoryOverview:
             return len(self.viewer.choices)
         return sum(1 for choice in self.viewer.choices if choice.mode != self.viewer.default_mode)
 
+    @cached_property
+    def all_entries(self) -> list[OverviewEntry]:
+        # Every view except 'all' filters on computed entries, and the 'differs' view also counts the rest.
+        return [self.entry(repository) for repository in self.repositories]
+
+    @staticmethod
+    def follows_project(entry: OverviewEntry) -> bool:
+        """No exception and no own choice, so the entry gets exactly what every other such entry gets."""
+        has_exception = entry.repository is not None and entry.repository.flash_for is not None
+        return (
+            entry.owner == RepositoryOwnerKind.THIS_PROJECT
+            and entry.in_project
+            and not has_exception
+            and entry.my_choice is None
+        )
+
+    def folded(self) -> list[OverviewEntry]:
+        """The entries the 'differs' view leaves out."""
+        return [entry for entry in self.all_entries if self.follows_project(entry)]
+
     def _in_view(self, entry: OverviewEntry, view: str) -> bool:
+        if view == RepositoryOverviewView.DIFFERS:
+            return not self.follows_project(entry)
         if view == RepositoryOverviewView.IN_PROJECT:
             return entry.in_project
         if view == RepositoryOverviewView.EXCEPTIONS:
@@ -406,15 +503,12 @@ class RepositoryOverview:
             return entry.my_choice is not None
         return True
 
-    def page(
-        self, repositories: Sequence[Mapping[str, Any]], *, view: str, offset: int, limit: int
-    ) -> tuple[list[OverviewEntry], int]:
+    def page(self, *, view: str, offset: int, limit: int) -> tuple[list[OverviewEntry], int]:
         """One page of entries and the total that match the view."""
         if view == RepositoryOverviewView.ALL:
-            return [self.entry(repository) for repository in repositories[offset : offset + limit]], len(repositories)
-        matching = [
-            entry for entry in (self.entry(repository) for repository in repositories) if self._in_view(entry, view)
-        ]
+            page = self.repositories[offset : offset + limit]
+            return [self.entry(repository) for repository in page], len(self.repositories)
+        matching = [entry for entry in self.all_entries if self._in_view(entry, view)]
         return matching[offset : offset + limit], len(matching)
 
 
@@ -424,6 +518,25 @@ class RepositoryChoices:
     def __init__(self, team: Team, user: User) -> None:
         self.team = team
         self.user = user
+
+    def choices(self) -> list[ReviewUserRepositoryChoice]:
+        return list(
+            ReviewUserRepositoryChoice.objects.for_team(self.team.id, canonical=True)
+            .filter(user_id=self.user.id)
+            .order_by("full_name")
+        )
+
+    def delete(self, choice_id: UUID) -> bool:
+        """Clear one of the person's choices. False when the person has no such choice."""
+        choice = (
+            ReviewUserRepositoryChoice.objects.for_team(self.team.id, canonical=True)
+            .filter(user_id=self.user.id, id=choice_id)
+            .first()
+        )
+        if choice is None:
+            return False
+        choice.delete()
+        return True
 
     def save(self, ref: RepositoryRef, mode: str) -> tuple[ReviewUserRepositoryChoice | None, AutomaticReviewDecision]:
         ProjectRepositories(self.team, self.user).integration_for(ref.installation_id)

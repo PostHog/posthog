@@ -85,20 +85,20 @@ module "sharded_events_family" {
     { name = "team_id", type = "Int64" },
     { name = "distinct_id", type = "String" },
     { name = "created_at", type = "DateTime64(6, 'UTC')" },
-    { name = "$group_0", type = "String", materialized_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')", comment = "column_materializer::$group_0" },
-    { name = "$group_1", type = "String", materialized_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')", comment = "column_materializer::$group_1" },
-    { name = "$group_2", type = "String", materialized_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')", comment = "column_materializer::$group_2" },
-    { name = "$group_3", type = "String", materialized_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')", comment = "column_materializer::$group_3" },
-    { name = "$group_4", type = "String", materialized_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')", comment = "column_materializer::$group_4" },
-    { name = "$window_id", type = "String", materialized_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')", comment = "column_materializer::$window_id" },
-    { name = "$session_id", type = "String", materialized_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')", comment = "column_materializer::$session_id" },
+    { name = "$group_0", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')", comment = "column_materializer::$group_0" },
+    { name = "$group_1", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')", comment = "column_materializer::$group_1" },
+    { name = "$group_2", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')", comment = "column_materializer::$group_2" },
+    { name = "$group_3", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')", comment = "column_materializer::$group_3" },
+    { name = "$group_4", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')", comment = "column_materializer::$group_4" },
+    { name = "$window_id", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')", comment = "column_materializer::$window_id" },
+    { name = "$session_id", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')", comment = "column_materializer::$session_id" },
     { name = "inserted_at", type = "Nullable(DateTime64(6, 'UTC'))", default_expression = "now64()" },
     { name = "person_mode", type = "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)" },
     { name = "elements_chain_href", type = "String", materialized_expression = "extract(elements_chain, '(?::|\")href=\"(.*?)\"')" },
     { name = "elements_chain_texts", type = "Array(String)", materialized_expression = "arrayDistinct(extractAll(elements_chain, '(?::|\")text=\"(.*?)\"'))" },
     { name = "elements_chain_ids", type = "Array(String)", materialized_expression = "arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id=\"(.*?)\"'))" },
     { name = "elements_chain_elements", type = "Array(Enum8('a' = 1, 'button' = 2, 'form' = 3, 'input' = 4, 'select' = 5, 'textarea' = 6, 'label' = 7))", materialized_expression = "arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\\\.|$|:)'))" },
-    { name = "properties_group_custom", type = "Map(String, String)", materialized_expression = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))", codec = "ZSTD(1)" },
+    { name = "properties_group_custom", type = "Map(String, String)", materialized_expression = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))", codec = "ZSTD(1)" },
     { name = "properties_group_feature_flags", type = "Map(String, String)", materialized_expression = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))", codec = "ZSTD(1)" },
     { name = "is_deleted", type = "Bool" },
     { name = "person_properties_map_custom", type = "Map(String, String)", materialized_expression = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))", codec = "ZSTD(1)" },
@@ -119,8 +119,8 @@ module "sharded_events_family" {
     { name = "dmat_string_9", type = "Nullable(String)" },
     { name = "historical_migration", type = "Bool" },
     { name = "mat_$ai_prompt_name", type = "Nullable(String)", materialized_expression = "JSONExtract(properties, '$ai_prompt_name', 'Nullable(String)')" },
-    { name = "properties_map_ephemeral", type = "Map(String, String)" },
-    { name = "person_properties_map_ephemeral", type = "Map(String, String)" },
+    { name = "properties_map_ephemeral", type = "Map(String, String)", ephemeral_expression = "CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')" },
+    { name = "person_properties_map_ephemeral", type = "Map(String, String)", ephemeral_expression = "CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')" },
     { name = "mat_$ai_experiment_id", type = "Nullable(String)", default_expression = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')" },
     { name = "elements_chain", type = "String" },
     { name = "person_id", type = "UUID" },
@@ -138,7 +138,7 @@ module "sharded_events_family" {
     { name = "group4_created_at", type = "DateTime64(3)" },
     { name = "_timestamp", type = "DateTime" },
     { name = "_offset", type = "UInt64" },
-    { name = "mat_$ai_trace_id", type = "Nullable(String)", materialized_expression = "JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')" },
+    { name = "mat_$ai_trace_id", type = "Nullable(String)", default_expression = "JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')" },
   ]
   storage = {
     engine       = "ReplacingMergeTree"
@@ -146,8 +146,10 @@ module "sharded_events_family" {
     partition_by = "toYYYYMM(timestamp)"
     order_by     = "(team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
     sample_by    = "cityHash64(distinct_id)"
+    settings     = "index_granularity = 8192, max_avg_part_size_for_too_many_parts = 0"
     indexes = [
       { name = "minmax_inserted_at", expression = "coalesce(inserted_at, _timestamp)", type = "minmax", granularity = 1 },
+      { name = "minmax_sharded_events_inserted_at", expression = "inserted_at", type = "minmax", granularity = 1 },
       { name = "properties_group_custom_keys_bf", expression = "mapKeys(properties_group_custom)", type = "bloom_filter", granularity = 1 },
       { name = "properties_group_custom_values_bf", expression = "mapValues(properties_group_custom)", type = "bloom_filter", granularity = 1 },
       { name = "properties_group_feature_flags_keys_bf", expression = "mapKeys(properties_group_feature_flags)", type = "bloom_filter", granularity = 1 },
@@ -179,8 +181,8 @@ module "sharded_events_family" {
       { name = "is_deleted_idx", expression = "is_deleted", type = "minmax", granularity = 1 },
       { name = "minmax_historical_migration", expression = "historical_migration", type = "minmax", granularity = 1 },
     ]
-    unmanaged_columns = ["^p?mat_"]
-    unmanaged_indexes = ["^(minmax|bloom_filter|bloom_filter_lower|ngram_bf_lower)_p?mat_"]
+    unmanaged_columns = ["^(p?mat_|dmat_)"]
+    unmanaged_indexes = ["^(minmax|bloom_filter|bloom_filter_lower|ngram_bf_lower|bloom)_p?mat_"]
   }
   routing = {
     read_columns = [
@@ -258,8 +260,8 @@ module "sharded_events_family" {
     }, local.deployment, {
     overrides = {
       "sharded_events"  = try(local.deployment.overrides["sharded_events"], {})
-      "events"          = merge({ unmanaged_columns = ["^p?mat_"], unmanaged_indexes = ["^(minmax|bloom_filter|bloom_filter_lower|ngram_bf_lower)_p?mat_"] }, try(local.deployment.overrides["events"], {}))
-      "writable_events" = try(local.deployment.overrides["writable_events"], {})
+      "events"          = merge({ unmanaged_columns = ["^(p?mat_|dmat_|alias_mat_)"], unmanaged_indexes = ["^(minmax|bloom_filter|bloom_filter_lower|ngram_bf_lower)_p?mat_"] }, try(local.deployment.overrides["events"], {}))
+      "writable_events" = merge({ unmanaged_columns = ["^p?mat_"] }, try(local.deployment.overrides["writable_events"], {}))
     }
   })
   names = { mv = "events_json_mv", kafka = "kafka_events_json" }

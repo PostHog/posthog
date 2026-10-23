@@ -33,20 +33,21 @@ Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`.
 Each Postgres-backed generator reads a team id range with two queries, one for the eligible teams and one for the data, and writes its keys in one Redis pipeline.
 A team with no data of a kind gets no key for it; organization aggregation substitutes an empty default for a missing key.
 The two ClickHouse-backed generators work per range too: expiring recordings are counted for the whole range in one grouped query, and usage trends first find the teams with events in the window in one query, then run the per-team HogQL query for those teams only.
+New error issues come from one range-wide Postgres query, which finds the teams with new issues. For each of those teams, the error tracking digest query then ranks and counts the new issues. A team whose count query fails keeps its Postgres issues without counts.
 
-| `TeamDataKey` enum      | Key Pattern                                    | Contents                           |
-| ----------------------- | ---------------------------------------------- | ---------------------------------- |
-| `DASHBOARDS`            | `{digest_key}-dashboards-{team_id}`            | New dashboards created             |
-| `EVENT_DEFINITIONS`     | `{digest_key}-event-definitions-{team_id}`     | New event definitions              |
-| `EXPERIMENTS_LAUNCHED`  | `{digest_key}-experiments-launched-{team_id}`  | Experiments started                |
-| `EXPERIMENTS_COMPLETED` | `{digest_key}-experiments-completed-{team_id}` | Experiments finished               |
-| `EXTERNAL_DATA_SOURCES` | `{digest_key}-external-data-sources-{team_id}` | New data sources                   |
-| `FEATURE_FLAGS`         | `{digest_key}-feature-flags-{team_id}`         | New feature flags                  |
-| `SAVED_FILTERS`         | `{digest_key}-saved-filters-{team_id}`         | Interesting replay filters         |
-| `EXPIRING_RECORDINGS`   | `{digest_key}-expiring-recordings-{team_id}`   | Count of soon-to-expire recordings |
-| `SURVEYS_LAUNCHED`      | `{digest_key}-surveys-launched-{team_id}`      | Surveys launched                   |
-| `USAGE_TRENDS`          | `{digest_key}-usage-trends-{team_id}`          | Event volume + active users, WoW   |
-| `ERROR_ISSUES`          | `{digest_key}-error-issues-{team_id}`          | New error-tracking issues          |
+| `TeamDataKey` enum      | Key Pattern                                    | Contents                                       |
+| ----------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| `DASHBOARDS`            | `{digest_key}-dashboards-{team_id}`            | New dashboards created                         |
+| `EVENT_DEFINITIONS`     | `{digest_key}-event-definitions-{team_id}`     | New event definitions                          |
+| `EXPERIMENTS_LAUNCHED`  | `{digest_key}-experiments-launched-{team_id}`  | Experiments started                            |
+| `EXPERIMENTS_COMPLETED` | `{digest_key}-experiments-completed-{team_id}` | Experiments finished                           |
+| `EXTERNAL_DATA_SOURCES` | `{digest_key}-external-data-sources-{team_id}` | New data sources                               |
+| `FEATURE_FLAGS`         | `{digest_key}-feature-flags-{team_id}`         | New feature flags                              |
+| `SAVED_FILTERS`         | `{digest_key}-saved-filters-{team_id}`         | Interesting replay filters                     |
+| `EXPIRING_RECORDINGS`   | `{digest_key}-expiring-recordings-{team_id}`   | Count of soon-to-expire recordings             |
+| `SURVEYS_LAUNCHED`      | `{digest_key}-surveys-launched-{team_id}`      | Surveys launched                               |
+| `USAGE_TRENDS`          | `{digest_key}-usage-trends-{team_id}`          | Event volume + active users, WoW, daily counts |
+| `ERROR_ISSUES`          | `{digest_key}-error-issues-{team_id}`          | New error-tracking issues, daily occurrences   |
 
 ### Organization-level data
 

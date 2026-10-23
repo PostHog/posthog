@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.confluence import (
@@ -90,7 +91,7 @@ class TestValidateCredentials:
         with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("acme", "you@example.com", "token")
         assert is_valid is False
-        assert message is None
+        assert message == "Couldn't reach Confluence to check your credentials. Try again in a few minutes."
         assert {request.path for request in network.requests_log} == {"/wiki/api/v2/spaces"}
 
     @parameterized.expand(
@@ -137,7 +138,7 @@ class TestConfluenceSource:
         assert response is not None
         config = CONFLUENCE_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
@@ -226,3 +227,43 @@ class TestPagination:
         paginator.update_state(response)
 
         assert paginator.get_resume_state() == {"next_url": expected_url}
+
+
+def _permission(operation: str, principal_type: str, principal_id: str) -> dict[str, Any]:
+    return {"operation": operation, "principal": {"principalType": principal_type, "principalId": principal_id}}
+
+
+class TestPermissionsFanout:
+    @parameterized.expand(
+        [
+            ("page_permissions", "/wiki/api/v2/pages", "pageId"),
+            ("blogpost_permissions", "/wiki/api/v2/blogposts", "blogPostId"),
+        ]
+    )
+    def test_walks_each_parent_and_skips_deleted_ones(
+        self, endpoint: str, parent_path: str, parent_column: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    f"{parent_path}/1/permissions": [
+                        _response(
+                            [_permission("read", "user", "u1")],
+                            next_path=f"{parent_path}/1/permissions?cursor=c2",
+                        ),
+                        _response([_permission("update", "group", "g1")]),
+                    ],
+                    f"{parent_path}/2/permissions": [ScriptedResponse(status=404)],
+                    f"{parent_path}/3/permissions": [_response([_permission("read", "user", "u3")])],
+                    parent_path: [_response([{"id": "1"}, {"id": "2"}, {"id": "3"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [
+            (row[parent_column], row["operation"], row["principalType"], row["principalId"]) for row in result.rows
+        ] == [("1", "read", "user", "u1"), ("1", "update", "group", "g1"), ("3", "read", "user", "u3")]
+        assert all("principal" not in row for row in result.rows)
+        assert result.requests[2].param("cursor") == "c2"

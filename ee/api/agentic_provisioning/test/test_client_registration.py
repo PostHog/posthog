@@ -1,21 +1,32 @@
 import json
 import time
+from datetime import timedelta
 from ipaddress import ip_address
 
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import CIMDFetchError, apply_provisioning_defaults
-from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER, ClientAssertionError
+from posthog.api.oauth.cimd import apply_provisioning_defaults
+from posthog.api.oauth.client_assertion import (
+    CLIENT_ASSERTION_TYPE_JWT_BEARER,
+    PRIVATE_KEY_REQUIRED_MESSAGE,
+    ClientAssertionError,
+)
 from posthog.models.oauth import OAuthApplication
 
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_SCOPES,
+    ProvisioningTestBase,
+    provisioning_config,
+    signing_required,
+)
 
 REGISTRATION_URL = "/api/agentic/provisioning/client_registration"
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
@@ -47,7 +58,7 @@ class TestClientRegistration(ProvisioningTestBase):
         super().setUp()
         cache.clear()
 
-    def _document(self, *, com_posthog: object = _DECLARES_PROVISIONING) -> dict:
+    def _document(self, *, com_posthog: object = _DECLARES_PROVISIONING, signs: bool = True) -> dict:
         """The document a client wanting to register publishes. Passing com_posthog=None leaves
         the namespace out, which is the shape of a third party that never asked for any of
         this."""
@@ -57,9 +68,10 @@ class TestClientRegistration(ProvisioningTestBase):
             "redirect_uris": ["https://newpartner.example.com/callback"],
             "grant_types": ["authorization_code"],
             "response_types": ["code"],
-            "token_endpoint_auth_method": "private_key_jwt",
-            "jwks_uri": JWKS_URI,
+            "token_endpoint_auth_method": "private_key_jwt" if signs else "none",
         }
+        if signs:
+            document["jwks_uri"] = JWKS_URI
         if com_posthog is not None:
             document["com.posthog"] = com_posthog
         return document
@@ -116,8 +128,8 @@ class TestClientRegistration(ProvisioningTestBase):
             "_provisioning_config": provisioning_config(
                 active=True,
                 can_create_accounts=True,
-                can_use_github_grants=False,
-                can_start_wizard_runs=False,
+                can_issue_deep_links=False,
+                issues_personal_api_key=False,
             ),
         }
         return OAuthApplication.objects.create(**{**defaults, **overrides})
@@ -150,20 +162,69 @@ class TestClientRegistration(ProvisioningTestBase):
     def test_reports_diagnostics_for_a_private_key_jwt_partner(self):
         self._make_partner()
 
-        res = self._register({"client_id": CIMD_URL})
+        with signing_required():
+            res = self._register({"client_id": CIMD_URL})
 
         assert res.status_code == 200, res.json()
         body = res.json()
         assert body["registered"] is True
         assert body["client_id"] == CIMD_URL
         assert body["token_endpoint_auth_method"] == "private_key_jwt"
-        # Signing assertions with a key it published itself proves only that it controls its
-        # own metadata document, which anyone can do, so it is not yet a partner PostHog
-        # vouched for.
-        assert body["capabilities"]["github_grants"] is False
+        assert body["capabilities"] == {
+            "account_requests": True,
+            "unsigned_requests": False,
+            "unsigned_requests_allowed_until": None,
+        }
         checks = {check["name"]: check for check in body["checks"]}
         assert checks["jwks"]["ok"] is True
         assert KID in checks["jwks"]["detail"]
+
+    @parameterized.expand(
+        [
+            ("during_grace", True, True),
+            ("after_grace", True, False),
+            # The row predates the requirement, but the partnership starts with this registration.
+            ("promoted_after_the_requirement", False, True),
+        ]
+    )
+    def test_reports_whether_a_partner_without_a_key_may_still_call_unsigned(
+        self, _name: str, already_a_partner: bool, grace_ongoing: bool
+    ) -> None:
+        app = self._make_partner(
+            client_type=OAuthApplication.CLIENT_PUBLIC, jwks_uri=None, is_provisioning_partner=already_a_partner
+        )
+        OAuthApplication.objects.filter(pk=app.pk).update(created=timezone.now() - timedelta(days=14))
+        grace_until = timezone.now() + timedelta(days=7 if grace_ongoing else -1)
+        in_grace = already_a_partner and grace_ongoing
+
+        with override_settings(
+            PROVISIONING_SIGNING_REQUIRED_SINCE=timezone.now() - timedelta(days=7),
+            PROVISIONING_UNSIGNED_GRACE_UNTIL=grace_until,
+        ):
+            res = self._register({"client_id": CIMD_URL}, document=self._document(signs=False))
+
+        assert res.status_code == 200, res.json()
+        body = res.json()
+        assert body["token_endpoint_auth_method"] == "none"
+        jwks = {check["name"]: check for check in body["checks"]}["jwks"]
+        if in_grace:
+            assert jwks == {
+                "name": "jwks",
+                "ok": True,
+                "detail": f"Unsigned requests allowed until {grace_until.isoformat()}. {PRIVATE_KEY_REQUIRED_MESSAGE}",
+            }
+            assert body["capabilities"] == {
+                "account_requests": True,
+                "unsigned_requests": True,
+                "unsigned_requests_allowed_until": grace_until.isoformat(),
+            }
+        else:
+            assert jwks == {"name": "jwks", "ok": False, "detail": PRIVATE_KEY_REQUIRED_MESSAGE}
+            assert body["capabilities"] == {
+                "account_requests": False,
+                "unsigned_requests": False,
+                "unsigned_requests_allowed_until": None,
+            }
 
     def test_brand_new_partner_is_confidential_on_its_first_registration(self):
         # No pre-existing row: this is the client_id's first ever contact with PostHog, so the
@@ -216,27 +277,6 @@ class TestClientRegistration(ProvisioningTestBase):
         app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
         assert app.is_provisioning_partner is False
-
-    def test_partner_registered_by_an_admin_can_use_github_grants(self):
-        self._make_partner(_provisioning_config=provisioning_config(can_use_github_grants=True))
-
-        res = self._register({"client_id": CIMD_URL})
-
-        assert res.status_code == 200, res.json()
-        assert res.json()["capabilities"]["github_grants"] is True
-
-    def test_public_client_is_told_it_cannot_use_github_grants(self):
-        self._make_partner(client_type=OAuthApplication.CLIENT_PUBLIC, jwks_uri=None)
-
-        # A document declaring no auth method keeps the refresh from re-promoting it.
-        res = self._register({"client_id": CIMD_URL}, metadata_error=CIMDFetchError("offline"))
-
-        assert res.status_code == 200, res.json()
-        body = res.json()
-        assert body["token_endpoint_auth_method"] == "none"
-        # The reason a public client gets 403 on the grant endpoints is not derivable from its
-        # own metadata document, so the diagnostics have to state it.
-        assert body["capabilities"]["github_grants"] is False
 
     def test_opts_an_existing_cimd_oauth_app_into_provisioning(self):
         # A CIMD app registered through the ordinary OAuth flow carries no provisioning
@@ -382,14 +422,8 @@ class TestUnregisteredClientsFailClosed(ProvisioningTestBase):
     endpoint, instead of the old behavior where an unknown CIMD client_id silently kicked off
     a background registration and answered "retry shortly"."""
 
-    @parameterized.expand(
-        [
-            ("account_requests", ACCOUNT_REQUESTS_URL, {"id": "r1", "email": "nobody@example.com"}),
-            ("github_grants", "/api/agentic/provisioning/github/grants", {"code": "gh-code"}),
-        ]
-    )
-    def test_unknown_client_id_is_pointed_at_the_registration_endpoint(self, _name, url, body):
-        res = self._post_api(url, {**body, "client_id": CIMD_URL})
+    def test_unknown_client_id_is_pointed_at_the_registration_endpoint(self):
+        res = self._post_api(ACCOUNT_REQUESTS_URL, {"id": "r1", "email": "nobody@example.com", "client_id": CIMD_URL})
 
         assert res.status_code == 401
         message = res.json()["error"]["message"]
