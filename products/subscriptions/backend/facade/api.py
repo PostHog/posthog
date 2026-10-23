@@ -115,6 +115,7 @@ __all__ = [
     "subscription_ids_in_team",
     "unsubscribe",
     "update_subscription",
+    "user_has_slack_subscription",
     "validate_re_enable",
     "viewable_live_insight_id",
 ]

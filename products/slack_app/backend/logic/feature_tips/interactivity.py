@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.analytics import capture_slack_event
@@ -29,7 +30,13 @@ logger = structlog.get_logger(__name__)
 TIPS_OFF_TEXT = "👋 Got it. I won't show you more tips."
 
 
-def _tip_action(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+@frozen
+class _TipClick:
+    action_id: str
+    value: dict[str, Any]
+
+
+def _tip_action(payload: dict[str, Any]) -> _TipClick | None:
     for action in payload.get("actions", []):
         if action.get("action_id") not in FEATURE_TIP_ACTION_IDS:
             continue
@@ -38,7 +45,7 @@ def _tip_action(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]
         except json.JSONDecodeError:
             return None
         if isinstance(value, dict):
-            return action, value
+            return _TipClick(action_id=action["action_id"], value=value)
     return None
 
 
@@ -53,19 +60,19 @@ def _integration_id(value: dict[str, Any]) -> int | None:
 
 def feature_tip_integration_hint(payload: dict[str, Any]) -> int | None:
     found = _tip_action(payload)
-    return _integration_id(found[1]) if found is not None else None
+    return _integration_id(found.value) if found is not None else None
 
 
 def handle_feature_tip_action(payload: dict[str, Any]) -> HttpResponse:
     response_url = payload.get("response_url", "")
     found = _tip_action(payload)
-    integration_id = _integration_id(found[1]) if found is not None else None
+    integration_id = _integration_id(found.value) if found is not None else None
     slack_user_id = payload.get("user", {}).get("id")
     slack_team_id = payload.get("team", {}).get("id")
     if found is None or integration_id is None or not slack_user_id or not slack_team_id:
         post_response_url(response_url, {"delete_original": True})
         return HttpResponse(status=200)
-    action, value = found
+    value = found.value
     integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
         id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
         kind="slack",
@@ -76,7 +83,7 @@ def handle_feature_tip_action(payload: dict[str, Any]) -> HttpResponse:
         return HttpResponse(status=200)
     feature = SlackFeature(value["feature"])
 
-    action_id = action.get("action_id")
+    action_id = found.action_id
     tip = CATALOG[feature]
     runs_action = action_id == FEATURE_TIP_CTA_ACTION_ID and tip.has_action
     now = timezone.now()

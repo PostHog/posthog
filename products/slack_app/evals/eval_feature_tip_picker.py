@@ -19,6 +19,7 @@ from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.logic.feature_tips import picker
 from products.slack_app.backend.logic.feature_tips.catalog import CATALOG
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import FEATURE_TIP_KEY, FeatureTipMatch, NoForcedTip
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -155,6 +156,11 @@ async def eval_feature_tip_picker(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="slack-app-feature-tip-picker",
+        offline_suite=offline_suite(
+            "slack_app/eval_feature_tip_picker::eval_feature_tip_picker",
+            metrics=[FEATURE_TIP_KEY, "no_forced_tip"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*MATCH_CASES, *NEW_FEATURE_CASES, *NO_MATCH_CASES],
         scorers=[FeatureTipMatch(), NoForcedTip()],
         task=task,
