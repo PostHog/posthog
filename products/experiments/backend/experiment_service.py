@@ -35,6 +35,7 @@ from posthog.api.cohort import (
 )
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -1566,6 +1567,9 @@ class ExperimentService:
         if is_draft:
             return
         organization = self.team.organization
+        if not organization.is_feature_available(AvailableFeature.APPROVALS):
+            # Without the feature the gate admits every flag write, so there is no review to protect.
+            return
         if not scope_by_owner_enabled(organization):
             # The flag family still gates this create until the organization scopes policies by
             # flag owner, so there is nothing for this guard to add.

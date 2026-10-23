@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
@@ -312,7 +313,21 @@ class TestCreatingALiveExperimentUnderALaunchPolicy(APIBaseTest):
         assert experiment.feature_flag is not None
         assert experiment.feature_flag.active is False
 
-    def test_a_live_create_is_allowed_with_no_launch_policy(self, _mock_enabled) -> None:
+    @parameterized.expand(
+        [
+            ("no_launch_policy", False, True),
+            ("approvals_not_available", True, False),
+        ]
+    )
+    def test_a_live_create_is_allowed_when_launching_needs_no_approval(
+        self, _mock_enabled, _name: str, launch_policy: bool, approvals_available: bool
+    ) -> None:
+        if launch_policy:
+            self._policy("experiment.launch")
+        if not approvals_available:
+            self.organization.available_product_features = []
+            self.organization.save()
+
         with self._scoped_by_owner(True):
             experiment = self._create("live-ungated", start_date=datetime(2026, 1, 1, tzinfo=UTC))
 
