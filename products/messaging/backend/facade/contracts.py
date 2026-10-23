@@ -299,8 +299,7 @@ class TemplateUpload:
 
 
 class EmailStatus(LabeledStrEnum):
-    """Where a transactional email is. Each status ranks above the ones before it, so a late status never replaces
-    a later one."""
+    """Where a transactional email is. A status never moves back: a late `sent` never replaces `delivered`."""
 
     QUEUED = "queued", "Queued"
     UNKNOWN = "unknown", "Unknown"
