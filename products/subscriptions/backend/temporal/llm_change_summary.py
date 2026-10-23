@@ -391,10 +391,10 @@ def _attach_images_to_user_message(
     return AttachedImageSummary(len(ordered_ids), bytes_total, len(user_text))
 
 
-def _get_openai_client() -> OpenAI:
+def _get_openai_client(*, max_retries: int = 1) -> OpenAI:
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=1)
+    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=max_retries)
 
 
 def _previous_states_rendered_in_current_delivery(
@@ -494,7 +494,7 @@ def generate_change_summary(
                     "schema": to_strict_json_schema(ReportSummary),
                 },
             },
-            timeout=60,
+            timeout=20,
             messages=messages,
             user=user_tag,
             posthog_distinct_id=user_tag,

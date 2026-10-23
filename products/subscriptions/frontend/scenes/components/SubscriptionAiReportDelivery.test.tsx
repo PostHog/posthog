@@ -11,6 +11,7 @@ import {
     SubscriptionDeliveryStatusEnumApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { SubscriptionSummaryEntry } from '../../components/SubscriptionSummaries/SubscriptionSummaryEntry'
 import {
     ExpandedDeliveryRow,
     isPartialDelivery,
@@ -81,6 +82,32 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         ])('%s', (_name, ok, human_readable_error, expected) => {
             expect(queryFailureReason({ ok, human_readable_error })).toBe(expected)
         })
+    })
+
+    it('uses the Markdown renderer for summaries in both app surfaces', () => {
+        const row = MOCK_SUBSCRIPTION_DELIVERIES[0]
+        const summary = '- **12%** on _Tuesday_'
+        const { container } = render(
+            <>
+                <ExpandedDeliveryRow row={{ ...row, change_summary: summary }} />
+                <SubscriptionSummaryEntry
+                    summary={{
+                        id: 'sample-summary',
+                        subscription: 1,
+                        subscription_title: 'Activity',
+                        target_type: 'email',
+                        change_summary: summary,
+                        period_start: null,
+                        created_at: '2026-01-01T00:00:00Z',
+                    }}
+                />
+            </>
+        )
+        expect(
+            Array.from(container.querySelectorAll('[data-testid="react-markdown"]')).filter(
+                (element) => element.textContent === summary
+            )
+        ).toHaveLength(2)
     })
 
     it('shows the plan status beside the generated query diagnostics', () => {

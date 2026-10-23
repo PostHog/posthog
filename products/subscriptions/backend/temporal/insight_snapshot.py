@@ -273,7 +273,7 @@ def build_insight_delivery_snapshot(
 
     base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base["value_format"] = _extract_value_format(query_json)
-    source = query_json.get("source", query_json)
+    source = query_json.get("source") or query_json
     if source.get("kind") == "EventsQuery":
         base["query_date_range"] = {
             "date_from": source.get("after") or "-24h",

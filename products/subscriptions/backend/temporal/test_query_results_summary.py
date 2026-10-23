@@ -52,6 +52,7 @@ class TestCondenseQueryResults:
 
         assert len(summary) <= 2_000
         assert client.chat.completions.create.call_count == expected_calls
+        assert client.chat.completions.create.call_args.kwargs["timeout"] == 20
         if expected_calls == 2:
             assert summary == accepted_content
         message = client.chat.completions.create.call_args_list[0].kwargs["messages"][1]["content"]

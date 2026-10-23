@@ -124,13 +124,13 @@ def condense_query_results(
         properties.update({"$ai_billable": True, "team_id": team.id})
         capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
-    client = _get_openai_client()
+    client = _get_openai_client(max_retries=0)
     for _ in range(2):
         result = client.chat.completions.create(
             model="gpt-4.1-mini",
             temperature=0,
             max_tokens=1_200,
-            timeout=60,
+            timeout=20,
             messages=messages,
             user=user_tag,
             posthog_distinct_id=user_tag,

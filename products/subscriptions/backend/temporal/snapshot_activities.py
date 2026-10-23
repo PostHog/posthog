@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -414,20 +415,23 @@ async def _condense_generic_results(
     delivery_id: str | None,
 ) -> None:
     snapshots_by_id = {insight["id"]: insight for insight in content_snapshot.get("insights", [])}
-    for state in states:
+    concurrency = asyncio.Semaphore(10)
+
+    async def condense(state: dict) -> None:
         query_kind = state["query_kind"]
         if query_kind == "Unknown" or not uses_generic_results_summary(query_kind):
-            continue
+            return
         query_results = snapshots_by_id[state["insight_id"]].get("query_results")
         if not query_results or not query_results.get("result"):
-            continue
+            return
         try:
-            state["results_summary"] = await database_sync_to_async(condense_query_results, thread_sensitive=False)(
-                query_kind,
-                {**query_results, "query_date_range": snapshots_by_id[state["insight_id"]].get("query_date_range")},
-                team=team,
-                delivery_id=delivery_id,
-            )
+            async with concurrency:
+                state["results_summary"] = await database_sync_to_async(condense_query_results, thread_sensitive=False)(
+                    query_kind,
+                    {**query_results, "query_date_range": snapshots_by_id[state["insight_id"]].get("query_date_range")},
+                    team=team,
+                    delivery_id=delivery_id,
+                )
         except Exception as error:
             state["results_summary"] = "Summary unavailable for this insight. The returned rows could not be condensed."
             await LOGGER.awarning(
@@ -436,6 +440,8 @@ async def _condense_generic_results(
                 delivery_id=delivery_id,
                 exception_class=type(error).__name__,
             )
+
+    await asyncio.gather(*(condense(state) for state in states))
 
 
 async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
@@ -556,46 +562,48 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     summary_text: str | None = None
     try:
         temporalio.activity.heartbeat("generating LLM summary")
-        await _condense_generic_results(
-            current_states, content_snapshot, team=subscription.team, delivery_id=inputs.delivery_id
-        )
-        if previous_states and previous_delivery:
-            await _condense_generic_results(
-                previous_states,
-                previous_delivery.content_snapshot,
-                team=subscription.team,
-                delivery_id=inputs.delivery_id,
-            )
-        prompt_guide = (
-            sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
-            if subscription.summary_prompt_guide
-            else ""
-        )
-        core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
-        content_snapshots = [
-            s
-            for s in (
-                current_delivery.content_snapshot,
-                previous_delivery.content_snapshot if previous_delivery else None,
-            )
-            if s
-        ]
-        # Annotations are best-effort context — a DB hiccup here should not fail the whole
-        # summary, which would also drop the rest of the digest. Log and continue with an
-        # empty block.
-        try:
-            annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
-                subscription, content_snapshots, insight_ids
-            )
-        except Exception as annotations_error:
-            annotations_section = ""
-            await LOGGER.awarning(
-                "snapshot_subscription_insights.annotations_load_failed",
-                subscription_id=inputs.subscription_id,
-                error=str(annotations_error),
-                exc_info=True,
-            )
         async with Heartbeater(details=("generating LLM summary",)):
+            await _condense_generic_results(
+                current_states, content_snapshot, team=subscription.team, delivery_id=inputs.delivery_id
+            )
+            if previous_states and previous_delivery:
+                await _condense_generic_results(
+                    previous_states,
+                    previous_delivery.content_snapshot,
+                    team=subscription.team,
+                    delivery_id=inputs.delivery_id,
+                )
+            prompt_guide = (
+                sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
+                if subscription.summary_prompt_guide
+                else ""
+            )
+            core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(
+                subscription
+            )
+            content_snapshots = [
+                s
+                for s in (
+                    current_delivery.content_snapshot,
+                    previous_delivery.content_snapshot if previous_delivery else None,
+                )
+                if s
+            ]
+            # Annotations are best-effort context — a DB hiccup here should not fail the whole
+            # summary, which would also drop the rest of the digest. Log and continue with an
+            # empty block.
+            try:
+                annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
+                    subscription, content_snapshots, insight_ids
+                )
+            except Exception as annotations_error:
+                annotations_section = ""
+                await LOGGER.awarning(
+                    "snapshot_subscription_insights.annotations_load_failed",
+                    subscription_id=inputs.subscription_id,
+                    error=str(annotations_error),
+                    exc_info=True,
+                )
             summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
                 previous_states,
                 current_states,

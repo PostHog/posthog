@@ -1,5 +1,6 @@
 import copy
 import json
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 
@@ -97,3 +98,30 @@ class TestSnapshotSummaryFallbacks:
 
         assert "Summary unavailable" in states[0]["results_summary"]
         assert "example_action" not in states[0]["results_summary"]
+
+    @pytest.mark.asyncio
+    async def test_generic_condensation_runs_at_most_ten_queries_at_once(self) -> None:
+        snapshot = {"insights": [{"id": index, "query_results": {"result": [["sample"]]}} for index in range(12)]}
+        states = [{"insight_id": index, "query_kind": "EventsQuery"} for index in range(12)]
+        active = 0
+        peak = 0
+        ready = asyncio.Event()
+
+        async def condense(*args: Any, **kwargs: Any) -> str:
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            if active == 10:
+                ready.set()
+            await ready.wait()
+            active -= 1
+            return "Complete summary"
+
+        with patch(
+            "products.subscriptions.backend.temporal.snapshot_activities.database_sync_to_async",
+            return_value=condense,
+        ):
+            await _condense_generic_results(states, snapshot, team=None, delivery_id=None)
+
+        assert peak == 10
+        assert all(state["results_summary"] == "Complete summary" for state in states)

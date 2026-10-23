@@ -400,7 +400,7 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
             {row.change_summary ? (
                 <div className="whitespace-pre-wrap">
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
-                    {row.change_summary}
+                    <LemonMarkdown disableImages="all">{row.change_summary}</LemonMarkdown>
                 </div>
             ) : null}
             {prompt ? (
