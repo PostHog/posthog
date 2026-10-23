@@ -60,24 +60,6 @@ class TransactionalEmailPaused(TransactionalEmailError):
     code = "transactional_email_paused"
 
 
-class InvalidRecipient(TransactionalEmailError):
-    code = "invalid_recipient"
-
-
-class InvalidIdempotencyKey(TransactionalEmailError):
-    code = "invalid_idempotency_key"
-
-
-class IdempotencyKeyInFlight(TransactionalEmailError):
-    """The first request with this key is still being queued. Safe to retry shortly."""
-
-    code = "idempotency_key_in_flight"
-
-
-class IdempotencyKeyReused(TransactionalEmailError):
-    code = "idempotency_key_reused"
-
-
 @frozen
 class EmailSendCommand:
     """One email to send: who it goes to, and the template and data it is made from."""
