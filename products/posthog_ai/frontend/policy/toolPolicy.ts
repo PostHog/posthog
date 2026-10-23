@@ -46,6 +46,11 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
         return 'prompt'
     }
 
+    // A saved approval outlives the run, so only the user can give it.
+    if (record.persistsApproval) {
+        return 'prompt'
+    }
+
     const { toolName } = record
     const { resolvedKey, innerToolName } = resolveToolCall(record.rawToolCall)
 
