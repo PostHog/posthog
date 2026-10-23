@@ -102,7 +102,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     if (isDrifted && (status === APPROVED_METRIC_STATUS || status === PROPOSED_METRIC_STATUS)) {
         const approval = status === APPROVED_METRIC_STATUS ? 'approved' : 'not yet approved'
         return {
-            NONCANONICAL: `status=${status} is_drifted=true. Its source insight changed after this definition was saved, and this run used the saved SQL. Use it only if that SQL measures what the user asked. If you use it, open the answer with '⚠️ **Drifted definition in your data catalog**: [<display_name>](<url>), ${approval}, and its source insight changed after it was saved. Review it before you rely on this number.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
+            NONCANONICAL: `status=${status} is_drifted=true. Its source insight changed after this definition was saved, and this run used the saved definition. Use it only if that definition measures what the user asked. If you use it, open the answer with '⚠️ **Drifted definition in your data catalog**: [<display_name>](<url>), ${approval}, and its source insight changed after it was saved. Review it before you rely on this number.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
             ...envelope,
         }
     }
