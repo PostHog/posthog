@@ -107,6 +107,8 @@ def trends_query_for(insight: Insight, profile: ScoringProfile) -> TrendsQuery:
     if query.get("kind") != "TrendsQuery":
         raise UnsupportedInsightError(f"Only trends insights are scored, not {query.get('kind')}")
     trends = TrendsQuery.model_validate(query)
+    if not trends.series:
+        raise UnsupportedInsightError("Insight has no series")
     if is_non_time_series_trend(trends):
         raise UnsupportedInsightError("Insight shows a single value, not a time series")
     if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
@@ -227,8 +229,9 @@ def query_cost(insight: Insight, team: Team) -> int:
     """
     try:
         query = build_scoring_query(trends_query_for(insight, resolve_profile(team, insight)), buckets=1)
-    except (UnsupportedInsightError, ValueError):
-        # Scoring fails before it sends a query. One query is the safe charge.
+    except Exception:
+        # Scoring builds the same query, so it fails before it sends a query and reports the error itself.
+        # One query is the safe charge, and one bad insight cannot stop the tick for every project.
         return 1
     # A team can resolve a cohort breakdown in one query per series. The larger count is the safe charge.
     cohort_breakdown = query.breakdownFilter is not None and query.breakdownFilter.breakdown_type == "cohort"

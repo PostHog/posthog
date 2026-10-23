@@ -266,31 +266,40 @@ def reserve_queries(config: AnomalyScoringConfig, team_id: int, queries: int, no
 
 def within_budget(
     order: list[int],
-    costs: dict[int, int],
     team_ids: dict[int, int],
     budget: QueryBudget,
     limit: int,
+    costs_for: Callable[[list[int]], dict[int, int]],
     reserve: Callable[[int, int], bool],
-) -> tuple[list[int], int]:
-    """The insights of ``order`` whose cost fits both budgets, up to ``limit``, and the count of skipped ones.
+) -> tuple[dict[int, int], int]:
+    """The insights of ``order`` whose cost fits both budgets, up to ``limit``, with their costs, and the skip count.
 
     A pick that does not fit is skipped and the walk continues, so a large insight does not block smaller ones.
     ``budget`` is a snapshot that skips most misses without a cache call. ``reserve`` charges a pick for real.
+    ``costs_for`` loads costs in batches of ``limit``, and only for insights that the snapshot can still fit.
     """
     fleet = budget.fleet
     projects = dict(budget.projects)
-    picked: list[int] = []
+    picked: dict[int, int] = {}
     skipped = 0
-    for insight_id in order:
+    batch_size = max(1, limit)
+    for start in range(0, len(order), batch_size):
         if len(picked) >= limit:
             break
-        cost, team_id = costs[insight_id], team_ids[insight_id]
-        if cost > fleet or cost > projects.get(team_id, 0) or not reserve(team_id, cost):
-            skipped += 1
-            continue
-        picked.append(insight_id)
-        fleet -= cost
-        projects[team_id] -= cost
+        batch = order[start : start + batch_size]
+        affordable = [insight_id for insight_id in batch if fleet > 0 and projects.get(team_ids[insight_id], 0) > 0]
+        costs = costs_for(affordable) if affordable else {}
+        for insight_id in batch:
+            if len(picked) >= limit:
+                break
+            team_id = team_ids[insight_id]
+            cost = costs.get(insight_id)
+            if cost is None or cost > fleet or cost > projects.get(team_id, 0) or not reserve(team_id, cost):
+                skipped += 1
+                continue
+            picked[insight_id] = cost
+            fleet -= cost
+            projects[team_id] -= cost
     return picked, skipped
 
 
@@ -356,16 +365,21 @@ def select_insights(
         insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None
     ]
     team_ids = {insight_id: due_by_id[insight_id].team_id for insight_id in order}
-    costs: dict[int, int] = {}
-    for team_id in sorted(set(team_ids.values())):
-        team_order = [insight_id for insight_id in order if team_ids[insight_id] == team_id]
-        costs.update(_query_costs(teams[team_id], team_order))
+
+    def costs_for(insight_ids: list[int]) -> dict[int, int]:
+        costs: dict[int, int] = {}
+        for team_id in sorted({team_ids[insight_id] for insight_id in insight_ids}):
+            team_batch = [insight_id for insight_id in insight_ids if team_ids[insight_id] == team_id]
+            costs.update(_query_costs(teams[team_id], team_batch))
+        return costs
+
+    # Read the budget before any cost, so a spent hour loads no insight.
     picked, skipped = within_budget(
         order,
-        costs,
         team_ids,
         remaining_budget(config, set(team_ids.values()), now),
         limit,
+        costs_for,
         reserve=lambda team_id, cost: reserve_queries(config, team_id, cost, now),
     )
     picks = [
@@ -374,8 +388,8 @@ def select_insights(
             insight_id=insight_id,
             scored_through=state.get(insight_id, {}),
             interval=due_by_id[insight_id].interval,
-            query_cost=costs[insight_id],
+            query_cost=cost,
         )
-        for insight_id in picked
+        for insight_id, cost in picked.items()
     ]
     return Selection(picks=picks, candidates=len(order), skipped_for_budget=skipped)

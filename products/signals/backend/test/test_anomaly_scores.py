@@ -323,6 +323,15 @@ class TestQueryCost(SimpleTestCase):
             # The scoring query drops the previous period.
             ("compare_adds_none", {"kind": "TrendsQuery", "series": _events(2), "compareFilter": {"compare": True}}, 2),
             ("not_scored", {"kind": "FunnelsQuery", "series": _events(4)}, 1),
+            (
+                "empty_series_with_breakdown",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [],
+                    "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                },
+                1,
+            ),
         ]
     )
     def test_a_pick_costs_the_queries_the_scoring_runner_sends(

@@ -189,7 +189,31 @@ class TestQueryBudget(SimpleTestCase):
             calls.append(cost)
             return len(calls) > refused_reservations
 
-        assert within_budget([1, 2, 3], costs, team_ids, budget, limit, reserve) == (expected, skipped)
+        picked, skipped_count = within_budget(
+            [1, 2, 3], team_ids, budget, limit, lambda ids: {i: costs[i] for i in ids}, reserve
+        )
+
+        assert (list(picked), skipped_count) == (expected, skipped)
+        assert picked == {insight_id: costs[insight_id] for insight_id in expected}
+
+    @parameterized.expand(
+        [
+            ("fleet_spent", QueryBudget(fleet=0, projects={1: 30, 2: 30}), []),
+            ("one_project_spent", QueryBudget(fleet=100, projects={1: 0, 2: 30}), [[2, 4]]),
+        ]
+    )
+    def test_costs_load_only_for_insights_a_budget_can_still_fit(
+        self, _name: str, budget: QueryBudget, loaded: list[list[int]]
+    ) -> None:
+        batches: list[list[int]] = []
+
+        def costs_for(insight_ids: list[int]) -> dict[int, int]:
+            batches.append(insight_ids)
+            return dict.fromkeys(insight_ids, 1)
+
+        within_budget([1, 2, 3, 4], {1: 1, 2: 2, 3: 1, 4: 2}, budget, 10, costs_for, lambda _team, _cost: True)
+
+        assert batches == loaded
 
     def test_a_reservation_takes_both_budgets_or_neither_and_resets_each_hour(self) -> None:
         config = AnomalyScoringConfig(enabled=True, max_queries_per_hour=10, max_queries_per_project_per_hour=6)
