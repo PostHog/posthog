@@ -357,6 +357,22 @@ describe('SkillCatalogService', () => {
         }
     })
 
+    it('loads a new pin at the same URL without reusing an older cached archive', async () => {
+        const redis = makeRedis()
+        const firstBytes = makeArchive('first')
+        const secondBytes = makeArchive('second')
+        const fetchArchive = vi.fn(async () => downloaded(firstBytes))
+        const first = new SkillCatalogService(redis, { fetchArchive, expectedArchiveSha: hashBytes(firstBytes) })
+        await first.warmup()
+        fetchArchive.mockResolvedValue(downloaded(secondBytes))
+        const second = new SkillCatalogService(redis, { fetchArchive, expectedArchiveSha: hashBytes(secondBytes) })
+
+        await second.warmup()
+
+        expect(second.getCatalog()?.listNames()).toEqual(['second'])
+        expect(fetchArchive).toHaveBeenCalledTimes(2)
+    })
+
     it('reports upstream validation time across restarts, unchanged releases and refresh failures', async () => {
         vi.useFakeTimers()
         const timestamp = vi.spyOn(skillArchiveLastValidatedTimestampSeconds, 'set')

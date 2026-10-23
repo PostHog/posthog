@@ -17,7 +17,6 @@ const DEFAULT_WARMUP_TIMEOUT_MS = 60_000
 const DEFAULT_WARMUP_RETRY_MS = 2_000
 
 export interface SkillCatalogServiceOptions extends SkillArchiveCacheOptions {
-    expectedArchiveSha?: string
     /** Base interval between polls of the shared version key. */
     pollIntervalMs?: number
     /** Random extra per pod, so a fleet does not poll in lockstep. */
@@ -57,11 +56,17 @@ export class SkillCatalogService {
         const { expectedArchiveSha, pollIntervalMs, pollJitterMs, warmupTimeoutMs, warmupRetryMs, ...cacheOptions } =
             opts
         this.expectedArchiveSha = expectedArchiveSha
+        const validateArchive =
+            cacheOptions.validateArchive ?? ((bytes: Uint8Array) => void SkillCatalog.fromZip(bytes))
         this.archiveCache = new SkillArchiveCache(redis, {
             ...cacheOptions,
+            expectedArchiveSha,
             // Parse before the bytes can reach Redis: a release that does not parse
             // never becomes the fleet's shared copy.
-            validateArchive: cacheOptions.validateArchive ?? ((bytes) => void SkillCatalog.fromZip(bytes)),
+            validateArchive: (bytes) => {
+                this.verifyArchive(bytes)
+                validateArchive(bytes)
+            },
         })
         this.pollIntervalMs = pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
         this.pollJitterMs = pollJitterMs ?? DEFAULT_POLL_JITTER_MS
@@ -164,10 +169,14 @@ export class SkillCatalogService {
         this.install(changed.bytes, changed.sha, 'poll')
     }
 
-    private install(bytes: Uint8Array, sha: string, phase: LoadPhase): void {
+    private verifyArchive(bytes: Uint8Array): void {
         if (this.expectedArchiveSha && hashBytes(bytes) !== this.expectedArchiveSha) {
             throw new SkillArchiveIntegrityError('Skill archive does not match the expected SHA-256')
         }
+    }
+
+    private install(bytes: Uint8Array, sha: string, phase: LoadPhase): void {
+        this.verifyArchive(bytes)
         if (sha === this.archiveSha) {
             return
         }

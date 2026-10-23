@@ -150,6 +150,13 @@ class SandboxedEvalHarness:
                 print(f"{suite.id}  [{suite.kind.value}]")  # noqa: T201
             return 0
 
+        if (
+            self.options.skill_snapshot_report is not None
+            and self.options.results_file is not None
+            and self.options.skill_snapshot_report.resolve() == self.options.results_file.resolve()
+        ):
+            raise PreflightError("--skill-snapshot-report and --results-file must use different paths")
+
         # Multi-turn cases poll once per turn, each poll with its own budget, so
         # their per-case budget must scale with the turn count. Multi-turn modules
         # declare the marker at module level (see discovery._collect_suites).

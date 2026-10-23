@@ -259,6 +259,17 @@ def test_eval_run_exit_status(
         assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
 
 
+def test_eval_run_rejects_overwriting_its_snapshot_input(tmp_path: Path) -> None:
+    report = tmp_path / "results.json"
+    report.write_text('{"saved": true}')
+    harness = SandboxedEvalHarness(parse_args(["--skill-snapshot-report", str(report), "--results-file", str(report)]))
+
+    with pytest.raises(lifecycle.PreflightError, match="must use different paths"):
+        harness.run()
+
+    assert report.read_text() == '{"saved": true}'
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("delivery", ["bundled", "exec"])
 @pytest.mark.parametrize("origin", ["eval", "slack", None])
