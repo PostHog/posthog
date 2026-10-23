@@ -6,7 +6,6 @@ import { storyTextParts } from './storyMarks'
 
 const STROKE_GAP_MS = 180
 
-/** Names get a highlight. Dates and values are only set in a heavier weight, so a sentence stays readable. */
 export function StoryMarkedText({ text }: { text: string }): ReactElement {
     let marked = 0
     return (
