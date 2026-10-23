@@ -89,7 +89,7 @@ def build_pass_rules(team_id: int, evaluation_ids: Sequence[str]) -> PassRules:
     # A kind without evaluations gets no branch, because HogQL cannot type an empty array constant.
     def branch(name: str, ids: Sequence[str], graded: str, passed: str) -> None:
         placeholders[f"{name}_ids"] = ast.Constant(value=list(ids))
-        matches = f"has({{{name}_ids}}, {_EVALUATION_ID})"
+        matches = f"{_EVALUATION_ID} IN {{{name}_ids}}"
         graded_branches.extend([matches, graded])
         passed_branches.extend([matches, passed])
 
@@ -111,7 +111,8 @@ def build_pass_rules(team_id: int, evaluation_ids: Sequence[str]) -> PassRules:
     for operator, rules in numeric.items():
         name = f"numeric_{operator}"
         placeholders[f"{name}_thresholds"] = ast.Constant(value=[threshold for _, threshold in rules])
-        threshold = f"arrayElement({{{name}_thresholds}}, indexOf({{{name}_ids}}, {_EVALUATION_ID}))"
+        # `transform` looks up a constant array through a hash table, where `indexOf` scans it on every run.
+        threshold = f"transform({_EVALUATION_ID}, {{{name}_ids}}, {{{name}_thresholds}}, 0)"
         ids = [evaluation_id for evaluation_id, _ in rules]
         rule_branch(name, ids, numeric_event, numeric_rule_predicates(operator, threshold))
     categorical_event = get_outcome_definition(OutputType.CATEGORICAL).event_predicate
@@ -119,7 +120,10 @@ def build_pass_rules(team_id: int, evaluation_ids: Sequence[str]) -> PassRules:
         rule_branch("no_category", no_category, categorical_event, categorical_rule_predicates(None))
     if categorical:
         placeholders["categorical_passing"] = ast.Constant(value=[categories for _, categories in categorical])
-        passing = f"arrayElement({{categorical_passing}}, indexOf({{categorical_ids}}, {_EVALUATION_ID}))"
+        placeholders["categorical_positions"] = ast.Constant(value=list(range(1, len(categorical) + 1)))
+        # `transform` cannot return an array, so it returns the position of the evaluation's categories instead.
+        position = f"transform({_EVALUATION_ID}, {{categorical_ids}}, {{categorical_positions}}, 0)"
+        passing = f"arrayElement({{categorical_passing}}, {position})"
         ids = [evaluation_id for evaluation_id, _ in categorical]
         rule_branch("categorical", ids, categorical_event, categorical_rule_predicates(passing))
 

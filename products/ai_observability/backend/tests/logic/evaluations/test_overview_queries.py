@@ -20,6 +20,7 @@ from products.ai_observability.backend.logic.evaluations.overview_queries import
     CategoryBucketCount,
     load_bucket_counts,
     load_category_counts,
+    run_evaluation_query,
 )
 from products.ai_observability.backend.logic.evaluations.pass_filters import build_pass_rules
 from products.ai_observability.backend.logic.evaluations.period import OverviewPeriod, overview_period
@@ -31,7 +32,7 @@ PERIOD = OverviewPeriod(
     previous_start=datetime(2026, 3, 1, tzinfo=UTC),
     previous_end=datetime(2026, 3, 8, tzinfo=UTC),
     interval="day",
-    buckets=(),
+    buckets=tuple(datetime(2026, 3, day, tzinfo=UTC) for day in range(8, 15)),
 )
 
 
@@ -79,8 +80,17 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
             properties={"$ai_evaluation_id": str(evaluation.id), **properties},
         )
 
-    @parameterized.expand([("one page", 50_000), ("several pages", 2)])
-    def test_groups_runs_by_evaluation_day_and_period(self, _name: str, page_size: int) -> None:
+    @parameterized.expand(
+        [
+            ("one query per kind", 50_000, 25_000, 2),
+            ("a batch per evaluation", 50_000, 1, 3),
+            # A full page splits its batch, down to one evaluation, which pages through its own rows.
+            ("full pages", 2, 50_000, 8),
+        ]
+    )
+    def test_groups_runs_by_evaluation_day_and_period(
+        self, _name: str, page_size: int, batch_rows: int, queries: int
+    ) -> None:
         judge = self._judge()
         topic = Evaluation.objects.create(
             team=self.team,
@@ -115,9 +125,14 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         ids = [str(judge.id), str(topic.id)]
-        with patch("products.ai_observability.backend.logic.evaluations.overview_queries.PAGE_SIZE", page_size):
+        module = "products.ai_observability.backend.logic.evaluations.overview_queries"
+        with (
+            patch(f"{module}.PAGE_SIZE", page_size),
+            patch(f"{module}.BATCH_ROWS", batch_rows),
+            patch(f"{module}.run_evaluation_query", wraps=run_evaluation_query) as run,
+        ):
             bucket_counts = load_bucket_counts(self.team, None, PERIOD, ids, build_pass_rules(self.team.pk, ids))
-            category_counts = load_category_counts(self.team, None, PERIOD, [str(topic.id)])
+            category_counts = load_category_counts(self.team, None, PERIOD, {str(topic.id): 2})
         counts = {
             (row.evaluation_id, row.bucket): (row.passed, row.failed, row.not_applicable, row.skipped, row.categorized)
             for row in bucket_counts
@@ -137,6 +152,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
             CategoryBucketCount(evaluation_id=str(topic.id), bucket=_midnight(9), key="billing", runs=1),
             CategoryBucketCount(evaluation_id=str(topic.id), bucket=_midnight(9), key="bug", runs=1),
         ]
+        assert run.call_count == queries
 
     @time_machine.travel(datetime(2026, 3, 10, 3, 0, tzinfo=UTC), tick=False)
     def test_periods_follow_the_project_timezone_and_a_running_day(self) -> None:
@@ -196,16 +212,24 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         [
             # 01:30 on November 1 in New York, before and after the clocks fall back.
             ("new_york_fall_back", "America/New_York", datetime(2026, 11, 1, 18, tzinfo=UTC), 24, ["05:30", "06:30"]),
-            # Lord Howe moves its clocks by 30 minutes on October 4, so from the next local midnight ClickHouse
-            # starts its hours half an hour away from the buckets.
+            # Lord Howe moves its clocks by 30 minutes on October 4, so from then on the buckets start at half past
+            # the local hour, and 01:10 and 01:40 on October 5 fall in different buckets.
             (
                 "lord_howe_spring_forward",
                 "Australia/Lord_Howe",
                 datetime(2026, 10, 4, 20, tzinfo=UTC),
                 48,
-                ["2026-10-03T10:00", "2026-10-04T14:10"],
+                ["2026-10-03T10:00", "2026-10-04T14:10", "2026-10-04T14:40"],
             ),
             ("kolkata_half_hour_offset", "Asia/Kolkata", datetime(2026, 3, 10, 12, tzinfo=UTC), 24, ["05:15", "06:45"]),
+            # 09:59 and 10:01 in Kathmandu, either side of an hour that starts at a quarter past in UTC.
+            (
+                "kathmandu_quarter_hour_offset",
+                "Asia/Kathmandu",
+                datetime(2026, 3, 10, 12, tzinfo=UTC),
+                24,
+                ["04:14", "04:16"],
+            ),
         ]
     )
     def test_every_hourly_run_lands_in_the_trend(

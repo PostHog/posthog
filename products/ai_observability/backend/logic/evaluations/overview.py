@@ -277,8 +277,7 @@ def _previous_value(summary: contracts.ResultSummary, tracked: str | None) -> fl
 
 def _bucket_index(instants: Sequence[datetime], bucket: datetime) -> int:
     """The bucket that holds a ClickHouse bucket start: the last one that starts at or before it, compared by
-    instant. Where a daylight saving change moves the clocks by half an hour, ClickHouse starts its hours at other
-    instants than the buckets do, so an exact match would drop runs from the trend."""
+    instant."""
     return max(bisect_right(instants, bucket.astimezone(UTC)) - 1, 0)
 
 

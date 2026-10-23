@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,7 +20,7 @@ from products.ai_observability.backend.models.evaluation_outcomes import (
 )
 
 from .pass_filters import PassRules
-from .period import Interval, OverviewPeriod
+from .period import OverviewPeriod
 
 _SKIPPED = "properties.$ai_evaluation_skipped = 'true'"
 _NOT_SKIPPED = NOT_SKIPPED_PREDICATE
@@ -41,10 +41,11 @@ _GRADED_ANY = (
     f" OR (properties.$ai_sentiment_label IN ('positive', 'neutral', 'negative') AND {_NOT_SKIPPED})"
 )
 
-_BUCKET_FUNCTIONS: dict[Interval, str] = {"hour": "toStartOfHour", "day": "toStartOfDay"}
-# Many evaluations over a long period can group into more rows than one response returns, for example categorical
-# evaluations with many categories over 90 days, so a read pages until a page comes back short.
 PAGE_SIZE = MAX_SELECT_RETURNED_ROWS
+# Many evaluations over a long period can group into more rows than one response returns, for example categorical
+# evaluations with many categories over 90 days. So a read splits the evaluations into batches that are expected to
+# fit in half a page, and splits a batch again if it still fills a page.
+BATCH_ROWS = PAGE_SIZE // 2
 # A null bucket marks the previous period, which needs totals only, so it costs one row per evaluation.
 _BUCKET = "if(timestamp < {current_start}, NULL, {bucket_start})"
 _WHERE = (
@@ -121,38 +122,76 @@ def _run(
     team: Team,
     user: User | None,
     period: OverviewPeriod,
-    evaluation_ids: Sequence[str],
+    expected_rows: Mapping[str, int],
     extra: dict[str, ast.Expr],
 ) -> list[Sequence[Any]]:
+    """`expected_rows` maps each evaluation to read to the most rows it is expected to group into."""
     placeholders: dict[str, ast.Expr] = {
         "previous_start": instant(period.previous_start),
         "previous_end": instant(period.previous_end),
         "current_start": instant(period.start),
         "end": instant(period.end),
-        # The project's timezone is explicit, because the team's modifiers can turn off the conversion to it, and
-        # `overview_period` builds its buckets in that timezone.
-        "bucket_start": ast.Call(
-            name=_BUCKET_FUNCTIONS[period.interval],
-            args=[
-                ast.Call(name="toTimeZone", args=[ast.Field(chain=["timestamp"]), ast.Constant(value=team.timezone)])
-            ],
-        ),
-        # One placeholder for the whole list, so the query text stays the same size however many evaluations it reads.
-        "evaluation_ids": ast.Constant(value=tuple(evaluation_ids)),
+        "bucket_start": _bucket_start(period, team.timezone),
         **extra,
     }
-    rows: list[Sequence[Any]] = []
-    while True:
-        page = run_evaluation_query(
-            name,
-            query,
-            team,
-            user,
-            {**placeholders, "limit": ast.Constant(value=PAGE_SIZE), "offset": ast.Constant(value=len(rows))},
-        )
-        rows += page
-        if len(page) < PAGE_SIZE:
+
+    def read(evaluation_ids: Sequence[str], offset: int) -> list[Sequence[Any]]:
+        # One placeholder for the whole list, so the query text stays the same size however many evaluations it reads.
+        ids = ast.Constant(value=tuple(evaluation_ids))
+        limits = {"limit": ast.Constant(value=PAGE_SIZE), "offset": ast.Constant(value=offset)}
+        return run_evaluation_query(name, query, team, user, {**placeholders, "evaluation_ids": ids, **limits})
+
+    def read_all(evaluation_ids: Sequence[str]) -> list[Sequence[Any]]:
+        rows = read(evaluation_ids, 0)
+        if len(rows) < PAGE_SIZE:
             return rows
+        if len(evaluation_ids) > 1:
+            middle = len(evaluation_ids) // 2
+            return read_all(evaluation_ids[:middle]) + read_all(evaluation_ids[middle:])
+        # One evaluation cannot be split further, so it pages through its own rows.
+        while len(page := read(evaluation_ids, len(rows))) == PAGE_SIZE:
+            rows += page
+        return rows + page
+
+    return [row for batch in _batches(expected_rows) for row in read_all(batch)]
+
+
+def _bucket_start(period: OverviewPeriod, timezone: str) -> ast.Expr:
+    timestamp = ast.Field(chain=["timestamp"])
+    if period.interval == "hour":
+        # Whole hours from the first bucket, the way `overview_period` steps its buckets. Local hours would split a
+        # bucket where a daylight saving change moves the clocks by half an hour. ClickHouse needs an origin before
+        # every timestamp, including the previous period's, so the origin is the first bucket's minute in 1970. It
+        # counts in the timestamp's timezone, which is UTC so that past offset changes do not shift the hours.
+        first = (period.buckets[0] if period.buckets else period.start).astimezone(UTC)
+        origin = instant(datetime(1970, 1, 1, minute=first.minute, tzinfo=UTC))
+        utc = ast.Call(name="toTimeZone", args=[timestamp, ast.Constant(value="UTC")])
+        return ast.Call(
+            name="toStartOfInterval",
+            args=[utc, ast.Call(name="toIntervalHour", args=[ast.Constant(value=1)]), origin],
+        )
+    # The project's timezone is explicit, because the team's modifiers can turn off the conversion to it, and
+    # `overview_period` builds its buckets in that timezone.
+    local = ast.Call(name="toTimeZone", args=[timestamp, ast.Constant(value=timezone)])
+    return ast.Call(name="toStartOfDay", args=[local])
+
+
+def _groups(period: OverviewPeriod) -> int:
+    """The most rows one evaluation groups into per category: one per bucket, plus one for the previous period."""
+    return len(period.buckets) + 1
+
+
+def _batches(expected_rows: Mapping[str, int]) -> Iterator[list[str]]:
+    batch: list[str] = []
+    rows = 0
+    for evaluation_id, expected in expected_rows.items():
+        if batch and rows + expected > BATCH_ROWS:
+            yield batch
+            batch, rows = [], 0
+        batch.append(evaluation_id)
+        rows += expected
+    if batch:
+        yield batch
 
 
 def instant(value: datetime) -> ast.Expr:
@@ -200,7 +239,7 @@ def load_bucket_counts(
         team,
         user,
         period,
-        evaluation_ids,
+        dict.fromkeys(evaluation_ids, _groups(period)),
         {"graded": pass_rules.graded, "passes": pass_rules.passes},
     )
     return [
@@ -224,9 +263,15 @@ def load_bucket_counts(
 
 
 def load_category_counts(
-    team: Team, user: User | None, period: OverviewPeriod, evaluation_ids: Sequence[str]
+    team: Team, user: User | None, period: OverviewPeriod, configured_categories: Mapping[str, int]
 ) -> list[CategoryBucketCount]:
-    if not evaluation_ids:
+    """`configured_categories` maps each evaluation to read to the number of categories its config lists."""
+    if not configured_categories:
         return []
-    rows = _run("ai_evaluations_overview_categories", _CATEGORY_QUERY, team, user, period, evaluation_ids, {})
+    # Runs can hold keys the config no longer lists, so the estimate doubles the configured keys and the '' row.
+    expected_rows = {
+        evaluation_id: _groups(period) * 2 * (configured + 1)
+        for evaluation_id, configured in configured_categories.items()
+    }
+    rows = _run("ai_evaluations_overview_categories", _CATEGORY_QUERY, team, user, period, expected_rows, {})
     return [CategoryBucketCount(evaluation_id=row[0], bucket=row[1], key=row[2], runs=row[3]) for row in rows]

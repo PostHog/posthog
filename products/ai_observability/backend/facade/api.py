@@ -215,7 +215,8 @@ def get_evaluations_overview(
     team: Team, user: User | None, evaluation_ids: Sequence[str], start: datetime, end: datetime
 ) -> contracts.EvaluationsOverview:
     """Each evaluation's results from `start` to `end`, compared with the period of equal length before it, plus the
-    totals the overview cards show. Two ClickHouse reads, unless one groups into more rows than a page holds.
+    totals the overview cards show. Two ClickHouse reads, unless the evaluations group into more rows than half a
+    page holds.
 
     While the period still runs, the previous one stops at the same point, so a partial today is not compared with
     a full day."""
@@ -229,7 +230,9 @@ def get_evaluations_overview(
     ids = [meta.id for meta in metas]
     counts = group_by_evaluation(load_bucket_counts(team, user, period, ids, build_pass_rules(team.pk, ids)))
     categories = group_by_evaluation(
-        load_category_counts(team, user, period, [meta.id for meta in metas if meta.kind == "categories"])
+        load_category_counts(
+            team, user, period, {meta.id: len(meta.categories) for meta in metas if meta.kind == "categories"}
+        )
     )
     rows = [
         evaluation_result(meta, period.buckets, counts.get(meta.id, []), categories.get(meta.id, [])) for meta in metas
