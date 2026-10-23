@@ -47,11 +47,11 @@ export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'version
 
 type TemplateContent = MessageTemplate['content']
 
-/** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function isClaimedByUpload(error: unknown): boolean {
     return error instanceof ApiError && error.code === 'immutable'
 }
 
+/** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function splitDraft(template: MessageTemplate): {
     form: MessageTemplate
     draft: TemplateContent | null
@@ -165,8 +165,8 @@ export interface messageTemplateLogicActions {
     autoSaveDraft: () => {
         value: true
     }
-    claimedByUpload: () => {
-        value: true
+    claimedByUpload: (keepEdits: boolean) => {
+        keepEdits: boolean
     }
     confirmDiscardDraft: () => {
         value: true
@@ -603,7 +603,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         duplicateTemplate: true,
         duplicateTemplateDone: true,
         setRefusedEdits: (edits: MessageTemplate | null) => ({ edits }),
-        claimedByUpload: true,
+        claimedByUpload: (keepEdits: boolean) => ({ keepEdits }),
         duplicateWithMyChanges: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
@@ -970,7 +970,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             } catch (error) {
                 actions.saveDraftFailed()
                 if (isClaimedByUpload(error)) {
-                    actions.claimedByUpload()
+                    actions.claimedByUpload(true)
                 } else {
                     lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
                 }
@@ -1016,7 +1016,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.resetTemplate({ ...values.template, content: published, updated_at: updated.updated_at })
             } catch (error) {
                 if (isClaimedByUpload(error)) {
-                    actions.claimedByUpload()
+                    // The upload dropped the draft too, so the discard got what it asked for.
+                    actions.claimedByUpload(false)
                 } else {
                     lemonToast.error("Couldn't discard your draft. Try again.")
                 }
@@ -1121,13 +1122,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error(errors.content.email.from.email)
             }
         },
-        claimedByUpload: () => {
+        claimedByUpload: ({ keepEdits }) => {
             // An upload claimed the template back for code. The page locks at once, so a failed reload
             // can't leave it editable. Only the offered duplicate keeps the refused edits. The upload also
             // dropped the draft, so the page shows the published content.
             const published = values.publishedContent ?? values.originalTemplate.content
             const claimed = { ...values.originalTemplate, content: published, managed_by: 'code' as const }
-            actions.setRefusedEdits(values.template)
+            // A later refusal sees the form already reset, so only the first one holds the person's edits.
+            if (keepEdits && !values.refusedEdits) {
+                actions.setRefusedEdits(values.template)
+            }
             actions.setExternallyEdited(false)
             actions.setDraftState(null, published)
             actions.setOriginalTemplate(claimed)
@@ -1136,7 +1140,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         saveTemplateFailure: ({ errorObject }) => {
             if (isClaimedByUpload(errorObject)) {
-                actions.claimedByUpload()
+                actions.claimedByUpload(true)
                 return
             }
             actions.replayDeferredExternalEdit()

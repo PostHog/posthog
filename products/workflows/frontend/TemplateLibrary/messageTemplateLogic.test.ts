@@ -678,15 +678,17 @@ describe('messageTemplateLogic', () => {
             jest.useRealTimers()
         })
 
+        const keptEdits = expect.objectContaining({ name: 'Welcome, edited here' })
+
         it.each([
-            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'succeeds', status: 200 },
-            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'fails', status: 500 },
-            { refusal: 'a publish', refuse: publish, reload: 'succeeds', status: 200 },
-            { refusal: 'a publish', refuse: publish, reload: 'fails', status: 500 },
-            { refusal: 'a draft discard', refuse: discardDraft, reload: 'fails', status: 500 },
+            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'succeeds', status: 200, edits: keptEdits },
+            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'fails', status: 500, edits: keptEdits },
+            { refusal: 'a publish', refuse: publish, reload: 'succeeds', status: 200, edits: keptEdits },
+            { refusal: 'a publish', refuse: publish, reload: 'fails', status: 500, edits: keptEdits },
+            { refusal: 'a draft discard', refuse: discardDraft, reload: 'fails', status: 500, edits: null },
         ])(
-            'turns read-only and offers to duplicate the unsaved edits when $refusal is refused and the reload $reload',
-            async ({ refuse: refusal, status }) => {
+            'turns read-only when $refusal is refused and the reload $reload',
+            async ({ refuse: refusal, status, edits }) => {
                 reloadStatus = status
                 await refuse(refusal)
 
@@ -694,11 +696,34 @@ describe('messageTemplateLogic', () => {
                     isCodeManaged: true,
                     hasDraft: false,
                     hasUnsavedChanges: false,
-                    refusedEdits: expect.objectContaining({ name: 'Welcome, edited here' }),
+                    refusedEdits: edits,
                 })
                 expect(logic.values.template.name).toBe('Welcome')
             }
         )
+
+        it.each([
+            {
+                requests: 'an autosave and a publish',
+                refuse: async (): Promise<void> => {
+                    serverTemplate = claimed
+                    logic.actions.saveDraft()
+                    logic.actions.submitTemplate()
+                },
+            },
+            {
+                requests: 'an autosave, then a draft discard',
+                refuse: async (): Promise<void> => {
+                    await claimThenAutosave()
+                    logic.actions.confirmDiscardDraft()
+                },
+            },
+        ])('keeps the edits the first refusal rescued when $requests are refused', async ({ refuse: refusal }) => {
+            await refuse(refusal)
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ isCodeManaged: true, refusedEdits: keptEdits })
+        })
 
         it('asks before a navigation drops the refused edits', async () => {
             const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
