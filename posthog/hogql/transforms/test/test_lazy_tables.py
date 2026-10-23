@@ -2,18 +2,62 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest, NewEventsSchemaSnapshotExtension
+from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.test.utils import pretty_print_in_tests
 
+from posthog.models import Organization, Team
+
 from products.data_tools.backend.models.join import DataWarehouseJoin
+
+
+class TestNamespacedLazyTables(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("persons_star", "persons", "SELECT * FROM {table} LIMIT 1"),
+            ("persons_count", "persons", "SELECT count() FROM {table}"),
+            ("persons_id", "persons", "SELECT id FROM {table}"),
+            ("persons_property", "persons", "SELECT properties.email FROM {table}"),
+            ("persons_qualified_field", "persons", "SELECT {table}.id FROM {table}"),
+            ("persons_alias", "persons", "SELECT p.id, p.properties.email FROM {table} AS p"),
+            ("persons_cte", "persons", "WITH people AS (SELECT id FROM {table}) SELECT id FROM people"),
+            ("persons_join", "persons", "SELECT p.id FROM {table} AS p JOIN {table} AS q ON p.id = q.id"),
+            ("groups_star", "groups", "SELECT * FROM {table} LIMIT 1"),
+            ("groups_count", "groups", "SELECT count() FROM {table}"),
+            ("groups_key", "groups", "SELECT key FROM {table}"),
+            ("groups_property", "groups", "SELECT properties.name FROM {table}"),
+            ("groups_alias", "groups", "SELECT g.key FROM {table} AS g"),
+        ]
+    )
+    def test_namespaced_table_matches_unqualified_table(self, _name: str, table: str, query: str) -> None:
+        expected = self._compile(query.format(table=table))
+        actual = self._compile(query.format(table=f"posthog.{table}"))
+        self.assertEqual(actual.replace(f"posthog__{table}", table), expected)
+
+    def _compile(self, query: str) -> str:
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=Database(),
+            enable_select_queries=True,
+            use_new_events_schema=False,
+            apply_events_retention_floor=False,
+            restricted_properties=set(),
+        )
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            return prepare_and_print_ast(parse_select(query), context, "clickhouse")[0]
 
 
 class TestLazyJoins(BaseTest):

@@ -30,11 +30,16 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
+    GenerationNotFoundError,
     extract_event_io,
     extract_event_tools,
     hydrate_event_reference,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
+from posthog.temporal.ai_observability.evaluation_types import (
+    EvaluationActivityResult,
+    build_generation_not_found_result,
+    build_skipped_evaluation_result,
+)
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -79,11 +84,16 @@ from products.ai_observability.backend.llm.providers.openai_decisions import Ope
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
+    BooleanOutputConfig,
     CategoricalOutputConfig,
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    EVENT_TEXT_MAX_CHARS,
+    sanitize_surrogates,
+    truncate_by_line_sampling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -497,7 +507,10 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
 def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = hydrate_event_reference(inputs.event_data)
+    try:
+        event_data = hydrate_event_reference(inputs.event_data)
+    except GenerationNotFoundError:
+        return build_generation_not_found_result(evaluation)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -537,12 +550,22 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
 
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    sections = [f"Input: {input_data}"]
+    output_section = f"\n\nOutput: {output_data}"
+    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
+    if context_budget < 0:
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
+            skip_reason="generation_output_too_long",
+        )
+
+    sections = [input_data]
     if tools_data:
         sections.append(f"Tools available:\n{tools_data}")
-    sections.append(f"Output: {output_data}")
-    user_prompt = "\n\n".join(sections)
-    user_prompt = truncate_by_line_sampling(user_prompt, EVENT_TEXT_MAX_CHARS)
+    # Keep the full answer being graded outside the sampled context.
+    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
+    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
 
     return call_llm_judge(
         evaluation=evaluation,
@@ -774,13 +797,16 @@ def call_llm_judge(
                 if not isinstance(verdict_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
                 probability = verdict_answer.probability
+                configured_threshold = BooleanOutputConfig.model_validate(output_config).decision_threshold
+                # Zero is a valid cutoff.
+                threshold = configured_threshold if configured_threshold is not None else 0.5
                 parsed = (
                     BooleanWithNAEvalResult(
                         reasoning="",
-                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+                        outcome="not_applicable" if not applicable else "pass" if probability >= threshold else "fail",
                     )
                     if allows_na
-                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+                    else BooleanEvalResult(reasoning="", verdict=probability >= threshold)
                 )
             response = CompletionResponse(
                 content="",

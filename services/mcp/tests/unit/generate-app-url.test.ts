@@ -59,6 +59,17 @@ describe('generate-app-url', () => {
         ['/feature_flags/{id}', { id: '42' }, '/feature-flags/42'],
         ['/feature-flags/{id}', { id: '42' }, '/feature-flags/42'],
         ['/feature_flags', {}, '/feature-flags'],
+        [
+            '/ai-evals/evaluations/offline/experiments?tab=datasets',
+            {},
+            '/ai-evals/evaluations/offline/experiments?tab=datasets',
+        ],
+        ['/ai-evals/evaluations/offline/experiments', {}, '/ai-evals/evaluations/offline/experiments'],
+        [
+            '/ai-evals/evaluations/offline/datasets/{id}',
+            { id: 'example-dataset' },
+            '/ai-evals/evaluations/offline/datasets/example-dataset',
+        ],
     ])('builds the canonical app link for the template %s', async (url, params, path) => {
         const result = await generateAppUrlHandler(ctx, { url, params })
         expect(result.url).toBe(`https://us.posthog.com/project/354703${path}`)

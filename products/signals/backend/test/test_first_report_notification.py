@@ -90,6 +90,13 @@ class TestFirstReportNotification(BaseTest):
                 "P1",
             ),
             ("long_summary_without_priority", "x" * 400, "x" * 319 + "…", ""),
+            (
+                "markdown_summary",
+                "Signups **dropped** after the [pricing change](https://example.com/pricing).\n"
+                "[The daily signups chart](chart:daily-signups) shows the drop.\n\n## Evidence\nMore details.",
+                "Signups dropped after the pricing change. The daily signups chart shows the drop.",
+                "P2",
+            ),
         ]
     )
     @time_machine.travel("2026-01-15T12:01:00Z", tick=False)

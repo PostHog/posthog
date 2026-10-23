@@ -26,6 +26,7 @@ REGIONS: dict[str, str] = {
 DEFAULT_REGION = "mypurecloud.com"
 
 CONVERSATION_DETAILS_PATH = "/api/v2/analytics/conversations/details/query"
+USER_DETAILS_PATH = "/api/v2/analytics/users/details/query"
 
 # The details query caps pageSize at 100.
 ANALYTICS_PAGE_SIZE = 100
@@ -40,15 +41,25 @@ _CONVERSATION_START_INCREMENTAL_FIELDS: list[IncrementalField] = [
     },
 ]
 
+_STATUS_START_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "startTime",
+        "type": IncrementalFieldType.DateTime,
+        "field": "startTime",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
 
 @dataclass(frozen=True)
 class GenesysCloudEndpointConfig:
     name: str
     primary_keys: list[str]
     # "analytics" endpoints read the conversation details query in time windows;
+    # "user_analytics" endpoints read the user details query in time windows;
     # "listing" endpoints page through a plain GET entity listing by page number;
     # "scan" endpoints page through a GET listing by cursor.
-    kind: Literal["analytics", "listing", "scan"]
+    kind: Literal["analytics", "user_analytics", "listing", "scan"]
     path: str
     # Permission a Genesys Cloud role must grant for the OAuth client to read this endpoint.
     permission: str | None = None
@@ -57,6 +68,9 @@ class GenesysCloudEndpointConfig:
     query_body: dict[str, Any] = field(default_factory=dict)
     # Emit one row per participant instead of one row per conversation.
     flatten_participants: bool = False
+    # Scan endpoints: query params that carry the page size and the cursor.
+    page_size_param: str = "limit"
+    cursor_param: str = "cursor"
     partition_key: str | None = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
@@ -146,6 +160,40 @@ GENESYS_CLOUD_ENDPOINTS: dict[str, GenesysCloudEndpointConfig] = {
         kind="scan",
         path="/api/v2/externalcontacts/scan/organizations",
         permission="externalContacts:externalOrganization:view",
+    ),
+    # Like organizations, the plain /externalcontacts/contacts listing stops at the first 1,000 records.
+    "external_contacts": GenesysCloudEndpointConfig(
+        name="external_contacts",
+        primary_keys=["id"],
+        kind="scan",
+        path="/api/v2/externalcontacts/scan/contacts",
+        permission="externalContacts:contact:view",
+    ),
+    "teams": GenesysCloudEndpointConfig(
+        name="teams",
+        primary_keys=["id"],
+        kind="scan",
+        path="/api/v2/teams",
+        permission="groups:team:view",
+        page_size_param="pageSize",
+        cursor_param="after",
+    ),
+    "groups": GenesysCloudEndpointConfig(
+        name="groups",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/groups",
+        params={"sortOrder": "ascending"},
+    ),
+    # One row per presence or routing status record, so a user's history is queryable without unnesting.
+    "user_status_history": GenesysCloudEndpointConfig(
+        name="user_status_history",
+        primary_keys=["userId", "recordType", "startTime"],
+        kind="user_analytics",
+        path=USER_DETAILS_PATH,
+        permission="analytics:userDetail:view",
+        partition_key="startTime",
+        incremental_fields=list(_STATUS_START_INCREMENTAL_FIELDS),
     ),
 }
 

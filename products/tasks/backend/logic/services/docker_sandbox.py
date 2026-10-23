@@ -50,6 +50,8 @@ from .agentsh import (
     read_gh_guard_script,
 )
 from .local_skills import (
+    BUNDLED_SKILLS_PATHS,
+    ENV_EVAL_SKILLS_MANIFEST,
     ENV_LOCAL_SKILLS_HOST_PATH,
     LocalSkillsCache,
     bundled_skills_disabled,
@@ -549,11 +551,8 @@ class DockerSandbox(AgentServerLaunchMixin):
                 container_path = f"{WORKING_DIR}/repos/{org}/{repo}"
                 volume_args.extend(["-v", f"{local_path}:{container_path}"])
 
-            # Opt-in bind-mount for local skills. Set by the eval harness so
-            # sandboxes see the working-tree skills without rebuilding the
-            # base image. Mounts per-subdirectory rather than the parent so
-            # the baked-in rendered skills in the image stay visible — only
-            # the specific skills the user has on disk get overlaid.
+            # Native runtimes need the same files as plugin discovery. Eval snapshots replace
+            # whole directories so image-only skills cannot enter the comparison.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
             if (
                 skill_source != "local"
@@ -561,14 +560,16 @@ class DockerSandbox(AgentServerLaunchMixin):
                 and local_skills_host
                 and os.path.isdir(local_skills_host)
             ):
-                for entry in sorted(os.listdir(local_skills_host)):
+                entries = [""] if os.environ.get(ENV_EVAL_SKILLS_MANIFEST) else sorted(os.listdir(local_skills_host))
+                for entry in entries:
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
-                    host_skill = os.path.join(local_skills_host, entry)
+                    host_skill = str(Path(local_skills_host) / entry)
                     if not os.path.isdir(host_skill):
                         continue
-                    container_skill = f"/scripts/plugins/posthog/skills/{entry}"
-                    volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
+                    for skills_path in BUNDLED_SKILLS_PATHS:
+                        container_skill = str(Path(skills_path) / entry)
+                        volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
 
             cap_args = ["--cap-add", "SYS_PTRACE"]
             if config.template == SandboxTemplate.PI_BASE:
@@ -642,6 +643,8 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     @staticmethod
     def _local_skill_source(config: SandboxConfig) -> str | None:
+        if os.environ.get(ENV_EVAL_SKILLS_MANIFEST):
+            return None
         if not settings.DEBUG or config.template not in {
             SandboxTemplate.DEFAULT_BASE,
             SandboxTemplate.VM_BASE,

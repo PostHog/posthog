@@ -1923,6 +1923,14 @@ def get_message_actor(run_id: str, message_id: str) -> str | None:
     return get_tasks_cache().get(_message_record_key("actor", run_id, message_id))
 
 
+def is_explicit_slack_reply(task_run: TaskRun, message_id: str | None) -> bool:
+    if message_id:
+        return bool(get_message_actor(str(task_run.id), message_id))
+    # The opening turn starts with the sandbox, before per-message sender records exist.
+    state = task_run.state or {}
+    return state.get("interaction_origin") == "slack" and bool(state.get("slack_actor_slack_user_id"))
+
+
 def turn_person_message(run_id: str | None, message_id: str | None, *, mention: str | None = None) -> str | None:
     """What the person said to start the turn that answers ``message_id``.
 
