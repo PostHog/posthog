@@ -24,6 +24,9 @@ EARLY_CHILD_NAME = "queue.wait"
 LATE_CHILD_NAME = "email.send"
 # Trace C: its root starts 5 minutes before DATE_FROM, and a child on "web" is inside the range.
 EARLY_ROOT_NAME = "GET /early"
+# Only trace A's root carries the bot user agent, and only trace C's root carries the bot host.
+BOT_USER_AGENT = "Discordbot/2.0"
+BOT_HOST = "bot-host"
 
 
 def _b64(raw: bytes) -> str:
@@ -55,20 +58,29 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
 
         def _row(
-            uuid_suffix: int, trace_id: str, span_id: str, parent: str, name: str, service: str, offset_ms: int
+            uuid_suffix: int,
+            trace_id: str,
+            span_id: str,
+            parent: str,
+            name: str,
+            service: str,
+            offset_ms: int,
+            attributes: str = "map()",
+            resource_attributes: str = "map()",
         ) -> str:
             ts = base + dt.timedelta(milliseconds=offset_ms)
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
             return (
                 "("
                 f"'019e8754-0000-0000-0000-{uuid_suffix:012d}', {cls.team.id}, '{trace_id}', "
-                f"'{span_id}', '{parent}', '{name}', 2, '{ts_str}', '{ts_str}', '{ts_str}', 0, '{service}'"
+                f"'{span_id}', '{parent}', '{name}', 2, '{ts_str}', '{ts_str}', '{ts_str}', 0, '{service}', "
+                f"{attributes}, {resource_attributes}"
                 ")"
             )
 
         rows = [
             # Trace A: root and both children on service "web".
-            _row(1, trace_a, root_a, "", ROOT_NAME, "web", 0),
+            _row(1, trace_a, root_a, "", ROOT_NAME, "web", 0, f"map('user_agent.original__str', '{BOT_USER_AGENT}')"),
             _row(2, trace_a, _b64((2).to_bytes(8, "big")), root_a, CHILD_NAME, "web", 10),
             _row(3, trace_a, _b64((3).to_bytes(8, "big")), root_a, "clickhouse.query", "web", 20),
             _row(6, trace_a, _b64((6).to_bytes(8, "big")), root_a, EARLY_CHILD_NAME, "web", -5 * 60 * 1000),
@@ -76,12 +88,23 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             _row(4, trace_b, root_b, "", OTHER_ROOT_NAME, "worker", 0),
             _row(5, trace_b, _b64((5).to_bytes(8, "big")), root_b, CHILD_NAME, "web", 10),
             _row(7, trace_b, _b64((7).to_bytes(8, "big")), root_b, LATE_CHILD_NAME, "delayed", 5 * 60 * 1000),
-            _row(8, trace_c, root_c, "", EARLY_ROOT_NAME, "web", -65 * 60 * 1000),
+            _row(
+                8,
+                trace_c,
+                root_c,
+                "",
+                EARLY_ROOT_NAME,
+                "web",
+                -65 * 60 * 1000,
+                "map()",
+                f"map('host.name', '{BOT_HOST}')",
+            ),
             _row(9, trace_c, _b64((9).to_bytes(8, "big")), root_c, CHILD_NAME, "web", -59 * 60 * 1000),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
-            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+            "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
+            "resource_attributes) VALUES " + ",".join(rows)
         )
 
     @classmethod
@@ -130,6 +153,54 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             self.assertIn(EARLY_ROOT_NAME, names)
         else:
             self.assertNotIn(EARLY_ROOT_NAME, names)
+
+    @parameterized.expand(
+        [
+            (
+                "span_attribute_is_not",
+                {"key": "user_agent.original", "type": "span_attribute", "operator": "is_not", "value": BOT_USER_AGENT},
+                False,
+                {OTHER_ROOT_NAME, EARLY_ROOT_NAME},
+                {ROOT_NAME, "clickhouse.query"},
+            ),
+            (
+                "span_attribute_not_icontains",
+                {"key": "user_agent.original", "type": "span_attribute", "operator": "not_icontains", "value": "bot"},
+                False,
+                {OTHER_ROOT_NAME, EARLY_ROOT_NAME},
+                {ROOT_NAME, "clickhouse.query"},
+            ),
+            # Trace C's root is before the range, so only the root lookback can see the excluded host.
+            (
+                "resource_attribute_is_not_on_lookback_root",
+                {"key": "host.name", "type": "span_resource_attribute", "operator": "is_not", "value": BOT_HOST},
+                False,
+                {ROOT_NAME, OTHER_ROOT_NAME},
+                {EARLY_ROOT_NAME},
+            ),
+            # The flat span list judges each span alone, so trace A keeps the children without a user agent.
+            (
+                "flat_spans_keep_other_spans_of_the_trace",
+                {"key": "user_agent.original", "type": "span_attribute", "operator": "is_not", "value": BOT_USER_AGENT},
+                True,
+                {"clickhouse.query", OTHER_ROOT_NAME},
+                {ROOT_NAME},
+            ),
+        ]
+    )
+    def test_exclusion_drops_whole_trace(self, _name, prop, flat_spans, expected_present, expected_absent):
+        query = TraceSpansQuery(
+            dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            orderBy="timestamp",
+            limit=100,
+            rootSpans=False,
+            flatSpans=flat_spans,
+            prefetchSpans=20,
+            filterGroup={"type": "AND", "values": [{"type": "AND", "values": [prop]}]},
+        )
+        names = {r["name"] for r in TraceSpansQueryRunner(query, self.team).run().results}
+        self.assertTrue(expected_present <= names, names)
+        self.assertFalse(expected_absent & names, names)
 
     @parameterized.expand(
         [
