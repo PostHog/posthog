@@ -63,9 +63,10 @@ def _keyed_hash(salt_key: str, address: bytes) -> str:
 
 
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatusRecord | None:
-    """None for an unknown id, another team's id, and an email whose first status has not arrived yet."""
+    """None for an unknown id, another team's id, an email older than the retention, and an email whose first status
+    has not arrived yet."""
     created_at = message_created_at(message_id)
-    if created_at is None:
+    if created_at is None or created_at < datetime.now(UTC) - EMAIL_STATUS_RETENTION:
         return None
     rows = _execute(
         team_id,

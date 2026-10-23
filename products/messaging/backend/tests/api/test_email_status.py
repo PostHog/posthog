@@ -79,7 +79,7 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         return f"/api/projects/{self.team.id}/messaging/emails/{message_id}/"
 
     def test_reads_the_latest_status_and_never_a_late_lower_one(self, _flag):
-        created_at = datetime(2026, 10, 22, 9, 0, tzinfo=UTC)
+        created_at = (datetime.now(UTC) - timedelta(hours=1)).replace(microsecond=0)
         message_id = self._sent_at(created_at)
         self._record(message_id, "queued", created_at)
         self._record(message_id, "delivered", created_at + timedelta(seconds=3))
@@ -91,12 +91,12 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         assert response.json() == {
             "id": str(message_id),
             "status": "delivered",
-            "created_at": "2026-10-22T09:00:00Z",
-            "status_at": "2026-10-22T09:00:03Z",
+            "created_at": created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "status_at": (created_at + timedelta(seconds=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
     def test_reads_why_an_email_bounced(self, _flag):
-        created_at = datetime(2026, 10, 22, 9, 0, tzinfo=UTC)
+        created_at = datetime.now(UTC) - timedelta(hours=1)
         message_id = self._sent_at(created_at)
         self._record(message_id, "bounced", created_at + timedelta(seconds=5), reason="hard")
 
@@ -106,14 +106,17 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("another_team", True),
-            ("unknown_id", False),
+            ("another_team", timedelta(hours=1), "other"),
+            ("unknown_id", timedelta(hours=1), None),
+            ("older_than_kept", timedelta(days=30, hours=1), "own"),
         ]
     )
-    def test_answers_not_found_for_an_email_it_cannot_show(self, _flag, _name, other_team):
-        created_at = datetime(2026, 10, 22, 9, 0, tzinfo=UTC)
+    def test_answers_not_found_for_an_email_it_cannot_show(self, _flag, _name, age, recorded_by):
+        created_at = datetime.now(UTC) - age
         message_id = self._sent_at(created_at)
-        if other_team:
+        if recorded_by == "own":
+            self._record(message_id, "sent", created_at)
+        elif recorded_by == "other":
             self._record(message_id, "sent", created_at, team_id=Team.objects.create(organization=self.organization).id)
 
         response = self._client(["hog_flow:read"]).get(self._url(message_id))
