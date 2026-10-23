@@ -115,7 +115,15 @@ class _HogQLReferenceVisitor(TaxonomyReferenceVisitor):
         self._qualified_reads: list[tuple[str, str]] = []
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        if isinstance(node.table, ast.Field) and node.table.chain == ["events"] and node.alias:
+        # The chains are compared as strings because this visitor reads unresolved parse output, and
+        # metadata extraction has no database context. Building one per query to resolve the table
+        # costs more than usage attribution is worth. A missed alias only drops a usage count.
+        if (
+            isinstance(node.table, ast.Field)
+            # nosemgrep: hogql-no-string-table-chain
+            and (node.table.chain == ["events"] or node.table.chain == ["posthog", "events"])
+            and node.alias
+        ):
             self._events_aliases.add(node.alias)
         super().visit_join_expr(node)
 

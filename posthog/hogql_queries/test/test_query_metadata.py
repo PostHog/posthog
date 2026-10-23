@@ -495,6 +495,11 @@ class TestQueryPropertiesExtractor(SimpleTestCase):
                 [("event", "$browser"), ("event", "$os")],
             ),
             (
+                "hogql_qualified_events_table_alias",
+                {"kind": "HogQLQuery", "query": "select ev.properties.$browser from posthog.events ev"},
+                [("event", "$browser")],
+            ),
+            (
                 "legacy_session_duration_math_without_type",
                 {
                     "kind": "TrendsQuery",
