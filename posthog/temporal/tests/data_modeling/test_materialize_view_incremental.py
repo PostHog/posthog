@@ -180,11 +180,13 @@ class _WindowedSource:
         integer_keys: bool = False,
         fail: WindowFailure | None = None,
         partial_on_failure: bool = False,
+        first_slot_wait: float = 0,
     ) -> None:
         self.rows = rows
         self._windows = windows
         self._fail = fail
         self._partial_on_failure = partial_on_failure
+        self._first_slot_wait = first_slot_wait
         self._key_type = pa.int64() if integer_keys else pa.timestamp("us", tz="UTC")
         self._types = INTEGER_TYPES if integer_keys else TIMESTAMP_TYPES
 
@@ -198,10 +200,14 @@ class _WindowedSource:
         )
         return pa.RecordBatch.from_arrays(arrays, names=["day", "c"])
 
-    def __call__(self, *args, window: IncrementalWindow | None = None, **kwargs):
+    def __call__(self, *args, window: IncrementalWindow | None = None, on_query_start=None, **kwargs):
         self._windows.append(window)
+        slot_wait = self._first_slot_wait if len(self._windows) == 1 else 0
 
         async def generator():
+            await asyncio.sleep(slot_wait)
+            if on_query_start is not None:
+                on_query_start()
             selected = [row for row in self.rows if _in_window(row[0], window)]
             error = self._fail(window) if self._fail is not None and window is not None else None
             if error is HANG:
@@ -228,9 +234,9 @@ def _windowed_source(rows: list[tuple[Any, int]], **options: Any) -> _WindowedSo
     return _WindowedSource(rows, **options)
 
 
-def _short_window_deadline():
+def _short_window_deadline(margin: timedelta = timedelta(seconds=2)):
     return unittest.mock.patch.multiple(
-        MATERIALIZE_VIEW, HOGQL_INCREASED_MAX_EXECUTION_TIME=0, WINDOW_DEADLINE_MARGIN=timedelta(seconds=2)
+        MATERIALIZE_VIEW, HOGQL_INCREASED_MAX_EXECUTION_TIME=0, WINDOW_DEADLINE_MARGIN=margin
     )
 
 
@@ -1061,6 +1067,78 @@ class TestWindowedMaterialization:
 
         state = await _state(asaved_query)
         assert state.watermark == RECENT_0.isoformat()
+
+    async def test_waiting_for_a_query_slot_does_not_shrink_the_window(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        windows: list[Any] = []
+        rows = [(RECENT_0, 10), (RECENT_1, 20)]
+        source = _windowed_source(rows, windows=windows, first_slot_wait=1.0)
+
+        with _settings(bucket_name), _short_window_deadline(timedelta(milliseconds=500)):
+            result = await _run_windowed(activity_environment, ateam, anode, ajob, adag, source, (RECENT_0, RECENT_1))
+
+        assert _rows(result.table_uri) == rows
+        assert len({window.since for window in windows}) == len(windows)
+
+    async def test_adjacent_integer_keys_build_in_separate_windows(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        windows: list[Any] = []
+        rows = [(15, 10), (16, 20)]
+
+        with _settings(bucket_name):
+            result = await _run_windowed(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _windowed_source(rows, windows=windows, integer_keys=True),
+                (15, 16),
+            )
+
+        assert _rows(result.table_uri) == rows
+        assert windows[0].until == 16
+
+    async def test_a_sampled_datetime_key_reads_as_a_datetime(self, ateam):
+        def stream(*args, **kwargs):
+            async def generator():
+                seconds = pa.array([int(RECENT_0.timestamp())], type=pa.uint32())
+                yield pa.RecordBatch.from_arrays([seconds], names=["key_sample"]), [("key_sample", "DateTime('UTC')")]
+
+            return generator()
+
+        with unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", stream):
+            sample = await materialize_view_module._sample_key(
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day", ateam, LOGGER, "day"
+            )
+
+        assert sample == RECENT_0
+
+    async def test_a_cdp_build_saves_no_watermark_until_maintenance_succeeds(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        rows = [(RECENT_0, 10), (RECENT_2, 30)]
+
+        with (
+            _settings(bucket_name),
+            _patch_producer(_RecordingProducer()),
+            unittest.mock.patch(
+                f"{MATERIALIZE_VIEW}._maintain_and_list_files", side_effect=RuntimeError("vacuum failed")
+            ),
+            pytest.raises(RuntimeError, match="vacuum failed"),
+        ):
+            await _run_windowed(
+                activity_environment, ateam, anode, ajob, adag, _windowed_source(rows, windows=[]), (RECENT_0, RECENT_2)
+            )
+
+        state = await _state(asaved_query)
+        assert state.watermark is None
+        assert state.first_build_in_progress is True
 
     async def test_a_key_the_filter_cannot_push_down_builds_in_one_query(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

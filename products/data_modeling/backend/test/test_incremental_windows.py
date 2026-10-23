@@ -48,6 +48,7 @@ class TestWindowSpans(SimpleTestCase):
 
         halved_once = span.halved()
         assert halved_once is not None and halved_once.size == timedelta(minutes=2)
+        assert halved_once.grown().size == timedelta(minutes=2)
         at_minimum = halved_once.halved()
         assert at_minimum is not None and at_minimum.size == timedelta(minutes=1)
         assert at_minimum.halved() is None

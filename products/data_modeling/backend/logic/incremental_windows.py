@@ -36,7 +36,8 @@ class WindowSpan(Generic[Size]):
     def halved(self) -> Optional["WindowSpan[Size]"]:
         if self.size <= self.minimum:
             return None
-        return dataclasses.replace(self, size=max(self.size // 2, self.minimum))
+        smaller = max(self.size // 2, self.minimum)
+        return dataclasses.replace(self, size=smaller, maximum=smaller)
 
     def grown(self) -> "WindowSpan[Size]":
         return dataclasses.replace(self, size=min(self.size * 2, self.maximum))

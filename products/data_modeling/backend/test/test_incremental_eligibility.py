@@ -1,5 +1,7 @@
 from typing import ClassVar, Optional
 
+import pytest
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -277,8 +279,6 @@ class TestIncrementalEligibility(SimpleTestCase):
 
         assert result.eligible
         assert any("cannot be pushed down" in warning for warning in result.warnings), result.warnings
-        assert key_filter_reaches_source(query, "day") is False
-        assert key_filter_reaches_source("SELECT toStartOfDay(timestamp) AS day FROM events", "day") is True
 
     def test_candidates_exclude_aggregates_and_span_union_branches(self) -> None:
         result = check_incremental_eligibility(
@@ -300,6 +300,31 @@ class TestIncrementalEligibility(SimpleTestCase):
 
         assert not result.eligible
         assert len(result.blockers) == 1, result.blockers
+
+
+@pytest.mark.parametrize(
+    "query, reaches",
+    [
+        ("SELECT toStartOfDay(timestamp) AS day FROM events", True),
+        (
+            "WITH daily AS (SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day) "
+            "SELECT day, c FROM daily",
+            False,
+        ),
+        (
+            "SELECT first_seen AS day FROM (SELECT person_id, min(timestamp) AS first_seen FROM events GROUP BY person_id)",
+            False,
+        ),
+        (
+            "SELECT first_seen AS day FROM (SELECT first_seen FROM "
+            "(SELECT person_id, min(timestamp) AS first_seen FROM events GROUP BY person_id))",
+            False,
+        ),
+        ("SELECT day FROM no_such_table", False),
+    ],
+)
+def test_key_filter_reaches_source(query: str, reaches: bool) -> None:
+    assert key_filter_reaches_source(query, "day", database=Database()) is reaches
 
 
 class TestStarExpansion:

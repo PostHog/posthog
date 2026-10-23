@@ -12,6 +12,7 @@ from products.data_modeling.backend.logic.incremental_filter import (
     GUARD_ALIAS,
     IncrementalFilterError,
     inject_incremental_filter,
+    ungrouped_key_rows,
 )
 
 SINCE = datetime(2026, 8, 1, tzinfo=UTC)
@@ -187,3 +188,22 @@ class TestInjectIncrementalFilter(SimpleTestCase):
             assert isinstance(predicate, ast.CompareOperation)
             assert clear_locations(predicate.left) == ast.Field(chain=list(chain))
             assert predicate.right == ast.Constant(value=SINCE)
+
+
+class TestUngroupedKeyRows(SimpleTestCase):
+    def test_a_grouped_union_reads_source_rows_inside_the_window(self) -> None:
+        node = ungrouped_key_rows(
+            "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day HAVING c > 1 "
+            "UNION ALL SELECT toStartOfDay(created_at) AS day, uniq(person_id) FROM persons GROUP BY day "
+            "ORDER BY day LIMIT 10",
+            incremental_key="day",
+            until=UNTIL,
+        )
+
+        branches = _inner_selects(node)
+        assert len(branches) == 2
+        for branch in branches:
+            assert branch.group_by is None and branch.having is None and branch.limit is None
+            assert len(branch.select) == 2
+            assert all(not isinstance(item, ast.Call) for item in branch.select)
+            assert len(_where_terms(branch)) == 1

@@ -277,9 +277,8 @@ def clear_incremental_state(saved_query, *, scope: Optional[str] = None) -> None
 def start_first_build(saved_query, *, backfill_until: Any = None, backfill_span: Optional[int] = None) -> None:
     def mark(state: dict[str, Any]) -> None:
         state["first_build_in_progress"] = True
-        if backfill_until is not None:
-            state["backfill_until"] = backfill_until
-            state["backfill_span"] = backfill_span
+        state["backfill_until"] = backfill_until
+        state["backfill_span"] = backfill_span
 
     _mutate_state(saved_query, mark)
 

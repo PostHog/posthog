@@ -112,6 +112,7 @@ _LAZY = {
     "WritePlan": "logic.incremental_plan",
     "resolve_write_plan": "logic.incremental_plan",
     "IncrementalFilterError": "logic.incremental_filter",
+    "ungrouped_key_rows": "logic.incremental_filter",
     "inject_incremental_filter": "logic.incremental_filter",
     "apply_incremental_filter": "logic.incremental_filter",
     "EligibilityResult": "logic.incremental_eligibility",

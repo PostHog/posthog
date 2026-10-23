@@ -20,6 +20,8 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
@@ -71,7 +73,6 @@ from products.data_modeling.backend.facade.api import (
     WindowSpan,
     WritePlan,
     clear_incremental_state,
-    definition_database,
     finish_first_build,
     fits_in_one_window,
     get_incremental_state,
@@ -86,6 +87,7 @@ from products.data_modeling.backend.facade.api import (
     skip_empty_ranges,
     start_first_build,
     temporal_span_for,
+    ungrouped_key_rows,
     windowed_materialization_enabled,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
@@ -341,7 +343,8 @@ class _CDPRowSink:
             await self._logger.awarning(f"Failed to clear staged CDP rows: {e}")
 
     async def restart(self) -> None:
-        await self.discard()
+        if self.enabled:
+            await self._producer.clear()
         self._chunk = 0
 
 
@@ -626,12 +629,24 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     return file_uri
 
 
+def _materialization_database(team: Team, modifiers: HogQLQueryModifiers) -> Database:
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    return Database.create_for(
+        team=team,
+        modifiers=modifiers,
+        bypass_warehouse_access_control=True,
+        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+    )
+
+
 async def hogql_table(
     query: str | ast.SelectQuery | ast.SelectSetQuery,
     team: Team,
     logger: FilteringBoundLogger,
     view_name: str | None = None,
     window: "IncrementalWindow | None" = None,
+    on_query_start: typing.Callable[[], None] | None = None,
 ):
     """Execute a HogQL query and yield batches of results.
 
@@ -664,14 +679,7 @@ async def hogql_table(
         limit_top_select=False,
         modifiers=modifiers,
     )
-    # Userless materialization context; bypass warehouse HogQL access control so the model query
-    # can resolve its source tables/views.
-    context.database = await database_sync_to_async_pool(Database.create_for)(
-        team=team,
-        modifiers=context.modifiers,
-        bypass_warehouse_access_control=True,
-        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
-    )
+    context.database = await database_sync_to_async_pool(_materialization_database)(team, context.modifiers)
 
     if PromptJevFinder.contains(query_node):
         # A factory of its own: the deadline is wall clock, and the jev calls between the two
@@ -817,6 +825,8 @@ async def hogql_table(
         _clickhouse_query_semaphore,
         get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client,
     ):
+        if on_query_start is not None:
+            on_query_start()
         batches = []
         batches_size = 0
         yielded_results = False
@@ -1301,6 +1311,7 @@ KEY_RANGE_ALIAS = "__ph_key_range"
 HAS_ROWS_ALIAS = "__ph_has_rows"
 WINDOW_DEADLINE_MARGIN = dt.timedelta(minutes=5)
 FIRST_BUILD_RESUMED_REASON = "first build resumed"
+UNIX_EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
 
 
 @frozen
@@ -1316,14 +1327,44 @@ def _window_deadline_seconds() -> float:
     return HOGQL_INCREASED_MAX_EXECUTION_TIME + WINDOW_DEADLINE_MARGIN.total_seconds()
 
 
-async def _first_batch(query: ast.SelectQuery, team: Team, logger: FilteringBoundLogger) -> pa.RecordBatch | None:
-    async with (
-        asyncio.timeout(_window_deadline_seconds()),
-        contextlib.aclosing(hogql_table(query, team, logger)) as stream,
-    ):
-        async for batch, _ in stream:
+class _ReadDeadline:
+    """Bounds a query's reads from the moment it holds a ClickHouse slot, and never its writes."""
+
+    def __init__(self) -> None:
+        self._when: float | None = None
+        self._scope: asyncio.Timeout | None = None
+
+    def start(self) -> None:
+        self._when = asyncio.get_running_loop().time() + _window_deadline_seconds()
+        if self._scope is not None:
+            self._scope.reschedule(self._when)
+
+    async def read(
+        self, batches: typing.AsyncGenerator[tuple[pa.RecordBatch, list[tuple[str, str]]]]
+    ) -> typing.AsyncGenerator[tuple[pa.RecordBatch, list[tuple[str, str]]]]:
+        async with contextlib.aclosing(batches):
+            while True:
+                async with asyncio.timeout_at(self._when) as scope:
+                    self._scope = scope
+                    try:
+                        batch = await anext(batches)
+                    except StopAsyncIteration:
+                        return
+                    finally:
+                        self._scope = None
+                yield batch
+
+
+async def _first_batch(
+    query: ast.SelectQuery | ast.SelectSetQuery, team: Team, logger: FilteringBoundLogger
+) -> pa.RecordBatch | None:
+    deadline = _ReadDeadline()
+    async with contextlib.aclosing(
+        deadline.read(hogql_table(query, team, logger, on_query_start=deadline.start))
+    ) as stream:
+        async for batch, ch_types in stream:
             if batch.num_rows:
-                return batch
+                return _transform_date_and_datetimes(batch, ch_types)
     return None
 
 
@@ -1336,7 +1377,9 @@ async def _probe_key_range(
             ast.Alias(alias="key_min", expr=ast.Call(name="min", args=[key])),
             ast.Alias(alias="key_max", expr=ast.Call(name="max", args=[key])),
         ],
-        select_from=ast.JoinExpr(table=parse_select(hogql_query), alias=KEY_RANGE_ALIAS),
+        select_from=ast.JoinExpr(
+            table=ungrouped_key_rows(hogql_query, incremental_key=incremental_key), alias=KEY_RANGE_ALIAS
+        ),
     )
     batch = await _first_batch(probe, team, logger)
     if batch is None:
@@ -1348,10 +1391,10 @@ async def _sample_key(hogql_query: str, team: Team, logger: FilteringBoundLogger
     key = ast.Field(chain=[KEY_RANGE_ALIAS, incremental_key])
     sample = ast.SelectQuery(
         select=[ast.Alias(alias="key_sample", expr=key)],
-        select_from=ast.JoinExpr(table=parse_select(hogql_query), alias=KEY_RANGE_ALIAS),
-        where=ast.CompareOperation(
-            left=key, right=ast.Constant(value=None), op=ast.CompareOperationOp.NotEq, is_null_comparison_style=True
+        select_from=ast.JoinExpr(
+            table=ungrouped_key_rows(hogql_query, incremental_key=incremental_key), alias=KEY_RANGE_ALIAS
         ),
+        where=ast.Call(name="isNotNull", args=[key]),
         limit=ast.Constant(value=1),
     )
     batch = await _first_batch(sample, team, logger)
@@ -1367,7 +1410,7 @@ async def _has_rows(
     since: typing.Any = None,
     until: typing.Any = None,
 ) -> bool:
-    bounded = inject_incremental_filter(hogql_query, incremental_key=incremental_key, since=since, until=until)
+    bounded = ungrouped_key_rows(hogql_query, incremental_key=incremental_key, since=since, until=until)
     existence = ast.SelectQuery(
         select=[ast.Alias(alias="hit", expr=ast.Constant(value=1))],
         select_from=ast.JoinExpr(table=bounded, alias=HAS_ROWS_ALIAS),
@@ -1377,15 +1420,23 @@ async def _has_rows(
 
 
 def _now_like(key: typing.Any) -> typing.Any:
-    now = timezone.now()
+    return _shaped_like(key, timezone.now())
+
+
+def _shaped_like(key: typing.Any, instant: dt.datetime) -> typing.Any:
     if isinstance(key, dt.datetime):
-        return now if key.tzinfo is not None else now.replace(tzinfo=None)
-    return now.date()
+        return instant if key.tzinfo is not None else instant.replace(tzinfo=None)
+    return instant.date()
 
 
-def _key_filter_reaches_source(team_id: int, hogql_query: str, incremental_key: str) -> bool:
+def _key_filter_reaches_source(team: Team, view_name: str, hogql_query: str, incremental_key: str) -> bool:
     try:
-        return key_filter_reaches_source(hogql_query, incremental_key, database=definition_database(team_id))
+        return key_filter_reaches_source(
+            hogql_query,
+            incremental_key,
+            database=_materialization_database(team, create_default_modifiers_for_team(team)),
+            resolver_factory=bounded_resolver_factory_for_view(view_name),
+        )
     except Exception as error:
         capture_exception(error)
         return False
@@ -1400,7 +1451,7 @@ async def _plan_windows(
     if not await database_sync_to_async_pool(windowed_materialization_enabled)(objects.team.pk):
         return None
     if not await database_sync_to_async_pool(_key_filter_reaches_source)(
-        objects.team.pk, hogql_query, config.incremental_key
+        objects.team, objects.saved_query.name, hogql_query, config.incremental_key
     ):
         await logger.ainfo("Building in one query: the incremental key filter cannot reach the source table")
         return None
@@ -1440,6 +1491,8 @@ async def _first_build_windows(
     temporal = temporal_span_for(sample)
     if temporal is not None:
         return await _first_temporal_build_windows(objects, hogql_query, key, sample, temporal, logger)
+    if isinstance(sample, bool) or not isinstance(sample, int):
+        return None
     return await _first_integer_build_windows(objects, hogql_query, key, logger)
 
 
@@ -1458,7 +1511,7 @@ async def _first_temporal_build_windows(
     start = await search_lower_bound(has_rows_below, end)
     if start is None:
         start, _ = await _probe_key_range(hogql_query, objects.team, logger, key)
-    if start is None or fits_in_one_window(start, end, span):
+    if start is None or start < _shaped_like(start, UNIX_EPOCH) or fits_in_one_window(start, end, span):
         return None
     await database_sync_to_async_pool(start_first_build)(objects.saved_query)
     return _WindowPlan(start=start, end=end, span=span, first_build=True, resumed_first_build=False)
@@ -1468,13 +1521,16 @@ async def _first_integer_build_windows(
     objects: MatviewInputObjects, hogql_query: str, key: str, logger: FilteringBoundLogger
 ) -> _WindowPlan | None:
     key_min, key_max = await _probe_key_range(hogql_query, objects.team, logger, key)
-    span = initial_span(key_min, key_max) if key_min is not None else None
-    if span is None or not isinstance(span.size, int) or fits_in_one_window(key_min, key_max, span):
+    if key_min is None:
+        return None
+    end = key_max + 1
+    span = initial_span(key_min, end)
+    if span is None or not isinstance(span.size, int) or fits_in_one_window(key_min, end, span):
         return None
     await database_sync_to_async_pool(start_first_build)(
-        objects.saved_query, backfill_until=key_max, backfill_span=span.size
+        objects.saved_query, backfill_until=end, backfill_span=span.size
     )
-    return _WindowPlan(start=key_min, end=key_max, span=span, first_build=True, resumed_first_build=False)
+    return _WindowPlan(start=key_min, end=end, span=span, first_build=True, resumed_first_build=False)
 
 
 async def _materialize_in_windows(
@@ -1491,7 +1547,7 @@ async def _materialize_in_windows(
     config = plan.config
     assert config is not None  # _plan_windows only plans windows with a config
 
-    checkpoints = not cdp_sink.enabled
+    checkpoints = not cdp_sink.enabled and person_property_sink is None
     mode = "full_refresh" if windows.first_build else "incremental"
     progress = _RunProgress()
     span = windows.span
@@ -1514,11 +1570,10 @@ async def _materialize_in_windows(
             await logger.ainfo(f"Materializing window from {start} to {until if until is not None else 'now'}")
             started_at = time.monotonic()
             rows_before_window, watermark_before_window = progress.row_count, progress.watermark
+            deadline = _ReadDeadline()
+            reads = hogql_table(hogql_query, objects.team, logger, window=window, on_query_start=deadline.start)
             try:
-                async with (
-                    asyncio.timeout(_window_deadline_seconds()),
-                    contextlib.aclosing(hogql_table(hogql_query, objects.team, logger, window=window)) as batches,
-                ):
+                async with contextlib.aclosing(deadline.read(reads)) as batches:
                     if target_schema is None:
                         await _write_rows_from_scratch(
                             objects,
@@ -1579,16 +1634,15 @@ async def _materialize_in_windows(
         await _drop_watermark_after(err, objects, logger)
         raise
 
+    file_uris = await _maintain_and_list_files(
+        table_uri, storage_options, logger, progress, compact_always=windows.first_build
+    )
     if not checkpoints and progress.watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(
             objects.saved_query, watermark=progress.watermark, fingerprint=plan.fingerprint, mode=mode
         )
     if windows.first_build or windows.resumed_first_build:
         await database_sync_to_async_pool(finish_first_build)(objects.saved_query)
-
-    file_uris = await _maintain_and_list_files(
-        table_uri, storage_options, logger, progress, compact_always=windows.first_build
-    )
     return progress.row_count, file_uris
 
 

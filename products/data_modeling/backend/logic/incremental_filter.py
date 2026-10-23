@@ -13,12 +13,14 @@ The user picks an output column; we do the rest. Two filters go in, and they do 
    somewhere the planner cannot fully honour.
 """
 
+import dataclasses
 from collections.abc import Callable
 from functools import partial
 from typing import Any, Optional, Union
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import has_aggregation
 from posthog.hogql.visitor import clone_expr
 
 SelectLike = Union[ast.SelectQuery, ast.SelectSetQuery]
@@ -27,6 +29,23 @@ WindowPredicate = Callable[[ast.Expr], ast.Expr]
 # The alias the outer guard binds the user's query to. Leading underscores keep it clear of
 # anything a user would plausibly name a column.
 GUARD_ALIAS = "__ph_incremental"
+
+_ROW_SHAPING_CLAUSES = dict.fromkeys(
+    (
+        "distinct",
+        "having",
+        "qualify",
+        "group_by",
+        "group_by_mode",
+        "order_by",
+        "interpolate",
+        "limit",
+        "limit_by",
+        "limit_with_ties",
+        "limit_percent",
+        "offset",
+    )
+)
 
 
 class IncrementalFilterError(ValueError):
@@ -67,6 +86,30 @@ def apply_incremental_filter(
     window = partial(_window_predicate, since=since, until=until, include_null_keys=include_null_keys)
     filtered = _push_predicate(node, incremental_key=incremental_key, window=window)
     return _wrap_with_guard(filtered, incremental_key=incremental_key, window=window)
+
+
+def ungrouped_key_rows(query: str, *, incremental_key: str, since: Any = None, until: Any = None) -> SelectLike:
+    """``query`` with its grouping removed, so a probe for key values reads source rows without aggregating them."""
+    node = _ungroup(parse_select(query))
+    if since is None and until is None:
+        return node
+    return apply_incremental_filter(node, incremental_key=incremental_key, since=since, until=until)
+
+
+def _ungroup(node: SelectLike) -> SelectLike:
+    if isinstance(node, ast.SelectSetQuery):
+        node.initial_select_query = _ungroup(node.initial_select_query)
+        for set_node in node.subsequent_select_queries:
+            set_node.select_query = _ungroup(set_node.select_query)
+        return node
+    return dataclasses.replace(node, select=[_without_aggregate(item) for item in node.select], **_ROW_SHAPING_CLAUSES)
+
+
+def _without_aggregate(item: ast.Expr) -> ast.Expr:
+    if not has_aggregation(item):
+        return item
+    null = ast.Constant(value=None)
+    return ast.Alias(alias=item.alias, expr=null) if isinstance(item, ast.Alias) else null
 
 
 def _window_predicate(key: ast.Expr, *, since: Any, until: Any, include_null_keys: bool) -> ast.Expr:
