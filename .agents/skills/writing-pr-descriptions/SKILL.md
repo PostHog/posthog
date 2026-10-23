@@ -176,6 +176,15 @@ Delete:
 - The follow-up sentence in any "here is the reason, and here is why the reason matters" pair.
 - Any bullet whose reader you cannot name.
 
+❌ Three bullets from a real draft, each true:
+
+> - The script prints 145 for this body and 199 for example 2.
+> - `hogli lint:skills` passes.
+> - The author decides whether to stack.
+
+✅ Delete all three.
+The first is a number the reviewer cannot use. CI already reports the second. The third tells the reviewer nothing to check or decide.
+
 ### 150 words of prose
 
 A body that would fit any PR tells a reader nothing about this one. A reader who meets a few learns to skip them all.
