@@ -80,6 +80,15 @@ export function alphanumericStem(name) {
     return name.replace(/[^A-Za-z0-9]+(.?)/g, (_, next) => next.toUpperCase())
 }
 
+/**
+ * Shifts a source map's mappings down by the one line a prelude occupies. A `;` with no VLQ
+ * segments before it marks that first generated line as empty, so everything the original map
+ * described moves down to line two.
+ */
+export function shiftMappingsForPrelude(mappings) {
+    return `;${mappings}`
+}
+
 export function stableFileName(originalFile, rewrittenSource) {
     const prefix = originalFile.replace(/-[^-./]+\.js$/, '')
     // Only holds because chunkNames/entryNames in common/esbuilder/utils.mjs are `[name]-[hash]` for non-dev builds.
@@ -236,7 +245,7 @@ export async function writeStableChunks({
             if (hasMap) {
                 const map = JSON.parse(fs.readFileSync(mapFile, 'utf8'))
                 if (prelude) {
-                    map.mappings = `;${map.mappings}`
+                    map.mappings = shiftMappingsForPrelude(map.mappings)
                 }
                 fs.writeFileSync(path.resolve(rewrittenDir, `${file}.map`), JSON.stringify(map))
             }

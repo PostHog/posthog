@@ -203,6 +203,9 @@ await buildInParallel(
  * Minifies every app chunk on its own, in place (see minifySeparately). Keeps the unminified chunks and
  * their maps in the returned directory for the stable copies, and corrects the output sizes that the
  * preload manifest and the eager graph check read.
+ *
+ * This rewrites each chunk's bytes after esbuild names it, so the default (non-stable) chunk file
+ * name is no longer a hash of the bytes it serves.
  */
 async function minifyAppChunks(buildResponse) {
     const distDir = path.resolve(__dirname, 'dist')

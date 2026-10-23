@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { loggedOutSpecifiers, planStableChunks, stableFileName } from './stableChunkNames.mjs'
+import { loggedOutSpecifiers, planStableChunks, shiftMappingsForPrelude, stableFileName } from './stableChunkNames.mjs'
 
 // Two chunks: an entry that imports a shared chunk, the way esbuild writes them with publicPath /static.
 const OUTPUTS = {
@@ -109,6 +109,13 @@ describe('planStableChunks', () => {
         })
     })
 
+    // Pins the one-line shift so a regression here doesn't only show up as misattributed stack traces.
+    describe('shiftMappingsForPrelude', () => {
+        it('adds one leading empty generated line to the mappings', () => {
+            expect(shiftMappingsForPrelude('AAAA')).toBe(';AAAA')
+        })
+    })
+
     // The copied source map is shifted down exactly one line, so the prelude must be a line of its own.
     it('puts a prelude on its own first line, keyed by the chunk specifier', () => {
         const sources = entry('export const a=1')
@@ -208,7 +215,7 @@ describe('planStableChunks', () => {
         }
 
         // Minified while bundling, an unchanged library chunk got new bytes, and a new name, on most deploys.
-        it('minifies each copy on its own, so a chunk keeps its name when only another chunk changes', () => {
+        it('keeps a chunk stable name when only a chunk it imports changes', () => {
             const library = 'const someLongLibraryName=function(){return 1};export{someLongLibraryName as a};'
             const sources = (render: string): Record<string, string> => ({
                 'dist/Scene-AAAA1111.js': `import{a as libraryValue}from"/static/chunk-BBBB2222.js";${render}`,
@@ -222,6 +229,22 @@ describe('planStableChunks', () => {
             expect(after.stableFileOf('dist/chunk-BBBB2222.js')).toBe(libraryFile)
             expect(after.stableFileOf('dist/Scene-AAAA1111.js')).not.toBe(before.stableFileOf('dist/Scene-AAAA1111.js'))
             expect(before.files[libraryFile]).not.toContain('someLongLibraryName')
+        })
+
+        // The prelude becomes part of the bytes a chunk's stable name hashes, so adding one must
+        // give the chunk a new name, the same as any other change to its own code.
+        it('gives a chunk a new stable name when a prelude is added', () => {
+            const outputs = {
+                'dist/Lazy-DDDD4444.js': { entryPoint: 'src/scenes/Lazy.tsx', inputs: { 'src/scenes/Lazy.tsx': {} } },
+            }
+            const sources = { 'dist/Lazy-DDDD4444.js': 'console.log(1)' }
+
+            const noPrelude = write(outputs, sources)
+            const withPrelude = write(outputs, sources, { 'dist/Lazy-DDDD4444.js': 'register();' })
+
+            expect(withPrelude.stableFileOf('dist/Lazy-DDDD4444.js')).not.toBe(
+                noPrelude.stableFileOf('dist/Lazy-DDDD4444.js')
+            )
         })
 
         // A wrong map only shows up later, as stack traces that point at the wrong code.
