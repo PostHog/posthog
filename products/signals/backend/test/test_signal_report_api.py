@@ -64,6 +64,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportCheck,
     SignalReportPullRequest,
     SignalReportTask,
     SignalScoutConfig,
@@ -74,6 +75,7 @@ from products.signals.backend.models import (
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -1324,6 +1326,16 @@ class TestSignalReportListAPI(APIBaseTest):
             return distinct_id == str(other_organization.id)
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", side_effect=evaluate):
+            entered = self.client.post(
+                f"/api/projects/{other_team.id}/signals/reports/{other_monitoring.id}/state/",
+                {"state": "monitoring"},
+            )
+            assert entered.status_code == status.HTTP_200_OK, entered.json()
+            rejected = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{monitoring.id}/state/",
+                {"state": "monitoring"},
+            )
+            assert rejected.status_code == status.HTTP_409_CONFLICT
             disabled = self.client.get(self._list_url(status="resolved"))
             enabled = self.client.get(f"/api/projects/{other_team.id}/signals/reports/?status=resolved")
             enabled_detail = self.client.get(f"/api/projects/{other_team.id}/signals/reports/{other_monitoring.id}/")
@@ -2961,14 +2973,214 @@ class TestAssociatedTaskRunsForReports(APIBaseTest):
 
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            (f"{bulk}_{case}", bulk, case)
+            for bulk in (False, True)
+            for case in ("none", "terminal", "expired", "agent", "metric", "mixed", "child_agent")
+        ]
+    )
+    def test_manual_completion_uses_attempt_service(self, _name: str, bulk: bool, case: str) -> None:
+        team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team, name="Verification environment")
+            if case == "child_agent"
+            else self.team
+        )
+        report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="Verify the fix")
+        check = None
+        if case != "none":
+            check = SignalReportCheck.objects.for_team(team.id).create(
+                team_id=team.id,
+                report=report,
+                title="Outcome remains healthy",
+                kind=SignalReportCheck.Kind.METRIC_THRESHOLD if case == "metric" else SignalReportCheck.Kind.AGENT,
+                config={},
+                soak_minutes=0 if case == "agent" else None,
+                status=SignalReportCheck.Status.PASSED if case == "terminal" else SignalReportCheck.Status.ACTIVE,
+                next_run_at=timezone.now(),
+                expires_at=timezone.now() + timedelta(days=-1 if case == "expired" else 30),
+                last_outcome="pass",
+                measurement_start_at=timezone.now() - timedelta(days=3),
+            )
+        applicable_ids = {str(check.id)} if check is not None else set()
+        if case == "mixed":
+            metric = SignalReportCheck.objects.for_team(team.id).create(
+                team_id=team.id,
+                report=report,
+                title="Measure the fix",
+                next_run_at=timezone.now(),
+                kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+                config={},
+                soak_minutes=None,
+                status=SignalReportCheck.Status.PENDING,
+                expires_at=timezone.now() + timedelta(days=30),
+            )
+            applicable_ids.add(str(metric.id))
+        url = (
+            f"/api/projects/{team.id}/signals/reports/bulk-state/"
+            if bulk
+            else f"/api/projects/{team.id}/signals/reports/{report.id}/state/"
+        )
+        body = {"state": "monitoring", **({"ids": [str(report.id)]} if bulk else {})}
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            response = self.client.post(url, body, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            report.refresh_from_db()
+            expected_status = (
+                SignalReport.Status.MONITORING
+                if case in {"agent", "metric", "mixed", "child_agent"}
+                else SignalReport.Status.RESOLVED
+            )
+            result = response.json()["results"][0] if bulk else response.json()
+            assert result["status"] == expected_status
+            if bulk:
+                assert result["outcome"] == "transitioned"
+            attempt = current_monitoring_attempt(report)
+            if case in {"agent", "metric", "mixed", "child_agent"}:
+                assert report.status == SignalReport.Status.MONITORING
+                assert attempt is not None and check is not None
+                assert set(attempt.check_versions) == applicable_ids
+                assert attempt.team_id == team.id
+                check.refresh_from_db()
+                assert check.last_outcome is None
+                assert check.measurement_start_at is None
+                assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
+                repeated_attempt = current_monitoring_attempt(report)
+                assert repeated_attempt is not None and repeated_attempt.id == attempt.id
+                for target in ("suppressed", "potential"):
+                    assert (
+                        self.client.post(url, {**body, "state": target}, format="json").status_code
+                        == status.HTTP_200_OK
+                    )
+                report.refresh_from_db()
+                restored_attempt = current_monitoring_attempt(report)
+                assert restored_attempt is not None and restored_attempt.id == attempt.id
+                assert report.monitoring_started_at == attempt.monitoring_started_at
+                assert (
+                    self.client.post(url, {**body, "state": "potential"}, format="json").status_code
+                    == status.HTTP_200_OK
+                )
+                report.refresh_from_db()
+                assert current_monitoring_attempt(report) is None
+                report.status = SignalReport.Status.READY
+                report.save(update_fields=["status"])
+                assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
+                report.refresh_from_db()
+                reopened_attempt = current_monitoring_attempt(report)
+                assert reopened_attempt is not None and reopened_attempt.id != attempt.id
+            else:
+                assert report.status == SignalReport.Status.RESOLVED
+                assert attempt is None
+                assert report.monitoring_started_at is None
+                if case == "expired":
+                    assert check is not None
+                    check.refresh_from_db()
+                    assert check.status == SignalReportCheck.Status.EXPIRED
+
+    @parameterized.expand(
+        [
+            (bulk, reason, 0)
+            for bulk in (False, True)
+            for reason in (None, "verified_manually", "no_action_needed", "already_fixed", "other")
+        ]
+        + [(bulk, "verified_manually", note_length) for bulk in (False, True) for note_length in (4000, 4001)]
+    )
+    def test_manual_monitoring_preserves_period_and_records_completion(
+        self, bulk: bool, reason: str | None, note_length: int
+    ) -> None:
+        report = self._create_report()
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            report.save(
+                update_fields=report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
+            )
+            original_start = report.monitoring_started_at
+            for target in ("monitoring", "suppressed", "potential"):
+                response = self.client.post(self._state_url(str(report.id)), {"state": target})
+                assert response.status_code == status.HTTP_200_OK, response.json()
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.MONITORING
+            assert report.monitoring_started_at == original_start
+            checks = [
+                SignalReportCheck.objects.for_team(self.team.id).create(
+                    team_id=self.team.id,
+                    report=report,
+                    title="Check the synthetic fix",
+                    kind=kind,
+                    status=check_status,
+                    config={},
+                    expires_at=timezone.now() + timedelta(days=30),
+                    next_run_at=timezone.now() + timedelta(hours=6),
+                )
+                for kind, check_status in [
+                    (SignalReportCheck.Kind.AGENT, SignalReportCheck.Status.PENDING),
+                    (SignalReportCheck.Kind.METRIC_THRESHOLD, SignalReportCheck.Status.ACTIVE),
+                    (SignalReportCheck.Kind.AGENT, SignalReportCheck.Status.PASSED),
+                ]
+            ]
+            url = (
+                f"/api/projects/{self.team.id}/signals/reports/bulk-state/" if bulk else self._state_url(str(report.id))
+            )
+            body = {
+                "state": "resolved",
+                **({"ids": [str(report.id)]} if bulk else {}),
+                **({"dismissal_reason": reason} if reason else {}),
+                **({"dismissal_note": "x" * note_length} if note_length else {}),
+            }
+            finished = self.client.post(url, body, format="json")
+            if note_length > 4000:
+                assert finished.status_code == status.HTTP_400_BAD_REQUEST, finished.json()
+                report.refresh_from_db()
+                assert report.status == SignalReport.Status.MONITORING
+                for check in checks:
+                    check.refresh_from_db()
+                assert [check.status for check in checks] == [
+                    SignalReportCheck.Status.PENDING,
+                    SignalReportCheck.Status.ACTIVE,
+                    SignalReportCheck.Status.PASSED,
+                ]
+                assert not SignalReportArtefact.objects.filter(
+                    report=report, type__in=["note", "check_cancelled"]
+                ).exists()
+                assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == 1
+                return
+            assert finished.status_code == status.HTTP_200_OK, finished.json()
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.RESOLVED
+            assert report.monitoring_started_at == original_start
+            feedback = SignalReportArtefact.objects.filter(report=report, type="dismissal").latest("created_at")
+            content = json.loads(feedback.content)
+            assert content["state"] == "resolved"
+            assert content["reason"] == reason
+            assert content["note"] == ("x" * note_length if note_length else None)
+            for check in checks:
+                check.refresh_from_db()
+            assert [check.status for check in checks] == [
+                SignalReportCheck.Status.CANCELLED,
+                SignalReportCheck.Status.CANCELLED,
+                SignalReportCheck.Status.PASSED,
+            ]
+            cancellations = SignalReportArtefact.objects.filter(report=report, type="check_cancelled")
+            assert cancellations.count() == 2
+            assert set(cancellations.values_list("created_by_id", flat=True)) == {self.user.id}
+            assert content["user_id"] == self.user.id
+            assert feedback.created_by_id == self.user.id
+            annotation = SignalReportArtefact.objects.get(report=report, type="note")
+            assert annotation.created_by_id == self.user.id
+            assert (
+                json.loads(annotation.content)["note"]
+                == "Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
+            )
+            assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
+            assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == (3 if reason else 2)
+            assert cancellations.count() == 2
+            assert SignalReportArtefact.objects.filter(report=report, type="note").count() == 1
+
     @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
     def test_monitoring_entry_fails_closed_and_existing_rows_use_resolved_actions(
         self, _name: str, flag_result: bool | Exception
     ) -> None:
         report = self._create_report()
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
-            rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
-            assert rejected.status_code == status.HTTP_400_BAD_REQUEST
             report.save(
                 update_fields=report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
             )
@@ -2980,7 +3192,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
             rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
-            assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+            assert rejected.status_code == status.HTTP_409_CONFLICT
+            verification = self.client.post(
+                self._state_url(str(report.id)), {"state": "resolved", "dismissal_reason": "verified_manually"}
+            )
+            assert verification.status_code == status.HTTP_409_CONFLICT
             repeated = self.client.post(self._state_url(str(report.id)), {"state": "resolved"})
             assert repeated.status_code == status.HTTP_200_OK
             assert repeated.json()["status"] == "resolved"
@@ -2997,6 +3213,45 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             report.refresh_from_db()
             assert report.monitoring_started_at is None
         assert original_start is not None
+
+    def test_manual_verification_skips_reports_without_a_monitoring_period_in_bulk(self) -> None:
+        monitoring = self._create_report()
+        ready = self._create_report()
+        unrelated_check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report=ready,
+            title="Keep another report's check",
+            kind=SignalReportCheck.Kind.AGENT,
+            status=SignalReportCheck.Status.PENDING,
+            config={},
+            expires_at=timezone.now() + timedelta(days=30),
+            next_run_at=timezone.now() + timedelta(hours=6),
+        )
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            monitoring.save(
+                update_fields=monitoring.transition_to(
+                    SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                )
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/bulk-state/",
+                {
+                    "ids": [str(monitoring.id), str(ready.id)],
+                    "state": "resolved",
+                    "dismissal_reason": "verified_manually",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["id"]: row["outcome"] for row in response.json()["results"]} == {
+            str(monitoring.id): "transitioned",
+            str(ready.id): "skipped",
+        }
+        ready.refresh_from_db()
+        unrelated_check.refresh_from_db()
+        assert ready.status == SignalReport.Status.READY
+        assert unrelated_check.status == SignalReportCheck.Status.PENDING
+        assert not SignalReportArtefact.objects.filter(report=ready, type="dismissal").exists()
 
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
@@ -3920,7 +4175,7 @@ class TestSignalReportMergeAPI(APIBaseTest):
     @parameterized.expand(
         [
             (f"{target}_{bulk}_{dismiss_again}", target, bulk, dismiss_again)
-            for target in ["potential", "resolved"]
+            for target in ["potential", "resolved", "monitoring"]
             for bulk in [False, True]
             for dismiss_again in [False, True]
         ]
@@ -4110,6 +4365,38 @@ class TestAvailableReviewersAPI(APIBaseTest):
 
 
 class TestSignalReportBulkStateAPI(APIBaseTest):
+    @parameterized.expand(
+        [("enabled", True), ("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))]
+    )
+    def test_bulk_monitoring_respects_the_gate_and_individual_transition_guards(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        ready = self._create_report()
+        researching = self._create_report(report_status=SignalReport.Status.IN_PROGRESS)
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            single = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{ready.id}/state/", {"state": "monitoring"}
+            )
+            assert single.status_code == (status.HTTP_200_OK if flag_result is True else status.HTTP_409_CONFLICT), (
+                single.json()
+            )
+            response = self.client.post(
+                self._bulk_url(), {"ids": [str(ready.id), str(researching.id)], "state": "monitoring"}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["outcome"] for row in response.json()["results"]] == [
+            "transitioned" if flag_result is True else "skipped",
+            "skipped",
+        ]
+        ready.refresh_from_db()
+        researching.refresh_from_db()
+        assert ready.status == (SignalReport.Status.RESOLVED if flag_result is True else SignalReport.Status.READY)
+        assert researching.status == SignalReport.Status.IN_PROGRESS
+
     def _bulk_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
 
@@ -4270,7 +4557,6 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
                 {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "suppressed", "dismissal_reason": "made_up"},
             ),
             ("invalid_state", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "ready"}),
-            ("monitoring_not_available", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "monitoring"}),
             ("non_uuid_id", {"ids": ["not-a-uuid"], "state": "suppressed"}),
         ]
     )
