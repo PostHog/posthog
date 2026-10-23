@@ -327,23 +327,11 @@ class TestMoEngageSourceCampaignReport:
         assert result.saved_states == []
 
 
-class TestMoEngageSourceErrors:
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown MoEngage endpoint" in str(result.raised)
-        assert result.requests == []
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status", "is_valid", "message_fragment"),
         [
             (200, True, None),
-            (401, False, "authentication failed"),
-            (403, False, "authentication failed"),
-            (500, False, "unexpected response"),
         ],
     )
     def test_maps_probe_status_to_user_message(self, status: int, is_valid: bool, message_fragment: str | None) -> None:

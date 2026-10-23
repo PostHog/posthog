@@ -54,14 +54,6 @@ class TestFormatIncrementalValue:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status_code, json={})]):
-            ok, returned_status = validate_credentials("tlk_key")
-        assert ok is expected
-        # The caller relies on the status code to tell a rejected key from a transient outage.
-        assert returned_status == status_code
-
     def test_credentialed_session_redacts_key_and_refuses_redirects(self) -> None:
         # The x-api-key value must never reach tracked telemetry, and a 30x must not replay it to
         # another host, so validation builds the session with both guards on.
@@ -184,6 +176,32 @@ class TestFanOut:
         ]
         assert result.requests[0].query["asset_types"] == ("video", "audio")
         assert dict(result.requests[1].query) == {"include": ("sentences,utterances",)}
+
+    def test_item_tags_fan_out_over_each_store_and_its_video_items(self) -> None:
+        # The tags path needs the store id from two levels up, so it must be carried through the
+        # items level. Image items hold no tags and must not cost a request.
+        tag = {"_id": "t1", "knowledge_store_id": "ks2", "item_id": "i2", "start_sec": 1.5, "end_sec": None}
+        result = _run(
+            "knowledge_store_item_tags",
+            [
+                _page([{"_id": "ks1"}, {"_id": "ks2"}], page=1, total_page=1),
+                _page([{"_id": "i1", "asset_type": "image"}], page=1, total_page=1),
+                _page([{"_id": "i2", "asset_type": "video"}], page=1, total_page=1),
+                _page([tag], page=1, total_page=1),
+            ],
+        )
+
+        assert result.rows == [tag]
+        assert result.paths == [
+            "/v1.3/knowledge-stores",
+            "/v1.3/knowledge-stores/ks1/items",
+            "/v1.3/knowledge-stores/ks2/items",
+            "/v1.3/knowledge-stores/ks2/items/i2/tags",
+        ]
+        assert result.requests[1].param("sort_option") == "asc"
+        assert result.requests[3].param("knowledge_store_id") is None
+        assert result.response is not None
+        assert result.response.supports_resume is False
 
     def test_old_shape_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the

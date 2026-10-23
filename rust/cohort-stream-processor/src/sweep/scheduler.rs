@@ -23,6 +23,13 @@ pub trait Sweeper: Send + Sync {
     async fn run_once(&self);
 }
 
+#[async_trait]
+impl<S: Sweeper + ?Sized> Sweeper for std::sync::Arc<S> {
+    async fn run_once(&self) {
+        (**self).run_once().await;
+    }
+}
+
 /// The cutoff a worker passes to [`EvictionQueue::due_keys`](super::EvictionQueue::due_keys): a key
 /// is due once its deadline is strictly before `now_ms − safety_margin_ms`.
 ///

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThinkificSource(ResumableSource[ThinkificSourceConfig, ThinkificResumeConfig]):
+    codebase_detection = detect(env=("^THINKIFIC_",))
+
     api_docs_url = "https://developers.thinkific.com/api/api-documentation"
 
     @property
@@ -55,7 +58,7 @@ You can create an API key under **Settings → Code & analytics → API** in you
             iconPath="/static/services/thinkific.png",
             docsUrl="https://posthog.com/docs/cdp/sources/thinkific",
             keywords=["lms", "elearning", "e-learning", "courses"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

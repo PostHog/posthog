@@ -110,11 +110,18 @@ describe('ciExplorerLogic', () => {
     test.each([
         ['the plain page', '', { view: 'overview', older_commit: false }],
         ['a link to a view', '?view=activity', { view: 'activity', older_commit: false }],
+        ['a link to the timeline', '?view=timeline', { view: 'timeline', older_commit: false }],
         ['a link to a commit', '?sha=def456', { view: 'overview', older_commit: true }],
     ])('captures one viewed event when %s opens', (_, search, properties) => {
         open(search)
 
         expect(viewedEvents()).toEqual([properties])
+    })
+
+    test.each(['activity', 'timeline'] as const)('links to the %s view', (view) => {
+        open('')
+
+        expect(logic.values.locationUrl({ view, headSha: null, nodeId: null })).toContain(`view=${view}`)
     })
 
     it('captures a viewed event when the view changes without a link', () => {

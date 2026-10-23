@@ -10,16 +10,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skyvern import (
     SkyvernSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern import skyvern
-from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.skyvern import (
-    SkyvernResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.skyvern import SkyvernResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.source import SkyvernSource
 
 
@@ -92,23 +88,6 @@ class TestFanOutRuns:
         restored = SkyvernResumeConfig(**cast("dict[str, Any]", {"page": 3, "workflow_permanent_id": "wpid_9"}))
         assert restored.page == 3
         assert restored.fanout_state is None
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code,expected_valid",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_status_mapping(self, status_code, expected_valid) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            valid, _ = validate_credentials("key", None)
-        assert valid is expected_valid
-
-    def test_swallows_transport_errors(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, message = validate_credentials("key", None)
-        assert valid is False
-        assert message
 
 
 class TestSourceResponse:

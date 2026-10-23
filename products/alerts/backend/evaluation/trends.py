@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -159,6 +160,7 @@ class TrendsExtractor:
                 is_breakdown=has_breakdown,
                 interval_type=interval_type,
                 value_formatter=value_formatter,
+                truncated=has_breakdown and bool(calculation_result.has_more),
             ),
             delay=delay,
             minimum_points=1 if condition.type == AlertConditionType.ABSOLUTE_VALUE else 2,
@@ -243,6 +245,14 @@ class TrendsExtractor:
                     points=points,
                     current_index=current_index,
                     is_current_interval=is_current_interval,
+                    identity=_breakdown_identity(result) if has_breakdown else None,
                 )
             )
         return series
+
+
+def _breakdown_identity(result: dict[str, Any]) -> str:
+    """The series and the raw breakdown value, which the formatted label can merge across rows."""
+    return json.dumps(
+        [result.get("order"), result.get("breakdown_value")], separators=(",", ":"), ensure_ascii=False, default=str
+    )

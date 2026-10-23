@@ -3,11 +3,13 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import psycopg
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -16,6 +18,9 @@ from posthog.schema import EventsNode, TrendsQuery
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import CHQueryErrorNoCommonType
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
@@ -226,6 +231,47 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         mock_counter.labels.assert_not_called()
         mock_signal.assert_not_called()
         mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("concurrency", ConcurrencyLimitExceeded("too many"), "concurrency"),
+            ("read_budget", APIQueriesBudgetExceeded(wait=120), "read_budget"),
+        ]
+    )
+    def test_query_refusal_records_reason_and_sends_one_event_per_window(self, _name, error, expected_reason):
+        cache.clear()
+        endpoint = create_endpoint_with_version(
+            name=f"refused_{expected_reason}",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"scope": expected_reason, "reason": expected_reason}
+        before = REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels) or 0
+        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/"
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.rate_limit_signal.posthoganalytics.capture") as mock_capture,
+        ):
+            for _ in range(2):
+                response = self.client.post(url, {}, format="json")
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        self.assertEqual(REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels), before + 2)
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "endpoint rate limited"]
+        self.assertEqual(len(events), 1)
+        properties = events[0].kwargs["properties"]
+        self.assertEqual(
+            {k: properties[k] for k in ("team_id", "endpoint_name", "endpoint_version", "reason")},
+            {
+                "team_id": self.team.id,
+                "endpoint_name": endpoint.name,
+                "endpoint_version": 1,
+                "reason": expected_reason,
+            },
+        )
 
     def test_capacity_error_preserves_retry_after(self):
         endpoint = create_endpoint_with_version(
@@ -2522,10 +2568,18 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         inline_response = Response({"results": [[1]], "columns": ["count()"]})
+        outcomes: list[Response | Exception] = [RuntimeError("materialized table exploded"), inline_response]
+        workloads_seen: list[str | None] = []
+
+        def run_query(*args, **kwargs) -> Response:
+            workloads_seen.append(get_query_tags().workload)
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
         with mock.patch.object(
-            EndpointExecutionService,
-            "_execute_query_and_respond",
-            side_effect=[RuntimeError("materialized table exploded"), inline_response],
+            EndpointExecutionService, "_execute_query_and_respond", side_effect=run_query
         ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -2533,6 +2587,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+        self.assertEqual(workloads_seen[0], Workload.ENDPOINTS)
+        self.assertNotEqual(
+            workloads_seen[1], Workload.ENDPOINTS, "the inline fallback must not run on the endpoints cluster"
+        )
 
     def test_materialized_cache_ttl_derived_from_modeling_jobs(self):
         """v2 DAG runs record success in DataModelingJob but never write saved_query.last_run_at.

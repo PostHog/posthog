@@ -164,44 +164,52 @@ describe('taxonomicSearchIntentLogic', () => {
     })
 
     it.each([
-        ['on the All tab before the results reveal', TaxonomicFilterGroupType.PersonProperties, false, false, 'model'],
-        ['on the All tab from a rule match', TaxonomicFilterGroupType.PersonProperties, false, false, 'rule'],
-        ['on the All tab after the results reveal', TaxonomicFilterGroupType.EventProperties, true, false, 'model'],
-        ['on a specific tab', TaxonomicFilterGroupType.EventProperties, false, true, 'model'],
+        ['on the All tab from a rule match', TaxonomicFilterGroupType.PersonProperties, false, 'rule'],
+        ['on a specific tab', TaxonomicFilterGroupType.EventProperties, true, 'model'],
+    ])('in the promote arm, an answer that lands %s puts %s first', async (_, first, onSpecificTab, method) => {
+        enroll('promote')
+        answer = { ...PERSON_PROPERTIES_ANSWER, method }
+        if (onSpecificTab) {
+            filterLogic.actions.setActiveTab(TaxonomicFilterGroupType.EventProperties)
+        }
+        await search('email')
+
+        expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(first)
+    })
+
+    it.each([
+        { variant: 'control', revealed: false, promotes: false },
+        { variant: 'banner', revealed: false, promotes: false },
+        { variant: 'promote', revealed: false, promotes: true },
+        { variant: 'control', revealed: true, promotes: false },
+        { variant: 'banner', revealed: true, promotes: false },
+        { variant: 'promote', revealed: true, promotes: false },
     ])(
-        'in the promote arm, an answer that lands %s puts %s first',
-        async (_, first, revealed, onSpecificTab, method) => {
-            enroll('promote')
-            answer = { ...PERSON_PROPERTIES_ANSWER, method }
-            if (onSpecificTab) {
-                filterLogic.actions.setActiveTab(TaxonomicFilterGroupType.EventProperties)
-            }
+        'on the All tab, the $variant arm with results revealed $revealed promotes the predicted group: $promotes',
+        async ({ variant, revealed, promotes }) => {
+            enroll(variant)
+            answer = { ...PERSON_PROPERTIES_ANSWER, suggests_switch: false }
+            const captureSpy = jest.spyOn(posthog, 'capture')
             filterLogic.actions.setSearchQuery('email')
             if (revealed) {
                 filterLogic.actions.openRevealBarrier()
             }
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(first)
+            expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(
+                promotes ? TaxonomicFilterGroupType.PersonProperties : TaxonomicFilterGroupType.EventProperties
+            )
+            expect(captureSpy).toHaveBeenCalledWith(
+                'taxonomic filter search intent predicted',
+                expect.objectContaining({
+                    variant,
+                    wouldPromote: true,
+                    inTime: !revealed,
+                    shown: promotes,
+                })
+            )
         }
     )
-
-    it.each(['control', 'banner'])('promotes the predicted group on the All tab in the %s arm too', async (variant) => {
-        enroll(variant)
-        answer = { ...PERSON_PROPERTIES_ANSWER, suggests_switch: false }
-        const captureSpy = jest.spyOn(posthog, 'capture')
-        await search('email')
-
-        expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(TaxonomicFilterGroupType.PersonProperties)
-        expect(captureSpy).toHaveBeenCalledWith(
-            'taxonomic filter search intent predicted',
-            expect.objectContaining({
-                variant,
-                wouldPromote: true,
-                shown: true,
-            })
-        )
-    })
 
     it('stops asking after the project turns out not to be enrolled', async () => {
         enroll('banner')

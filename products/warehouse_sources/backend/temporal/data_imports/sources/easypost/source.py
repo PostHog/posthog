@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EasypostSource(ResumableSource[EasypostSourceConfig, EasypostResumeConfig]):
+    codebase_detection = detect(
+        env=("^EASYPOST_",),
+        npm=("@easypost/api",),
+        pypi=("easypost",),
+        composer=("easypost/easypost-php",),
+        go=("github.com/EasyPost/easypost-go",),
+        maven=("com.easypost:easypost-api-client",),
+        rubygems=("easypost",),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.easypost.com"
@@ -47,7 +58,7 @@ class EasypostSource(ResumableSource[EasypostSourceConfig, EasypostResumeConfig]
             name=ExternalDataSourceType.EASYPOST,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="EasyPost",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your EasyPost API key to automatically pull your EasyPost shipping data into the PostHog Data warehouse.
 
 You can find your API keys in your [EasyPost account settings](https://www.easypost.com/account/api-keys). Use a production key to sync production data, or a test key to sync test-mode data.""",

@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import PaginatorConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xsolla import XsollaSourceConfig
@@ -19,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.xsolla.set
     HISTORY_START,
     PAGE_SIZE,
     RESPONSE_ACTIONS,
+    STORE_PAGE_SIZE,
+    STORE_RESPONSE_ACTIONS,
     TRANSACTIONS_LOOKBACK_DAYS,
     XsollaEndpoint,
 )
@@ -69,13 +72,16 @@ def _rest_config(
     api_version: str,
     data_map: Callable[[dict[str, Any]], dict[str, Any]] | None,
 ) -> RESTAPIConfig:
+    paginator: PaginatorConfig = "single_page"
+    if endpoint.store:
+        paginator = {"type": "offset", "limit": STORE_PAGE_SIZE, "total_path": "total_items_count"}
+    elif endpoint.paginated:
+        paginator = {"type": "offset", "limit": PAGE_SIZE, "total_path": None}
     return {
         "client": {
-            "base_url": f"{API_BASE_URL}/{api_version}/",
+            "base_url": endpoint.base_url or f"{API_BASE_URL}/{api_version}/",
             "auth": {"type": "http_basic", "username": merchant_id, "password": config.api_key},
-            "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None}
-            if endpoint.paginated
-            else "single_page",
+            "paginator": paginator,
         },
         "resources": [
             {
@@ -84,9 +90,10 @@ def _rest_config(
                 "endpoint": {
                     "path": path,
                     "params": params,
-                    "response_actions": RESPONSE_ACTIONS,
+                    "response_actions": STORE_RESPONSE_ACTIONS if endpoint.store else RESPONSE_ACTIONS,
                     # The projects list shape is not documented, so only the documented list endpoints fail loud.
                     "data_selector_required": name != "projects",
+                    **({"data_selector": "items"} if endpoint.store else {}),
                 },
                 "table_format": "delta",
                 "data_map": data_map,
@@ -129,7 +136,11 @@ def _window_params(name: str, window_start: date, window_end: date) -> dict[str,
             "type": "all",
         }
     # Report endpoints accept YYYY-MM-DD only.
-    return {"datetime_from": window_start.isoformat(), "datetime_to": window_end.isoformat()}
+    params = {"datetime_from": window_start.isoformat(), "datetime_to": window_end.isoformat()}
+    if name == "transaction_registry":
+        # Required by the registry. 0 keeps amounts in the payment currency, as Xsolla does by default.
+        params["in_transfer_currency"] = "0"
+    return params
 
 
 def list_project_ids(

@@ -10,12 +10,9 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -153,18 +150,42 @@ def test_requests_and_pagination(
 
 
 @pytest.mark.parametrize(
-    ("status", "schema", "valid", "message"),
+    ("status", "schema", "valid", "message", "path", "page_param", "size_param"),
     [
-        (200, None, True, None),
-        (401, None, False, "rejected your API key"),
-        (403, None, True, None),
-        (403, "services", False, "view permission"),
-        (400, None, False, "account, organization, project, and region"),
-        (404, None, False, "account, organization, project, and region"),
+        (200, None, True, None, "/pipeline/api/pipelines/list", "page", "size"),
+        (403, None, True, None, "/pipeline/api/pipelines/list", "page", "size"),
+        (403, "services", False, "view permission", "/ng/api/servicesV2", "page", "size"),
+        (403, "infrastructures", False, "view permission", "/ng/api/environmentsV2", "page", "size"),
+        (200, "organizations", True, None, "/ng/api/organizations", "pageIndex", "pageSize"),
+        (
+            400,
+            None,
+            False,
+            "account, organization, project, and region",
+            "/pipeline/api/pipelines/list",
+            "page",
+            "size",
+        ),
+        (
+            404,
+            None,
+            False,
+            "account, organization, project, and region",
+            "/pipeline/api/pipelines/list",
+            "page",
+            "size",
+        ),
     ],
 )
 def test_credential_probe(
-    config: HarnessSourceConfig, status: int, schema: str | None, valid: bool, message: str | None
+    config: HarnessSourceConfig,
+    status: int,
+    schema: str | None,
+    valid: bool,
+    message: str | None,
+    path: str,
+    page_param: str,
+    size_param: str,
 ) -> None:
     with scripted_network(
         [ScriptedResponse(status=status, json={"data": {"content": [], "totalPages": 0}})]
@@ -178,8 +199,9 @@ def test_credential_probe(
     assert len(network.requests_log) == 1
     request = network.requests_log[0]
     assert request.headers["x-api-key"] == "fake-token"
-    assert request.param("size") == "1"
-    assert request.path == ("/ng/api/servicesV2" if schema == "services" else "/pipeline/api/pipelines/list")
+    assert request.param(size_param) == "1"
+    assert request.param(page_param) == "0"
+    assert request.path == path
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -191,10 +213,12 @@ def test_sync_auth_errors_are_terminal(driver: SourceDriver, status: int) -> Non
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_probe_errors_propagate(config: HarnessSourceConfig, status: int) -> None:
+def test_transient_probe_errors_report_an_unreachable_vendor(config: HarnessSourceConfig, status: int) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
-        with pytest.raises(RESTClientRetryableError):
-            HarnessSource().validate_credentials(config, 1)
+        assert HarnessSource().validate_credentials(config, 1) == (
+            False,
+            "Couldn't reach Harness to check your credentials. Try again in a few minutes.",
+        )
     assert len(network.requests_log) == 5
 
 
@@ -217,6 +241,7 @@ def test_invalid_region_never_sends_token(config: HarnessSourceConfig, region: s
         ("pipelines", {"data": {"content": [{}]}}, "without an identifier"),
         ("services", {"data": {"content": [{"service": None}]}}, "without an identifier"),
         ("environments", {"data": {"content": [{"environment": {}}]}}, "without an identifier"),
+        ("projects", {"data": {"content": [{"project": {"identifier": "web"}}]}}, "without an identifier"),
     ],
 )
 def test_malformed_response_fails(driver: SourceDriver, name: str, body: dict[str, Any], error: str) -> None:
@@ -226,7 +251,85 @@ def test_malformed_response_fails(driver: SourceDriver, name: str, body: dict[st
     assert result.saved_states == []
 
 
-def test_unknown_table(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
+@pytest.mark.parametrize(
+    ("name", "path", "row", "expected"),
+    [
+        (
+            "organizations",
+            "/ng/api/organizations",
+            {"organization": {"identifier": "default", "name": "Default"}, "harnessManaged": True},
+            {"identifier": "default", "name": "Default", "harnessManaged": True},
+        ),
+        (
+            "projects",
+            "/ng/api/projects",
+            {"project": {"orgIdentifier": "default", "identifier": "web"}, "isFavorite": False},
+            {"orgIdentifier": "default", "identifier": "web", "isFavorite": False},
+        ),
+    ],
+)
+def test_account_tables_page_across_the_account(
+    driver: SourceDriver, name: str, path: str, row: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    page = {"data": {"content": [row], "totalPages": 2}}
+    result = driver.run(name, [ScriptedResponse(json=page), ScriptedResponse(json=page)])
+    assert result.raised is None
+    assert result.rows == [expected, expected]
+    assert result.paths == [path, path]
+    assert result.params("pageIndex") == ["0", "1"]
+    assert result.params("pageSize") == ["100", "100"]
+    assert result.params("accountIdentifier") == ["example-account", "example-account"]
+    assert result.params("orgIdentifier") == [None, None]
+    assert result.params("projectIdentifier") == [None, None]
+
+
+def infrastructure_responder(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/ng/api/environmentsV2":
+        return ScriptedResponse(
+            json={
+                "data": {
+                    "content": [{"environment": {"identifier": "staging"}}, {"environment": {"identifier": "prod"}}],
+                    "totalPages": 1,
+                }
+            }
+        )
+    page = request.param("page")
+    total_pages = 2 if request.param("environmentIdentifier") == "staging" else 1
+    row = {"infrastructure": {"identifier": "k8s", "type": "KubernetesDirect"}, "createdAt": 100}
+    return ScriptedResponse(
+        json={"data": {"content": [row] if page != "1" else [{**row, "createdAt": 200}], "totalPages": total_pages}}
+    )
+
+
+def test_infrastructures_fan_out_over_environments(driver: SourceDriver) -> None:
+    result = driver.run("infrastructures", infrastructure_responder)
+    assert result.raised is None
+    assert result.rows == [
+        {"identifier": "k8s", "type": "KubernetesDirect", "createdAt": 100, "environmentRef": "staging"},
+        {"identifier": "k8s", "type": "KubernetesDirect", "createdAt": 200, "environmentRef": "staging"},
+        {"identifier": "k8s", "type": "KubernetesDirect", "createdAt": 100, "environmentRef": "prod"},
+    ]
+    infrastructure_requests = [r for r in result.requests if r.path == "/ng/api/infrastructures"]
+    assert [(r.param("environmentIdentifier"), r.param("page")) for r in infrastructure_requests] == [
+        ("staging", "0"),
+        ("staging", "1"),
+        ("prod", "0"),
+    ]
+    assert {r.param("projectIdentifier") for r in result.requests} == {"example-project"}
+    assert result.committed_states[-1].completed == [
+        "/ng/api/infrastructures?environmentIdentifier=prod",
+        "/ng/api/infrastructures?environmentIdentifier=staging",
+    ]
+
+
+def test_infrastructures_resume_skips_completed_environments(driver: SourceDriver) -> None:
+    result = driver.run(
+        "infrastructures",
+        infrastructure_responder,
+        resume_state=HarnessResumeConfig(completed=["/ng/api/infrastructures?environmentIdentifier=staging"]),
+    )
+    assert result.raised is None
+    assert [row["environmentRef"] for row in result.rows] == ["prod"]
+    assert [r.param("environmentIdentifier") for r in result.requests if r.path == "/ng/api/infrastructures"] == [
+        "prod"
+    ]

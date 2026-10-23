@@ -34,7 +34,7 @@ const CONTAINER_PADDING: [number, number] = [0, 0]
 // Single-project edit mode's handle, cancel and edge set.
 const DRAG_HANDLE = '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle'
 const DRAG_CANCEL = 'a,table,button,input,.Popover'
-const RESIZE_HANDLES = ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const
+const RESIZE_HANDLES = ['s', 'e', 'se', 'w', 'sw'] as const
 const NOT_A_DRAG_HANDLE =
     'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
 
@@ -69,7 +69,6 @@ export function CrossProjectDashboardGrid({
 }: CrossProjectDashboardGridProps): JSX.Element {
     const { width, containerRef, mounted } = useContainerWidth()
     const [containerHeight, setContainerHeight] = useState(0)
-    const [resizingTileId, setResizingTileId] = useState<string | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
@@ -171,13 +170,7 @@ export function CrossProjectDashboardGrid({
         [startInteraction]
     )
 
-    const handleResize = useCallback((_layout: unknown, _oldItem: unknown, newItem: LayoutItem | null) => {
-        // Setting state to the same id bails out of re-rendering, so this re-renders once per gesture.
-        setResizingTileId(newItem?.i ?? null)
-    }, [])
-
     const handleResizeStop = useCallback(() => {
-        setResizingTileId(null)
         finishGesture()
     }, [finishGesture])
 
@@ -284,7 +277,6 @@ export function CrossProjectDashboardGrid({
                         breakpoints={GRID_BREAKPOINTS}
                         cols={GRID_COLUMN_COUNTS}
                         onResizeStart={handleResizeStart}
-                        onResize={handleResize}
                         onResizeStop={handleResizeStop}
                         onDragStart={handleDragStart}
                         onDrag={handleDrag}
@@ -299,7 +291,6 @@ export function CrossProjectDashboardGrid({
                                 showTimezone={timezonesDiverge}
                                 missingPropertyKeys={missingPropertyKeys[tile.project_id]}
                                 dashboardFilters={dashboardFilters}
-                                isResizing={resizingTileId === tile.id}
                                 showResizeHandles={canEditLayout}
                                 canEnterEditModeFromEdge={canEnterEditModeFromEdge}
                                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}

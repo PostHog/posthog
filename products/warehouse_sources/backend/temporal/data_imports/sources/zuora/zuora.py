@@ -15,18 +15,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
     find_values,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    PaginatorConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import (
     PAGE_SIZE,
+    ZUORA_COMMERCE_ENDPOINTS,
     ZUORA_ENDPOINTS,
     ZUORA_ENVIRONMENT_HOSTS,
 )
+
+ZUORA_INCOMPLETE_LIST_ERROR = "Zuora returned a full page for a list that has no next-page token"
 
 
 @dataclasses.dataclass
@@ -119,6 +127,61 @@ class ZuoraCursorPaginator(BasePaginator):
         return "ZuoraCursorPaginator()"
 
 
+class ZuoraFullPageGuardPaginator(SinglePagePaginator):
+    """Fetch a one-response list, and fail when the response fills the requested page.
+
+    A full page can hide more rows that the API gives no way to fetch. The check runs before the
+    page is yielded, so a truncated full refresh never replaces the table."""
+
+    def __init__(self, page_size: int) -> None:
+        super().__init__()
+        self.page_size = page_size
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data is not None and len(data) >= self.page_size:
+            raise ValueError(f"{ZUORA_INCOMPLETE_LIST_ERROR} ({len(data)} rows), so the table could be incomplete.")
+        super().update_state(response, data)
+
+    def __str__(self) -> str:
+        return f"ZuoraFullPageGuardPaginator(page_size={self.page_size})"
+
+
+def _object_query_endpoint(
+    endpoint: str, should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any]
+) -> Endpoint:
+    # Filters use lowercase field names (updateddate); rows come back camelCase (updatedDate).
+    # Ascending sort lets the pipeline commit the watermark progressively as pages complete.
+    params: dict[str, Any] = {"pageSize": PAGE_SIZE, "sort[]": "updateddate.ASC"}
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        params["filter[]"] = f"updateddate.GT:{_format_timestamp(db_incremental_field_last_value)}"
+
+    return {
+        "path": f"object-query/{ZUORA_ENDPOINTS[endpoint]}",
+        "params": params,
+        "data_selector": "data",
+        "paginator": ZuoraCursorPaginator(),
+    }
+
+
+def _commerce_endpoint(endpoint: str) -> Endpoint:
+    commerce = ZUORA_COMMERCE_ENDPOINTS[endpoint]
+    params: dict[str, Any] = {}
+    paginator: PaginatorConfig = "single_page"
+    if commerce.paginated:
+        paginator = JSONResponseCursorPaginator(
+            cursor_path="nextPageToken", cursor_param="pageToken", raise_on_repeated_cursor=True
+        )
+    elif commerce.page_size_param is not None:
+        params[commerce.page_size_param] = PAGE_SIZE
+        paginator = ZuoraFullPageGuardPaginator(PAGE_SIZE)
+    return {
+        "path": commerce.path,
+        "params": params,
+        "data_selector": commerce.data_selector,
+        "paginator": paginator,
+    }
+
+
 def validate_credentials(environment: str, client_id: str, client_secret: str) -> bool:
     """Confirm the OAuth client credentials are valid by minting a token."""
     auth = _make_auth(environment, client_id, client_secret)
@@ -145,16 +208,9 @@ def zuora_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    path_segment = ZUORA_ENDPOINTS[endpoint]
     auth = _make_auth(environment, client_id, client_secret)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-
-    # Filters use lowercase field names (updateddate); rows come back camelCase (updatedDate).
-    # Ascending sort lets the pipeline commit the watermark progressively as pages complete.
-    params: dict[str, Any] = {"pageSize": PAGE_SIZE, "sort[]": "updateddate.ASC"}
-    if should_use_incremental_field and db_incremental_field_last_value is not None:
-        params["filter[]"] = f"updateddate.GT:{_format_timestamp(db_incremental_field_last_value)}"
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resume is not None and resume.cursor:
@@ -166,12 +222,11 @@ def zuora_source(
         if state is not None and state.get("cursor") is not None:
             resumable_source_manager.save_state(ZuoraResumeConfig(cursor=state["cursor"]))
 
-    endpoint_config: Endpoint = {
-        "path": f"object-query/{path_segment}",
-        "params": params,
-        "data_selector": "data",
-        "paginator": ZuoraCursorPaginator(),
-    }
+    endpoint_config = (
+        _commerce_endpoint(endpoint)
+        if endpoint in ZUORA_COMMERCE_ENDPOINTS
+        else _object_query_endpoint(endpoint, should_use_incremental_field, db_incremental_field_last_value)
+    )
     client_config: ClientConfig = {
         "base_url": _base_url(environment),
         "auth": auth,
@@ -198,6 +253,6 @@ def zuora_source(
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,
-        # Pages are requested sorted ascending by updateddate.
+        # Object Query pages are requested sorted ascending by updateddate; Commerce lists are full refresh only.
         sort_mode="asc",
     )

@@ -304,7 +304,7 @@ export {
     type QuestionnaireShortcutMode,
 } from './chat/questionnaire'
 export { RadioGroup, RadioGroupItem, RadioIndicator } from './radio-group'
-export { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
+export { ResizableHandle, ResizablePanel, ResizablePanelGroup, ResizeGrip } from './resizable'
 export { ScrollArea, ScrollBar, scrollShadowsCss, SCROLL_SHADOWS_STYLE_ID } from './scroll-area'
 export {
     Select,

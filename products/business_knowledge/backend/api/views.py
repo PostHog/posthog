@@ -26,7 +26,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
-from .. import logic
+from .. import libraries, logic
 from ..constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
@@ -34,6 +34,7 @@ from ..constants import (
     BK_SEARCH_MAX_LIMIT,
 )
 from ..file_parse import FileParseError
+from ..libraries import LibraryNotFound
 from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
@@ -55,6 +56,7 @@ from .serializers import (
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
 )
+from .settings import CanonicalTeamTokenPermission, canonical_user_access_control
 
 logger = structlog.get_logger(__name__)
 
@@ -62,6 +64,25 @@ logger = structlog.get_logger(__name__)
 def _ensure_user_managed_source(source: KnowledgeSource) -> None:
     if source.is_generated:
         raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
+
+
+def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
+    if "library_ids" not in request.data:
+        return None
+    raw_ids = request.data.get("library_ids")
+    if not isinstance(raw_ids, list):
+        raise exceptions.ValidationError({"library_ids": "Must be a list of library ids."})
+    parsed: list[UUID] = []
+    for raw in raw_ids:
+        try:
+            parsed.append(UUID(str(raw)))
+        except (ValueError, DjangoValidationError):
+            raise exceptions.ValidationError({"library_ids": "Must be a list of library ids."})
+    try:
+        libraries.require_libraries(team_id, parsed)
+    except libraries.LibraryRejected as exc:
+        raise exceptions.ValidationError(exc.errors) from None
+    return parsed
 
 
 class _ConflictError(exceptions.APIException):
@@ -110,6 +131,20 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 enum=[choice.value for choice in AddedBy],
                 description="Filter by who added the source: human (you added it) or learned (from a resolved support ticket).",
             ),
+            OpenApiParameter(
+                "library_id",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Return only sources in this library. Do not combine with unfiled.",
+            ),
+            OpenApiParameter(
+                "unfiled",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, return only sources that are in no library. Do not combine with library_id.",
+            ),
         ],
         responses={200: KnowledgeSourceSerializer(many=True)},
     )
@@ -120,11 +155,14 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         added_by = request.query_params.get("added_by") or None
         if added_by is not None and added_by not in AddedBy.values:
             raise exceptions.ValidationError({"added_by": "Must be one of: human, learned."})
+        library_id, unfiled = self._library_list_filter(request)
         sources = logic.list_for_team(
             self.team_id,
             search=request.query_params.get("search") or None,
             source_type=source_type,
             added_by=added_by,
+            library_id=library_id,
+            unfiled=unfiled,
         )
         page = self.paginate_queryset(sources)
         if page is not None:
@@ -232,7 +270,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 "business-knowledge-ingest-source",  # type: ignore[arg-type]
-                IngestSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
+                IngestSourceInputs(  # type: ignore[arg-type]
+                    team_id=self.team_id,
+                    source_id=str(source.id),
+                    claim_id=str(source.processing_claim_id) if source.processing_claim_id else None,
+                ),
                 id=f"business-knowledge-ingest-{source.id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )
@@ -289,6 +331,42 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except KnowledgeSource.DoesNotExist:
             raise exceptions.NotFound()
 
+        # Libraries belong to the parent project, so a grant on one source or one environment is not enough.
+        if "library_ids" in request.data and not (
+            CanonicalTeamTokenPermission().has_permission(request, self)
+            and canonical_user_access_control(self).check_access_level_for_resource("business_knowledge", "editor")
+        ):
+            raise exceptions.PermissionDenied(
+                detail="You need editor access to business knowledge to change libraries."
+            )
+        # Validate before the type update runs, so a bad id cannot leave a half-applied PATCH.
+        library_ids = _requested_library_ids(self.team_id, request)
+        if library_ids is None:
+            return self._dispatch_source_update(source, request)
+        if not set(request.data.keys()) <= {"library_ids"}:
+            self._dispatch_source_update(source, request)
+        libraries.replace_source_libraries(self.team_id, source, library_ids, skip_missing=True)
+        fresh = logic.get_for_team(source.id, self.team_id) or source
+        return Response(KnowledgeSourceSerializer(instance=fresh).data)
+
+    def _library_list_filter(self, request: Request) -> tuple[UUID | None, bool]:
+        raw_library = request.query_params.get("library_id") or None
+        unfiled = request.query_params.get("unfiled", "").lower() in {"1", "true", "yes"}
+        if raw_library and unfiled:
+            raise exceptions.ValidationError({"unfiled": "Do not combine library_id and unfiled."})
+        if raw_library is None:
+            return None, unfiled
+        try:
+            library_id = UUID(str(raw_library))
+        except (ValueError, DjangoValidationError):
+            raise exceptions.ValidationError({"library_id": "Must be a UUID."})
+        try:
+            libraries.get_library(self.team_id, library_id)
+        except LibraryNotFound:
+            raise exceptions.NotFound()
+        return library_id, False
+
+    def _dispatch_source_update(self, source: KnowledgeSource, request: Request) -> Response:
         if source.is_generated:
             if source.source_type != SourceType.TEXT:
                 _ensure_user_managed_source(source)
@@ -452,7 +530,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             client = sync_connect()
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 "business-knowledge-refresh-source",  # type: ignore[arg-type]
-                RefreshSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
+                RefreshSourceInputs(  # type: ignore[arg-type]
+                    team_id=self.team_id,
+                    source_id=str(source.id),
+                    claim_id=str(source.processing_claim_id) if source.processing_claim_id else None,
+                ),
                 id=f"business-knowledge-refresh-{source.id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )
@@ -572,6 +654,16 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "Defaults to false (RRF order only). Falls back to RRF order on rerank failure."
                 ),
             ),
+            OpenApiParameter(
+                "library_id",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Limit retrieval to sources in this library. "
+                    "Pass the same id to repository search and file read. Omit to search every ready source."
+                ),
+            ),
         ],
         responses={200: KnowledgeSearchResultSerializer(many=True)},
     )
@@ -589,9 +681,20 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
+        # Search reads the parent project's rows, so a child environment's own token scope and grant are not enough.
+        if self.team.parent_team_id and not (
+            CanonicalTeamTokenPermission().has_permission(request, self)
+            and canonical_user_access_control(self).check_access_level_for_resource("business_knowledge", "viewer")
+        ):
+            raise exceptions.PermissionDenied(
+                detail="You need access to business knowledge in this project to search it."
+            )
+        library_id = self._search_library_id(request)
         search_limit = limit * 2 if rerank else limit
         trace = RetrievalTrace(surface="api")
-        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit, trace=trace)
+        results = logic.search_knowledge_for_team(
+            self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
+        )
         if rerank:
             results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
@@ -601,12 +704,33 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             posthoganalytics.capture(
                 distinct_id=str(self.team.uuid),
                 event="business knowledge searched",
-                properties={"result_count": len(results), "surface": "api"},
+                properties={
+                    "result_count": len(results),
+                    "surface": "api",
+                    "library_scoped": library_id is not None,
+                },
                 groups=groups(team=self.team),
             )
         except Exception:
             logger.warning("business_knowledge_search_capture_failed", team_id=self.team_id, exc_info=True)
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
+
+    def _search_library_id(self, request: Request) -> UUID | None:
+        raw = request.query_params.get("library_id")
+        if not raw:
+            return None
+        return self._existing_library_id(raw)
+
+    def _existing_library_id(self, raw: str) -> UUID:
+        try:
+            library_id = UUID(raw)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.ValidationError({"library_id": "Must be a library id."}) from None
+        try:
+            libraries.get_library(self.team_id, library_id)
+        except LibraryNotFound:
+            raise exceptions.NotFound() from None
+        return library_id
 
     def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:
         raw = request.query_params.get(name)

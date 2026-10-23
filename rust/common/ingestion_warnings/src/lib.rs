@@ -4,7 +4,7 @@
 //! Node.js source of truth) and one builder ([`serializer::Warning`]):
 //! services that only know API tokens (capture) commit via
 //! [`serializer::Warning::into_event_envelope`], and services that know `team_id`
-//! (personhog leader/writer) commit the terminal row via
+//! (personhog leader/identity) commit the terminal row via
 //! [`serializer::Warning::into_row`]. See `serializer.rs` for the
 //! field-by-field correspondence and the trust rationale.
 //!
@@ -38,6 +38,7 @@
 
 pub mod registry;
 pub mod request;
+pub mod row;
 pub mod serializer;
 pub mod test_support;
 pub mod throttle;
@@ -56,6 +57,7 @@ use tracing::warn;
 
 pub use registry::WarningType;
 pub use request::{emit_request_warning, WarningRequestContext, UNKNOWN_ATTRIBUTION};
+pub use row::{KafkaRowWarningEmitter, RowWarningEmitter};
 pub use throttle::{ThrottleDecision, WarningThrottle};
 
 /// Counter of emission attempts: labels `type` (warning type), `source`

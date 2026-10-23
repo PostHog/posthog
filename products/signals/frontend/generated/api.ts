@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivitySummaryApi,
+    ActivitySummaryVersionApi,
     CancelReportCheckRequestApi,
     CommitDiffResponseApi,
     CreateReportCheckRequestApi,
@@ -21,6 +23,10 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    InboxOnboardingDraftApi,
+    InboxOnboardingExposureApi,
+    InboxOnboardingStateApi,
+    InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -95,6 +101,7 @@ import type {
     SignalReportDeletionStatusApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
+    SignalReportFeedbackStateApi,
     SignalReportMergeRequestApi,
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
@@ -108,7 +115,9 @@ import type {
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
-    SignalReportsForYouResponseApi,
+    SignalReportTaskActionListResponseApi,
+    SignalReportTaskActionRunRequestApi,
+    SignalReportTaskActionRunResponseApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -124,6 +133,7 @@ import type {
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
+    SignalsActivitySummaryVersionsRetrieveParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
@@ -136,7 +146,6 @@ import type {
     SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsAvailableReviewersRetrieve200,
     SignalsReportsAvailableReviewersRetrieveParams,
-    SignalsReportsForYouRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
@@ -178,6 +187,56 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getSignalsActivitySummaryListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/activity_summary/`
+}
+
+/**
+ * @summary Get your activity summary
+ */
+export const signalsActivitySummaryList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ActivitySummaryApi> => {
+    return apiMutator<ActivitySummaryApi>(getSignalsActivitySummaryListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsActivitySummaryVersionsRetrieveUrl = (
+    projectId: string,
+    params?: SignalsActivitySummaryVersionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/activity_summary/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/activity_summary/versions/`
+}
+
+/**
+ * @summary List your activity summary versions
+ */
+export const signalsActivitySummaryVersionsRetrieve = async (
+    projectId: string,
+    params?: SignalsActivitySummaryVersionsRetrieveParams,
+    options?: RequestInit
+): Promise<ActivitySummaryVersionApi[]> => {
+    return apiMutator<ActivitySummaryVersionApi[]>(getSignalsActivitySummaryVersionsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsConfigListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/config/`
 }
@@ -214,6 +273,96 @@ export const signalsConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalTeamConfigApi),
+    })
+}
+
+export const getSignalsInboxSummaryListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/inbox_summary/`
+}
+
+export const signalsInboxSummaryList = async (projectId: string, options?: RequestInit): Promise<InboxSummaryApi> => {
+    return apiMutator<InboxSummaryApi>(getSignalsInboxSummaryListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsOnboardingListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/`
+}
+
+export const signalsOnboardingList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsOnboardingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/`
+}
+
+export const signalsOnboardingCreate = async (
+    projectId: string,
+    inboxOnboardingDraftApi: InboxOnboardingDraftApi,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxOnboardingDraftApi),
+    })
+}
+
+export const getSignalsOnboardingCompleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/complete/`
+}
+
+export const signalsOnboardingCompleteCreate = async (
+    projectId: string,
+    inboxOnboardingDraftApi: InboxOnboardingDraftApi,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingCompleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxOnboardingDraftApi),
+    })
+}
+
+export const getSignalsOnboardingExposeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/expose/`
+}
+
+export const signalsOnboardingExposeCreate = async (
+    projectId: string,
+    inboxOnboardingExposureApi: InboxOnboardingExposureApi,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingExposeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxOnboardingExposureApi),
+    })
+}
+
+export const getSignalsOnboardingReconcileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/reconcile/`
+}
+
+export const signalsOnboardingReconcileCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingReconcileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -367,6 +516,47 @@ export const signalsReportsDestroy = async (
     })
 }
 
+export const getSignalsReportsActionsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/actions/`
+}
+
+/**
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * @summary List the report actions that start an agent run
+ */
+export const signalsReportsActionsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportTaskActionListResponseApi> => {
+    return apiMutator<SignalReportTaskActionListResponseApi>(getSignalsReportsActionsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsActionsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/actions/run/`
+}
+
+/**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * @summary Start a report action as a background agent run
+ */
+export const signalsReportsActionsRunCreate = async (
+    projectId: string,
+    id: string,
+    signalReportTaskActionRunRequestApi: SignalReportTaskActionRunRequestApi,
+    options?: RequestInit
+): Promise<SignalReportTaskActionRunResponseApi> => {
+    return apiMutator<SignalReportTaskActionRunResponseApi>(getSignalsReportsActionsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportTaskActionRunRequestApi),
+    })
+}
+
 export const getSignalsReportsClaimUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/claim/`
 }
@@ -408,6 +598,21 @@ export const signalsReportsFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportFeedbackRequestApi),
+    })
+}
+
+export const getSignalsReportsFeedbackStateRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/feedback_state/`
+}
+
+export const signalsReportsFeedbackStateRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportFeedbackStateApi> => {
+    return apiMutator<SignalReportFeedbackStateApi>(getSignalsReportsFeedbackStateRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -776,10 +981,7 @@ export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: strin
 }
 
 /**
- * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
- * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
- * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
- * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ * Apply a human reviewer edit, including on reports without a reviewer artefact.
  * @summary Set a report's suggested reviewers
  */
 export const signalsReportsReviewersUpdate = async (
@@ -914,7 +1116,7 @@ export const getSignalsReportArtefactsListUrl = (
 }
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
  * @summary List a report's artefacts
  */
 export const signalsReportArtefactsList = async (
@@ -959,7 +1161,7 @@ export const getSignalsReportArtefactsRetrieveUrl = (projectId: string, reportId
 }
 
 /**
- * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.
+ * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list. A `ranking_score` keeps its full model metadata.
  * @summary Get a single artefact
  */
 export const signalsReportArtefactsRetrieve = async (
@@ -1005,7 +1207,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -1228,37 +1430,6 @@ export const signalsReportsBulkStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportBulkStateRequestApi),
-    })
-}
-
-export const getSignalsReportsForYouRetrieveUrl = (projectId: string, params?: SignalsReportsForYouRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/reports/for_you/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/reports/for_you/`
-}
-
-/**
- * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 reports nobody owns, which belong to the project rather than to this person.
- * @summary List the reports that matter most to the current user
- */
-export const signalsReportsForYouRetrieve = async (
-    projectId: string,
-    params?: SignalsReportsForYouRetrieveParams,
-    options?: RequestInit
-): Promise<SignalReportsForYouResponseApi> => {
-    return apiMutator<SignalReportsForYouResponseApi>(getSignalsReportsForYouRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -1895,7 +2066,7 @@ export const getSignalsScoutConfigSyncUrl = (projectId: string, params?: Signals
 }
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately. With surface=onboarding, new configs stay disabled until explicitly activated.
  * @summary Sync scout configs
  */
 export const signalsScoutConfigSync = async (
@@ -2060,7 +2231,7 @@ export const getSignalsScoutProjectProfileGetUrl = (
 }
 
 /**
- * Return the team's deterministic project profile. The response opens with a compact `summary` envelope carrying the emit gate and the inbox report counts, then the full `payload`. The inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
+ * Return the team's deterministic project profile. The response opens with a compact `summary` envelope carrying the emit gate and the inbox report counts, then the full `payload`. The inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest stored profile whatever its age, with `stale=true` when it is past `expires_at`. They never build inline: when the team has no profile, the call starts a background build and returns 404, so retry in a minute. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
  * @summary Get the current project profile
  */
 export const signalsScoutProjectProfileGet = async (
@@ -2202,7 +2373,7 @@ export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReport = async (
@@ -2586,7 +2757,7 @@ export const getSignalsScoutRunsRecentPerScoutUrl = (
 }
 
 /**
- * Return the most recent `per_scout_limit` runs of *every* configured scout on the project (default 25), newest-first across the fleet. The per-scout probe is the point: a fleet-wide time window has to serve hourly and weekly scouts from one result cap, so the busy scouts crowd out the sparse ones and a scout's visible history shrinks as the rest of the fleet gets busier. Probing each `skill_name` gives every scout the same depth of history whatever its schedule, and bounds the response at scouts x `per_scout_limit` rather than at the fleet's run rate. Only scouts that still have a config are covered, so runs left behind by a deleted or renamed scout are excluded. Runs older than the staleness guard are excluded too, so a scout that stopped running reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, which each scout's own cadence extends. Use `list` instead when you want a literal time window or a text/emitted filter. Strictly team-scoped.
+ * Return the most recent `per_scout_limit` runs of *every* configured scout on the project (default 25), newest-first across the fleet. The per-scout probe is the point: a fleet-wide time window has to serve hourly and weekly scouts from one result cap, so the busy scouts crowd out the sparse ones and a scout's visible history shrinks as the rest of the fleet gets busier. Probing each `skill_name` gives every scout the same depth of history whatever its schedule, and bounds the response at scouts x `per_scout_limit` rather than at the fleet's run rate. Only scouts that still have a config are covered, so runs left behind by a deleted or renamed scout are excluded. Runs older than the staleness guard are excluded too, so a scout that stopped running reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, which each scout's own cadence extends. Use `list` instead when you want a literal time window or a text/emitted filter. Pass `skill_name` to probe one scout only. Strictly team-scoped.
  * @summary List each scout's most recent runs
  */
 export const signalsScoutRunsRecentPerScout = async (
@@ -2669,7 +2840,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (

@@ -3,7 +3,7 @@ import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsM
 
 import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { IntervalType } from '~/types'
+import { CompareLabelType, IntervalType } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
@@ -68,7 +68,13 @@ export function handleTrendsChartClick(
         return
     }
 
-    const day = dataset.action?.days?.[dataIndex] ?? dataset.days?.[dataIndex]
+    // A previous-period row lists its own dates, but the actors query takes the current-period date
+    // and shifts it back itself, so read the day from a current-period row.
+    const currentPeriodDataset =
+        dataset.compare_label === CompareLabelType.Previous
+            ? (deps.indexedResults.find((r) => r.compare_label !== CompareLabelType.Previous) ?? dataset)
+            : dataset
+    const day = currentPeriodDataset.days?.[dataIndex]
     if (day == null || day === '') {
         return
     }

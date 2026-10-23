@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.utils import timezone
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
@@ -67,6 +68,7 @@ from products.warehouse_sources.backend.models.util import (
 )
 from products.warehouse_sources.backend.source_status import effective_source_status
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 
 from . import contracts
 
@@ -82,18 +84,21 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "list_imported_schema_snapshots",
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "discard_backing_table",
+    "record_table_row_count",
     "allowed_table_ids",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
-    "get_sync_alert_context",
+    "saved_queries_feeding_consumers",
     # framework-free helper transforms
     "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
@@ -374,6 +379,21 @@ def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.Ext
     return [_to_schema(s) for s in qs]
 
 
+def list_imported_schema_snapshots(team_id: int) -> list[contracts.ImportedSchemaSnapshot]:
+    rows = _ExternalDataSchema.objects.filter(
+        team_id=team_id,
+        deleted=False,
+        source__deleted=False,
+        source__team_id=team_id,
+        source__access_method="warehouse",
+        table__deleted=False,
+        table__team_id=team_id,
+    ).values_list("id", "table__queryable_folder")
+    return [
+        contracts.ImportedSchemaSnapshot(schema_id=schema_id, queryable_folder=folder) for schema_id, folder in rows
+    ]
+
+
 def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableSourceLocation]:
     """Where each of these tables is administered. One query, and tables with no schema are absent."""
     if not table_ids:
@@ -601,6 +621,20 @@ def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
     return deleted
 
 
+def record_table_row_count(team_id: int, table_id: UUID, row_count: int) -> None:
+    """Set a table's row count, unless the table was deleted in the meantime."""
+    _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).update(
+        row_count=row_count, updated_at=timezone.now()
+    )
+
+
+def discard_backing_table(team_id: int, table_id: UUID) -> None:
+    """Soft-delete a view's backing table but keep the view's joins, which match the table's name."""
+    table = _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).first()
+    if table is not None:
+        table.soft_delete(delete_joins=False)
+
+
 MAX_JOBS_PER_SOURCE = 100
 
 
@@ -635,18 +669,3 @@ def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
         )
         for table_id, column_name, null_fraction, min_value, max_value in qs
     ]
-
-
-def get_sync_alert_context(
-    team_id: int, schema_id: str, job_id: str | None = None, *, include_error: bool = False
-) -> contracts.SyncAlertContext | None:
-    """The facts a sync alert event reports, or None when the schema no longer exists.
-
-    `include_error` adds the schema's error with the source's stored credentials masked. It is
-    opt-in because the masking decrypts the source's inputs, which most alerts have no use for.
-    """
-    from products.warehouse_sources.backend.sync_alert_context import (  # noqa: PLC0415 -- the redaction helpers sit under presentation, which the facade must not import at module level
-        build_sync_alert_context,
-    )
-
-    return build_sync_alert_context(team_id, schema_id, job_id, include_error=include_error)

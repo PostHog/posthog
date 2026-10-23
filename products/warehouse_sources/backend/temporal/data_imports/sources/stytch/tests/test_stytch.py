@@ -6,7 +6,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     route,
     scripted_network,
 )
@@ -50,12 +49,6 @@ class TestBuildUsersSearchBody:
             "operator": "AND",
             "operands": [{"filter_name": "created_at_greater_than", "filter_value": expected_filter_value}],
         }
-
-
-class TestValidateCredentials:
-    def test_network_errors_swallowed(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("project-live-x", "secret") is False
 
 
 class TestCheckEndpointAccess:

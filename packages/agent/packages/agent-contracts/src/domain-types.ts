@@ -369,6 +369,7 @@ const taskRunStateFields = {
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
   codex_max_subagents: optionalField(z.number().int().positive()),
+  codex_shared_prompt_cache: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -387,6 +388,7 @@ const taskRunStateFields = {
     z.enum(["none", "message", "canvas_file"]),
   ),
   slack_chart_delivery: optionalField(z.boolean()),
+  slack_chart_links: optionalField(z.boolean()),
   slack_notified_pr_url: optionalField(z.string()),
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
@@ -955,6 +957,7 @@ export interface DismissalArtefact extends SignalReportArtefactBase {
 }
 
 export interface DismissalContent {
+  state?: "resolved" | "suppressed" | "potential" | null;
   reason: ReportStateReason;
   /** Optional free-form detail provided alongside the reason. */
   note: string;

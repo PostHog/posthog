@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,8 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
     TRINO_COLUMN_NOT_FOUND_ERROR,
     TRINO_KNOWN_ERROR_MESSAGES,
+    TRINO_OUT_OF_SPILL_SPACE_ERROR,
+    TRINO_QUERY_MEMORY_LIMIT_ERROR,
+    TRINO_QUERY_NOT_FOUND_ERROR,
     TRINO_SCHEMA_NOT_FOUND_ERROR,
     TRINO_TABLE_NOT_FOUND_ERROR,
+    TRINO_WORKER_NODE_ERROR,
     TrinoImplementation,
     TrinoSchemaDiscoveryError,
     connect_trino,
@@ -41,6 +46,15 @@ _TRINO_IMPLEMENTATION = TrinoImplementation()
 
 @SourceRegistry.register
 class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^TRINO_",),
+        npm=("trino-client",),
+        pypi=("trino",),
+        go=("github.com/trinodb/trino-go-client",),
+        maven=("io.trino:trino-jdbc", "io.trino:trino-cli", "io.trino:trino-clickhouse", "io.trino:trino-client"),
+        rubygems=("trino-client", "trino-client-ruby"),
+    )
+
     api_docs_url = "https://trino.io/docs/current/client/python.html"
 
     @property
@@ -61,7 +75,7 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             caption="Connect to Trino to run read-only SQL against the catalogs available to this user.",
             iconPath="/static/services/trino.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/trino",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -271,5 +285,17 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             "name=TABLE_NOT_FOUND": TRINO_TABLE_NOT_FOUND_ERROR,
             "name=SCHEMA_NOT_FOUND": TRINO_SCHEMA_NOT_FOUND_ERROR,
             "name=COLUMN_NOT_FOUND": TRINO_COLUMN_NOT_FOUND_ERROR,
+            # Raised mid-sync by a query against the cluster, not schema discovery, so this matches
+            # on the driver's own stable wording rather than an errorName. See the comment on the
+            # constant for why retrying can't recover from it.
+            "exceeded distributed total memory limit": TRINO_QUERY_MEMORY_LIMIT_ERROR,
             TrinoSchemaDiscoveryError.__name__: None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The worker-node error and "Query not found" are self-recovering vendor-side blips: the
+        # coordinator only raises the former after exhausting its own attempts to reach the worker,
+        # and a fresh attempt gets a new query ID, so a query the coordinator no longer holds clears
+        # itself. Spill exhaustion depends on the workers' free disk at that moment, which frees up
+        # as other queries finish, so a later attempt can succeed.
+        return {TRINO_WORKER_NODE_ERROR, TRINO_QUERY_NOT_FOUND_ERROR, TRINO_OUT_OF_SPILL_SPACE_ERROR}

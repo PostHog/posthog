@@ -15,11 +15,9 @@ function createMockContext(overrides: {
     context: Context
     cache: Map<string, unknown>
     getCachedOrFetchOrg: ReturnType<typeof vi.fn>
-    setSessionActiveContext: ReturnType<typeof vi.fn>
 } {
     const cache = new Map<string, unknown>()
     const getCachedOrFetchOrg = overrides.getCachedOrFetchOrg ?? vi.fn().mockResolvedValue(undefined)
-    const setSessionActiveContext = vi.fn().mockResolvedValue(undefined)
     const context = {
         api: {
             publicBaseUrl: 'https://us.posthog.com',
@@ -49,9 +47,8 @@ function createMockContext(overrides: {
         sessionManager: {},
         getDistinctId: async () => 'test-distinct-id',
         trackEvent: async () => {},
-        setSessionActiveContext,
     } as unknown as Context
-    return { context, cache, getCachedOrFetchOrg, setSessionActiveContext }
+    return { context, cache, getCachedOrFetchOrg }
 }
 
 describe('switch-project', () => {
@@ -84,7 +81,7 @@ describe('switch-project', () => {
             success: true,
             data: { id: 42, name: 'My project', organization: ACTIVE_ORG },
         })
-        const { context, cache, getCachedOrFetchOrg, setSessionActiveContext } = createMockContext({ projectGet })
+        const { context, cache, getCachedOrFetchOrg } = createMockContext({ projectGet })
 
         const result = await tool.handler(context, { projectId: 42 })
 
@@ -92,9 +89,6 @@ describe('switch-project', () => {
         expect(result.content[0]!.text).not.toContain('also switched the active organization')
         expect(cache.get('projectId')).toBe('42')
         expect(getCachedOrFetchOrg).not.toHaveBeenCalled()
-        // Recording the switch on the session is what stops a pinned connection's
-        // resent pin from reverting it on the next request.
-        expect(setSessionActiveContext).toHaveBeenCalledWith({ projectId: '42', orgId: ACTIVE_ORG })
     })
 
     it('never exposes the project API token in the switch response', async () => {

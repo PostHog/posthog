@@ -158,6 +158,34 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert change["before"]["agent"] == "claude-code"
         assert change["after"]["agent"] == "codex"
 
+    @parameterized.expand(
+        [
+            ("expected_claim", True, status.HTTP_200_OK, SignalActorKind.USER),
+            ("stale_claim", False, status.HTTP_409_CONFLICT, SignalActorKind.AGENT),
+        ]
+    )
+    def test_takeover_claim_id_guards_against_stale_reads(
+        self, _name: str, expect_current_claim: bool, expected_status: int, expected_kind: str
+    ):
+        report = self._create_report()
+        agent_claim = self.client.post(
+            self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex")
+        ).json()["assignee"]["claim_id"]
+
+        response = self.client.post(
+            self._claim_url(report),
+            data={
+                "takeover": True,
+                "takeover_claim_id": agent_claim if expect_current_claim else "00000000-0000-0000-0000-000000000001",
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert assignment.actor_kind == expected_kind
+
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
     def test_additive_pr_updates_and_stale_claims(self, _integration):
         report = self._create_report()
@@ -386,6 +414,32 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         claim = SignalReportArtefact.objects.get(report=report, type="work_claim")
         assert json.loads(claim.content)["display_name"] == expected
+
+    def test_claimants_own_task_works_under_their_claim(self):
+        Task = apps.get_model("tasks", "Task")
+        report = self._create_report()
+        claim_id = self.client.post(self._claim_url(report), data={}, format="json").json()["assignee"]["claim_id"]
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Signal task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        task_headers = {"X-PostHog-Task-Id": str(task.id)}
+
+        resumed = self.client.post(
+            self._claim_url(report), data={"claim_id": claim_id}, format="json", headers=task_headers
+        )
+        note = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
+            {"artefact_type": "note", "content": {"note": "Opened the PR"}, "claim_id": claim_id},
+            format="json",
+            headers=task_headers,
+        )
+        release = self.client.post(self._claim_url(report), data={"release": True}, format="json", headers=task_headers)
+
+        assert resumed.status_code == status.HTTP_200_OK
+        assert resumed.json()["assignee"]["kind"] == SignalActorKind.USER
+        assert note.status_code == status.HTTP_201_CREATED
+        assert note.json()["claim_id"] == claim_id
+        assert release.status_code == status.HTTP_409_CONFLICT
 
     def test_internal_task_claim_uses_task_attribution(self):
         Task = apps.get_model("tasks", "Task")
@@ -645,12 +699,28 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
-    def test_resolved_report_cannot_be_claimed(self):
-        report = self._create_report(report_status=SignalReport.Status.RESOLVED)
+    @parameterized.expand(
+        [
+            ("resolved", SignalReport.Status.RESOLVED, False, "resolved"),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, "monitoring"),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, False, "resolved"),
+            ("monitoring_unavailable", SignalReport.Status.MONITORING, RuntimeError("flag unavailable"), "resolved"),
+        ]
+    )
+    def test_resolved_report_cannot_be_claimed(
+        self, _name: str, report_status: str, flag_result: bool | Exception, expected_status: str
+    ) -> None:
+        report = self._create_report(report_status=report_status)
 
-        response = self.client.post(self._claim_url(report), data={}, format="json")
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            response = self.client.post(self._claim_url(report), data={}, format="json")
 
         assert response.status_code == status.HTTP_409_CONFLICT
+        assert f"status '{expected_status}'" in response.json()["detail"]
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
     def test_suppressed_report_cannot_be_claimed(self):

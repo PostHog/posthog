@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconChevronDown, IconPencil, IconStack, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
@@ -6,7 +6,9 @@ import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { cn } from 'lib/utils/css-classes'
 
-import type { QueuedMessage } from '../logics/runInteractionLogic'
+import type { QueueHold, QueuedMessage } from '../logics/runInteractionLogic'
+import { splitLeadingCommentContexts } from '../utils/commentContext'
+import { CommentContextChip } from './CommentContextChip'
 
 export interface QueuedMessageListProps {
     messages: QueuedMessage[]
@@ -15,10 +17,15 @@ export interface QueuedMessageListProps {
     onSteer?: () => void
     steerPending?: boolean
     steerDisabledReason?: string
-    /** The staged messages wait on the user, not on the agent — say so instead of looking like a queue. */
-    held?: boolean
+    /** Why the staged messages wait on the user, not on the agent — say so instead of looking like a queue. */
+    hold?: QueueHold
     /** Reports an open row editor, so the consumer can hold a send that would ship the pre-edit text. */
     onEditingChange?: (editing: boolean) => void
+}
+
+const HOLD_REASONS: Record<NonNullable<QueueHold>, string> = {
+    cancelled: "The agent stopped, so these weren't sent. Send them when you're ready.",
+    unconfirmed: "We couldn't confirm these reached the agent. Send them again, or remove them.",
 }
 
 interface QueuedMessageItemProps {
@@ -39,12 +46,14 @@ function QueuedMessageItem({
     onSave,
     onRemove,
 }: QueuedMessageItemProps): JSX.Element {
-    const [draft, setDraft] = useState(message.content)
+    const { prefix, contexts, text } = useMemo(() => splitLeadingCommentContexts(message.content), [message.content])
+    const [draft, setDraft] = useState(text)
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+    const save = (): void => onSave(message.id, `${prefix}${draft}`)
 
     useEffect(() => {
-        setDraft(message.content)
-    }, [message.content])
+        setDraft(text)
+    }, [text])
 
     useEffect(() => {
         if (isEditing) {
@@ -67,7 +76,7 @@ function QueuedMessageItem({
                     autoFocus
                     onPressCmdEnter={() => {
                         if (canSave) {
-                            onSave(message.id, draft)
+                            save()
                         }
                     }}
                 />
@@ -75,7 +84,7 @@ function QueuedMessageItem({
                     <LemonButton
                         size="xsmall"
                         icon={<IconCheck />}
-                        onClick={() => onSave(message.id, draft)}
+                        onClick={save}
                         disabledReason={canSave ? undefined : 'Message cannot be empty'}
                     >
                         Save
@@ -90,7 +99,12 @@ function QueuedMessageItem({
 
     return (
         <div className="flex items-center gap-2 py-1 px-2 rounded-md border border-primary bg-surface-primary">
-            <p className="flex-1 text-sm truncate mb-0">{message.content}</p>
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+                {contexts.map((context, index) => (
+                    <CommentContextChip key={index} context={context} />
+                ))}
+                <p className="min-w-0 flex-1 text-sm truncate mb-0">{text}</p>
+            </div>
             <div className="flex gap-0.5">
                 <LemonButton
                     size="xsmall"
@@ -123,9 +137,10 @@ export function QueuedMessageList({
     onSteer,
     steerPending = false,
     steerDisabledReason,
-    held = false,
+    hold = null,
     onEditingChange,
 }: QueuedMessageListProps): JSX.Element | null {
+    const held = hold !== null
     const [editingId, setEditingId] = useState<string | null>(null)
     const [collapsed, setCollapsed] = useState(false)
     // A row can leave while its editor is open — a flush clears the queue, and the consumer may drop a row
@@ -186,6 +201,11 @@ export function QueuedMessageList({
                     </LemonButton>
                 )}
             </div>
+            {held && (
+                <p className="mb-0 px-2 text-xs text-warning" data-attr="run-queue-hold-reason">
+                    {HOLD_REASONS[hold]}
+                </p>
+            )}
             {/* Capped so a fast typist can't grow the banner until it pushes the composer off screen. */}
             {!collapsed && (
                 <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">

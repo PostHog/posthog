@@ -1,4 +1,4 @@
 name: Tasks
 owners:
     - team-agent-infrastructure
-    - team-self-driving
+sensitive: true

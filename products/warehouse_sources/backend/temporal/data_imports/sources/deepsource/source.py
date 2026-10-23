@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,8 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeConfig]):
+    codebase_detection = detect(env=("^DEEPSOURCE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.deepsource.com/docs/developers/api"
 
@@ -67,7 +70,7 @@ class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeC
             name=ExternalDataSourceType.DEEPSOURCE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="DeepSource",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Import your DeepSource static-analysis data — repositories, analysis runs, issues, code-quality metrics, and reports — into the PostHog Data warehouse.
 
 Generate a personal access token from the **Tokens** tab in your [DeepSource user settings](https://app.deepsource.com/). The token is scoped to your account, so it can read every account and repository you have access to.

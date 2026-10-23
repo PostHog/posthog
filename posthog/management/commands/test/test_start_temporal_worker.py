@@ -6,9 +6,11 @@ from django.conf import settings
 
 from posthog.management.commands.start_temporal_worker import (
     ACTIVITIES_DICT,
+    ACTIVITY_WORKER_CONFIGS,
     AI_WORKFLOWS,
     ALERT_AI_QUEUE_ACTIVITIES,
     DATA_SYNC_WORKFLOWS,
+    INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
@@ -16,6 +18,7 @@ from posthog.management.commands.start_temporal_worker import (
     _task_queue_specs,
     workflows_include_data_import_syncs,
 )
+from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
 
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
@@ -38,6 +41,16 @@ from products.wizard.backend.facade.temporal import (
 
 class _NotADataSyncWorkflow:
     pass
+
+
+def test_billing_registers_aggregation_with_separate_capacity() -> None:
+    (aggregation_worker,) = ACTIVITY_WORKER_CONFIGS[settings.BILLING_TASK_QUEUE]
+    assert aggregation_worker.task_queue == settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE
+    assert aggregation_worker.task_queue != settings.BILLING_TASK_QUEUE
+    assert aggregation_worker.max_concurrent_activities == 1
+    assert aggregation_worker.activities == [aggregate_and_chunk_org_reports]
+    # A workflow may have scheduled aggregation before the queue change deployed.
+    assert aggregate_and_chunk_org_reports in ACTIVITIES_DICT[settings.BILLING_TASK_QUEUE]
 
 
 @pytest.mark.parametrize(
@@ -113,3 +126,4 @@ def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
     assert len(entries) == 1
     assert ALERT_AI_QUEUE_ACTIVITIES
     assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])
+    assert set(INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES) <= set(entries[0])

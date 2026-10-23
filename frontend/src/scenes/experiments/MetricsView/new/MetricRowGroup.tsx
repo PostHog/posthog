@@ -51,7 +51,7 @@ import {
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
-import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
+import { Experiment, BreakdownAttributionType } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
@@ -221,7 +221,6 @@ function CollapsibleBreakdownSection({
                                                                         <ChartEmptyState
                                                                             height={CELL_HEIGHT}
                                                                             experimentStarted={isLaunched(experiment)}
-                                                                            metric={metric}
                                                                             query={query}
                                                                             onRetry={onRetry}
                                                                             retryDisabledReason={
@@ -515,7 +514,6 @@ interface MetricRowGroupProps {
     metric: ExperimentMetric
     result: NewExperimentQueryResponse | null
     experiment: Experiment
-    metricType: InsightType
     displayOrder: number
     axisRange: number
     isSecondary: boolean
@@ -547,7 +545,6 @@ export function MetricRowGroup({
     metric,
     result,
     experiment,
-    metricType,
     displayOrder,
     axisRange,
     isSecondary,
@@ -815,7 +812,6 @@ export function MetricRowGroup({
                             dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
-                            metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
@@ -892,7 +888,6 @@ export function MetricRowGroup({
                             dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
-                            metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
@@ -914,7 +909,6 @@ export function MetricRowGroup({
                         <ChartEmptyState
                             height={noResultHeight}
                             experimentStarted={isLaunched(experiment)}
-                            metric={metric}
                             error={error}
                             query={debugQuery}
                             onRetry={error?.retriable === true ? handleRetry : undefined}
@@ -1007,7 +1001,6 @@ export function MetricRowGroup({
                         dragHandle={dragHandle}
                         displayOrder={displayOrder}
                         metric={metric}
-                        metricType={metricType}
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}

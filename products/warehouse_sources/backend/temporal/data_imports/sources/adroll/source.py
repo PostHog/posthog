@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AdRollSource(ResumableSource[AdRollSourceConfig, AdRollResumeConfig]):
+    codebase_detection = detect(env=("^(AD_ROLL|ADROLL)_",), script_hosts=("s.adroll.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -61,7 +64,7 @@ class AdRollSource(ResumableSource[AdRollSourceConfig, AdRollResumeConfig]):
 Create a personal access token and an app in the [NextRoll developer console](https://developers.nextroll.com/) — the app's Client ID is sent as the `apikey` on every request. Note that NextRoll's default quota is 100 API requests per day; contact NextRoll support to raise it for larger accounts.""",
             iconPath="/static/services/adroll.png",
             docsUrl="https://posthog.com/docs/cdp/sources/adroll",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

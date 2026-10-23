@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -52,6 +53,7 @@ import { isPiTaskRuntime } from '../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
+import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -61,6 +63,7 @@ import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
+import { taskCommentContextsLogic } from './taskCommentContextsLogic'
 import { taskDraftListeners } from './taskDraftListeners'
 import type { DraftRecovery } from './taskDraftPersistence'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
@@ -118,6 +121,8 @@ export interface RunContinuationHandoff {
  * `unconfirmed` the message may already be with the agent — only an explicit send may repeat it.
  */
 export type QueueHold = 'cancelled' | 'unconfirmed' | null
+
+type TurnCancelCause = 'user_stop' | 'steer' | 'unknown'
 
 /** One follow-up staged in the queue while the agent is mid-turn. */
 export interface QueuedMessage {
@@ -375,6 +380,9 @@ export interface runInteractionLogicActions {
     releaseApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
+    applyPendingCommentText: () => {
+        value: true
+    }
     beginTaskDraftDelivery: (content: string) => {
         content: string
     }
@@ -618,6 +626,29 @@ export type runInteractionLogicType = MakeLogicType<
     runInteractionLogicMeta
 >
 
+function takeCommentContexts(props: RunInteractionLogicProps, content: string): string {
+    const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
+    if (!commentLogic || isClearCommand(content)) {
+        return content
+    }
+    const attachments = composerAttachmentsLogic.findMounted({ attachmentsKey: props.interactionKey ?? props.runId })
+    const screenshots = commentLogic.values.commentContexts.flatMap(({ screenshotFile }) =>
+        screenshotFile ? [screenshotFile] : []
+    )
+    if (attachments && screenshots.length > 0) {
+        attachments.actions.addFiles(screenshots)
+    }
+    const stagedFiles = new Set(attachments?.values.stagedAttachments.map(({ file }) => file) ?? [])
+    const stagedNames = new Set([...stagedFiles].map((file) => file.name))
+    const contexts = commentLogic.values.commentContexts.map(({ label, body, screenshot, screenshotFile }) => {
+        const attached = screenshotFile ? stagedFiles.has(screenshotFile) : !!screenshot && stagedNames.has(screenshot)
+        return attached ? { label, body, screenshot: screenshotFile?.name ?? screenshot } : { label, body }
+    })
+    const message = withCommentContexts(contexts, content)
+    commentLogic.actions.clearCommentContexts()
+    return message
+}
+
 /**
  * Max-agnostic interaction facade for a single task run. The UI binds to this one logic to drive every
  * user → run interaction — sending follow-ups, staging an editable "Up next" message while the agent is
@@ -715,6 +746,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         blockOnConsent: (source: 'draft' | 'queue' | 'steer' = 'draft') => ({ source }),
         clearConsentBlock: true,
         submitAfterConsent: true,
+        applyPendingCommentText: true,
         // Start a fresh run on the task, seeded with this message and chained from the finished run.
         startNewRun: (content: string) => ({ content }),
         setStartingRun: (starting: boolean) => ({ starting }),
@@ -909,7 +941,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         ],
     }),
 
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, props }) => ({
         // The composer draft lives here so the input region is a real <form>. `submit` is the single entry
         // point the composer's `onSubmit` calls — it decides send-now vs enqueue vs new-run. It dispatches
         // synchronously (no await), so `isComposerFormSubmitting` isn't the UI loading state — `isSubmitting`
@@ -955,7 +987,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (staged.length > 0) {
                         actions.clearQueue()
                     }
-                    actions.startNewRun([...staged, content].join('\n\n'))
+                    actions.startNewRun([...staged, takeCommentContexts(props, content)].join('\n\n'))
                     return
                 }
                 // While the agent is working, a send is in flight, or a message is already staged — concatenate
@@ -967,12 +999,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     values.sending ||
                     values.queuedMessages.length > 0
                 ) {
-                    actions.enqueueMessage(content)
+                    actions.enqueueMessage(takeCommentContexts(props, content))
                     actions.claimAttachmentsForQueue()
                     actions.resetComposerForm()
                     actions.flushQueue()
                 } else {
-                    actions.sendNow(content, 'draft')
+                    actions.sendNow(takeCommentContexts(props, content), 'draft')
                 }
             },
         },
@@ -1215,6 +1247,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // A queue send that never landed goes back as the rows it took, so one failure doesn't fuse them
         // into a single uneditable row. A send with no rows attached still has its text, so it returns as
         // one row rather than vanishing.
+        const restoreCommentContexts = (content: string): string => {
+            const { contexts, text } = extractCommentContexts(content)
+            if (contexts.length > 0 && props.taskId) {
+                taskCommentContextsLogic.findMounted({ taskId: props.taskId })?.actions.restoreCommentContexts(contexts)
+            }
+            return contexts.length > 0 ? text : content
+        }
+
         const restoreQueuedRows = (rows: QueuedMessage[], content: string): void => {
             actions.prependQueuedMessages(rows.length > 0 ? rows : [{ id: nextQueuedMessageId(), content }])
         }
@@ -1229,6 +1269,41 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         }
 
         return {
+            // Only a Stop the cancellation logic accepts counts: one it ignores or fails to send must not claim
+            // the next cancel, which a later steer may cause.
+            [runCancellationLogic({ streamKey: props.streamKey ?? props.runId }).actionTypes.setCancellationState]: ({
+                state,
+            }) => {
+                if (state === 'waiting') {
+                    cache.turnCancelCause = 'user_stop'
+                }
+            },
+            [runCancellationLogic({ streamKey: props.streamKey ?? props.runId }).actionTypes.cancellationFailed]:
+                () => {
+                    cache.turnCancelCause = undefined
+                },
+            // Separates a cancel the user asked for from one a steer caused, which the thread can't tell apart.
+            [runStreamLogic({ streamKey: props.streamKey ?? props.runId }).actionTypes.ingestAcpFrame]: ({
+                entry,
+                source,
+            }) => {
+                if (
+                    source !== 'live' ||
+                    entry.notification.method !== '_posthog/turn_complete' ||
+                    (entry.source_run_id && entry.source_run_id !== values.bootstrappedRunId)
+                ) {
+                    return
+                }
+                const cause: TurnCancelCause = cache.turnCancelCause ?? 'unknown'
+                cache.turnCancelCause = undefined
+                if (entry.notification.params?.stopReason === 'cancelled') {
+                    posthog.capture('task_run_turn_cancelled', {
+                        cause,
+                        task_id: props.taskId,
+                        run_id: values.bootstrappedRunId,
+                    })
+                }
+            },
             handleEscape: () => {
                 if (values.cancellationState || values.steerPending) {
                     return
@@ -1434,6 +1509,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (!isCurrent() || values.hasUnresolvedApproval) {
                         throw new Error('The run cannot accept this message yet')
                     }
+                    if (steer && !cache.turnCancelCause) {
+                        cache.turnCancelCause = 'steer'
+                    }
                     const response = await tasksRunsCommandCreate(String(projectId), taskId, runId, {
                         jsonrpc: '2.0',
                         method: 'user_message',
@@ -1475,12 +1553,18 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         // Land the pending keystroke first: writing the draft cancels the composer's debounced
                         // sync, so text typed inside that window would be dropped rather than merged behind.
                         props.flushDraft?.()
+                        const draftContent = restoreCommentContexts(content)
                         actions.setComposerFormValues({
-                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                            draft: values.composerForm.draft
+                                ? `${draftContent}\n\n${values.composerForm.draft}`
+                                : draftContent,
                         })
                     } else {
                         actions.queueDeliveryFailed()
                         restoreQueuedRows(rows, content)
+                        if (steer && cache.turnCancelCause === 'steer') {
+                            cache.turnCancelCause = undefined
+                        }
                     }
                     actions.finishTaskDraftDelivery()
                     lemonToast.error('Failed to send message. Please try again.')
@@ -1652,10 +1736,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         actions.rollbackOptimisticResume()
                     }
                     actions.releaseApplyBackTargets(streamKey)
+                    const draftContent = restoreCommentContexts(content)
                     if (optimisticStarted) {
                         props.flushDraft?.()
                         actions.setComposerFormValues({
-                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                            draft: values.composerForm.draft
+                                ? `${draftContent}\n\n${values.composerForm.draft}`
+                                : draftContent,
                         })
                         optimisticStarted = false
                     }
@@ -1696,6 +1783,29 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         }
     }),
     listeners(taskDraftListeners),
+    listeners(({ actions, values, props, cache }) => ({
+        hydrateTaskDraft: () => {
+            const draft = values.composerForm.draft
+            const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
+            const { contexts, text } = extractCommentContexts(draft)
+            if (commentLogic && contexts.length > 0) {
+                commentLogic.actions.restoreCommentContexts(contexts)
+                actions.setComposerFormValues({ draft: text })
+            }
+            actions.applyPendingCommentText()
+        },
+        applyPendingCommentText: () => {
+            const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
+            const pendingText = commentLogic?.values.pendingCommentText ?? []
+            if (!commentLogic || pendingText.length === 0 || !cache.taskDraftPersistence) {
+                return
+            }
+            commentLogic.actions.consumePendingCommentText()
+            props.flushDraft?.()
+            const draft = values.composerForm.draft.trimEnd()
+            actions.setComposerFormValues({ draft: [draft, ...pendingText].filter(Boolean).join('\n\n') })
+        },
+    })),
     propsChanged(({ actions }) => {
         actions.hydrateTaskDraft()
     }),

@@ -93,6 +93,14 @@ MEMBRAIN_ENDPOINTS: dict[str, MembrainEndpointConfig] = {
         primary_keys=["EntityType", "Id"],
     ),
     "products": MembrainEndpointConfig(name="products", path="/products/"),
+    "currencies": MembrainEndpointConfig(name="currencies", path="/currencies/"),
+    "activity_types": MembrainEndpointConfig(name="activity_types", path="/activityTypes/"),
+    # Process definitions return one row per active process with its Stages (each holding Steps)
+    # and CustomFields as nested arrays.
+    "ticket_processes": MembrainEndpointConfig(name="ticket_processes", path="/ticketProcesses/"),
+    "account_growth_processes": MembrainEndpointConfig(
+        name="account_growth_processes", path="/accountGrowthProcesses/"
+    ),
 }
 
 ENDPOINTS = tuple(MEMBRAIN_ENDPOINTS.keys())

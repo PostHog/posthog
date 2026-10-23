@@ -28,7 +28,7 @@ use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
 use crate::v1::types::{Destination, Publishable};
 
-fn empty_raw_object() -> Box<RawValue> {
+pub(super) fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
 }
 
@@ -38,13 +38,17 @@ fn deserialize_trimmed_string<'de, D>(deserializer: D) -> Result<String, D::Erro
 where
     D: serde::Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
+    Ok(trim_owned(String::deserialize(deserializer)?))
+}
+
+/// Shared by [`Event`] and the lenient parse so their trims can't diverge.
+pub(super) fn trim_owned(s: String) -> String {
     let trimmed = s.trim();
-    Ok(if trimmed.len() == s.len() {
+    if trimmed.len() == s.len() {
         s
     } else {
         trimmed.to_owned()
-    })
+    }
 }
 
 /// Per-event outcome in the batch response.
@@ -60,6 +64,7 @@ pub enum EventResult {
     Retry,
 }
 
+/// Keep fields in sync with `LenientBatch` in `super::lenient`.
 #[derive(Debug, Deserialize)]
 pub struct Batch {
     pub created_at: String,
@@ -79,14 +84,14 @@ fn lenient_flag(value: &Value) -> Option<bool> {
     }
 }
 
-fn deserialize_lenient_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+pub(super) fn deserialize_lenient_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     Ok(lenient_flag(&Value::deserialize(deserializer)?))
 }
 
-fn deserialize_lenient_flag_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+pub(super) fn deserialize_lenient_flag_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -300,6 +305,7 @@ fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
     }
 }
 
+/// Keep fields in sync with `LenientEvent` in `super::lenient`.
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub event: String,
@@ -347,17 +353,51 @@ pub struct WrappedEvent {
 }
 
 impl WrappedEvent {
-    /// Option keys that dropped this event; recomputed since only drops need it.
     pub fn failed_option_keys(&self) -> OptionKeys {
-        match self.details {
-            Some(DETAIL_INVALID_OPTIONS) => self
-                .event
-                .options
-                .validate()
-                .err()
-                .map_or_else(OptionKeys::default, OptionsError::failed_keys),
-            _ => OptionKeys::default(),
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+#[derive(Debug)]
+pub struct ValidatedEvent {
+    pub event: Event,
+    pub uuid: Uuid,
+    pub options: Options,
+    pub adjusted_timestamp: Option<DateTime<Utc>>,
+    pub result: EventResult,
+    pub details: Option<&'static str>,
+    pub force_disable_person_processing: bool,
+}
+
+impl ValidatedEvent {
+    pub fn into_wrapped(self, destination: Destination) -> WrappedEvent {
+        WrappedEvent {
+            event: self.event,
+            uuid: self.uuid,
+            options: self.options,
+            adjusted_timestamp: self.adjusted_timestamp,
+            result: self.result,
+            details: self.details,
+            destination,
+            force_disable_person_processing: self.force_disable_person_processing,
+            spread_partitions: false,
+            is_gateway_verified: false,
         }
+    }
+
+    pub fn failed_option_keys(&self) -> OptionKeys {
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+fn failed_option_keys(event: &Event, details: Option<&'static str>) -> OptionKeys {
+    match details {
+        Some(DETAIL_INVALID_OPTIONS) => event
+            .options
+            .validate()
+            .err()
+            .map_or_else(OptionKeys::default, OptionsError::failed_keys),
+        _ => OptionKeys::default(),
     }
 }
 
@@ -446,12 +486,6 @@ impl Publishable for WrappedEvent {
         buf
     }
 
-    /// Computed here rather than stamped during processing because it depends
-    /// on the final destination: `apply_restrictions` can disable person
-    /// processing while an event is still `AnalyticsMain`, and
-    /// `apply_historical_rerouting` may afterwards move it to
-    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
-    /// keeps the rule correct no matter how the stages are ordered.
     fn ordering(&self) -> OrderingGuarantee {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
