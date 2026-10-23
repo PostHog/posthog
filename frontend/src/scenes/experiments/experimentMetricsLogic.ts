@@ -207,7 +207,7 @@ const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPay
     STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) &&
     currentMetricUuids(experiment).length > 0 &&
     !!recalculation.query_to &&
-    dayjs().diff(dayjs(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
+    dayjs.utc().diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
 
 type MetricErrorState = { detail: string; retriable: boolean } | null
 type ResolveByUuid<T> = (uuid: string) => T
@@ -987,9 +987,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         /**
                          * Create can return an already-terminal run (e.g. a completed one finished between
                          * request and response). Load its results directly rather than polling. A rejected
-                         * run has no results on the create response, so latest serves the earlier ones.
+                         * run has no results on the create response, so latest serves the earlier ones. The
+                         * same applies to an existing run the backend returns instead of a stale refresh.
                          */
-                        if (rejectionMessage(recalculation)) {
+                        if (rejectionMessage(recalculation) || recalculation.is_existing) {
                             /** A failed reload never reaches applyResults, so the marks of this create clear here. */
                             actions.setRecalculatingMetricUuids(
                                 values.recalculatingMetricUuids.filter(

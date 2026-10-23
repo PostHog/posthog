@@ -736,6 +736,27 @@ describe('experimentMetricsLogic', () => {
             }
         })
 
+        it('clears the recalculating marks when the backend answers a stale refresh with the existing run', async () => {
+            // The backend judges freshness with server time and returns the latest run, which has no results on create.
+            const { results: _, ...existingJob } = { ...completedRecalculation, is_existing: true }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        staleCompletedRecalculation,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [200, existingJob] },
+            })
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['triggerRecalculation', 'loadLatestRecalculation'])
+                .toFinishAllListeners()
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+        })
+
         it('accepts a timeseries fallback that covers every metric without triggering a run', async () => {
             useMocks({
                 get: {
