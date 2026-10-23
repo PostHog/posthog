@@ -318,6 +318,8 @@ export interface TilePlacement {
     group_key: string | null
 }
 
+const NO_SAVED_PLACEMENT: TilePlacement = { layouts: undefined, group_key: null }
+
 const tilePlacement = (tile: DashboardTile): TilePlacement => ({
     layouts: tile.layouts,
     group_key: tile.group_key ?? null,
@@ -4138,7 +4140,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     layouts: sm ? ({ sm } as DashboardTile['layouts']) : {},
                     group_key: move.groupKey,
                 }
-                const savedBefore = values.savedTilePlacements[tileId] ?? { layouts: undefined, group_key: null }
+                const savedBefore = values.savedTilePlacements[tileId] ?? NO_SAVED_PLACEMENT
                 actions.setTileProperty(tileId, placement)
                 const currentPlacement = (): TilePlacement | null => {
                     const tile = values.tiles.find((candidate) => candidate.id === tileId)
@@ -4160,10 +4162,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.error('Could not move the tile, so it is back where it was. Try again.')
                     // A move of this tile in edit mode is newer than this one, so it stays.
                     if (equal(currentPlacement(), placement)) {
-                        actions.setTileProperty(
-                            tileId,
-                            values.savedTilePlacements[tileId] ?? { layouts: undefined, group_key: null }
-                        )
+                        actions.setTileProperty(tileId, values.savedTilePlacements[tileId] ?? NO_SAVED_PLACEMENT)
                     }
                 }
             })

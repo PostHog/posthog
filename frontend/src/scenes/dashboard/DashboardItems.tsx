@@ -307,13 +307,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             moveTileToSection: (tileId, sectionKey, cell) => moveTileToSection(tileId, sectionKey, cell, 'drag'),
             restoreLayout: (layout) => stageLayouts({ sm: layout }),
         })
-    // One strategy object per width, so the grid items do not re-render for a new object on every render.
-    const boundedStrategies = useMemo(() => new Map<number, PositionStrategy>(), [])
-    const getBoundedStrategy = (width: number): PositionStrategy => {
-        const strategy = boundedStrategies.get(width) ?? sidewaysBoundedStrategy(width)
-        boundedStrategies.set(width, strategy)
-        return strategy
-    }
+    // A stable object, so the grid items do not re-render for a new strategy on every render.
+    const boundedStrategy = useMemo(() => sidewaysBoundedStrategy(gridWidth), [gridWidth])
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -791,7 +786,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     // into a band without a remount that resets every chart already in it.
                     key={section.key}
                     width={gridWidth}
-                    positionStrategy={getBoundedStrategy(gridWidth)}
+                    positionStrategy={boundedStrategy}
                     className={clsx(
                         layoutEditMode ? 'dashboard-edit-mode box-content' : 'dashboard-view-mode',
                         layoutEditMode && (isLastSection ? 'pb-[40vh]' : 'pb-24'),
