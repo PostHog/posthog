@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -11,6 +12,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
@@ -157,6 +159,25 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
             cursor=EmailStatusCursor(created_at=records[0].created_at, message_id=records[0].message_id),
         )
         assert [record.message_id for record in next_page] == [first]
+
+    @parameterized.expand(["by_id", "by_recipient"])
+    def test_tags_its_clickhouse_reads(self, _flag, read):
+        observed: list[tuple[object, object, object]] = []
+
+        def tagged_sync_execute(*args: Any, **kwargs: Any) -> Any:
+            tags = get_query_tags()
+            observed.append((tags.team_id, tags.product, tags.feature))
+            return sync_execute(*args, **kwargs)
+
+        with patch("products.messaging.backend.services.email_status.sync_execute", tagged_sync_execute):
+            if read == "by_id":
+                self._client(["hog_flow:read"]).get(self._url(self._sent_at(datetime.now(UTC))))
+            else:
+                list_email_statuses_by_recipient(
+                    self.team.id, "jane@example.com", since=datetime.now(UTC) - timedelta(days=1), limit=10
+                )
+
+        assert observed == [(self.team.id, Product.MESSAGING, Feature.QUERY)]
 
 
 class TestEmailRecipientHash(SimpleTestCase):
