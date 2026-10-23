@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
@@ -492,6 +494,31 @@ describe('mcpDashboardOverviewLogic', () => {
                 .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
             expect(bucketed).toHaveLength(1)
             expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
+        })
+
+        it('loads intent topics once when the flag arrives after the first load', async () => {
+            const intentTopicsCalls = (): number =>
+                mockApi.query.mock.calls.filter((call) => (call[0] as any)?.kind === 'MCPIntentTopicsQuery').length
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(intentTopicsCalls()).toBe(0)
+
+            try {
+                for (let i = 0; i < 2; i++) {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS], {
+                        [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true,
+                    })
+                    await expectLogic(logic).toFinishAllListeners()
+                }
+
+                expect(intentTopicsCalls()).toBe(1)
+            } finally {
+                featureFlagLogic.actions.setFeatureFlags([], {})
+                logic.unmount()
+            }
         })
 
         it('reloads every tile when the date filter changes', async () => {

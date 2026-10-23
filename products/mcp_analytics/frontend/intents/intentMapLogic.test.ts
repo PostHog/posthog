@@ -199,7 +199,7 @@ describe('intentMapLogic', () => {
         expect(logic.values.topicColor('b')).toBe(colorOfB)
     })
 
-    it('sends no query while the intent topics flag is off', async () => {
+    it('sends no query while the intent topics flag is off, and loads once it turns on', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         logic.mount()
         router.actions.push(urls.mcpAnalyticsIntentMap())
@@ -208,6 +208,14 @@ describe('intentMapLogic', () => {
 
         expect(mockQuery).not.toHaveBeenCalled()
         expect(logic.values.points).toEqual([])
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS], {
+            [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]: true,
+        })
+        await expectLogic(logic).toDispatchActions(['loadMapSuccess'])
+
+        expect(mockQuery).toHaveBeenCalledTimes(1)
+        expect(logic.values.points.map((p) => p.intent_hash)).toEqual(['p1', 'p2', 'p3'])
     })
 
     it('keeps a failed load apart from an empty map until a load succeeds', async () => {

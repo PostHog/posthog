@@ -229,14 +229,16 @@ export const intentMapLogic = kea<intentMapLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         map: [
             EMPTY_MAP,
             {
                 loadMap: async (_: void, breakpoint): Promise<MCPIntentMapQueryResponse> => {
                     if (!values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]) {
+                        cache.skippedForFlag = true
                         return EMPTY_MAP
                     }
+                    cache.skippedForFlag = false
                     await breakpoint(150)
                     const response = (await api.query({
                         kind: NodeKind.MCPIntentMapQuery,
@@ -314,7 +316,13 @@ export const intentMapLogic = kea<intentMapLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
+        // The scene can mount before /flags answers, so the first load may have been skipped.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (cache.skippedForFlag && values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]) {
+                actions.loadMap()
+            }
+        },
         setTool: () => actions.loadMap(),
         setTopicId: () => actions.loadMap(),
         setDateFilter: () => actions.loadMap(),
