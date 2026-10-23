@@ -74,6 +74,37 @@ def inlining_could_deny_a_reader(team_id: int, saved_query_id: UUID) -> bool:
 
 
 @frozen
+class QueryCost:
+    seconds: float
+    read_bytes: float
+
+
+@frozen
+class RealizedSavings:
+    seconds: float
+    read_bytes: float
+
+
+def monthly_cost(context: "CandidateContext", duration_ms: int, read_bytes: int) -> QueryCost:
+    return QueryCost(
+        seconds=duration_ms / MILLISECONDS_PER_SECOND * context.month_scale,
+        read_bytes=read_bytes * context.month_scale,
+    )
+
+
+def stored_cost(score_inputs: Mapping[str, float], seconds_key: str, bytes_key: str) -> QueryCost | None:
+    if seconds_key not in score_inputs or bytes_key not in score_inputs:
+        return None
+    return QueryCost(seconds=score_inputs[seconds_key], read_bytes=score_inputs[bytes_key])
+
+
+def savings_between(cost_without: QueryCost, cost_now: QueryCost) -> RealizedSavings:
+    return RealizedSavings(
+        seconds=cost_without.seconds - cost_now.seconds, read_bytes=cost_without.read_bytes - cost_now.read_bytes
+    )
+
+
+@frozen
 class CandidateContext:
     team_id: int
     reads: TeamReads
@@ -139,6 +170,11 @@ class Candidate(ABC):
     def asset_outcome(
         self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
     ) -> WarehouseSuggestionAssetOutcome: ...
+
+    def realized_savings(
+        self, context: CandidateContext, subject: Subject, score_inputs: Mapping[str, float]
+    ) -> RealizedSavings | None:
+        return None
 
     def draft(
         self,
