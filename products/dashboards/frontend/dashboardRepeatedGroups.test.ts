@@ -6,7 +6,13 @@ import type { DashboardTile } from '~/types'
 import { MAX_REPEATED_COPIES, expandRepeatedGroups } from './dashboardRepeatedGroups'
 
 const insightTile = (id: number, group_key: string | null): DashboardTile =>
-    ({ id, group_key, layouts: {}, color: null, insight: { short_id: `i${id}` } }) as DashboardTile
+    ({
+        id,
+        group_key,
+        layouts: {},
+        color: null,
+        insight: { short_id: `i${id}`, query: { kind: 'MetricsQuery' } },
+    }) as DashboardTile
 
 const textTile = (id: number, group_key: string | null): DashboardTile =>
     ({ id, group_key, layouts: {}, color: null, text: { body: 'text' } }) as DashboardTile
@@ -147,6 +153,25 @@ describe('dashboardRepeatedGroups', () => {
         const [list, get, create] = copies.map((copy) => copy.key)
         expect(positions(layouts.sm)).toEqual({ [list]: [0, 0], [get]: [5, 0], [create]: [0, 3], '2': [0, 6] })
         expect(positions(layouts.xs)).toEqual({ [list]: [0, 0], [get]: [0, 3], [create]: [0, 6], '2': [0, 9] })
+    })
+
+    it('keeps a tile whose insight the viewer cannot access on the original path', () => {
+        const restricted = { ...insightTile(2, 'endpoints'), insight: { short_id: 'i2', user_access_level: 'none' } }
+        const { tiles, copies } = expandRepeatedGroups({
+            tiles: [insightTile(1, 'endpoints'), restricted as DashboardTile],
+            layouts: {
+                sm: [
+                    { i: '1', x: 0, y: 0, w: 6, h: 3 },
+                    { i: '2', x: 6, y: 0, w: 6, h: 3 },
+                ],
+            },
+            groupRepeats: { endpoints: { variable: 'endpoint', direction: 'vertical' } },
+            filters: filters(endpoint({ values: ['list', 'get'] })),
+            options: OPTIONS,
+        })
+
+        expect(tiles.map((tile) => tile.id)).toEqual([2])
+        expect(new Set(copies.map((copy) => copy.tile.id))).toEqual(new Set([1]))
     })
 
     it.each([

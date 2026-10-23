@@ -124,7 +124,8 @@ export function expandRepeatedGroups(input: RepeatedGroupsInput): RepeatedGroups
     const { tiles, layouts, groupRepeats, filters, options } = input
     const repeats: ActiveRepeat[] = Object.entries(groupRepeats ?? {}).flatMap(([groupKey, repeat]) => {
         const variable = filters.metricVariables?.find((other) => other.name === repeat.variable && other.source)
-        const groupTiles = tiles.filter((tile) => tile.group_key === groupKey && tile.insight)
+        // A viewer without access gets the insight without its query, and the original tile shows the access state.
+        const groupTiles = tiles.filter((tile) => tile.group_key === groupKey && tile.insight?.query)
         const values = variable ? repeatValues(variable, options[variable.name]) : []
         return variable && values.length && groupTiles.length ? [{ repeat, variable, values, tiles: groupTiles }] : []
     })
