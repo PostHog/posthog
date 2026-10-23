@@ -287,7 +287,6 @@ describe('loginLogic', () => {
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             expect(precheckHandler).toHaveBeenCalledTimes(2)
 
-            // Autofill and Continue both ask before the first answer arrives
             logic.actions.precheck({ email: 'c@example.com' })
             logic.actions.precheck({ email: 'c@example.com' })
             await expectLogic(logic)
