@@ -486,8 +486,9 @@ def validate_incremental_sync(
     # The Delta merge needs a key to match rows on, so a keyless incremental table fails once a
     # table already exists. Raise before extraction rather than letting the writer hit it mid-load:
     # on pipeline v3 the write happens in the load consumer, which can only fail the job, so the
-    # schema is never paused and the same doomed run repeats on every schedule.
-    if is_incremental and not is_first_sync and not resource.primary_keys:
+    # schema is never paused and the same doomed run repeats on every schedule. A run with a replace
+    # scope appends instead of merging, so it needs no key.
+    if is_incremental and not is_first_sync and not resource.primary_keys and resource.replace_scope is None:
         raise MissingPrimaryKeysException()
 
 

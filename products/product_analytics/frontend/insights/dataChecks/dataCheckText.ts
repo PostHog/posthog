@@ -53,9 +53,10 @@ const SKIP_REASONS: Record<InsightDataCheckSkipReasonEnumApi, string> = {
     time_limit: 'it took longer than it is allowed',
     memory_limit: 'it needed more memory than it is allowed',
     too_few_sampled_events: 'the sample has too few events',
-    filtered_by_traffic_type: 'this insight already filters on traffic type',
+    filtered_by_traffic_type: "this insight's filters already choose which traffic types to keep",
     hidden_property: 'a property it reads is hidden from you',
     invalid_filter: "the project's internal and test users filter cannot run",
+    on_request: 'it would read a lot of data, so it runs only in a full check',
 }
 
 function eventCount(check: InsightDataCheckApi): string {
@@ -75,7 +76,14 @@ function shareOf(check: InsightDataCheckApi, part: number): string | null {
 export interface FilterCheckParts {
     /** Set when the project's filter catches these events but the insight leaves the filter off. */
     caught: string | null
-    missed: { count: number; noun: string; examples: string[]; fallback: string; excludeLabel: string } | null
+    missed: {
+        count: number
+        noun: string
+        examples: string[]
+        fallback: string
+        predicate: string
+        explanation: string | null
+    } | null
 }
 
 const NOTHING: FilterCheckParts = { caught: null, missed: null }
@@ -84,10 +92,19 @@ export function isFinding(check: InsightDataCheckApi): boolean {
     return check.level === 'warning' || check.level === 'problem'
 }
 
+function notCaught(count: number): string {
+    return `${count === 1 ? "isn't" : "aren't"} caught by your internal and test users filter.`
+}
+
+function missedUserCount(check: InsightDataCheckApi): number {
+    return check.distinct_emails ?? check.top_emails.length
+}
+
 function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boolean): FilterCheckParts {
     const removed = check.removed_by_filter
     const removedPercent = removed ? shareOf(check, removed) : null
     const caughtAmount = removedPercent ? `${removedPercent} of these events` : pluralize(removed ?? 0, 'event')
+    const count = missedUserCount(check)
     return {
         caught:
             removed && !filtersTestAccounts
@@ -95,11 +112,14 @@ function internalUsersParts(check: InsightDataCheckApi, filtersTestAccounts: boo
                 : null,
         missed: check.missed_by_filter
             ? {
-                  count: check.distinct_emails ?? check.top_emails.length,
+                  count,
                   noun: 'user',
                   examples: check.top_emails,
-                  fallback: "Your team's emails",
-                  excludeLabel: 'Exclude these users',
+                  fallback: 'Some users',
+                  predicate: `${count === 1 ? 'has an email that matches' : 'have emails that match'} your team, but none of your filter's rules remove them.`,
+                  explanation:
+                      "An email matches your team when it's on the same domain as someone in your organization, " +
+                      'or looks like a test account, such as test@ or name+qa@.',
               }
             : null,
     }
@@ -109,14 +129,16 @@ function localHostParts(check: InsightDataCheckApi): FilterCheckParts {
     if (!isFinding(check) || !check.filter_to_add) {
         return NOTHING
     }
+    const count = check.distinct_hosts ?? check.top_hosts.length
     return {
         caught: null,
         missed: {
-            count: check.distinct_hosts ?? check.top_hosts.length,
+            count,
             noun: 'host',
             examples: check.top_hosts,
             fallback: 'Localhost events',
-            excludeLabel: 'Exclude these hosts',
+            predicate: notCaught(count),
+            explanation: null,
         },
     }
 }
@@ -132,14 +154,16 @@ function botTrafficParts(
     if (filterRemovesBots && !filtersTestAccounts) {
         return { caught: "Your filter catches this bot traffic, but it's off for this insight.", missed: null }
     }
+    const count = check.distinct_bots ?? check.top_bots.length
     return {
         caught: null,
         missed: {
-            count: check.distinct_bots ?? check.top_bots.length,
+            count,
             noun: 'bot',
             examples: check.top_bots,
             fallback: 'Bot events',
-            excludeLabel: 'Exclude these bots',
+            predicate: notCaught(count),
+            explanation: null,
         },
     }
 }
@@ -210,14 +234,35 @@ function skippedResult(check: InsightDataCheckApi): string {
     return reason ? `Not checked, because ${reason}` : 'Not checked'
 }
 
-export function dataCheckText(check: InsightDataCheckApi, filtersTestAccounts: boolean): DataCheckText {
+// The server skips the bot check whenever the insight's filters read traffic type, and cannot tell when the rule
+// comes from the project's filter.
+export function botsFilteredOut(
+    check: InsightDataCheckApi,
+    filtersTestAccounts: boolean,
+    filterRemovesBots: boolean
+): boolean {
+    return check.skip_reason === 'filtered_by_traffic_type' && filtersTestAccounts && filterRemovesBots
+}
+
+export function dataCheckText(
+    check: InsightDataCheckApi,
+    filtersTestAccounts: boolean,
+    filterRemovesBots: boolean
+): DataCheckText {
     const name = DATA_CHECK_NAMES[check.key]
+    if (botsFilteredOut(check, filtersTestAccounts, filterRemovesBots)) {
+        return { name, result: 'Filtered out' }
+    }
     if (check.level === 'skipped') {
         return { name, result: skippedResult(check) }
     }
     if (check.level === 'passed') {
         if (check.key === 'internal_users' && filtersTestAccounts) {
-            return { name, result: 'Filtered out' }
+            if (!check.missed_by_filter) {
+                return { name, result: 'Filtered out' }
+            }
+            const missed = missedUserCount(check)
+            return { name, result: `Filtered out, except ${missed ? pluralize(missed, 'user') : 'some users'}` }
         }
         return { name, result: check.events ? `Almost none (${eventCount(check)} events)` : 'None found' }
     }

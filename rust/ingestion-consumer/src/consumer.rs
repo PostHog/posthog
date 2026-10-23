@@ -1,362 +1,127 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    Charge, GroupCompletion, Offset, Partition, Rejection, TopicOffsetLedger, TopicPartition,
+    AssignmentEpoch, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
 };
-use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
-use rdkafka::message::{Headers, Message};
+use rdkafka::error::KafkaError;
+use rdkafka::message::BorrowedMessage;
 use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
-use crate::commit_monitor::spawn_commit_monitor;
-use crate::commit_pacer::ImmediateCommitPacer;
-use crate::commit_sentinel::{CommitSentinel, CommitViolation};
-use crate::config::Config;
-use crate::debug_recorder::{
-    record_if, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
-};
+use crate::charge_limit::ChargeLimit;
+use crate::config::{CompletionGranularity, Config, Polling};
+use crate::debug_recorder::{record_if, CommitOffset, DebugEventKind, DebugRecorder};
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
-use crate::ledger_rejection::{warn_rejection, RejectedSlice};
-use crate::order_sentinel::{OffsetSpan, RevokeHook, SentinelContext};
-use crate::types::{Accumulator, SerializedKafkaMessage};
+use crate::ledger_rejection::{report_rejection, RejectedSlice};
+use crate::partition_budget::BudgetLimits;
+use crate::polling::{
+    self, debug_partition_offsets, debug_partition_spans, BatchStats, CappedPolling,
+    CollectedBatch, ContinuousPolling, InFlightPoll, PartitionDeliveries, Parts, PollLimits,
+    PollingStrategy, Selected, Step,
+};
+use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
+use crate::settlement::{self, Commit, Settlement};
 
-/// Batch-wide statistics gathered while collecting, used to emit parity
-/// metrics. Per-partition facts live on [`PartitionDeliveries`].
-struct BatchStats {
-    /// Per-message (partition, lag_ms) pairs — for `ingestion_lag_ms_histogram`.
-    message_lags_ms: Vec<(i32, i64)>,
-    /// Total byte size of message payloads — for `consumer_batch_size_kb`.
-    total_bytes: usize,
-}
-
-impl BatchStats {
-    fn new() -> Self {
-        Self {
-            message_lags_ms: Vec::new(),
-            total_bytes: 0,
-        }
-    }
-}
-
-/// One delivered message, as the batch records it against its partition.
-struct Delivery {
-    offset: i64,
-    charge: Charge,
-    /// Kafka message timestamp (ms).
-    kafka_ts: i64,
-    /// Ingestion lag (ms); `None` without a parseable `now` header.
-    lag_ms: Option<i64>,
-}
-
-/// What a batch saw delivered from one partition, folded in one map entry
-/// per message. The span bounds what the batch delivered; the stamped
-/// charges feed the ledger.
-struct PartitionDeliveries {
-    /// The offsets the batch delivered, first to last.
-    span: OffsetSpan,
-    /// Ledger generation the charges are stamped with.
-    generation: u64,
-    /// Ledger generations version seen when the charges were last stamped.
-    /// Comparing it per message is cheaper than reading the generation.
-    generations_version_seen: u64,
-    /// The slice charged to the ledger: offsets delivered under `generation`.
-    charges: Vec<(Offset, Charge)>,
-    /// Max Kafka message timestamp (ms) — for `latest_processed_timestamp_ms`.
-    latest_kafka_ts: i64,
-    /// Max ingestion lag (ms) — for `ingestion_lag_ms`.
-    max_lag_ms: Option<i64>,
-    /// Messages the poll delivered, covered, and accepted from this
-    /// partition, so a revoked partition can leave the poll exactly.
-    delivered: u32,
-    covered: u32,
-    accepted: u32,
-    /// The offsets a completion covered. Keyed by offset rather than by
-    /// position in `span`, because a poll can span an offset gap.
-    credited: HashSet<i64, ahash::RandomState>,
-}
-
-impl PartitionDeliveries {
-    fn new(generation: u64, generations_version: u64, delivery: &Delivery) -> Self {
-        Self {
-            span: OffsetSpan::new(delivery.offset),
-            generation,
-            generations_version_seen: generations_version,
-            charges: vec![(Offset(delivery.offset), delivery.charge)],
-            latest_kafka_ts: delivery.kafka_ts,
-            max_lag_ms: delivery.lag_ms,
-            delivered: 1,
-            covered: 0,
-            accepted: 0,
-            credited: HashSet::default(),
-        }
-    }
-
-    fn credit(&mut self, offset: i64) {
-        self.credited.insert(offset);
-    }
-
-    fn uncredited_charge(&self) -> Option<Offset> {
-        self.charges
-            .iter()
-            .map(|(offset, _)| *offset)
-            .find(|offset| !self.credited.contains(&offset.0))
-    }
-
-    /// Record one more delivery. `generation` is consulted only when
-    /// `generations_version` moved since the last stamp. A moved generation
-    /// means the partition was revoked and regained inside this batch: the
-    /// offsets buffered so far belong to the old assignment and Kafka
-    /// redelivers them, so the ledger slice restarts. The span keeps them,
-    /// so the commit sentinel still sees the whole delivered range.
-    fn record(
-        &mut self,
-        generations_version: u64,
-        generation: impl FnOnce() -> u64,
-        delivery: &Delivery,
-    ) {
-        self.span.extend(delivery.offset);
-        self.delivered += 1;
-        self.latest_kafka_ts = self.latest_kafka_ts.max(delivery.kafka_ts);
-        if let Some(lag_ms) = delivery.lag_ms {
-            self.max_lag_ms = Some(self.max_lag_ms.map_or(lag_ms, |max| max.max(lag_ms)));
-        }
-        if generations_version != self.generations_version_seen {
-            self.generations_version_seen = generations_version;
-            let generation = generation();
-            if generation != self.generation {
-                self.generation = generation;
-                self.charges.clear();
-            }
-        }
-        self.charges
-            .push((Offset(delivery.offset), delivery.charge));
-    }
-}
-
-/// Why the consumer loop stops. The two are reported on separate channels
-/// so a dashboard can tell a pipeline failure from a client that can no
-/// longer commit.
-enum Failure {
-    /// A poll could not be collected, dispatched, or completed.
-    Batch(anyhow::Error),
-    /// An offset commit could not be submitted to the Kafka client.
-    Commit(anyhow::Error),
-}
-
-/// Output of `collect_batch`.
-struct CollectedBatch {
-    /// The poll's messages, demuxed per partition and routing key.
-    accumulator: Accumulator,
-    partitions: HashMap<TopicPartition, PartitionDeliveries>,
-    stats: BatchStats,
-}
-
-/// One submitted poll, awaiting its group completions. The consumer
-/// correlates completions to it by assignment epoch, partition, and offset;
-/// the poll commits only once completions cover every message.
-struct InFlightPoll {
-    /// Consumer-side id for logs and debug events only; the batcher's
-    /// internal batch id never crosses the boundary.
-    poll_id: String,
-    /// The epoch the batcher stamped on this poll's completions.
-    assignment_epoch: u64,
-    partitions: HashMap<TopicPartition, PartitionDeliveries>,
-    message_count: u32,
-    /// Messages covered by completions so far, accepted or not.
-    covered: u32,
-    /// Worker-accepted messages so far. The poll commits only when this
-    /// reaches `message_count`.
-    accepted: u32,
-    dispatched_at: Instant,
-}
-
-impl InFlightPoll {
-    fn is_complete(&self) -> bool {
-        self.covered >= self.message_count
-    }
-
-    /// A charged offset that no completion covered. A complete poll can still
-    /// have one, because one offset credited twice fills `covered` as well.
-    fn uncredited_charge(&self) -> Option<(&TopicPartition, Offset)> {
-        self.partitions
-            .iter()
-            .find_map(|(topic_partition, deliveries)| {
-                deliveries
-                    .uncredited_charge()
-                    .map(|offset| (topic_partition, offset))
-            })
-    }
-}
-
-/// A partition revocation stamped with the ledger generation started by the
-/// revoke. Poll slices from earlier generations are stale; slices collected
-/// after a later reassignment must survive a delayed notification.
-#[derive(Clone, Debug)]
-struct RevokedPartition {
-    topic_partition: TopicPartition,
-    generation: u64,
-}
-
-/// The consumer's revocation hook: purge the batcher, and record the revoked
-/// partitions, because the purge means their polls never complete.
 fn revoke_hook(
     revoker: Revoker,
-    ledger: Arc<TopicOffsetLedger>,
-    revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
-) -> RevokeHook {
+    settlement: Arc<dyn Settlement>,
+    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
+) -> PartitionHook {
     Box::new(move |partitions| {
-        revoker.purge_revoked(partitions);
+        settlement.forget_partitions(partitions);
+        let pairs: Vec<(String, i32)> = partitions
+            .iter()
+            .map(|tp| (tp.topic.clone(), tp.partition))
+            .collect();
+        revoker.purge_revoked(&pairs);
         revoked_partitions
             .lock()
             .unwrap()
-            .extend(partitions.iter().map(|(topic, partition)| {
-                let topic_partition = TopicPartition::new(topic, *partition);
-                let generation = ledger.generation(&topic_partition);
-                RevokedPartition {
-                    topic_partition,
-                    generation,
-                }
-            }));
+            .extend_from_slice(partitions);
     })
 }
 
-/// Remove revoked partitions from in-flight polls, and remove polls left
-/// empty. Only slices from before that partition's revoke generation go: a
-/// poll's kept or newly reassigned slices retain their counts and settle their
-/// ledger charges at commit, so the frontier never crosses a hole.
-fn strip_revoked_partitions(
-    in_flight_polls: &mut VecDeque<InFlightPoll>,
-    revoked: &[RevokedPartition],
-) -> u64 {
-    let mut stripped: u64 = 0;
-    for poll in in_flight_polls.iter_mut() {
-        let mut removed_delivered = 0u32;
-        let mut removed_covered = 0u32;
-        let mut removed_accepted = 0u32;
-        poll.partitions.retain(|topic_partition, deliveries| {
-            if revoked.iter().any(|revoked| {
-                revoked.topic_partition == *topic_partition
-                    && deliveries.generation < revoked.generation
-            }) {
-                removed_delivered += deliveries.delivered;
-                removed_covered += deliveries.covered;
-                removed_accepted += deliveries.accepted;
-                false
-            } else {
-                true
-            }
-        });
-        if removed_delivered > 0 {
-            stripped += u64::from(removed_delivered);
-            poll.message_count = poll.message_count.saturating_sub(removed_delivered);
-            poll.covered = poll.covered.saturating_sub(removed_covered);
-            poll.accepted = poll.accepted.saturating_sub(removed_accepted);
-        }
-    }
-    in_flight_polls.retain(|poll| poll.message_count > 0);
-    stripped
+fn assign_hook(
+    settlement: Arc<dyn Settlement>,
+    assignment_epoch: AssignmentEpoch,
+    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
+) -> PartitionHook {
+    Box::new(move |partitions| {
+        // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
+        settlement.forget_partitions(partitions);
+        assignment_epoch.bump();
+        revoked_partitions
+            .lock()
+            .unwrap()
+            .extend_from_slice(partitions);
+    })
 }
 
-/// Credit each of a completion's offsets to the poll that contains it: the
-/// one collected under the same assignment epoch whose span holds the offset.
-/// Within one epoch, poll spans are disjoint per partition, so at most one
-/// poll matches per offset. A key-table run merges messages from several
-/// polls into one send, so one completion can span polls; crediting per
-/// offset keeps every poll's count exact. Acceptance credits the leading
-/// offsets, so a worker that under-reports shorts the tail poll's accepted
-/// check, matching [`send_group_completions`]'s split across groups. An
-/// offset that matches no poll (its partition was revoked and reassigned
-/// while the group was out, or its poll is gone) is discarded; a completion
-/// with any discarded offset counts as stale once.
-///
-/// [`send_group_completions`]: crate::batcher
-fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
-    let mut accepted = completion.accepted;
-    let mut unmatched: u64 = 0;
-    'offsets: for offset in &completion.offsets {
-        let is_accepted = accepted > 0;
-        accepted = accepted.saturating_sub(1);
-        for poll in in_flight
-            .iter_mut()
-            .filter(|poll| poll.assignment_epoch == completion.assignment_epoch)
-        {
-            for (topic_partition, deliveries) in poll.partitions.iter_mut() {
-                if topic_partition.partition == completion.partition.0
-                    && deliveries.span.first <= offset.0
-                    && offset.0 <= deliveries.span.last
-                {
-                    poll.covered += 1;
-                    poll.accepted += u32::from(is_accepted);
-                    deliveries.covered += 1;
-                    deliveries.accepted += u32::from(is_accepted);
-                    deliveries.credit(offset.0);
-                    continue 'offsets;
-                }
-            }
-        }
-        unmatched += 1;
-    }
-    if unmatched > 0 {
-        counter!("ingestion_consumer_stale_group_completions_total").increment(1);
-        warn!(
-            partition = %completion.partition,
-            unmatched,
-            epoch = completion.assignment_epoch,
-            "Discarding completion offsets that match no in-flight poll"
-        );
-    }
+fn wire_rebalance_hooks(
+    context: &RebalanceContext,
+    revoker: Revoker,
+    settlement: &Arc<dyn Settlement>,
+    assignment_epoch: AssignmentEpoch,
+) -> Arc<Mutex<Vec<TopicPartition>>> {
+    let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
+    context.set_on_revoke(revoke_hook(
+        revoker,
+        Arc::clone(settlement),
+        Arc::clone(&revoked_partitions),
+    ));
+    context.set_on_assign(assign_hook(
+        Arc::clone(settlement),
+        assignment_epoch,
+        Arc::clone(&revoked_partitions),
+    ));
+    revoked_partitions
 }
 
-/// Pops the front poll for its commit. A complete poll commits only when
-/// workers accepted all of it and a completion covered every charged offset.
-fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InFlightPoll> {
-    let poll = in_flight.pop_front().expect("front is present");
-    if poll.accepted < poll.message_count {
-        anyhow::bail!(
-            "accepted {}/{} messages — not committing offsets",
-            poll.accepted,
-            poll.message_count
-        );
+fn commit_tick(granularity: CompletionGranularity, commit_interval: Duration) -> Duration {
+    const HEALTH_TICK: Duration = Duration::from_secs(1);
+    // A commit can resume a partition, so a tick longer than the commit
+    // interval delays the resume.
+    match granularity {
+        CompletionGranularity::Group if !commit_interval.is_zero() => {
+            commit_interval.min(HEALTH_TICK)
+        }
+        _ => HEALTH_TICK,
     }
-    if let Some((topic_partition, offset)) = poll.uncredited_charge() {
-        counter!("ingestion_consumer_commit_violations_total", "kind" => "uncredited").increment(1);
-        anyhow::bail!(
-            "offset {} of {}/{} has no completion — not committing offsets",
-            offset.0,
-            topic_partition.topic,
-            topic_partition.partition
-        );
-    }
-    Ok(poll)
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
-/// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
     pub batch_size: usize,
     /// Payload-byte bound on a batch; `0` disables it (count-only collection).
     /// See `Config::consumer_batch_size_kb`.
     pub batch_size_bytes: usize,
     pub batch_timeout: Duration,
+    /// The capped strategy's admission cap, in polls.
     pub max_in_flight_batches: usize,
+    pub polling: Polling,
+    pub in_flight_limit: ChargeLimit,
     pub group_id: String,
-    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
+    pub completion_granularity: CompletionGranularity,
+    pub commit_interval: Duration,
+    pub ledger: Arc<TopicOffsetLedger>,
+    pub partition_budget: BudgetLimits,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
-/// submits them to the [`Batcher`] (which routes, dispatches, and flushes),
-/// and commits offsets once the batcher's completions cover a poll.
+/// submits them to the [`Batcher`], and commits offsets once the batcher's
+/// completions cover a poll or a group.
 pub struct IngestionConsumer {
-    consumer: Arc<StreamConsumer<SentinelContext>>,
+    consumer: Arc<StreamConsumer<RebalanceContext>>,
     batcher: Batcher,
     /// Taken once by `process`.
     outputs: Option<BatcherOutputs>,
@@ -365,30 +130,23 @@ pub struct IngestionConsumer {
     batch_size: usize,
     batch_size_bytes: usize,
     batch_timeout: Duration,
-    max_in_flight_batches: usize,
+    polling: Selected,
+    commit_tick: Duration,
     handle: Handle,
     group_id: String,
-    /// Where settled frontiers go: the sentinel checks each one and passes
-    /// it to the pacer, which says when to commit. Shared with the
-    /// consumer's [`SentinelContext`], which tells it which partitions leave
-    /// the assignment.
-    commit_sentinel: Arc<CommitSentinel>,
-    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    /// The per-partition offset ledger the commit path reads its frontiers
-    /// from. Shared with the consumer's [`SentinelContext`], which forgets
-    /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
-    revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
+    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
+    settlement: Arc<dyn Settlement>,
 }
 
 impl IngestionConsumer {
-    /// Constructs a consumer from pre-built parts. Useful in integration tests
-    /// where the Kafka consumer is created and subscribed externally.
+    /// Constructs a consumer from parts the caller builds. The caller must
+    /// subscribe `consumer` to its topic.
     pub fn from_parts(
-        consumer: StreamConsumer<SentinelContext>,
+        consumer: StreamConsumer<RebalanceContext>,
         batcher: Batcher,
         outputs: BatcherOutputs,
         transport: Arc<GrpcTransport>,
@@ -396,23 +154,32 @@ impl IngestionConsumer {
         options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
-        // Share the context's ledger and sentinel so rebalance callbacks
-        // forget partitions on the same ones the commit path uses.
-        let topic_offset_ledger = consumer.context().topic_offset_ledger();
-        let commit_sentinel = consumer.context().commit_sentinel();
-        let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
-            Arc::new(Mutex::new(Vec::new()));
-        consumer.context().set_revoke_hook(revoke_hook(
-            batcher.revoker(),
+        let topic_offset_ledger = options.ledger;
+        let polling = polling::select(
+            options.polling,
+            options.completion_granularity,
+            &options.partition_budget,
+            options.in_flight_limit,
+            options.max_in_flight_batches,
+        );
+        let settlement = settlement::for_granularity(
+            options.completion_granularity,
             Arc::clone(&topic_offset_ledger),
-            Arc::clone(&revoked_partitions),
-        ));
+            options.commit_interval,
+            options.partition_budget,
+        );
+        let revoked_partitions = wire_rebalance_hooks(
+            consumer.context(),
+            batcher.revoker(),
+            &settlement,
+            transport.assignment_epoch(),
+        );
         let consumer = Arc::new(consumer);
         Self {
-            commit_sentinel,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            settlement,
             consumer,
             batcher,
             outputs: Some(outputs),
@@ -421,7 +188,8 @@ impl IngestionConsumer {
             batch_size: options.batch_size,
             batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
-            max_in_flight_batches: options.max_in_flight_batches.max(1),
+            polling,
+            commit_tick: commit_tick(options.completion_granularity, options.commit_interval),
             handle,
             group_id: options.group_id,
         }
@@ -435,9 +203,8 @@ impl IngestionConsumer {
         handle: Handle,
         debug_recorder: Option<Arc<DebugRecorder>>,
     ) -> anyhow::Result<Self> {
-        // In endpointslice mode the worker set comes from discovery, so there is
-        // no static readiness list — main gates startup on the first discovered
-        // worker. In static mode we keep the configured list for readiness.
+        // Endpointslice mode discovers workers at runtime, so it has no static
+        // readiness list.
         let worker_urls = match config.worker_discovery_mode {
             DiscoveryMode::Static => config.worker_urls(),
             DiscoveryMode::EndpointSlice => Vec::new(),
@@ -454,25 +221,34 @@ impl IngestionConsumer {
             config.consumer_batch_size,
             config.consumer_batch_size_kb,
         );
-        let commit_sentinel = Arc::new(CommitSentinel::new(ImmediateCommitPacer::new()));
-        commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         batcher
             .key_order_sentinel()
             .set_enabled(config.consumer_order_sentinel_enabled);
         let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
-        let mut context = SentinelContext::new(
-            Arc::clone(&commit_sentinel),
-            Arc::clone(&topic_offset_ledger),
+        let partition_budget = config
+            .partition_budget()
+            .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
+        let polling = polling::select(
+            config.consumer_polling_strategy,
+            config.consumer_completion_granularity,
+            &partition_budget,
+            config.in_flight_limit(),
+            config.consumer_max_background_tasks,
         );
-        context.set_assignment_epoch(transport.assignment_epoch());
-        let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
-            Arc::new(Mutex::new(Vec::new()));
-        context.set_revoke_hook(revoke_hook(
-            batcher.revoker(),
+        let settlement = settlement::for_granularity(
+            config.consumer_completion_granularity,
             Arc::clone(&topic_offset_ledger),
-            Arc::clone(&revoked_partitions),
-        ));
-        let consumer: StreamConsumer<SentinelContext> =
+            Duration::from_millis(config.consumer_commit_interval_ms),
+            partition_budget,
+        );
+        let context = RebalanceContext::new();
+        let revoked_partitions = wire_rebalance_hooks(
+            &context,
+            batcher.revoker(),
+            &settlement,
+            transport.assignment_epoch(),
+        );
+        let consumer: StreamConsumer<RebalanceContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
         let consumer = Arc::new(consumer);
@@ -483,15 +259,17 @@ impl IngestionConsumer {
             workers = worker_urls.len(),
             batch_size = config.consumer_batch_size,
             batch_size_kb = config.consumer_batch_size_kb,
+            completion_granularity = ?config.consumer_completion_granularity,
+            polling = ?polling,
             "Kafka consumer subscribed"
         );
 
         Ok(Self {
-            commit_sentinel,
             consumer,
             debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            settlement,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -499,19 +277,22 @@ impl IngestionConsumer {
             batch_size: config.consumer_batch_size,
             batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
-            max_in_flight_batches: config.consumer_max_background_tasks.max(1),
+            polling,
+            commit_tick: commit_tick(
+                config.consumer_completion_granularity,
+                Duration::from_millis(config.consumer_commit_interval_ms),
+            ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
     }
 
-    /// A read-only view of the batcher's load.
     pub fn batcher_observer(&self) -> BatcherObserver {
         self.batcher.observer()
     }
 
-    /// Run the consumer loop until shutdown is signalled via the lifecycle handle.
-    /// Waits for all workers to be ready before starting to consume from Kafka.
+    /// Runs the consumer loop until the lifecycle handle signals shutdown.
+    /// First waits until the statically configured workers are ready.
     pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         let BatcherOutputs {
@@ -537,79 +318,151 @@ impl IngestionConsumer {
             workers: self.worker_urls.clone(),
         });
 
-        let _commit_monitor = spawn_commit_monitor(
-            Arc::clone(&self.consumer),
-            Arc::clone(&self.commit_sentinel),
-            self.handle.clone(),
-        );
-
-        self.run(completions, errors).await;
+        let parts = Parts {
+            limits: PollLimits {
+                batch_size: self.batch_size,
+                batch_size_bytes: self.batch_size_bytes,
+                batch_timeout: self.batch_timeout,
+            },
+            settlement: Arc::clone(&self.settlement),
+            group_id: self.group_id.clone(),
+            debug_recorder: self.debug_recorder.clone(),
+        };
+        match self.polling {
+            Selected::Capped {
+                max_in_flight_polls,
+            } => {
+                let poller = CappedPolling::new(parts, max_in_flight_polls);
+                self.run(poller, completions, errors).await;
+            }
+            Selected::Continuous { in_flight } => {
+                let poller = ContinuousPolling::new(parts, in_flight);
+                self.run(poller, completions, errors).await;
+            }
+        }
+        if let Err(err) = self.commit_all() {
+            warn!(error = %err, "Could not submit pending frontiers on exit");
+        }
         info!("Consumer loop stopped");
     }
 
-    /// Poll, dispatch, and complete until shutdown drains the in-flight polls
-    /// or the loop fails.
-    async fn run(
+    async fn run<P: PollingStrategy>(
         &self,
+        mut poller: P,
         mut completions: mpsc::UnboundedReceiver<GroupCompletion>,
         mut errors: mpsc::UnboundedReceiver<String>,
     ) {
-        let mut in_flight_polls: VecDeque<InFlightPoll> = VecDeque::new();
+        let mut tick = tokio::time::interval(self.commit_tick);
+        tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let poll_deadline = tokio::time::sleep(Duration::ZERO);
+        tokio::pin!(poll_deadline);
         let mut accepting_new_batches = true;
-
-        while accepting_new_batches || !in_flight_polls.is_empty() {
-            self.drop_revoked_polls(&mut in_flight_polls);
-            // Consumer-level concurrency: how many Kafka batches are being
-            // processed in parallel, bounded by `max_in_flight_batches`.
-            gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
-
-            if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
-                tokio::select! {
-                    _ = self.handle.shutdown_recv() => {
-                        info!(
-                            in_flight = in_flight_polls.len(),
-                            "Shutdown signal received, draining in-flight batches"
-                        );
-                        accepting_new_batches = false;
-                        self.batcher.begin_shutdown();
+        loop {
+            let mut submitted = false;
+            while let Some(step) = poller.next_step(tokio::time::Instant::now()) {
+                submitted |= matches!(step, Step::Submit(_));
+                if let Err(failure) = self.carry_out(step, &mut poller) {
+                    match failure {
+                        Stopped::Drained => {}
+                        Stopped::Commit(err) => self.fail_commit(err),
+                        Stopped::Batch(err) => self.fail_batch_processing(err),
                     }
-                    result = self.collect_batch() => {
-                        let collected = match result {
-                            Ok(collected) => collected,
-                            Err(err) => {
-                                self.fail_batch_processing(err);
-                                return;
-                            }
-                        };
-
-                        if collected.accumulator.message_count() == 0 {
-                            self.handle.report_healthy();
-                            if in_flight_polls.is_empty() {
-                                continue;
-                            }
-                        } else {
-                            in_flight_polls.push_back(self.submit_poll(collected));
-                            self.handle.report_healthy();
-
-                            if in_flight_polls.len() < self.max_in_flight_batches {
-                                continue;
-                            }
-                        }
-                    }
+                    return;
                 }
             }
+            // rdkafka's stream spends none of tokio's budget, so a ready
+            // backlog keeps `recv` ready on every turn and this loop would
+            // never yield. The batcher runs on this runtime.
+            if submitted {
+                tokio::task::yield_now().await;
+            }
 
-            if let Err(failure) = self
-                .complete_oldest_poll(&mut in_flight_polls, &mut completions, &mut errors)
-                .await
-            {
-                match failure {
-                    Failure::Batch(err) => self.fail_batch_processing(err),
-                    Failure::Commit(err) => self.fail_commit(err),
+            let deadline = poller.deadline();
+            if let Some(deadline) = deadline {
+                if poll_deadline.deadline() != deadline {
+                    poll_deadline.as_mut().reset(deadline);
                 }
+            }
+            let reading = poller.reading();
+            let woke = tokio::select! {
+                _ = self.handle.shutdown_recv(), if accepting_new_batches => Woke::Shutdown,
+                completion = completions.recv() => Woke::Completion(completion),
+                failure = errors.recv() => Woke::Error(failure),
+                _ = tick.tick() => Woke::Tick,
+                _ = &mut poll_deadline, if deadline.is_some() => Woke::Deadline,
+                received = self.consumer.recv(), if reading => Woke::Received(received),
+            };
+            // The rebalance callbacks run inside `recv`, also inside one the
+            // select dropped, so the poller sees each revoke before it acts
+            // on anything that woke the loop.
+            self.hand_over_revokes(&mut poller);
+
+            let failure = match woke {
+                Woke::Shutdown => {
+                    info!("Shutdown signal received, draining in-flight batches");
+                    accepting_new_batches = false;
+                    self.batcher.begin_shutdown();
+                    poller.shutdown();
+                    None
+                }
+                Woke::Completion(Some(completion)) => poller.completed(&completion).err(),
+                Woke::Completion(None) => {
+                    Some(anyhow::anyhow!("batcher completion channel closed"))
+                }
+                Woke::Error(Some(message)) => Some(anyhow::anyhow!(message)),
+                Woke::Error(None) => Some(anyhow::anyhow!("batcher error channel closed")),
+                Woke::Tick => {
+                    self.handle.report_healthy();
+                    poller.ticked();
+                    None
+                }
+                Woke::Deadline => None,
+                Woke::Received(Ok(message)) => {
+                    poller.received(&message, tokio::time::Instant::now());
+                    None
+                }
+                Woke::Received(Err(err)) => self.recv_failed(err).err(),
+            };
+            if let Some(err) = failure {
+                self.fail_batch_processing(err);
                 return;
             }
         }
+    }
+
+    fn carry_out<P: PollingStrategy>(&self, step: Step, poller: &mut P) -> Result<(), Stopped> {
+        match step {
+            Step::Submit(collected) => {
+                let poll = self.submit_poll(collected).map_err(Stopped::Batch)?;
+                poller.submitted(poll);
+                self.handle.report_healthy();
+                Ok(())
+            }
+            Step::Commit(commit) => self.commit(commit).map_err(Stopped::Commit),
+            Step::Stop => Err(Stopped::Drained),
+            Step::Fail(err) => Err(Stopped::Batch(err)),
+        }
+    }
+
+    fn hand_over_revokes<P: PollingStrategy>(&self, poller: &mut P) {
+        let revoked = std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
+        if !revoked.is_empty() {
+            poller.revoked(&revoked);
+        }
+    }
+
+    fn recv_failed(&self, err: KafkaError) -> anyhow::Result<()> {
+        warn!(error = %err, "Kafka recv error");
+        counter!("ingestion_consumer_kafka_errors_total").increment(1);
+        // A fatal client error (such as UnreleasedInstanceId from a
+        // static-membership collision) permanently disables the
+        // consumer. Propagate it so the process exits and Kubernetes
+        // restarts the pod, instead of re-polling a dead client forever
+        // while still reporting healthy.
+        if let Some((code, reason)) = self.consumer.client().fatal_error() {
+            anyhow::bail!("fatal Kafka client error ({code:?}): {reason}");
+        }
+        Ok(())
     }
 
     /// Submit each partition's next-to-read offset to Kafka, asynchronously.
@@ -621,19 +474,62 @@ impl IngestionConsumer {
                 topic_partition.partition,
                 rdkafka::Offset::Offset(next_to_read.0),
             )?;
+            let topic: Arc<str> = Arc::from(topic_partition.topic.as_str());
+            let partition: Arc<str> = Arc::from(topic_partition.partition.to_string());
+            gauge!(
+                "ingestion_consumer_committed_offset",
+                "topic" => topic,
+                "partition" => partition,
+            )
+            .set(next_to_read.0 as f64);
         }
         self.consumer.commit(&tpl, CommitMode::Async)?;
         counter!("ingestion_consumer_offset_commits_total").increment(1);
+        record_if(&self.debug_recorder, || DebugEventKind::CommitSubmitted {
+            offsets: offsets
+                .iter()
+                .map(|(topic_partition, offset)| CommitOffset {
+                    topic: topic_partition.topic.clone(),
+                    partition: topic_partition.partition,
+                    offset: offset.0,
+                })
+                .collect(),
+        });
         Ok(())
     }
 
-    /// Submit one collected poll to the batcher and track it as in flight.
-    fn submit_poll(&self, collected: CollectedBatch) -> InFlightPoll {
+    fn submit_poll(&self, collected: CollectedBatch) -> anyhow::Result<InFlightPoll> {
         let CollectedBatch {
             accumulator,
-            partitions,
+            mut partitions,
             stats,
         } = collected;
+        let mut uncommitted = HashMap::with_capacity(partitions.len());
+        let mut generations = HashMap::with_capacity(partitions.len());
+        // One ledger call per partition keeps the lock and the gauge labels
+        // off the per-message path.
+        for (topic_partition, partition) in &mut partitions {
+            partition.generation = self.topic_offset_ledger.generation(topic_partition);
+            generations.insert(Partition(topic_partition.partition), partition.generation);
+            match self
+                .settlement
+                .charge(topic_partition, partition.generation, &partition.charges)
+            {
+                Ok(charged) => {
+                    if charged.pause.is_some() {
+                        self.pause_partition(topic_partition);
+                    }
+                    uncommitted.insert(topic_partition.clone(), charged.uncommitted);
+                }
+                Err(rejection) => report_rejection(
+                    "charge",
+                    topic_partition,
+                    rejection,
+                    RejectedSlice::charged(&partition.charges),
+                )?,
+            }
+        }
+
         let message_count = accumulator.message_count();
         let poll_id = make_batch_id();
         emit_poll_stats(
@@ -645,7 +541,7 @@ impl IngestionConsumer {
             self.batch_size_bytes,
         );
 
-        let assignment_epoch = self.batcher.submit(accumulator);
+        let assignment_epoch = self.batcher.submit(accumulator, &generations);
         record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
             batch_id: poll_id.clone(),
             messages: message_count,
@@ -660,96 +556,63 @@ impl IngestionConsumer {
             "Kafka batch dispatched"
         );
 
-        InFlightPoll {
+        Ok(InFlightPoll {
             poll_id,
             assignment_epoch,
             partitions,
+            uncommitted,
             message_count: message_count as u32,
             covered: 0,
             accepted: 0,
             dispatched_at: Instant::now(),
-        }
+        })
     }
 
-    /// Wait for completions to cover the oldest in-flight poll, then commit
-    /// it. Commits only the oldest poll: later completed polls stay
-    /// uncommitted behind any earlier one, preserving at-least-once delivery
-    /// across worker or pipeline failures. Completions for newer polls are
-    /// still credited while waiting.
-    async fn complete_oldest_poll(
-        &self,
-        in_flight_polls: &mut VecDeque<InFlightPoll>,
-        completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
-        errors: &mut mpsc::UnboundedReceiver<String>,
-    ) -> Result<(), Failure> {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
-        loop {
-            // A rebalance can drop the front poll (its partitions were
-            // revoked and its purged messages will never complete), so
-            // re-resolve it every pass instead of waiting on it forever.
-            self.drop_revoked_polls(in_flight_polls);
-            let Some(front) = in_flight_polls.front() else {
-                return Ok(());
-            };
-            if front.is_complete() {
-                break;
-            }
-            tokio::select! {
-                completion = completions.recv() => match completion {
-                    Some(completion) => apply_completion(in_flight_polls, completion),
-                    None => return Err(Failure::Batch(anyhow::anyhow!(
-                        "batcher completion channel closed"
-                    ))),
-                },
-                failure = errors.recv() => match failure {
-                    Some(message) => return Err(Failure::Batch(anyhow::anyhow!(message))),
-                    None => return Err(Failure::Batch(anyhow::anyhow!(
-                        "batcher error channel closed"
-                    ))),
-                },
-                _ = heartbeat.tick() => self.handle.report_healthy(),
-            }
-        }
-
-        let poll = pop_committable(in_flight_polls).map_err(Failure::Batch)?;
-
-        self.settle_poll(&poll.partitions);
-        if let Some(offsets) = self.commit_sentinel.take_due() {
-            self.commit_offsets(&offsets).map_err(Failure::Commit)?;
-        }
-        emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
-        record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
-            batch_id: poll.poll_id.clone(),
-            accepted: poll.accepted,
-            duration_ms: poll.dispatched_at.elapsed().as_millis() as u64,
-            partitions: debug_partition_offsets(&poll.partitions),
-        });
-
-        counter!("ingestion_consumer_messages_processed_total").increment(poll.accepted as u64);
-        counter!("ingestion_consumer_batches_processed_total").increment(1);
-        self.handle.report_healthy();
-
-        Ok(())
-    }
-
-    /// Drop in-flight polls holding a revoked partition. The key table
-    /// purges those partitions' queued messages, so such a poll can never be
-    /// covered; its offsets stay uncommitted and replay under the new
-    /// assignment, and its late completions are discarded as stale.
-    fn drop_revoked_polls(&self, in_flight_polls: &mut VecDeque<InFlightPoll>) {
-        let revoked: Vec<RevokedPartition> =
-            std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
-        if revoked.is_empty() {
-            return;
-        }
-        let stripped = strip_revoked_partitions(in_flight_polls, &revoked);
-        if stripped > 0 {
-            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
-            info!(
-                stripped,
-                "Removed revoked partitions' messages from in-flight polls"
+    fn pause_partition(&self, topic_partition: &TopicPartition) {
+        let tpl = partition_list(topic_partition);
+        if let Err(err) = self
+            .consumer
+            .pause(&tpl)
+            .and_then(|()| partition_error(&tpl))
+        {
+            error!(
+                topic = %topic_partition.topic,
+                partition = topic_partition.partition,
+                error = %err,
+                "Could not pause a partition at its budget"
             );
         }
+    }
+
+    fn resume_partition(&self, topic_partition: &TopicPartition) {
+        let tpl = partition_list(topic_partition);
+        if let Err(err) = self
+            .consumer
+            .resume(&tpl)
+            .and_then(|()| partition_error(&tpl))
+        {
+            error!(
+                topic = %topic_partition.topic,
+                partition = topic_partition.partition,
+                error = %err,
+                "Could not resume a partition under its budget"
+            );
+        }
+    }
+
+    fn commit_all(&self) -> anyhow::Result<()> {
+        match self.settlement.take_all() {
+            Some(commit) => self.commit(commit),
+            None => Ok(()),
+        }
+    }
+
+    fn commit(&self, commit: Commit) -> anyhow::Result<()> {
+        self.commit_offsets(&commit.offsets)?;
+        for topic_partition in &commit.resume {
+            self.resume_partition(topic_partition);
+        }
+        Ok(())
     }
 
     fn fail_batch_processing(&self, err: anyhow::Error) {
@@ -776,289 +639,30 @@ impl IngestionConsumer {
         self.handle
             .signal_failure(format!("Offset commit failed: {err:#}"));
     }
-
-    /// Collect messages from Kafka until the first of `batch_size` messages,
-    /// `batch_size_bytes` of payload (when enabled), or `batch_timeout`.
-    ///
-    /// The byte bound is checked at the top of the loop, where accumulated
-    /// bytes are those of messages already appended: a batch therefore always
-    /// carries at least one message — a single payload larger than the whole
-    /// bound still moves rather than wedging the partition — and overshoot is
-    /// at most one message, itself bounded by `fetch.message.max.bytes`.
-    async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
-        let mut accumulator = Accumulator::default();
-        let mut partitions: HashMap<TopicPartition, PartitionDeliveries> = HashMap::new();
-        let mut stats = BatchStats::new();
-        let deadline = Instant::now() + self.batch_timeout;
-        let batch_start_ms = current_time_ms();
-
-        let mut stream = self.consumer.stream();
-        let mut current_topic: Option<Arc<str>> = None;
-
-        loop {
-            if accumulator.message_count() >= self.batch_size {
-                break;
-            }
-
-            if self.batch_size_bytes > 0 && stats.total_bytes >= self.batch_size_bytes {
-                counter!("ingestion_consumer_batches_byte_capped_total").increment(1);
-                break;
-            }
-
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-
-            let poll_wait = remaining.min(Duration::from_secs(10));
-            match tokio::time::timeout(poll_wait, stream.next()).await {
-                Ok(Some(Ok(borrowed_message))) => {
-                    if current_topic.as_deref() != Some(borrowed_message.topic()) {
-                        current_topic = Some(Arc::from(borrowed_message.topic()));
-                    }
-                    let topic = Arc::clone(current_topic.as_ref().expect("set above"));
-                    let partition = borrowed_message.partition();
-                    let offset = borrowed_message.offset();
-                    let kafka_ts = borrowed_message.timestamp().to_millis().unwrap_or(0);
-
-                    let payload_bytes = borrowed_message.payload().map(|v| v.len()).unwrap_or(0);
-                    stats.total_bytes += payload_bytes;
-
-                    let mut headers = HashMap::new();
-                    if let Some(rdkafka_headers) = borrowed_message.headers() {
-                        for i in 0..rdkafka_headers.count() {
-                            let header = rdkafka_headers.get(i);
-                            if let Some(value) = header.value {
-                                if let Ok(value_str) = std::str::from_utf8(value) {
-                                    headers.insert(header.key.to_string(), value_str.to_string());
-                                }
-                            }
-                        }
-                    }
-
-                    let lag_ms = headers
-                        .get("now")
-                        .and_then(|v| parse_now_ms(v))
-                        .map(|capture_ms| (batch_start_ms - capture_ms).max(0));
-                    if let Some(lag_ms) = lag_ms {
-                        stats.message_lags_ms.push((partition, lag_ms));
-                    }
-
-                    let delivery = Delivery {
-                        offset,
-                        charge: message_charge(&borrowed_message),
-                        kafka_ts,
-                        lag_ms,
-                    };
-                    let key = TopicPartition::new(topic.to_string(), partition);
-                    let generations_version = self.topic_offset_ledger.generations_version();
-                    match partitions.get_mut(&key) {
-                        Some(deliveries) => deliveries.record(
-                            generations_version,
-                            || self.topic_offset_ledger.generation(&key),
-                            &delivery,
-                        ),
-                        None => {
-                            let generation = self.topic_offset_ledger.generation(&key);
-                            partitions.insert(
-                                key,
-                                PartitionDeliveries::new(
-                                    generation,
-                                    generations_version,
-                                    &delivery,
-                                ),
-                            );
-                        }
-                    }
-
-                    let serialized = SerializedKafkaMessage {
-                        topic,
-                        partition,
-                        offset,
-                        timestamp: kafka_ts,
-                        key: borrowed_message
-                            .key()
-                            .and_then(|k| std::str::from_utf8(k).ok())
-                            .map(|s| s.to_string()),
-                        value: borrowed_message
-                            .payload()
-                            .and_then(|v| std::str::from_utf8(v).ok())
-                            .map(|s| s.to_string()),
-                        headers,
-                    };
-
-                    accumulator.push(Partition(partition), serialized.into());
-                }
-                Ok(Some(Err(err))) => {
-                    warn!(error = %err, "Kafka recv error");
-                    counter!("ingestion_consumer_kafka_errors_total").increment(1);
-                    // A fatal client error (such as UnreleasedInstanceId from a
-                    // static-membership collision) permanently disables the
-                    // consumer. Propagate it so the process exits and Kubernetes
-                    // restarts the pod, instead of re-polling a dead client forever
-                    // while still reporting healthy.
-                    if let Some((code, reason)) = self.consumer.client().fatal_error() {
-                        anyhow::bail!("fatal Kafka client error ({code:?}): {reason}");
-                    }
-                    break;
-                }
-                Ok(None) => break,
-                Err(_) => {
-                    self.handle.report_healthy();
-                    if Instant::now() >= deadline {
-                        break;
-                    }
-                }
-            }
-        }
-
-        // One ledger call per partition keeps the lock and the gauge labels
-        // off the per-message path.
-        for (topic_partition, partition) in &partitions {
-            // The ledger counts both outcomes and publishes what the window
-            // holds; a rejection is logged here, where the slice is still
-            // known.
-            if let Err(rejection) = self.topic_offset_ledger.charge(
-                topic_partition,
-                partition.generation,
-                partition.charges.iter().copied(),
-            ) {
-                warn_rejection(
-                    "charge",
-                    topic_partition,
-                    rejection,
-                    RejectedSlice::charged(&partition.charges),
-                );
-            }
-        }
-
-        Ok(CollectedBatch {
-            accumulator,
-            partitions,
-            stats,
-        })
-    }
-
-    /// Settle the poll against the ledger and hand each partition's frontier
-    /// over for commit. A partition without a frontier stays on its last
-    /// commit.
-    fn settle_poll(&self, partitions: &HashMap<TopicPartition, PartitionDeliveries>) {
-        if partitions.is_empty() {
-            // Unreachable while batches require messages to be spawned; counted
-            // so "no empty commits" is a measurable guarantee, not an assumption.
-            counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
-            warn!("Poll settled with no partitions");
-            return;
-        }
-
-        let settlement =
-            settle_partitions(&self.topic_offset_ledger, &self.commit_sentinel, partitions);
-
-        if settlement.advanced == 0 {
-            // `rejected`: the ledger dropped every slice, expected around a
-            // rebalance. `no_frontier`: a slice landed, but an earlier batch
-            // is still incomplete at the front of every window it settled.
-            let reason = if settlement.settled == 0 {
-                "rejected"
-            } else {
-                "no_frontier"
-            };
-            counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
-            warn!(
-                reason,
-                "No ledger frontier available for completed offsets; skipping commit"
-            );
-        }
-    }
 }
 
-/// How a poll settled: how many partitions the ledger accepted, how many of
-/// those reached a frontier that was handed over for commit, and what the
-/// sentinel found on the way. The sentinel has already counted and logged
-/// the violations; they are returned for tests.
-struct PollSettlement {
-    settled: usize,
-    advanced: usize,
-    violations: Vec<CommitViolation>,
+enum Woke<'a> {
+    Shutdown,
+    Completion(Option<GroupCompletion>),
+    Error(Option<String>),
+    Tick,
+    Deadline,
+    Received(Result<BorrowedMessage<'a>, KafkaError>),
 }
 
-/// Settle each partition's slice against the ledger and hand every frontier
-/// reached to the sentinel, with the span the poll delivered for it.
-fn settle_partitions(
-    ledger: &TopicOffsetLedger,
-    sentinel: &CommitSentinel,
-    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-) -> PollSettlement {
-    let mut settlement = PollSettlement {
-        settled: 0,
-        advanced: 0,
-        violations: Vec::new(),
-    };
-    for (topic_partition, partition) in partitions {
-        // A rejected slice is not committed, and the commit sentinel
-        // keeps its baseline. A stale slice belongs to an assignment the
-        // revoke callback already forgot on the sentinel, so the
-        // partition's next commit rebaselines. A violation reset the
-        // ledger and dropped what it held, so the partition's next commit
-        // can pass work still in flight; the sentinel reports that as the
-        // gap it is.
-        let Ok(frontier) = settle(ledger, topic_partition, partition) else {
-            continue;
-        };
-        settlement.settled += 1;
-        let Some(span) = frontier_span(&partition.span, frontier) else {
-            continue;
-        };
-        let Some(taken) = ledger.take_frontier(topic_partition) else {
-            continue;
-        };
-        settlement
-            .violations
-            .extend(sentinel.advance_frontier(topic_partition, span, taken));
-        settlement.advanced += 1;
-    }
-    settlement
+enum Stopped {
+    Drained,
+    Commit(anyhow::Error),
+    Batch(anyhow::Error),
 }
 
-/// Settle one partition's slice of a batch against the ledger and report
-/// the frontier it reached. `Err` when the ledger rejected the slice,
-/// which it has already counted and this logs.
-fn settle(
-    ledger: &TopicOffsetLedger,
-    topic_partition: &TopicPartition,
-    partition: &PartitionDeliveries,
-) -> Result<Option<Offset>, Rejection> {
-    ledger
-        .settle(
-            topic_partition,
-            partition.generation,
-            partition.charges.iter().map(|(offset, _)| *offset),
-        )
-        .inspect_err(|rejection| {
-            warn_rejection(
-                "settle",
-                topic_partition,
-                *rejection,
-                RejectedSlice::settled(&partition.span),
-            )
-        })
+fn partition_list(topic_partition: &TopicPartition) -> TopicPartitionList {
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition(&topic_partition.topic, topic_partition.partition);
+    tpl
 }
 
-/// Map a settled frontier back to the span the sentinel checks: the
-/// frontier is next-to-read and the span is last-processed, so the span
-/// starts at the poll's first delivered offset and ends one before the
-/// frontier. `None` for a partition that settled without a frontier; it
-/// stays on its last commit.
-fn frontier_span(span: &OffsetSpan, frontier: Option<Offset>) -> Option<OffsetSpan> {
-    frontier.map(|frontier| OffsetSpan {
-        first: span.first,
-        last: frontier.0 - 1,
-    })
-}
-
-/// Emit the per-poll parity metrics (received counts, batch sizes,
-/// utilization, and lag) right after collection, before the poll is
-/// submitted.
+/// Per-poll metrics, most with the same names as the Node.js consumer's.
 fn emit_poll_stats(
     stats: &BatchStats,
     partitions: &HashMap<TopicPartition, PartitionDeliveries>,
@@ -1070,30 +674,25 @@ fn emit_poll_stats(
     counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
     gauge!("ingestion_consumer_batch_size").set(batch_size as f64);
 
-    // Batch fill ratio (batch size / configured max) — matches Node.js
-    // `consumer_batch_utilization`. A useful scaling signal: sustained high
-    // utilization means batches are saturating and the consumer is demand-bound.
+    // Matches Node.js `consumer_batch_utilization`.
     if max_batch_size > 0 {
         gauge!("consumer_batch_utilization", "groupId" => group_id.to_string())
             .set(batch_size as f64 / max_batch_size as f64);
     }
 
-    // The same ratio against the byte bound. Reported separately because the
-    // two disagree on lanes whose events are large: a count utilization can
-    // sit far below 1.0 while batches are in fact full, simply because the
-    // byte bound (or the prefetch queue behind it) ends collection first.
-    // Reading only the count ratio there invites raising a cap that cannot
-    // be reached. Absent when the byte bound is disabled.
+    // The same ratio against the byte bound. On lanes with large events the
+    // byte bound ends collection first, so the count ratio stays low while
+    // batches are full. Absent when the byte bound is disabled.
     if max_batch_bytes > 0 {
         gauge!("consumer_batch_utilization_bytes", "groupId" => group_id.to_string())
             .set(stats.total_bytes as f64 / max_batch_bytes as f64);
     }
 
-    // Batch size distribution — matches Node.js `consumer_batch_size` histogram.
+    // Matches Node.js.
     histogram!("consumer_batch_size").record(batch_size as f64);
     histogram!("consumer_batch_size_kb").record(stats.total_bytes as f64 / 1024.0);
 
-    // Per-partition ingestion lag gauge — matches Node.js `ingestion_lag_ms`.
+    // Matches Node.js.
     for (topic_partition, partition) in partitions {
         let Some(max_lag) = partition.max_lag_ms else {
             continue;
@@ -1107,7 +706,7 @@ fn emit_poll_stats(
         .set(max_lag as f64);
     }
 
-    // Per-message lag histogram — matches Node.js `ingestion_lag_ms_histogram`.
+    // Matches Node.js.
     for (partition, lag_ms) in &stats.message_lags_ms {
         histogram!(
             "ingestion_lag_ms_histogram",
@@ -1118,550 +717,78 @@ fn emit_poll_stats(
     }
 }
 
-/// Per-partition max offset + observed lag for the debug UI's batch events.
-fn debug_partition_offsets(
-    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-) -> Vec<PartitionOffset> {
-    partitions
-        .iter()
-        .map(|(topic_partition, partition)| PartitionOffset {
-            topic: topic_partition.topic.clone(),
-            partition: topic_partition.partition,
-            offset: partition.span.last,
-            lag_ms: partition.max_lag_ms.unwrap_or(0),
-        })
-        .collect()
-}
-
-/// Per-partition offset ranges, so the debug UI can match requests to polls.
-fn debug_partition_spans(
-    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-) -> Vec<PartitionOffsets> {
-    partitions
-        .iter()
-        .map(|(topic_partition, partition)| PartitionOffsets {
-            topic: topic_partition.topic.clone(),
-            partition: topic_partition.partition,
-            ranges: vec![(partition.span.first, partition.span.last)],
-        })
-        .collect()
-}
-
-/// One delivered message's cost against the ledger: one event, and the bytes
-/// the process holds for the message. The byte count is a memory bound, so it
-/// is the payload plus the key plus every header key and value, not only the
-/// payload.
-fn message_charge(message: &impl Message) -> Charge {
-    let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
-    let key_bytes = message.key().map(|k| k.len()).unwrap_or(0);
-    let mut header_bytes = 0;
-    if let Some(headers) = message.headers() {
-        for i in 0..headers.count() {
-            let header = headers.get(i);
-            header_bytes += header.key.len() + header.value.map(|v| v.len()).unwrap_or(0);
-        }
-    }
-    Charge {
-        events: 1,
-        bytes: (payload_bytes + key_bytes + header_bytes) as u64,
-    }
-}
-
-fn current_time_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
-
-/// Parse an ISO 8601 / RFC 3339 timestamp string into milliseconds since epoch.
-/// Returns `None` if the string is missing or unparseable.
-fn parse_now_ms(value: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|dt| dt.timestamp_millis())
-}
-
-fn emit_latest_processed_timestamp_metrics(
-    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-    group_id: &str,
-) {
-    // Per-partition latest committed timestamp — matches Node.js
-    // `latest_processed_timestamp_ms`.
-    for (topic_partition, partition) in partitions {
-        gauge!(
-            "latest_processed_timestamp_ms",
-            "topic" => topic_partition.topic.clone(),
-            "partition" => topic_partition.partition.to_string(),
-            "groupId" => group_id.to_string()
-        )
-        .set(partition.latest_kafka_ts as f64);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commit_sentinel::CommitViolationKind;
-    use common_kafka_consumer::Offset as MessageOffset;
+    use std::num::NonZeroU64;
 
-    fn poll(epoch: u64, partition: i32, first: i64, last: i64, count: u32) -> InFlightPoll {
-        let mut partitions = HashMap::new();
-        partitions.insert(
-            TopicPartition::new("test", partition),
-            PartitionDeliveries {
-                span: OffsetSpan { first, last },
-                generation: 0,
-                generations_version_seen: 0,
-                charges: (first..=last)
-                    .map(|offset| (MessageOffset(offset), Charge::ZERO))
-                    .collect(),
-                latest_kafka_ts: 0,
-                max_lag_ms: None,
-                delivered: count,
-                covered: 0,
-                accepted: 0,
-                credited: HashSet::default(),
-            },
-        );
-        InFlightPoll {
-            poll_id: format!("poll-{epoch}-{partition}-{first}"),
-            assignment_epoch: epoch,
-            partitions,
-            message_count: count,
-            covered: 0,
-            accepted: 0,
-            dispatched_at: Instant::now(),
-        }
-    }
+    use common_kafka_consumer::{Charge, Offset as MessageOffset};
 
-    fn completion(epoch: u64, partition: i32, offsets: &[i64], accepted: u32) -> GroupCompletion {
-        GroupCompletion {
-            partition: Partition(partition),
-            assignment_epoch: epoch,
-            offsets: offsets.iter().map(|o| MessageOffset(*o)).collect(),
-            accepted,
-        }
-    }
+    use crate::settlement::{GroupSettlement, Pause};
 
-    #[test]
-    fn apply_completion_credits_the_poll_holding_the_offsets() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[4, 6], 2));
-
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[1].covered, 2);
-        assert_eq!(in_flight[1].accepted, 2);
-        assert!(!in_flight[1].is_complete());
-
-        apply_completion(&mut in_flight, completion(1, 0, &[5, 7], 2));
-        assert!(in_flight[1].is_complete());
-    }
-
-    #[test]
-    fn apply_completion_spanning_two_polls_credits_each() {
-        // A key-table run merges messages from consecutive polls into one
-        // send, so its completion spans both spans.
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
-
-        assert_eq!(in_flight[0].covered, 2);
-        assert_eq!(in_flight[0].accepted, 2);
-        assert_eq!(in_flight[1].covered, 2);
-        assert_eq!(in_flight[1].accepted, 2);
-    }
-
-    #[test]
-    fn apply_completion_under_report_shorts_the_tail_poll() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 3));
-
-        assert_eq!(in_flight[0].accepted, 2, "leading offsets are accepted");
+    #[rstest::rstest]
+    #[case::group_below_a_second(CompletionGranularity::Group, 200, 200)]
+    #[case::group_above_a_second(CompletionGranularity::Group, 5_000, 1_000)]
+    #[case::group_immediate(CompletionGranularity::Group, 0, 1_000)]
+    #[case::poll(CompletionGranularity::Poll, 200, 1_000)]
+    fn the_commit_tick_follows_the_commit_interval(
+        #[case] granularity: CompletionGranularity,
+        #[case] commit_interval_ms: u64,
+        #[case] expected_ms: u64,
+    ) {
         assert_eq!(
-            in_flight[1].accepted, 1,
-            "the tail poll fails its accepted check"
+            commit_tick(granularity, Duration::from_millis(commit_interval_ms)),
+            Duration::from_millis(expected_ms)
         );
-        assert_eq!(in_flight[1].covered, 2);
     }
 
     #[test]
-    fn a_complete_poll_with_a_charged_offset_no_completion_covered_is_not_committable() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 10, 12, 3)]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[10, 12, 12], 3));
-
-        assert!(in_flight[0].is_complete());
-        let error = pop_committable(&mut in_flight)
-            .err()
-            .expect("offset 11 has no completion");
-        assert!(error.to_string().contains("offset 11 "), "{error}");
-    }
-
-    #[test]
-    fn a_poll_whose_deliveries_span_an_offset_gap_commits() {
-        // A compacted or transactional topic skips offsets, so a span can far
-        // exceed the poll's message count.
-        let mut gapped = poll(1, 0, 0, 0, 2);
-        let deliveries = gapped
-            .partitions
-            .get_mut(&TopicPartition::new("test", 0))
-            .unwrap();
-        deliveries.span.last = i64::MAX;
-        deliveries
-            .charges
-            .push((MessageOffset(i64::MAX), Charge::ZERO));
-        let mut in_flight = VecDeque::from([gapped]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[0, i64::MAX], 2));
-
-        assert!(in_flight[0].is_complete());
-        assert!(pop_committable(&mut in_flight).is_ok());
-    }
-
-    #[test]
-    fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
-        // A cooperative rebalance revokes one partition of a two-partition
-        // poll. The kept partition's slice must stay accounted, or its
-        // ledger charges never settle and its commits freeze at the hole.
-        let mut two = poll(1, 0, 0, 1, 4);
-        two.partitions.insert(
-            TopicPartition::new("test", 1),
-            PartitionDeliveries {
-                span: OffsetSpan {
-                    first: 10,
-                    last: 11,
-                },
-                generation: 0,
-                generations_version_seen: 0,
-                charges: Vec::new(),
-                latest_kafka_ts: 0,
-                max_lag_ms: None,
-                delivered: 2,
-                covered: 0,
-                accepted: 0,
-                credited: HashSet::default(),
-            },
+    fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+            Arc::clone(&ledger),
+            Duration::from_secs(3600),
+            BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),
+        ));
+        let epoch = AssignmentEpoch::new();
+        let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
+        let on_assign = assign_hook(
+            Arc::clone(&settlement),
+            epoch.clone(),
+            Arc::clone(&revoked_partitions),
         );
-        two.partitions
-            .get_mut(&TopicPartition::new("test", 0))
-            .unwrap()
-            .delivered = 2;
-        let mut in_flight = VecDeque::from([two]);
-        // Partition 1 already had one message covered before the revoke.
-        apply_completion(&mut in_flight, completion(1, 1, &[10], 1));
-
-        let stripped = strip_revoked_partitions(
-            &mut in_flight,
-            &[RevokedPartition {
-                topic_partition: TopicPartition::new("test", 1),
-                generation: 1,
-            }],
-        );
-
-        assert_eq!(stripped, 2);
-        assert_eq!(in_flight[0].message_count, 2);
-        assert_eq!(in_flight[0].covered, 0, "the revoked slice's credit goes");
-        assert!(!in_flight[0].is_complete());
-
-        // The kept partition completes the poll; a late completion for the
-        // revoked partition is discarded, not credited.
-        apply_completion(&mut in_flight, completion(1, 1, &[11], 1));
-        assert_eq!(in_flight[0].covered, 0);
-        apply_completion(&mut in_flight, completion(1, 0, &[0, 1], 2));
-        assert!(in_flight[0].is_complete());
-        assert_eq!(in_flight[0].accepted, 2);
-        assert!(pop_committable(&mut in_flight).is_ok());
-    }
-
-    #[test]
-    fn strip_revoked_partitions_removes_an_emptied_poll() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 2, 0, 3, 4)]);
-
-        let stripped = strip_revoked_partitions(
-            &mut in_flight,
-            &[RevokedPartition {
-                topic_partition: TopicPartition::new("test", 0),
-                generation: 1,
-            }],
-        );
-
-        assert_eq!(stripped, 4);
-        assert_eq!(in_flight.len(), 1);
-        assert_eq!(in_flight[0].message_count, 4);
-    }
-
-    #[test]
-    fn historical_revoke_keeps_a_reassigned_poll_and_its_ledger_slice() {
-        let topic_partition = TopicPartition::new("test", 0);
-        let ledger = TopicOffsetLedger::new();
-        let delivery = Delivery {
-            offset: 10,
-            charge: Charge {
+        let p0 = TopicPartition::new("events", 0);
+        let one_event = [(
+            MessageOffset(10),
+            Charge {
                 events: 1,
-                bytes: 1,
+                bytes: 0,
             },
-            kafka_ts: 0,
-            lag_ms: None,
-        };
-
-        // This collection saw offset 10 immediately before a revoke, then
-        // saw its replay after the partition was assigned again. Only the
-        // current generation is charged, while the poll still covers both
-        // deliveries that the batcher will complete.
-        let mut reassigned_deliveries = PartitionDeliveries::new(
-            ledger.generation(&topic_partition),
-            ledger.generations_version(),
-            &delivery,
-        );
-        ledger.forget_partitions([("test", 0)]);
-        ledger.forget_partitions([("test", 0)]);
-        reassigned_deliveries.record(
-            ledger.generations_version(),
-            || ledger.generation(&topic_partition),
-            &delivery,
-        );
-        assert_eq!(reassigned_deliveries.generation, 2);
-        assert_eq!(reassigned_deliveries.delivered, 2);
-        assert_eq!(reassigned_deliveries.charges.len(), 1);
-        ledger
-            .charge(
-                &topic_partition,
-                reassigned_deliveries.generation,
-                reassigned_deliveries.charges.iter().copied(),
-            )
-            .unwrap();
-
-        // The queued revoke notification belongs to generation 0. It must
-        // remove genuine old in-flight work, but not this poll collected and
-        // charged under the later reassignment.
-        let old_poll = poll(0, 0, 1, 1, 1);
-        let reassigned_poll = InFlightPoll {
-            poll_id: "reassigned".to_string(),
-            assignment_epoch: 1,
-            partitions: HashMap::from([(topic_partition.clone(), reassigned_deliveries)]),
-            message_count: 2,
-            covered: 0,
-            accepted: 0,
-            dispatched_at: Instant::now(),
-        };
-        let mut in_flight = VecDeque::from([old_poll, reassigned_poll]);
-
-        let stripped = strip_revoked_partitions(
-            &mut in_flight,
-            &[RevokedPartition {
-                topic_partition: topic_partition.clone(),
-                generation: 1,
-            }],
-        );
-
-        assert_eq!(stripped, 1, "only the old assignment is stripped");
-        assert_eq!(in_flight.len(), 1);
-        assert_eq!(in_flight[0].poll_id, "reassigned");
-
-        apply_completion(&mut in_flight, completion(1, 0, &[10, 10], 2));
-        assert!(in_flight[0].is_complete());
-        let reassigned = pop_committable(&mut in_flight)
-            .expect("an offset credited twice still counts as credited");
-        let retained = reassigned.partitions.get(&topic_partition).unwrap();
-        ledger
-            .settle(
-                &topic_partition,
-                retained.generation,
-                retained.charges.iter().map(|(offset, _)| *offset),
-            )
-            .unwrap();
+        )];
         assert_eq!(
-            ledger
-                .take_frontier(&topic_partition)
-                .map(|taken| taken.offset),
-            Some(Offset(11))
+            settlement
+                .charge(&p0, 0, &one_event)
+                .map(|charged| charged.pause),
+            Ok(Some(Pause))
         );
+        settlement.settle_run(&p0, 0, &[MessageOffset(10)]).unwrap();
 
-        // With the retained replay slice settled, the next accepted offset
-        // advances normally instead of remaining stuck behind offset 10.
-        ledger
-            .charge(
-                &topic_partition,
-                retained.generation,
-                [(Offset(11), delivery.charge)],
-            )
-            .unwrap();
-        ledger
-            .settle(&topic_partition, retained.generation, [Offset(11)])
-            .unwrap();
+        on_assign(std::slice::from_ref(&p0));
+
+        assert!(settlement.take_all().is_none());
+        assert_eq!(ledger.generation(&p0), 1);
+        assert_eq!(epoch.current(), 2);
         assert_eq!(
-            ledger
-                .take_frontier(&topic_partition)
-                .map(|taken| taken.offset),
-            Some(Offset(12))
-        );
-        assert_eq!(ledger.held(&topic_partition).offsets, 0);
-    }
-
-    #[test]
-    fn apply_completion_requires_a_matching_epoch() {
-        // The same offsets exist in two polls when a partition was revoked,
-        // reassigned, and replayed. The epoch keeps each incarnation's
-        // completions in its own poll.
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(2, 0, 0, 3, 4)]);
-
-        apply_completion(&mut in_flight, completion(2, 0, &[0, 1, 2, 3], 4));
-
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[1].covered, 4);
-    }
-
-    #[test]
-    fn apply_completion_discards_a_completion_matching_no_poll() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4)]);
-
-        // Wrong partition, then wrong epoch: neither may be credited.
-        apply_completion(&mut in_flight, completion(1, 2, &[1], 1));
-        apply_completion(&mut in_flight, completion(9, 0, &[1], 1));
-
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[0].accepted, 0);
-    }
-
-    /// A poll's slice of one partition, charged to the ledger under the
-    /// partition's current generation.
-    fn charged(
-        ledger: &TopicOffsetLedger,
-        topic_partition: &TopicPartition,
-        first: i64,
-        last: i64,
-    ) -> PartitionDeliveries {
-        let generation = ledger.generation(topic_partition);
-        let partition = PartitionDeliveries {
-            span: OffsetSpan { first, last },
-            generation,
-            generations_version_seen: 0,
-            charges: (first..=last)
-                .map(|offset| (MessageOffset(offset), Charge::ZERO))
-                .collect(),
-            latest_kafka_ts: 0,
-            max_lag_ms: None,
-            delivered: (last - first + 1) as u32,
-            covered: 0,
-            accepted: 0,
-            credited: HashSet::default(),
-        };
-        ledger
-            .charge(
-                topic_partition,
-                generation,
-                partition.charges.iter().copied(),
-            )
-            .expect("charge");
-        partition
-    }
-
-    #[test]
-    fn a_settled_poll_hands_its_frontier_to_the_pacer() {
-        let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
-        let tp = TopicPartition::new("test", 0);
-        let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
-
-        let settlement = settle_partitions(&ledger, &sentinel, &partitions);
-
-        assert_eq!((settlement.settled, settlement.advanced), (1, 1));
-        assert_eq!(
-            sentinel.take_due(),
-            Some(HashMap::from([(tp, MessageOffset(12))]))
-        );
-    }
-
-    #[test]
-    fn a_gap_in_what_kafka_delivered_fires_the_sentinel_and_still_commits() {
-        let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
-        let tp = TopicPartition::new("test", 0);
-        let first = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
-        assert!(settle_partitions(&ledger, &sentinel, &first)
-            .violations
-            .is_empty());
-        assert_eq!(
-            sentinel.take_due(),
-            Some(HashMap::from([(tp.clone(), MessageOffset(12))]))
-        );
-
-        // Offsets 12 and 13 never arrived. The ledger walks the gap, so its
-        // take chains from 12; the sentinel must see what was delivered.
-        let second = HashMap::from([(tp.clone(), charged(&ledger, &tp, 14, 15))]);
-        let settlement = settle_partitions(&ledger, &sentinel, &second);
-
-        assert_eq!(settlement.violations.len(), 1);
-        assert_eq!(settlement.violations[0].kind, CommitViolationKind::Gap);
-        assert_eq!(settlement.violations[0].prev_committed, 12);
-        assert_eq!(settlement.violations[0].span.first, 14);
-        assert_eq!(
-            sentinel.take_due(),
-            Some(HashMap::from([(tp, MessageOffset(16))]))
-        );
-    }
-
-    #[test]
-    fn a_rejected_slice_hands_nothing_to_the_pacer() {
-        let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
-        let tp = TopicPartition::new("test", 0);
-        let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
-        // The partition left and came back while the poll was in flight.
-        ledger.forget_partitions([("test", 0)]);
-
-        let settlement = settle_partitions(&ledger, &sentinel, &partitions);
-
-        assert_eq!((settlement.settled, settlement.advanced), (0, 0));
-        assert!(sentinel.take_due().is_none());
-    }
-
-    #[test]
-    fn a_poll_behind_an_incomplete_one_hands_nothing_to_the_pacer() {
-        let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
-        let tp = TopicPartition::new("test", 0);
-        let _older = charged(&ledger, &tp, 10, 11);
-        let newer = HashMap::from([(tp.clone(), charged(&ledger, &tp, 12, 13))]);
-
-        let settlement = settle_partitions(&ledger, &sentinel, &newer);
-
-        assert_eq!((settlement.settled, settlement.advanced), (1, 0));
-        assert!(sentinel.take_due().is_none());
-    }
-
-    #[test]
-    fn frontier_span_submits_the_frontier_verbatim() {
-        let span = OffsetSpan {
-            first: 10,
-            last: 11,
-        };
-        assert_eq!(
-            frontier_span(&span, Some(MessageOffset(12))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 11
-            })
+            *revoked_partitions.lock().unwrap(),
+            vec![p0.clone()],
+            "the poller drops what it buffered from the lost assignment"
         );
         assert_eq!(
-            frontier_span(&span, Some(MessageOffset(11))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 10
-            }),
-            "a frontier trailing the span wins"
+            settlement
+                .charge(&p0, 1, &one_event)
+                .map(|charged| charged.pause),
+            Ok(Some(Pause)),
+            "the regained partition starts unpaused"
         );
-    }
-
-    #[test]
-    fn a_partition_without_a_frontier_is_not_committed() {
-        let span = OffsetSpan {
-            first: 20,
-            last: 21,
-        };
-        assert_eq!(frontier_span(&span, None), None);
     }
 }

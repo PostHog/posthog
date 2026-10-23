@@ -21,6 +21,8 @@ class OfflineReadQuery:
     date_to: datetime | None = None
     search: str | None = None
     run_source: str | None = None
+    created_by: int | None = None
+    created_by_is_null: bool = False
     run_source_is_null: bool = False
     statuses: tuple[str, ...] | None = None
     suite_key: str | None = None
@@ -36,6 +38,8 @@ class OfflineReadQuery:
     tag_match: Literal["any", "all"] = "any"
 
     def __post_init__(self) -> None:
+        if self.created_by is not None and self.created_by_is_null:
+            raise OfflineEvaluationValidationError("created_by", "Choose an author or no author, not both.")
         if not 1 <= self.limit <= 100:
             raise OfflineEvaluationValidationError("limit", "Use a page size between 1 and 100.")
         if len(self.scorer_version_ids) > MAX_READ_SCORER_VERSIONS or len(set(self.scorer_version_ids)) != len(
@@ -63,8 +67,22 @@ class OfflineResultCellQuery:
 
 
 @frozen
+class OfflineExperimentAuthor:
+    id: int
+    uuid: UUID
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    hedgehog_config: dict[str, JSONValue] | None
+    role_at_organization: str | None
+
+
+@frozen
 class OfflineExperimentRead:
     tags: tuple[str, ...] = ()
+    created_by: OfflineExperimentAuthor | None = None
     id: UUID
     name: str
     run_source: str | None
@@ -96,6 +114,7 @@ class OfflineScorerVersionRead:
     version: int
     kind: str
     name: str
+    short_name: str
     description: str
     archived: bool
     config: dict[str, JSONValue]

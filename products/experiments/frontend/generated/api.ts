@@ -713,6 +713,19 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * flag and, with an API key, `activity_log:read`) gets that finding for every running
  * experiment, because the changes are not read.
  *
+ * Two checks read whether the project received an event from its event definitions: a
+ * definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
+ * not received. A name whose definition was deleted since launch, or in the last day for a
+ * draft, is not checked, because ingestion writes the definition again only when the event
+ * arrives. `metric_event_not_ingested` names each metric that
+ * reads an event the project never received, in the `evidence` keys `metric_N`,
+ * `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
+ * exposure event the project never received (`exposure_event_not_ingested`), and a
+ * `$feature_flag` filter on the flag call events that requires another flag
+ * (`filter_on_another_flag`). An event not received is info before launch, in the first 24
+ * hours after launch, and when only secondary metrics read it, and a warning otherwise.
+ * `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
+ *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
  * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -743,6 +756,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+ *
+ * A running experiment whose first primary metric is a funnel gets the info
+ * `early_significance` (subcode `below_detectable_effect`) when a significant variant's
+ * difference is smaller than the smallest difference its sample can detect, while that
+ * sample is below the one the running time estimate plans for the minimum detectable
+ * effect. It reads the metric's current stored result, the one the results page shows
+ * after its last calculation, and the running time calculator's formula.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,

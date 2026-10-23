@@ -409,7 +409,9 @@ function InsightCardInternal(
                     context={{
                         insightProps: insightLogicProps,
                         dashboardResultMenu: resultMenuEnabled,
-                        dataVisualizationTableVirtualized: !!dashboardId && placement !== DashboardPlacement.Export,
+                        dataVisualizationTableVirtualized:
+                            renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
+                        dataVisualizationTableVirtualizationCellThreshold: 100,
                     }}
                     readOnly
                     embedded
@@ -427,7 +429,7 @@ function InsightCardInternal(
         placement,
         visualization,
         resultMenuEnabled,
-        dashboardId,
+        renderVizWhenMounted,
     ])
 
     const vizContent = shouldRenderViz ? (

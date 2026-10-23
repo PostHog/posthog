@@ -32,7 +32,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
-from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_claims import get_active_claim, is_user_claim_of, is_user_claim_of_task_creator
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
 # without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
@@ -60,7 +60,7 @@ __all__ = [
 # implementation. Inference on these tasks is unbilled (per-PR pricing), so without a cap a
 # single report is an unlimited font of free agent runs; the number only needs to cover honest
 # "ask a follow-up in a fresh task" use, since conversation *within* a task is unlimited.
-MAX_DISCUSSION_TASKS_PER_REPORT = 3
+MAX_DISCUSSION_TASKS_PER_REPORT = 10
 
 # `scout` excluded too: it labels the scout run that authored the report, is server-written, and
 # is rejected as a client-asserted relationship by the tasks write serializer.
@@ -219,7 +219,12 @@ def _implementation_slot_claim(
 
 
 def enforce_report_task_cap(
-    *, team_id: int, report_id: str, relationship: str | None, description: str | None = None
+    *,
+    team_id: int,
+    report_id: str,
+    relationship: str | None,
+    description: str | None = None,
+    created_by_id: int | None = None,
 ) -> None:
     """Cap the tasks a single report can spawn; raises `ReportTaskCapExceeded` at the limit.
 
@@ -246,6 +251,9 @@ def enforce_report_task_cap(
         if claim is not None:
             raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
         assignment = get_active_claim(team_id=team_id, report_id=report_id)
+        if assignment and is_user_claim_of(assignment, created_by_id):
+            # The person who claimed the report starts the task, and the task works under their claim.
+            return
         if assignment and assignment.actor_kind:
             if assignment.actor_kind != "task":
                 raise ReportTaskCapExceeded(
@@ -319,7 +327,12 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     if report is None:
         return
     assignment = get_active_claim(team_id=team_id, report_id=report_id)
-    if assignment and assignment.actor_kind and str(assignment.actor_task_id) != task_id:
+    if (
+        assignment
+        and assignment.actor_kind
+        and str(assignment.actor_task_id) != task_id
+        and not is_user_claim_of_task_creator(assignment, task_id)
+    ):
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION, detail="This report is claimed by another actor."
         )

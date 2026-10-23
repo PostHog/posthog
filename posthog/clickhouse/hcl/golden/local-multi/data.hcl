@@ -3464,6 +3464,9 @@ database "posthog" {
     column "source_config_snapshot" {
       type = "String"
     }
+    column "source_detail" {
+      type = "String"
+    }
     column "query_duration_ms" {
       type = "Nullable(UInt32)"
     }
@@ -5342,6 +5345,11 @@ database "posthog" {
     index "bloom_filter_$session_id" {
       expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
       type        = "bloom_filter"
+      granularity = 1
+    }
+    index "minmax_sharded_events_inserted_at" {
+      expr        = "inserted_at"
+      type        = "minmax"
       granularity = 1
     }
     index "minmax_$group_0" {

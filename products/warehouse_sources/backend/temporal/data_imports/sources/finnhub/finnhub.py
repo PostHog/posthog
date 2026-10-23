@@ -5,9 +5,12 @@ from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.settings import (
@@ -85,7 +88,7 @@ def _to_date(value: Any) -> date:
     raise ValueError(f"Cannot coerce incremental value {value!r} to a date")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((FinnhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(6),
     wait=wait_exponential_jitter(initial=2, max=60),

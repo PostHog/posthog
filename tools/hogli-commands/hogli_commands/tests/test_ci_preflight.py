@@ -27,7 +27,10 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def no_diff_reading_checks() -> Iterator[None]:
     # The real ones shell out to node and semgrep on any changed path.
-    with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]):
+    with (
+        patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]),
+        patch("hogli_commands.ci_preflight.check_stack_depth", return_value=("skipped", "no local stack")),
+    ):
         yield
 
 
@@ -85,6 +88,18 @@ class TestKillSwitch:
 
 
 class TestStrictAndFixContracts:
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=[])
+    def test_explicit_preflight_blocks_an_oversized_stack_without_a_diff(
+        self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
+    ) -> None:
+        with patch("hogli_commands.ci_preflight.check_stack_depth", return_value=("fail", "6 open layers")):
+            result = runner.invoke(cli, ["ci:preflight", "--strict"])
+        assert result.exit_code == 1
+        assert "6 open layers" in result.output
+
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
@@ -279,7 +294,7 @@ class TestStalenessRisks:
                 ["migrations added on both sides in posthog/migrations"],
             ),
             (["posthog/api/ours.py"], ["posthog/api/theirs.py"], [], ["master also changed build:openapi"]),
-            (["a.py"], [".github/workflows/ci-backend.yml"], [], ["CI workflows changed on master (1 file(s))"]),
+            (["a.py"], [".github/workflows/ci-python.yml"], [], ["CI workflows changed on master (1 file(s))"]),
         ],
     )
     def test_risk_derivation(
@@ -381,7 +396,7 @@ class TestWorkspaceScopedLockfile:
         assert "products/desktop: needs node" in detail
 
 
-class TestShadowDriftCheck:
+class TestDepotMirrorsCheck:
     @pytest.mark.parametrize(
         "changed,expected_exit,expected_fragment",
         [
@@ -412,4 +427,4 @@ class TestShadowDriftCheck:
         if expected_fragment:
             assert expected_fragment in result.output
         else:
-            assert "shadow-drift" not in result.output
+            assert "depot-mirrors" not in result.output

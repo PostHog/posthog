@@ -94,6 +94,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         layouts,
         layoutEditMode,
         placement,
+        readOnly,
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
@@ -118,7 +119,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
-        updateLayouts,
+        stageLayouts,
         updateContainerWidth,
         toggleTileDescription,
         removeTile,
@@ -207,7 +208,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         useDashboardLayoutInteraction({
             layoutEditMode,
             layoutCompaction: dashboard?.customization?.layout_compaction,
-            updateLayouts,
+            updateLayouts: stageLayouts,
         })
 
     useEffect(() => {
@@ -238,11 +239,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
     }, [containerRef])
     const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
-    const isEditablePlacement = [
-        DashboardPlacement.Dashboard,
-        DashboardPlacement.ProjectHomepage,
-        DashboardPlacement.Builtin,
-    ].includes(placement)
+    const isEditablePlacement =
+        !readOnly &&
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(
+            placement
+        )
 
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement

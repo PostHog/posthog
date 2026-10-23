@@ -7,11 +7,14 @@ so import-linter's strict-mode contract holds.
 
 import math
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
 from typing import Any
+
+from django.conf import settings
+from django.db import connection
 
 import structlog
 
@@ -24,6 +27,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
 
 from products.error_tracking.backend.facade.api import list_spike_events
@@ -65,7 +69,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
+from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -329,6 +333,14 @@ def _evaluate_formula(
     return result
 
 
+def _closing_connection(work: Callable[[], None]) -> None:
+    try:
+        work()
+    finally:
+        # The query reads Postgres in the worker thread, and request cleanup only closes the request thread's connection.
+        connection.close()
+
+
 def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
@@ -348,7 +360,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         if request.formula is not None
         else None
     )
-    rows_by_clause: dict[str, list[dict[str, Any]]] = {}
+    runners: list[tuple[MetricQueryClause, MetricQueryRunner, bool]] = []
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
         runner = build_metric_query_runner(
@@ -364,24 +376,38 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
             range_function=clause.range_function.value if clause.range_function is not None else None,
         )
+        runners.append((clause, runner, runner_aggregation is None))
+    rows_by_clause: dict[str, list[dict[str, Any]]] = {clause.name: [] for clause in request.clauses}
+    units_by_fingerprint: dict[int, str] = {}
+
+    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner, raw: bool) -> None:
         rows = runner.run()
-        if runner_aggregation is None:
+        if raw:
             _attach_series_labels(team, clause.metric_name, rows)
         rows_by_clause[clause.name] = rows
+
+    def load_units() -> None:
+        units_by_fingerprint.update(_units_by_fingerprint(team, {clause.metric_name for clause in request.clauses}))
+
+    # The clause queries and the unit lookup do not depend on each other, so a tile waits for the slowest one,
+    # not for their sum. A formula combines clauses of different units, so its series carry no unit.
+    work: list[Callable[[], None]] = [partial(run_clause, *item) for item in runners]
+    if formula_node_checked is None:
+        work.append(load_units)
+    # Django does not make the test transaction visible to another thread.
+    if len(work) <= 1 or settings.IN_UNIT_TESTING:
+        for item in work:
+            item()
+    else:
+        run_in_parallel_threads(
+            [partial(_closing_connection, item) for item in work], thread_name_prefix="metrics_clauses"
+        )
 
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
         empty_clause = "formula" if formula_node_checked is not None else request.clauses[0].name
         metric_name = None if formula_node_checked is not None else request.clauses[0].metric_name
         return [MetricSeries(labels={}, points=(), metric_name=metric_name, clause=empty_clause)]
-
-    # A formula combines clauses (possibly of different units), so its series
-    # carry no unit and the unit lookup is skipped entirely.
-    units_by_fingerprint = (
-        {}
-        if formula_node_checked is not None
-        else _units_by_fingerprint(team, {clause.metric_name for clause in request.clauses})
-    )
 
     series_by_clause = {
         clause.name: _assemble_series(
@@ -881,6 +907,14 @@ def reject_dashboard_template(*, user: User, template_id: str) -> DashboardTempl
     )
 
     return service.reject(user, template_id)
+
+
+def regenerate_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.regenerate(user, template_id)
 
 
 def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes | None:

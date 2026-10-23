@@ -1,7 +1,8 @@
 """
 Loads the changes of a running experiment's flag since launch that can move exposed people: the split, the
 settings that decide the variant draw, and the release conditions. Then asks ClickHouse whether anyone was exposed
-before each change. A change before the first exposure moved nobody, so it does not count.
+before each change. A change before the first exposure moved nobody, so it does not count. For each kind of change
+that counts, it also counts the persons or groups exposed before the last change of that kind, up to a few.
 
 The answer for a past window does not change, so it is cached per window and shared by every reader. A slow
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
@@ -10,12 +11,15 @@ unknown too, so a scan that is too large for a request runs at most once a day.
 Only exposure criteria that name an event are asked about. The answer for a property filter or an action can
 depend on what each reader may read, and can change as the filter matches other events over time, so no cached
 answer for them is safe to share. The changes of those experiments are reported as not checked.
+
+The answers run without the reader and are shared, so a reader denied any event property gets none. Every change
+then counts for that reader, as if every answer were unknown.
 """
 
 import json
 import hashlib
 from bisect import bisect_left
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from time import monotonic
@@ -47,47 +51,47 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
-from products.experiments.backend.health.bucketing_changes import (
-    BucketingChangeShape,
-    bucketing_changes_from_activity,
-    bucketing_net_effect,
-    changes_that_apply,
-    conditions_follow_flag_aggregation,
-)
+from products.experiments.backend.health.bucketing_changes import BucketingChangeShape, bucketing_net_effect
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     conditions_change_from_activity,
     conditions_net_effect,
-    parse_release_conditions,
 )
 from products.experiments.backend.health.context import (
     MAX_FLAG_SAVES,
     MAX_RELEASE_CONDITIONS,
-    BucketingChange,
-    BucketingSetting,
+    MIN_EXPOSED_UNITS_TO_WARN,
     ChangeWindow,
-    ConditionsChange,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
-    Split,
-    SplitChange,
     changes_of_kind,
-    parse_variants,
 )
-from products.experiments.backend.health.split_changes import (
-    same_assignment,
-    split_change_from_activity,
-    split_variant_keys,
-)
+from products.experiments.backend.health.split_changes import split_change_from_activity
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    aggregates_by_group,
     build_exposure_event_conditions,
+    get_entity_key,
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    BucketingSetting,
+    ConditionsChange,
+    Split,
+    SplitChange,
+    bucketing_changes_from_activity,
+    changes_that_apply,
+    conditions_follow_flag_aggregation,
+    parse_release_conditions,
+    parse_variants,
+    same_assignment,
+    split_variant_keys,
+)
 
 MAX_EXPOSURE_QUERIES = 20
 # Each override window costs a cache read, and a query when the answer is not cached. A window past this stays
@@ -102,6 +106,14 @@ _ANSWER_CACHE_SECONDS = int(timedelta(days=30).total_seconds())
 _TOO_EXPENSIVE_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
 _FAILED_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
 UNKNOWN = "unknown"
+# The two questions have their own key prefixes, so a cached bool of "anyone exposed" is never read as a count.
+_EXPOSED_KEY_PREFIX = "experiment_split_exposure"
+_EXPOSED_UNITS_KEY_PREFIX = "experiment_exposed_units"
+_KINDS: dict[ExperimentHealthFlagChangeKind, type[FlagChange]] = {
+    ExperimentHealthFlagChangeKind.SPLIT: SplitChange,
+    ExperimentHealthFlagChangeKind.BUCKETING: BucketingChange,
+    ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: ConditionsChange,
+}
 # The activity log fields of a flag save that can move exposed people.
 _FILTERS = "filters"
 _SETTING_FIELDS = {
@@ -179,6 +191,75 @@ def query_any_exposure(
             "variant_keys": ast.Constant(value=list(variant_keys)),
         },
     )
+    return bool(_execute(experiment, query))
+
+
+def query_exposed_units(
+    experiment: Experiment,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    served: Sequence[tuple[str, Sequence[str]]],
+    group_type_index: int | None,
+    default_exposure_event: str,
+) -> int:
+    """
+    The persons or groups exposed in `[window_start, window_end)`, up to MIN_EXPOSED_UNITS_TO_WARN. `served` pairs each
+    flag key with the variant keys the flag served under it, and an exposure counts when it matches one of the pairs.
+    """
+    team = experiment.team
+    # `person_id` joins an aggregation of the team's person overrides, which runs in full whatever the LIMIT. The raw
+    # id on the event needs no join. A person merged after an exposure can then count twice, which only keeps a warning.
+    unit = get_entity_key(group_type_index) if aggregates_by_group(group_type_index) else "event_person_id"
+    conditions: list[ast.Expr] = []
+    for flag_key, variant_keys in served:
+        _, variant_property = get_exposure_event_and_property(
+            flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+        )
+        conditions.append(
+            ast.And(
+                exprs=[
+                    *build_exposure_event_conditions(
+                        experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["properties", variant_property]),
+                        right=ast.Constant(value=list(variant_keys)),
+                    ),
+                ]
+            )
+        )
+    # The exposure query leaves out group exposures without a group key, so they don't count here either.
+    has_unit = (
+        ast.Call(name="notEmpty", args=[ast.Field(chain=[unit])])
+        if aggregates_by_group(group_type_index)
+        else ast.Constant(value=True)
+    )
+    # No test-account filter, as in `query_any_exposure`. DISTINCT with LIMIT stops the scan at the cap.
+    query = parse_select(
+        """
+        SELECT count() FROM (
+            SELECT DISTINCT {unit} FROM events
+            WHERE timestamp >= {window_start} AND timestamp < {window_end} AND {served} AND {has_unit}
+            LIMIT {cap}
+        )
+        """,
+        placeholders={
+            "unit": ast.Field(chain=[unit]),
+            "window_start": ast.Constant(value=window_start),
+            "window_end": ast.Constant(value=window_end),
+            "served": ast.Or(exprs=conditions),
+            "has_unit": has_unit,
+            "cap": ast.Constant(value=MIN_EXPOSED_UNITS_TO_WARN),
+        },
+    )
+    results = _execute(experiment, query)
+    return int(results[0][0]) if results else 0
+
+
+def _execute(experiment: Experiment, query: ast.SelectQuery | ast.SelectSetQuery) -> list[Any]:
+    team = experiment.team
     with tags_context(
         product=Product.EXPERIMENTS, feature=Feature.HEALTH_CHECK, team_id=team.pk, org_id=team.organization_id
     ):
@@ -191,7 +272,7 @@ def query_any_exposure(
                 max_execution_time=EXPOSURE_QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"
             ),
         )
-    return bool(response.results)
+    return response.results or []
 
 
 @frozen
@@ -203,30 +284,105 @@ class _Window:
     variant_keys: tuple[str, ...]
 
 
+@frozen
+class _UnitsWindow:
+    start: datetime
+    end: datetime
+    # Each flag key the flag had in the window, with the variant keys it served under that key.
+    served: tuple[tuple[str, tuple[str, ...]], ...]
+
+
 class _ExposureGate:
     """
     Answers the exposure questions of one request from the cache, or with at most MAX_EXPOSURE_QUERIES queries
     that start within REQUEST_BUDGET_SECONDS.
     """
 
-    def __init__(self, experiment: Experiment, launched_at: datetime, *, prefetch: Sequence[_Window]) -> None:
+    def __init__(
+        self,
+        experiment: Experiment,
+        launched_at: datetime,
+        *,
+        group_type_index: int | None,
+        denied_event_properties: frozenset[str],
+        prefetch: Sequence[_Window | _UnitsWindow],
+    ) -> None:
         self._experiment = experiment
         self._launched_at = launched_at
+        self._group_type_index = group_type_index
+        self._denied_event_properties = denied_event_properties
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
-        # One cache read for all windows of the walk, so a flag with many changes costs one round trip.
-        self._prefetched_keys = {self._cache_key(window) for window in prefetch if window.variant_keys}
-        self._prefetched = cache.get_many(list(self._prefetched_keys))
+        # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
+        self._prefetched_keys = (
+            set()
+            if denied_event_properties
+            else {
+                self._units_cache_key(window) if isinstance(window, _UnitsWindow) else self._cache_key(window)
+                for window in prefetch
+                if isinstance(window, _UnitsWindow) or window.variant_keys
+            }
+        )
+        self._prefetched = cache.get_many(list(self._prefetched_keys)) if self._prefetched_keys else {}
         self._started_at = monotonic()
         self._query_count = 0
         self._stopped = False
 
     def exposed(self, window: _Window) -> bool | None:
-        """None when unknown: the query failed in this request or within its cache time, or the request is out of budget."""
+        """None when unknown: the query failed in this request or within its cache time, the request is out of budget,
+        or the reader is denied an event property."""
         if not window.variant_keys:
             return False
-        cache_key = self._cache_key(window)
+        return self._answer(
+            self._cache_key(window),
+            bool,
+            lambda: query_any_exposure(
+                self._experiment,
+                flag_key=window.flag_key,
+                window_start=window.start,
+                window_end=window.end,
+                variant_keys=window.variant_keys,
+                default_exposure_event=self._default_exposure_event,
+            ),
+            window_end=window.end,
+            final=lambda answer: answer,
+        )
+
+    def exposed_units(self, window: _UnitsWindow | None) -> int | None:
+        """The persons or groups exposed in the window, up to MIN_EXPOSED_UNITS_TO_WARN. None when unknown, as for
+        `exposed`, or without a window, because the flag served no variants for a while."""
+        if window is None:
+            return None
+        return self._answer(
+            self._units_cache_key(window),
+            int,
+            lambda: query_exposed_units(
+                self._experiment,
+                window_start=window.start,
+                window_end=window.end,
+                served=window.served,
+                group_type_index=self._group_type_index,
+                default_exposure_event=self._default_exposure_event,
+            ),
+            window_end=window.end,
+            # Late events can only add units, so a count at the cap can't change.
+            final=lambda count: count >= MIN_EXPOSED_UNITS_TO_WARN,
+        )
+
+    def _answer[A: (bool, int)](
+        self,
+        cache_key: str,
+        answer_type: type[A],
+        ask: Callable[[], A],
+        *,
+        window_end: datetime,
+        final: Callable[[A], bool],
+    ) -> A | None:
+        # Every answer reads the flag, variant and group properties of the exposures. Any denied event property, not
+        # a list of the read ones, so no list can miss one. The findings then keep their warnings.
+        if self._denied_event_properties:
+            return None
         cached = self._prefetched.get(cache_key) if cache_key in self._prefetched_keys else cache.get(cache_key)
-        if isinstance(cached, bool):
+        if isinstance(cached, answer_type):
             return cached
         if cached == UNKNOWN:
             return None
@@ -238,43 +394,48 @@ class _ExposureGate:
             return None
         self._query_count += 1
         try:
-            answer = query_any_exposure(
-                self._experiment,
-                flag_key=window.flag_key,
-                window_start=window.start,
-                window_end=window.end,
-                variant_keys=window.variant_keys,
-                default_exposure_event=self._default_exposure_event,
-            )
+            answer = ask()
         except Exception as error:
             cache_failed_scan(cache_key, error)
             self._stopped = True
             return None
-        settled = answer or timezone.now() - window.end > _SETTLED_AFTER
+        settled = final(answer) or timezone.now() - window_end > _SETTLED_AFTER
         cache.set(cache_key, answer, _ANSWER_CACHE_SECONDS if settled else _RECENT_NOBODY_CACHE_SECONDS)
         # Two kinds can ask the same window, and a prefetched miss would otherwise send the second to ClickHouse.
         self._prefetched[cache_key] = answer
         return answer
 
     def _cache_key(self, window: _Window) -> str:
+        return self._key(
+            _EXPOSED_KEY_PREFIX,
+            window.start.isoformat(),
+            window.end.isoformat(),
+            window.flag_key,
+            sorted(window.variant_keys),
+        )
+
+    def _units_cache_key(self, window: _UnitsWindow) -> str:
+        # The cap is an input, so a count cached under another cap is never read as one under this cap.
+        return self._key(
+            _EXPOSED_UNITS_KEY_PREFIX,
+            window.start.isoformat(),
+            window.end.isoformat(),
+            [[flag_key, sorted(variant_keys)] for flag_key, variant_keys in window.served],
+            self._group_type_index,
+            MIN_EXPOSED_UNITS_TO_WARN,
+        )
+
+    def _key(self, prefix: str, *window_inputs: object) -> str:
         experiment = self._experiment
         # Every input of the query. The resolved exposure event is one, because the exposure event rollout
         # can move an experiment to another event.
         inputs = json.dumps(
-            [
-                self._launched_at.isoformat(),
-                window.start.isoformat(),
-                window.end.isoformat(),
-                window.flag_key,
-                sorted(window.variant_keys),
-                experiment.exposure_criteria,
-                self._default_exposure_event,
-            ],
+            [self._launched_at.isoformat(), *window_inputs, experiment.exposure_criteria, self._default_exposure_event],
             sort_keys=True,
             default=str,
         )
         digest = hashlib.sha256(inputs.encode()).hexdigest()
-        return f"experiment_split_exposure:{experiment.team_id}:{experiment.id}:{digest}"
+        return f"{prefix}:{experiment.team_id}:{experiment.id}:{digest}"
 
 
 class _ConditionAggregationMismatch(Exception):
@@ -343,6 +504,8 @@ def _load_flag_history(
             variant_keys=split_variant_keys(parse_variants(flag.variants)),
         ),
         exposed_during_overrides={},
+        counts_groups=aggregates_by_group(flag.aggregation_group_type_index),
+        exposed_units_before_last={},
     )
     times = _change_times(changes)
     if not times:
@@ -360,7 +523,20 @@ def _load_flag_history(
     )
     starts = (launched_at, *times[:-1])
     walk = [timeline.window(start=start, end=end) for start, end in zip(starts, times)]
-    gate = _ExposureGate(experiment, launched_at, prefetch=walk)
+    # The last change of a kind is its last counted change whenever the kind has one, so these windows are known
+    # before the walk and share its cache read.
+    units_windows = {
+        kind: timeline.units_window(start=launched_at, end=of_kind[-1].changed_at)
+        for kind, change_type in _KINDS.items()
+        if (of_kind := changes_of_kind(changes, change_type))
+    }
+    gate = _ExposureGate(
+        experiment,
+        launched_at,
+        group_type_index=flag.aggregation_group_type_index,
+        denied_event_properties=reader_access.denied_event_properties,
+        prefetch=[*walk, *(window for window in units_windows.values() if window is not None)],
+    )
     for window in walk:
         exposed_before = gate.exposed(window)
         if exposed_before is not False:
@@ -368,8 +544,15 @@ def _load_flag_history(
             break
     if history.counted_since is None:
         return history
+    # Asked before the set-back and override questions, because a count can lower the finding of every kind.
+    exposed_units_before_last = {
+        kind: gate.exposed_units(units_windows[kind])
+        for kind, change_type in _KINDS.items()
+        if history.counted(change_type)
+    }
     return replace(
         history,
+        exposed_units_before_last=exposed_units_before_last,
         exposed_between=_exposed_between_set_backs(gate, timeline, history),
         exposed_during_overrides=_exposed_during_overrides(gate, timeline, history),
     )
@@ -431,24 +614,38 @@ class _Timeline:
         index = bisect_left(self._split_times, at)
         return self._split_changes[index].before if index < len(self._split_changes) else self._current_split
 
+    def units_window(self, *, start: datetime, end: datetime) -> _UnitsWindow | None:
+        """The window up to a change, with every key and split that the flag served in it. None when the flag served
+        no variants for a while."""
+        served = self.served_between(start=start, end=end)
+        return None if served is None else _UnitsWindow(start=start, end=end, served=served)
+
+    def served_between(self, *, start: datetime, end: datetime) -> tuple[tuple[str, tuple[str, ...]], ...] | None:
+        """The variant keys that the flag served in `[start, end)`, by flag key. None when it served a flag without
+        variants for a while."""
+        variant_keys_by_flag_key: dict[str, set[str]] = {}
+        for at in self.points_within(start=start, end=end):
+            split = self.split_before(at)
+            # A flag without variants serves `true`, so people can be exposed with no variant key to look for.
+            if not split_variant_keys(split):
+                return None
+            variant_keys_by_flag_key.setdefault(self.key_before(at), set()).update(split_variant_keys(split))
+        return tuple(
+            (flag_key, tuple(sorted(variant_keys))) for flag_key, variant_keys in variant_keys_by_flag_key.items()
+        )
+
     def points_within(self, *, start: datetime, end: datetime) -> list[datetime]:
         return [at for at in self._times if start < at <= end]
 
 
 def _exposed_between(gate: _ExposureGate, timeline: _Timeline, *, start: datetime, end: datetime) -> bool | None:
     """Whether anyone was exposed in `[start, end)`, under any key and split that the flag served then."""
-    variant_keys_by_flag_key: dict[str, set[str]] = {}
-    for at in timeline.points_within(start=start, end=end):
-        split = timeline.split_before(at)
-        # A flag without variants serves `true`, so people can be exposed with no variant key to look for.
-        if not split_variant_keys(split):
-            return None
-        variant_keys_by_flag_key.setdefault(timeline.key_before(at), set()).update(split_variant_keys(split))
+    served = timeline.served_between(start=start, end=end)
+    if served is None:
+        return None
     answers = []
-    for flag_key, variant_keys in variant_keys_by_flag_key.items():
-        answer = gate.exposed(
-            _Window(start=start, end=end, flag_key=flag_key, variant_keys=tuple(sorted(variant_keys)))
-        )
+    for flag_key, variant_keys in served:
+        answer = gate.exposed(_Window(start=start, end=end, flag_key=flag_key, variant_keys=variant_keys))
         if answer:
             return True
         answers.append(answer)

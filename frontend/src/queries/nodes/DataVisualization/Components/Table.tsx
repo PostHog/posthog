@@ -151,7 +151,6 @@ function ColumnHeaderTitle({
 
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
-    const virtualized = !!props.embedded && !!props.context?.dataVisualizationTableVirtualized
 
     const {
         tabularData,
@@ -172,6 +171,11 @@ export const Table = (props: TableProps): JSX.Element => {
         hogVm,
         hogVmLoadFailed,
     } = useValues(dataVisualizationLogic)
+    const virtualizationCellThreshold = props.context?.dataVisualizationTableVirtualizationCellThreshold ?? 0
+    const virtualized =
+        !!props.embedded &&
+        !!props.context?.dataVisualizationTableVirtualized &&
+        tabularData.length * tabularColumns.length > virtualizationCellThreshold
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
@@ -316,7 +320,7 @@ export const Table = (props: TableProps): JSX.Element => {
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
-                                className="max-w-full !text-inherit"
+                                className="-mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
                                 style={{
                                     opacity:
                                         props.isSelected &&
@@ -435,6 +439,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
                 virtualized={virtualized}
+                virtualizedColumnWidth={isTransposed && tabularColumns.length > 50 ? 192 : undefined}
                 tableLayout={virtualized ? 'fixed' : 'auto'}
                 tableStyle={virtualized ? { minWidth: `${tabularColumns.length * 12}rem` } : undefined}
             />

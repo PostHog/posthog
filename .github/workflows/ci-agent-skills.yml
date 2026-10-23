@@ -33,7 +33,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -125,8 +125,8 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
                   IS_PUSH: ${{ github.event_name == 'push' }}
-                  # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
-                  # ci-backend.yml, which saves these caches on master pushes.
+                  # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml
+                  # so both workflows use the same schema cache keys.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PUSH" = "true" ]; then
@@ -164,7 +164,7 @@ jobs:
                   if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \

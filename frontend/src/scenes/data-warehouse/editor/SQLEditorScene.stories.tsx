@@ -657,7 +657,12 @@ export const BIEmptyWorksheet: Story = {
         testOptions: { waitForSelector: '[data-attr="bi-editor-data-source"]' },
     },
     play: async ({ canvasElement }) => {
-        await expect(within(canvasElement).findByText('Select a table to list its fields.')).resolves.toBeVisible()
+        const canvas = within(canvasElement)
+        await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
+        await userEvent.click(canvas.getByRole('button', { name: 'Hide fields panel' }))
+        expect(canvas.queryByText('Select a table to list its fields.')).not.toBeInTheDocument()
+        await userEvent.click(canvas.getByRole('button', { name: /^Fields$/ }))
+        await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
     },
 }
 
@@ -726,6 +731,18 @@ export const BICalculatedMeasureEditor: Story = {
             waitForSelector: '[data-attr="bi-calculated-measure-modal"] .monaco-editor',
             viewport: { width: 1050, height: 900 },
         },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/projects/:team_id/query/HogQLAutocomplete/': {
+                        suggestions: [{ kind: 'Variable', label: 'event', insertText: 'event', detail: 'String' }],
+                        incomplete_list: false,
+                    },
+                },
+            },
+        },
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -736,6 +753,24 @@ export const BICalculatedMeasureEditor: Story = {
         await userEvent.click(await modal.findByLabelText('Calculated field role'))
         await userEvent.click(await modal.findByText('Measure · aggregate each group'))
         await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
+        const expression = await modal.findByRole('textbox', { name: 'Calculated field expression' })
+        expression.focus()
+        // Monaco resolves keybindings from keyCode, and userEvent.keyboard sends keyCode 0
+        const pressInEditor = (init: KeyboardEventInit & { keyCode: number }): void => {
+            expression.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true }))
+        }
+        pressInEditor({ key: ' ', code: 'Space', keyCode: 32, ctrlKey: true })
+        await waitFor(
+            () => {
+                const suggestions = canvasElement.ownerDocument.querySelector('.suggest-widget.visible')
+                expect(suggestions).not.toBeNull()
+                expect(within(suggestions as HTMLElement).getByText('event', { exact: true })).toBeVisible()
+            },
+            { timeout: 5000 }
+        )
+        // A keyCode 0 Escape skips Monaco and reaches the modal, which then closes
+        pressInEditor({ key: 'Escape', code: 'Escape', keyCode: 27 })
+        await waitFor(() => expect(canvasElement.ownerDocument.querySelector('.suggest-widget.visible')).toBeNull())
     },
 }
 
@@ -1841,5 +1876,85 @@ export const BISourcePreviewLargeSample: Story = {
         await body.findByText('Example source row 1000')
         await userEvent.click(within(table).getByLabelText('Previous page'))
         await body.findByText('Example source row 1')
+    },
+}
+
+const BI_WIDE_TABLE_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [],
+    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
+    filters: [],
+    limit: 10000,
+}
+
+export const BIWideTransposedResults: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}#${new URLSearchParams({
+            q: JSON.stringify({
+                ...buildBIQuery(BI_WIDE_TABLE_CONFIG)!.node,
+                kind: NodeKind.BIVisualizationNode,
+                config: BI_WIDE_TABLE_CONFIG,
+            }),
+        })}`,
+        testOptions: {
+            waitForSelector: '.DataVisualizationTable [aria-colcount="1801"]',
+            viewport: { width: 1280, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters!.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 0,
+                        next: null,
+                        results: [],
+                    },
+                },
+                post: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'Float64'],
+                        results: Array.from({ length: 1800 }, (_, index) => [
+                            new Date(Date.UTC(2020, 0, index + 1)).toISOString(),
+                            10000 + index,
+                        ]),
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await canvas.findByText('10000', { exact: true }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: 'Visualization settings' }))
+        const transpose = await canvas.findByLabelText('Transpose results')
+        await userEvent.click(transpose)
+        const table = canvasElement.querySelector<HTMLElement>('.DataVisualizationTable')!
+        await waitFor(() => expect(table.querySelector('table')).toHaveAttribute('aria-colcount', '1801'))
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        const scroll = table.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollLeft = scroll.scrollWidth
+        await within(table).findByText('11799', { exact: true })
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        await userEvent.click(transpose)
+        await waitFor(() => expect(table.querySelector('table')).not.toHaveAttribute('aria-colcount'))
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(transpose)
+        scroll.scrollLeft = 0
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(canvas.getByRole('button', { name: 'Visualization settings' }))
+        await stabilizeQueryElapsedTime()
     },
 }

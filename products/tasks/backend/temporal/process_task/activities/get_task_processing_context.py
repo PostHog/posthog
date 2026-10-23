@@ -20,8 +20,6 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
-    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -49,6 +47,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
@@ -478,19 +477,16 @@ def _is_rtk_enabled(
 
 @frozen
 class _SubscriptionAdapter:
-    flag: str
     runtime_name: str
     settings_name: str
 
 
 _SUBSCRIPTION_ADAPTERS: dict[str, _SubscriptionAdapter] = {
     "claude": _SubscriptionAdapter(
-        flag=CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
         runtime_name="Claude",
         settings_name="Claude subscription settings",
     ),
     "codex": _SubscriptionAdapter(
-        flag=CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
         runtime_name="Codex",
         settings_name="ChatGPT subscription settings",
     ),
@@ -519,22 +515,7 @@ def _ensure_subscription_allowed(
             cause=ValueError(f"Subscription requested for a non-{spec.runtime_name} runtime"),
             capture=False,
         )
-    try:
-        enabled = bool(
-            distinct_id
-            and posthoganalytics.feature_enabled(
-                spec.flag,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context(f"{adapter}_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
-        enabled = False
-    if not enabled:
+    if not own_subscription_cloud_enabled(adapter, distinct_id=distinct_id, organization_id=organization_id):
         raise ProcessTaskFatalError(
             f"Using your {plan_name} for cloud tasks is unavailable. Try again later, "
             f'or open {spec.settings_name} and turn off "Cloud tasks" to use PostHog credits.',
@@ -1010,7 +991,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.
         raise TaskRunNotReadyError(f"TaskRun {run_id} not found", {"run_id": run_id})
 
-    emit_agent_log(run_id, "debug", "Fetching task details")
+    log_with_activity_context("Fetching task details", run_id=run_id)
 
     task: Task = task_run.task
     if not task_run.matches_task_ownership(task):
@@ -1087,16 +1068,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 allowed_domains = sandbox_environment.get_effective_domains()
 
             if allowed_domains is not None:
-                emit_agent_log(
-                    run_id,
-                    "debug",
+                log_with_activity_context(
                     f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}",
+                    run_id=run_id,
                 )
             else:
-                emit_agent_log(
-                    run_id,
-                    "debug",
-                    f"Resolved sandbox environment '{sandbox_environment.name}' with full network access",
+                log_with_activity_context(
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with full network access", run_id=run_id
                 )
 
     # A per-run image (picked at task start) wins over the environment's image.
@@ -1146,7 +1124,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             )
             or False
         )  # Ensure we get a boolean value even if the flag is missing
-    emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    log_with_activity_context(f"pr_loop_enabled: {pr_loop_enabled} for this task run", run_id=run_id)
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
     include_live_context = state.get("include_live_context") is not False
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
@@ -1200,10 +1178,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     sandbox_event_ingest_enabled = model_access.kind == "own-subscription" or _is_sandbox_event_ingest_enabled(
         run_id=run_id, state=state
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
+    log_with_activity_context(
+        f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run", run_id=run_id
     )
     agent_otel_telemetry_enabled = not trial_origin and (
         settings.DEBUG or state.get(AGENT_OTEL_TELEMETRY_STATE_KEY) is not False
@@ -1253,16 +1229,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         state=state,
     )
     use_modal_vm_sandbox = vm_sandbox_decision.use_vm_sandbox
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_modal_vm_sandbox: {use_modal_vm_sandbox} for this task run",
-    )
+    log_with_activity_context(f"use_modal_vm_sandbox: {use_modal_vm_sandbox} for this task run", run_id=run_id)
     custom_image_name: str | None = None
     if environment_custom_image_name:
         if use_modal_vm_sandbox:
             custom_image_name = environment_custom_image_name
-            emit_agent_log(run_id, "debug", f"Using custom base image: {custom_image_name}")
+            log_with_activity_context(f"Using custom base image: {custom_image_name}", run_id=run_id)
         else:
             emit_agent_log(
                 run_id,
@@ -1275,15 +1247,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # the VM runtime — provisioning falls back to the plain VM base automatically if
         # this image is missing or unloadable.
         custom_image_name = vm_sandbox_decision.default_custom_image
-        emit_agent_log(run_id, "debug", f"Using the organization's default custom base image: {custom_image_name}")
+        log_with_activity_context(
+            f"Using the organization's default custom base image: {custom_image_name}", run_id=run_id
+        )
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
         run_id=run_id,
         state=state,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+    log_with_activity_context(
+        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run", run_id=run_id
     )
     overlap_clone_boot_enabled = _is_overlap_clone_boot_enabled(
         distinct_id=distinct_id,
@@ -1291,20 +1263,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
+    log_with_activity_context(
+        f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run", run_id=run_id
     )
     desktop_workspace_warm_enabled = _is_desktop_workspace_warm_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run",
+    log_with_activity_context(
+        f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run", run_id=run_id
     )
     rtk_enabled = _is_rtk_enabled(
         distinct_id=distinct_id,
@@ -1319,10 +1287,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         origin_product=task.origin_product,
         state=state,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"rtk_enabled: {rtk_enabled}, benjamin_enabled: {benjamin_enabled} for this task run",
+    log_with_activity_context(
+        f"rtk_enabled: {rtk_enabled}, benjamin_enabled: {benjamin_enabled} for this task run", run_id=run_id
     )
     # The same test that mints the token's interactive-run marker: user-started signals runs get
     # a finite wall-clock ceiling because their inference is unbilled and the generic interactive
@@ -1369,11 +1335,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_vm_sandbox = False
         use_modal_network_allowlist = False
         custom_image_name = None
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"sandbox_backend: {sandbox_backend} for this task run",
-    )
+    log_with_activity_context(f"sandbox_backend: {sandbox_backend} for this task run", run_id=run_id)
     # Pluggable-memory golden: only meaningful on hogland, and org-scoped like the
     # backend flag itself. Fails closed to the fixed-size golden on any error.
     use_hogland_hotplug_golden = False
@@ -1392,10 +1354,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         except Exception as e:
             log_with_activity_context("hogland_hotplug_golden_flag_check_failed", run_id=run_id, error=str(e))
             use_hogland_hotplug_golden = False
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_hogland_hotplug_golden: {use_hogland_hotplug_golden} for this task run",
+    log_with_activity_context(
+        f"use_hogland_hotplug_golden: {use_hogland_hotplug_golden} for this task run", run_id=run_id
     )
 
     dev_stack_preview_enabled = _is_dev_stack_preview_enabled(
@@ -1407,10 +1367,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         custom_image_name=custom_image_name,
         repository=run_repository,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"dev_stack_preview_enabled: {dev_stack_preview_enabled} for this task run",
+    log_with_activity_context(
+        f"dev_stack_preview_enabled: {dev_stack_preview_enabled} for this task run", run_id=run_id
     )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None

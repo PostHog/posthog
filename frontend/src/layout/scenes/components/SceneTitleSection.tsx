@@ -39,6 +39,8 @@ export type ResourceType = {
     forceIcon?: JSX.Element
     /** If your resource type matches a product in fileSystemTypes and has a color defined, you can use this to override the product's icon color */
     forceIconColorOverride?: FileSystemIconColor
+    /** Set when the icon depicts this resource, not its product, so it leads the name instead of the parent breadcrumb */
+    iconLeadsName?: boolean
 }
 
 export type SceneMainTitleProps = {

@@ -19,7 +19,6 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import QuerySet
 
-from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -29,6 +28,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightSeries,
     InsightVariableDefinition,
     SavedInsightDefinition,
+    WatchedTrendsInsight,
 )
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -131,6 +131,22 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def watched_trends_insights(
+    *,
+    team_ids: Collection[int],
+    intervals: Collection[str],
+    excluded_displays: Collection[str],
+    viewed_since: datetime,
+) -> list[WatchedTrendsInsight]:
+    """Saved trends insights that are on a live dashboard or that someone viewed since ``viewed_since``.
+
+    Only insights with an interval in ``intervals`` and a display outside ``excluded_displays`` are kept.
+    """
+    return logic.watched_trends_insights(
+        team_ids=team_ids, intervals=intervals, excluded_displays=excluded_displays, viewed_since=viewed_since
+    )
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
@@ -141,6 +157,14 @@ def recent_viewers_by_insight(
     return logic.recent_viewers_by_insight(
         team_id=team_id, insight_ids=insight_ids, since=since, max_per_insight=max_per_insight
     )
+
+
+def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], since: datetime) -> dict[int, int]:
+    """How many people looked at each of these insights since the given time, in one query.
+
+    Shared and embedded views have no viewer, so they are not counted. Insights nobody viewed are left out.
+    """
+    return logic.viewer_counts_by_insight(team_id=team_id, insight_ids=insight_ids, since=since)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
@@ -206,7 +230,7 @@ def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:
-    from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared  # noqa: PLC0415, I001 — avoids HogQL import cycle
+    from posthog.api.sharing_publish_gate import insight_query_access_error  # noqa: PLC0415, I001 — avoids HogQL import cycle
 
     with transaction.atomic():
         insight = Insight.objects.select_for_update().filter(team=team, pk=insight_id, deleted=False).first()
@@ -219,15 +243,8 @@ def save_saved_insight_query(
             "insight", "editor"
         ) or not access_control.check_access_level_for_object(insight, "editor"):
             return "You no longer have permission to edit this insight."
-        if (
-            insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            and not access_control.is_organization_admin
-            and is_publicly_shared(insight)
-        ):
-            blocked = blocked_access_for_user(user, insight.team, [query])
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
-                return f"Can't save this query: you don't have access to {blocked_list}, and this insight is publicly shared."
+        if error := insight_query_access_error(user, insight, query, access_control):
+            return error
         insight.query = query
         insight.saved = True
         insight.last_modified_by = user
@@ -236,7 +253,12 @@ def save_saved_insight_query(
 
 
 def get_insight_series(
-    *, team: Team, user: User, short_id: str, dashboard: InsightDashboardContext | None = None
+    *,
+    team: Team,
+    user: User,
+    short_id: str,
+    dashboard: InsightDashboardContext | None = None,
+    blocking: bool = False,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -249,5 +271,11 @@ def get_insight_series(
     )
 
     return insight_series.insight_series(
-        team, user, short_id=insight.short_id, name=insight.name, query=insight.query or {}, dashboard=dashboard
+        team,
+        user,
+        short_id=insight.short_id,
+        name=insight.name,
+        query=insight.query or {},
+        dashboard=dashboard,
+        blocking=blocking,
     )
