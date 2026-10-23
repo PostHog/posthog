@@ -5264,19 +5264,11 @@ def append_suggested_reviewers(
             # is the only return path a scout has for routing memory it already cached — but only for
             # a genuine team edit. An impersonated operator edit is not team ownership evidence, so it
             # steers nothing, matching the reviewer-corrections profile's impersonation filter.
-            # Scout routing memory is keyed on GitHub logins, so a change that only moved a
-            # login-less reviewer carries nothing for that channel to steer and is skipped there.
             if not was_impersonated:
                 correction = ReviewerCorrection(
                     report_id=str(report_id),
-                    added_logins=tuple(added_github_logins),
-                    removed_logins=tuple(
-                        login
-                        for login in (
-                            str(prior.get("github_login") or "").strip().lower() for prior in removed_payloads
-                        )
-                        if login
-                    ),
+                    added_reviewers=tuple(_reviewer_identity_label(entry) for entry in added_entries),
+                    removed_reviewers=tuple(_reviewer_identity_label(entry) for entry in removed_payloads),
                     actor_user_id=user_id,
                     scoped_team_ids=scoped_team_id_tuple,
                 )
@@ -5425,11 +5417,11 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
         )
         correction = (
             None
-            if was_impersonated or not github_login
+            if was_impersonated
             else ReviewerCorrection(
                 report_id=str(report_id),
-                added_logins=(),
-                removed_logins=(github_login,),
+                added_reviewers=(),
+                removed_reviewers=(github_login or str(user.uuid),),
                 actor_user_id=user_id,
                 scoped_team_ids=scoped_team_id_tuple,
             )
