@@ -9,6 +9,7 @@ import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { recordSkippedTransactionalEmail } from '../services/messaging/email-status.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -151,6 +152,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                     canceledResults.push(
                         this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active', hogFlow)
+                    )
+                    await recordSkippedTransactionalEmail(
+                        this.emailStatus,
+                        { ...item, state: item.state as CyclotronJobInvocationHogFlow['state'] | null },
+                        'workflow_inactive'
                     )
 
                     return

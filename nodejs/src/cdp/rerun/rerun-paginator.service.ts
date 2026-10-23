@@ -841,6 +841,8 @@ export class RerunPaginatorService {
                 messageOptOuts: persistedState.messageOptOuts,
                 // A code send's content, sender and tracking choice exist only on the run, not on the flow.
                 send: persistedState.send,
+                // Without it a rerun writes no status rows, and the email reads as failed after it is sent.
+                emailRecipientHash: persistedState.emailRecipientHash,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.

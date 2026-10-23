@@ -105,6 +105,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 replyTo: ['help@example.com'],
                 tracking: { captureEngagement: false },
             },
+            emailRecipientHash: 'a1b2',
         }
         const rows = [
             {
@@ -141,6 +142,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         expect(invocation.state?.variables).toEqual({ ticket_id: '123' })
         // A code send's content, sender and tracking choice live only here, so a rerun without them sends nothing.
         expect(invocation.state?.send).toEqual(persistedState.send)
+        expect(invocation.state?.emailRecipientHash).toBe('a1b2')
         // Sticky rerun counter still increments so max_attempts guards apply.
         expect(invocation.state?.rerunAttempts).toBe(1)
     })

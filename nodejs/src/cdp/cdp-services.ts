@@ -566,7 +566,7 @@ export function createCdpCoreServices(
         deps.integrationManager,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
-        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
+        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED, emailStatus }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
