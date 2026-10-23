@@ -7,6 +7,7 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
@@ -19,6 +20,7 @@ from products.experiments.backend.health.context import (
     HealthContext,
     parse_flag_state,
 )
+from products.experiments.backend.health.skips import CheckSkip, not_checked
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
 from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
@@ -367,7 +369,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
     ) -> None:
         finding = release_conditions_changed_mid_run(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(finding.code, ExperimentHealthFindingCode.RELEASE_CONDITIONS_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.title, finding.diagnostic_ref), expected)
         if expected_detail is not None:
@@ -375,21 +377,27 @@ class TestReleaseConditionsChangedMidRun(TestCase):
 
     @parameterized.expand(
         [
-            ("no_change", _context([PRO])),
-            ("set_back_with_nobody_in_between", _context([PRO], [EVERYONE], [PRO], exposed_between=False)),
-            ("no_history_access", _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS)),
+            ("no_change", _context([PRO]), None),
+            ("set_back_with_nobody_in_between", _context([PRO], [EVERYONE], [PRO], exposed_between=False), None),
+            (
+                "no_history_access",
+                _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                not_checked("Couldn't check because you can't view the linked feature flag's history"),
+            ),
             # The forced-variant check reports an override in place, with the time it was set.
-            ("override_added", _context([PRO, EVERYONE], [PRO_PINNED, EVERYONE])),
-            ("pinned_condition_added", _context([EVERYONE], [PRO_PINNED, EVERYONE])),
+            ("override_added", _context([PRO, EVERYONE], [PRO_PINNED, EVERYONE]), None),
+            ("pinned_condition_added", _context([EVERYONE], [PRO_PINNED, EVERYONE]), None),
             (
                 "override_changed_to_another_variant",
                 _context([PRO_PINNED, EVERYONE], [{**PRO, "variant": "control"}, EVERYONE]),
+                None,
             ),
             (
                 "override_removed_from_under_one_percent",
                 _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 10, 2: 2990}),
+                None,
             ),
         ]
     )
-    def test_reports_nothing(self, _name: str, ctx: HealthContext) -> None:
-        self.assertIsNone(release_conditions_changed_mid_run(ctx))
+    def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
+        self.assertEqual(release_conditions_changed_mid_run(ctx), expected)
