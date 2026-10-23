@@ -406,32 +406,40 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{case[0]}_{addressed_by}", addressed_by, *case[1:])
-            for addressed_by in ("url_id", "key")
-            for case in [
-                ("direct_api_call", {"HTTP_USER_AGENT": "curl/8.7.1"}, "api", None, None),
-                ("posthog_node", {"HTTP_USER_AGENT": "posthog-node/5.30.0"}, "sdk", "5.30.0", None),
-                ("posthog_edge", {"HTTP_USER_AGENT": "posthog-edge/5.30.0"}, "sdk", "5.30.0", None),
-                ("posthog_python", {"HTTP_USER_AGENT": "posthog-python/7.1.0"}, "sdk", "7.1.0", None),
-                ("sdk_lookalike", {"HTTP_USER_AGENT": "posthog-node-proxy/1.0.0"}, "api", None, None),
-                ("python_sdk_lookalike", {"HTTP_USER_AGENT": "posthog-pythonic/7.1.0"}, "api", None, None),
-                ("sdk_behind_a_proxy", {"HTTP_USER_AGENT": "posthog-node/5.30.0 gateway/2.1"}, "sdk", "5.30.0", None),
+            ("direct_api_call", "key", {"HTTP_USER_AGENT": "curl/8.7.1"}, "api", None, None),
+            ("posthog_node", "key", {"HTTP_USER_AGENT": "posthog-node/5.30.0"}, "sdk", "5.30.0", None),
+            ("posthog_edge", "key", {"HTTP_USER_AGENT": "posthog-edge/5.30.0"}, "sdk", "5.30.0", None),
+            ("posthog_python", "key", {"HTTP_USER_AGENT": "posthog-python/7.1.0"}, "sdk", "7.1.0", None),
+            ("sdk_lookalike", "key", {"HTTP_USER_AGENT": "posthog-node-proxy/1.0.0"}, "api", None, None),
+            ("python_sdk_lookalike", "key", {"HTTP_USER_AGENT": "posthog-pythonic/7.1.0"}, "api", None, None),
+            (
+                "sdk_behind_a_proxy",
+                "key",
+                {"HTTP_USER_AGENT": "posthog-node/5.30.0 gateway/2.1"},
+                "sdk",
+                "5.30.0",
+                None,
+            ),
+            *[
                 (
-                    "sdk_call_site_migrated_from_resend",
+                    f"sdk_call_site_migrated_from_resend_{addressed_by}",
+                    addressed_by,
                     {"HTTP_USER_AGENT": "posthog-python/7.1.0", "HTTP_X_POSTHOG_MIGRATED_FROM": "Resend"},
                     "sdk",
                     "7.1.0",
                     "resend",
-                ),
-                (
-                    "fetch_call_site_migrated_from_resend",
-                    {"HTTP_X_POSTHOG_MIGRATED_FROM": "resend"},
-                    "api",
-                    None,
-                    "resend",
-                ),
-                ("unknown_migration_source", {"HTTP_X_POSTHOG_MIGRATED_FROM": "<script>"}, "api", None, None),
-            ]
+                )
+                for addressed_by in ("key", "url_id")
+            ],
+            (
+                "fetch_call_site_migrated_from_resend",
+                "key",
+                {"HTTP_X_POSTHOG_MIGRATED_FROM": "resend"},
+                "api",
+                None,
+                "resend",
+            ),
+            ("unknown_migration_source", "key", {"HTTP_X_POSTHOG_MIGRATED_FROM": "<script>"}, "api", None, None),
         ]
     )
     def test_reports_where_each_send_came_from(
