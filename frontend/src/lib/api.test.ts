@@ -1,7 +1,7 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError, UNLOAD_SETTLE_MS } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
@@ -475,13 +475,33 @@ describe('API helper', () => {
             expect(error.status).toBeUndefined()
         })
 
-        it('classifies a fetch rejection during page teardown as navigating', async () => {
-            window.dispatchEvent(new Event('pagehide'))
-            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+        // A reload cancels in-flight fetches before `pagehide` fires, so `beforeunload` must set the flag too
+        it.each(['beforeunload', 'pagehide'])(
+            'classifies a fetch rejection after %s as navigating',
+            async (eventName) => {
+                window.dispatchEvent(new Event(eventName))
+                fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
 
-            const error = await api.get('api/environments/2/insights').catch((e) => e)
+                const error = await api.get('api/environments/2/insights').catch((e) => e)
 
-            expect(error).toMatchObject({ reason: 'navigating' })
+                expect(error).toMatchObject({ reason: 'navigating' })
+            }
+        )
+
+        it('classifies failures normally again when the page survives a beforeunload', async () => {
+            Object.defineProperty(window.navigator, 'onLine', { value: true, configurable: true })
+            jest.useFakeTimers()
+            try {
+                window.dispatchEvent(new Event('beforeunload'))
+                jest.advanceTimersByTime(UNLOAD_SETTLE_MS)
+                fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+                const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+                expect(error).toMatchObject({ reason: 'network' })
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('reports the failure as a client_request_failure naming the endpoint', async () => {
