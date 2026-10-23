@@ -9,14 +9,9 @@ import { ApiError } from 'lib/api-error'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
-import {
-    COHORT_CSV_MAX_BYTES,
-    COHORT_CSV_TOO_LARGE_MESSAGE,
-    CohortLogicProps,
-    REALTIME_POLL_INTERVAL_MS,
-    cohortEditLogic,
-} from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1191,17 +1186,26 @@ describe('cohortEditLogic', () => {
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 
-        it('do not save static cohort with csv over the size limit', async () => {
+        const MB = 1024 * 1024
+
+        it.each([
+            { case: 'over the default limit', isStatic: true, configuredMax: undefined, blocked: true },
+            { case: 'under a larger configured limit', isStatic: true, configuredMax: 50 * MB, blocked: false },
+            { case: 'left on a cohort switched to dynamic', isStatic: false, configuredMax: undefined, blocked: false },
+        ])('csv size check: $case', async ({ isStatic, configuredMax, blocked }) => {
             await initCohortLogic({ id: 1 })
+            preflightLogic.actions.loadPreflightSuccess({
+                ...preflightLogic.values.preflight,
+                cohort_csv_upload_max_bytes: configuredMax,
+            } as any)
             const csv = new File(['user_1'], 'ids.csv')
-            Object.defineProperty(csv, 'size', { value: COHORT_CSV_MAX_BYTES + 1 })
-            await expectLogic(logic, async () => {
-                logic.actions.setCohort({ ...mockCohort, is_static: true, groups: [], csv })
-                logic.actions.setStaticCohortMode('people')
-                logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortFailure'])
-            expect(logic.values.cohortValidationErrors.csv).toEqual(COHORT_CSV_TOO_LARGE_MESSAGE)
-            expect(api.update).toHaveBeenCalledTimes(0)
+            Object.defineProperty(csv, 'size', { value: 20 * MB + 1 })
+            logic.actions.setCohort({ ...mockCohort, is_static: isStatic, csv })
+            expect(logic.values.cohortValidationErrors.csv).toEqual(
+                blocked
+                    ? 'CSV file is larger than the limit of 20 MB. Split the file into smaller parts and upload them one at a time.'
+                    : undefined
+            )
         })
 
         it('shows the size limit when the save is rejected with a 413', async () => {
@@ -1217,7 +1221,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.setStaticCohortMode('people')
                 logic.actions.submitCohort()
             }).toDispatchActions(['submitCohort', 'saveCohortSuccess'])
-            expect(lemonToast.error).toHaveBeenCalledWith(COHORT_CSV_TOO_LARGE_MESSAGE)
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('larger than the limit of 20 MB'))
         })
 
         it('calls scrollToFormError with fallback message on submitCohortFailure', async () => {
