@@ -114,8 +114,6 @@ COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE: bool = get_from_env(
     "COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE", True, type_cast=str_to_bool
 )
 # Bounds one static cohort CSV upload. The IDs are collected in memory and sent to Celery in one
-# message, so the byte size and the row count both need a ceiling. 20 MB keeps the whole request under
-# common reverse proxy body limits, so this check, not a bodyless 413, rejects the file.
-# COHORT_CSV_MAX_BYTES in frontend/src/scenes/cohorts/cohortEditLogic.ts mirrors this default.
+# message, so the byte size and the row count both need a ceiling. 20 MB stays under proxy body limits.
 COHORT_CSV_UPLOAD_MAX_BYTES: int = get_from_env("COHORT_CSV_UPLOAD_MAX_BYTES", 20 * 1024 * 1024, type_cast=int)
 COHORT_CSV_UPLOAD_MAX_ROWS: int = get_from_env("COHORT_CSV_UPLOAD_MAX_ROWS", 1_000_000, type_cast=int)
