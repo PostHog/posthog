@@ -870,7 +870,8 @@ class TestSignalSpend(BaseTest):
             token_cost_microusd=200,
         )
         migration = import_module("products.signals.backend.migrations.0199_backfill_owner_spend")
-        historical_apps = MigrationLoader(connection).project_state([("signals", "0198_owner_spend")]).apps
+        with override_settings(MIGRATION_MODULES={}):
+            historical_apps = MigrationLoader(connection).project_state([("signals", "0198_owner_spend")]).apps
         for _ in range(2):
             migration.backfill_owner_spend(historical_apps, SimpleNamespace(connection=connection))
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
@@ -1000,6 +1001,8 @@ class TestSignalSpend(BaseTest):
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         run = self._run(report=report, stage=stage)
         self._set_task_cost(run, 10_001)
+        report.billing_exempt_reason = SignalReport.BillingExemptReason.POSTHOG_SYSTEM
+        report.save(update_fields=["billing_exempt_reason"])
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
         self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
@@ -1007,6 +1010,7 @@ class TestSignalSpend(BaseTest):
         spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
         assert spend.spend == Decimal("5.0001")
         assert spend.finalized_at is not None
+        assert spend.billing_exempt
 
     @parameterized.expand([(False,), (True,)])
     @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example", SANDBOX_AI_GATEWAY_MINT_KEY="test-key")

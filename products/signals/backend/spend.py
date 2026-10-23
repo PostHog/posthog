@@ -445,6 +445,19 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
         with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
             spend = SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
             if spend.finalized_at is None:
+                billing_report_id = spend.report_id or report_id
+                if billing_report_id is not None:
+                    report = (
+                        SignalReport.objects.filter(team_id=team_id, id=billing_report_id)
+                        .only("billing_exempt_reason")
+                        .first()
+                    )
+                    if report:
+                        apply_report_billing(spend, report)
+                if spend.scout_run_id:
+                    scout = SignalScoutRun.objects.for_team(team_id).filter(id=spend.scout_run_id).first()
+                    if scout:
+                        spend.billing_exempt = spend.billing_exempt or scout_spend_exempt(scout)
                 spend.spend = cost_to_spend(run.cost_microusd or 0, task_count=1)
                 spend.accounting_failed = not run.complete
                 if run.is_terminal and run.complete:
