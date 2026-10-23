@@ -227,6 +227,16 @@ def seconds_until_midnight():
     return difference.seconds
 
 
+# Same formula as the listing query, so the list and the single-recording reads report the
+# same score. The listing query sums `s.`-prefixed columns; here the sums are already aliased.
+ACTIVITY_SCORE_COLUMN = """round(least(greatest((
+                    (active_seconds + click_count + keypress_count + console_error_count)
+                    /
+                    (mouse_activity_count + duration + console_error_count + console_log_count + console_warn_count)
+                    * 100
+                ), 0), 100), 2) as activity_score"""
+
+
 class SessionReplayEvents:
     def exists(self, session_id: str, team: Team) -> bool:
         cache_key = f"session_recording_existence_team_{team.pk}_id_{session_id}"
@@ -493,7 +503,8 @@ class SessionReplayEvents:
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
                 max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing,
                 sum(size) as total_size,
-                sum(event_count) as event_count
+                sum(event_count) as event_count,
+                {ACTIVITY_SCORE_COLUMN}
             FROM
                 session_replay_events
             PREWHERE
@@ -514,6 +525,7 @@ class SessionReplayEvents:
             ),
             optional_format_clause=(f"FORMAT {format}" if format else ""),
             ongoing_window_minutes=ONGOING_SESSION_WINDOW_MINUTES,
+            ACTIVITY_SCORE_COLUMN=ACTIVITY_SCORE_COLUMN,
         )
         return query
 
@@ -548,6 +560,7 @@ class SessionReplayEvents:
             ongoing=bool(replay[21]),
             total_size=replay[22],
             event_count=replay[23],
+            activity_score=replay[24],
         )
 
     def get_metadata(
@@ -639,7 +652,8 @@ class SessionReplayEvents:
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
                 max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing,
                 sum(size) as total_size,
-                sum(event_count) as event_count
+                sum(event_count) as event_count,
+                {ACTIVITY_SCORE_COLUMN}
             FROM
                 session_replay_events
             PREWHERE

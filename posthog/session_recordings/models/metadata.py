@@ -66,6 +66,7 @@ class RecordingMetadata(TypedDict):
     ongoing: bool
     total_size: int
     event_count: int
+    activity_score: Optional[float]
 
 
 class RecordingMatchingEvents(TypedDict):
