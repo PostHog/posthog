@@ -682,6 +682,7 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             (
                 "rendered_content_with_attachments",
+                "template_key",
                 {
                     "text": "Hi",
                     "attachments": [
@@ -695,7 +696,7 @@ class TestTransactionalEmail(APIBaseTest):
                 },
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
-                    "from": {"integrationId": "sender", "isDefault": True},
+                    "from": {"integrationId": "default", "isDefault": True},
                     "attachments": [
                         {
                             "filename": "invite.ics",
