@@ -13,7 +13,20 @@ export namespace Schemas {
     /**
      *
      */
+    export interface AEOPromptEngineCheck {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** Whether the answer cited a URL on one of the target domains. */
+      cited: boolean;
+      /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
+      check_failed: boolean;
+      /** When the check ran. */
+      checked_at: string;
+    }
+
     export interface AEOPrompt {
+      /** The most recent check for each answer engine that ran the prompt. Empty when the prompt never ran. */
+      latest_checks: AEOPromptEngineCheck[];
       /** Prompt id. */
       id: string;
       /** The question asked to the answer engines, as a user would phrase it. */
@@ -81,6 +94,13 @@ export namespace Schemas {
       updated: number;
       /** Prompts that were empty or too long for the answer engines. */
       skipped: number;
+    }
+
+    export interface AEOPromptTopic {
+      /** Topic name. Empty for prompts that have no topic. */
+      topic: string;
+      /** How many prompts in the set have this topic. */
+      prompts: number;
     }
 
     export interface AIContextAccountProperty {
@@ -125493,6 +125513,11 @@ export namespace Schemas {
 
     export type AeoPromptsListParams = {
     /**
+     * Only list prompts that are on (true) or off (false). Omit to list both.
+     * @nullable
+     */
+    active?: boolean | null;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -125500,6 +125525,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only list prompts with this topic. An empty value lists the prompts that have no topic.
+     * @maxLength 200
+     */
+    topic?: string;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
