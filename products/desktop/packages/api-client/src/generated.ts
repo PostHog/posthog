@@ -2554,7 +2554,7 @@ export namespace Schemas {
         | "day"
         | "week"
         | "month";
-    export type FunnelLayout = "horizontal" | "vertical" | "number";
+    export type FunnelLayout = "horizontal" | "vertical" | "number" | "metric";
     export type FunnelsFilter = Partial<{
         annotationsScope: AnnotationScope | null;
         binCount: number | null;

@@ -3330,6 +3330,7 @@ export const FunnelLayoutApi = {
     Horizontal: 'horizontal',
     Vertical: 'vertical',
     Number: 'number',
+    Metric: 'metric',
 } as const
 
 /**

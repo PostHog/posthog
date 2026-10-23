@@ -5930,6 +5930,7 @@ export namespace Schemas {
       Horizontal: 'horizontal',
       Vertical: 'vertical',
       Number: 'number',
+      Metric: 'metric',
     } as const;
 
     /**
