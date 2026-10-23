@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { hogFlowsApplyUtmDefaultsCreate } from '../../generated/api'
@@ -137,10 +138,12 @@ export const workflowsUtmDefaultsApplyLogic = kea<workflowsUtmDefaultsApplyLogic
             const skipped = (applyResult?.workflows_failed ?? 0) + (applyResult?.workflows_without_access ?? 0)
             if (skipped > 0) {
                 lemonToast.warning(
-                    `Updated ${applyResult?.emails_updated ?? 0} emails. ${skipped} workflows kept their old values.`
+                    `Updated ${pluralize(applyResult?.emails_updated ?? 0, 'email')}. ${pluralize(skipped, 'workflow')} kept their old values.`
                 )
             } else {
-                lemonToast.success(`Updated ${applyResult?.emails_updated ?? 0} emails with the new defaults`)
+                lemonToast.success(
+                    `Updated ${pluralize(applyResult?.emails_updated ?? 0, 'email')} with the new defaults`
+                )
             }
         },
         applyDefaultsFailure: () => {
