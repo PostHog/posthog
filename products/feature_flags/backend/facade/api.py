@@ -501,11 +501,10 @@ def set_condition_rollout(
             raise FlagNotFound(f"Feature flag {locked.key} is not in this project.")
         if (locked.version or 0) != expected_version:
             raise FlagVersionConflict(flag_version_conflict_message(expected_version, locked.version or 0))
-        current_filters = locked.get_filters()
         try:
-            new_filters = _set_release_condition_rollout(current_filters, condition_index, rollout_percentage)
+            new_filters = _set_release_condition_rollout(locked.get_filters(), condition_index, rollout_percentage)
         except IndexError:
-            condition_count = len(current_filters.get("groups") or [])
+            condition_count = len(locked.conditions)
             if condition_count:
                 raise FlagRolloutRejected(
                     f"Feature flag {locked.key} has no release condition at index {condition_index}. It has "
@@ -514,7 +513,8 @@ def set_condition_rollout(
             raise FlagRolloutRejected(f"Feature flag {locked.key} has no release conditions.")
 
     saved = locked
-    changed = new_filters != current_filters
+    # Only this condition's stored value can differ; an absent value is not the same as 100.
+    changed = locked.conditions[condition_index].get("rollout_percentage") != rollout_percentage
     # The write runs outside the transaction above: the approval gate files a change request
     # and then raises, and a rollback would discard that request. The serializer takes the row
     # lock again and repeats the version check.
