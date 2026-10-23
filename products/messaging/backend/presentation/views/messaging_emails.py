@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.email_status import (
     EMAIL_STATUS_RETENTION,
@@ -99,15 +100,19 @@ def invalid_lookup(errors: Any) -> TemplateRefusal:
     )
 
 
-def recipient_email_page(
-    team_id: int, to: str, limit: int, cursor: UUID | None = None
-) -> dict[str, list[EmailStatusRecord] | UUID | None]:
+@frozen
+class EmailStatusPage:
+    results: list[EmailStatusRecord]
+    next_cursor: UUID | None
+
+
+def recipient_email_page(team_id: int, to: str, limit: int, cursor: UUID | None = None) -> EmailStatusPage:
     # One extra row tells whether a next page exists without a second query.
     records = list_email_statuses_by_recipient(
         team_id, to, since=datetime.now(UTC) - EMAIL_STATUS_RETENTION, limit=limit + 1, cursor=cursor
     )
     page = records[:limit]
-    return {"results": page, "next_cursor": page[-1].message_id if len(records) > limit else None}
+    return EmailStatusPage(results=page, next_cursor=page[-1].message_id if len(records) > limit else None)
 
 
 def email_not_found(message_id: str) -> TemplateRefusal:
