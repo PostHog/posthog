@@ -13,6 +13,7 @@ import { cn } from 'lib/utils/css-classes'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
+import { QueryPaneSaveBar } from './QueryPaneSaveBar'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryPaneProps {
@@ -25,6 +26,8 @@ interface QueryPaneProps {
     editorVimModeEnabled?: boolean
     editorVimrc?: string
     constrainHeight?: boolean
+    /** Opt in to the floating save bar for the view being edited. Hosts with no view leave it off. */
+    showInlineSaveBar?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -109,6 +112,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             <span>Loading query…</span>
                         </div>
                     )}
+                    {props.showInlineSaveBar && !props.originalValue && <QueryPaneSaveBar />}
                     {props.originalValue && (
                         <div
                             className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"

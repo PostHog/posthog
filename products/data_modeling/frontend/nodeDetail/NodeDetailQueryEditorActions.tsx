@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { updateViewLabel } from 'scenes/data-warehouse/editor/updateViewLabel'
+
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailQueryEditorActions({ id }: { id: string }): JSX.Element | null {
@@ -31,7 +33,7 @@ export function NodeDetailQueryEditorActions({ id }: { id: string }): JSX.Elemen
                 loading={queryEditorState.updateLoading}
                 data-attr="node-detail-update-view"
             >
-                {queryEditorState.isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                {updateViewLabel(queryEditorState.isMaterializedView)}
             </LemonButton>
         </>
     )

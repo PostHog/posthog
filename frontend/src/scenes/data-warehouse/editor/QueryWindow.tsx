@@ -70,6 +70,7 @@ interface QueryWindowProps {
     showOpenInSqlEditor?: boolean
     /** False removes the button that expands the schema panel. Defaults to true. */
     canExpandDatabaseTree?: boolean
+    showInlineSaveBar?: boolean
 }
 
 export function QueryWindow({
@@ -95,6 +96,7 @@ export function QueryWindow({
     hideAiTools,
     showOpenInSqlEditor,
     canExpandDatabaseTree = true,
+    showInlineSaveBar,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
@@ -374,6 +376,7 @@ export function QueryWindow({
                     editorVimModeEnabled={vimModeFeatureEnabled && vimModeEnabled}
                     editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
+                    showInlineSaveBar={showInlineSaveBar}
                     codeEditorProps={{
                         ...(sendRawQueryEnabled ? { language: 'sql' } : {}),
                         queryKey: codeEditorKey,

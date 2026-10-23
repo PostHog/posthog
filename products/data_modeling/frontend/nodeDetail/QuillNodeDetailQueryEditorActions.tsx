@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { Button } from '@posthog/quill'
 
+import { updateViewLabel } from 'scenes/data-warehouse/editor/updateViewLabel'
+
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function QuillNodeDetailQueryEditorActions({ id }: { id: string }): JSX.Element | null {
@@ -29,7 +31,7 @@ export function QuillNodeDetailQueryEditorActions({ id }: { id: string }): JSX.E
                 loading={queryEditorState.updateLoading}
                 data-attr="node-detail-update-view"
             >
-                {queryEditorState.isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                {updateViewLabel(queryEditorState.isMaterializedView)}
             </Button>
         </>
     )

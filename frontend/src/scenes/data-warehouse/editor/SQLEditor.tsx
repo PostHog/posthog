@@ -58,6 +58,7 @@ import { QueryWindow } from './QueryWindow'
 import { QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
+import { updateViewLabel } from './updateViewLabel'
 import { useUpdateEditingView } from './useUpdateEditingView'
 
 export enum SQLEditorPanel {
@@ -110,6 +111,8 @@ interface SQLEditorProps {
     showOpenInSqlEditor?: boolean
     /** Rendered inside the editor's logic bindings and draws nothing, so a host can read editor state. */
     hostSync?: ReactNode
+    /** Floats a save bar over the query pane while the open view has unsaved edits. */
+    showInlineSaveBar?: boolean
 }
 
 export function SQLEditor({
@@ -140,6 +143,7 @@ export function SQLEditor({
     hideAiTools,
     showOpenInSqlEditor,
     hostSync,
+    showInlineSaveBar,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -370,6 +374,7 @@ export function SQLEditor({
                                                                 hideAiTools={hideAiTools}
                                                                 showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}
+                                                                showInlineSaveBar={showInlineSaveBar}
                                                             />
                                                         )}
                                                     </div>
@@ -831,7 +836,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                 },
                                             }}
                                         >
-                                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                            {updateViewLabel(isMaterializedView)}
                                         </LemonButton>
                                     </AccessControlAction>
                                     <LemonButton
