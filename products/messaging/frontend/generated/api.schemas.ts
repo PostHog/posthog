@@ -55,6 +55,16 @@ export interface EmailStatusApi {
     reason?: string
 }
 
+export interface EmailStatusPageApi {
+    /** The recipient's emails, newest first. */
+    results: EmailStatusApi[]
+    /**
+     * Pass this as `cursor` to read the next page. Null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
 export interface TemplateErrorApi {
     /** Error class, such as `invalid_request`. */
     type: string
@@ -936,6 +946,24 @@ export interface UploadTemplateResponseApi {
     source: TemplateSourceApi
     /** The workflow that sends this template. Each upload that changes the content writes a new version of it. */
     transactional_hog_flow_id: string
+}
+
+export type MessagingEmailsListParams = {
+    /**
+     * The `next_cursor` of the previous page. Leave it out to read the first page.
+     */
+    cursor?: string
+    /**
+     * How many emails a page holds, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * The recipient's address. Case and the spaces around it do not matter. A send's `cc` and `bcc` copies are not looked up.
+     * @minLength 1
+     */
+    to: string
 }
 
 export type MessagingCategoriesListParams = {

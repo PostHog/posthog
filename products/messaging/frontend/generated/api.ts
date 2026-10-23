@@ -14,6 +14,7 @@ import type {
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
     EmailStatusApi,
+    EmailStatusPageApi,
     GenerateLinkRequestApi,
     MakeTransactionalApi,
     MessageCategoryApi,
@@ -21,6 +22,7 @@ import type {
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingEmailsListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
@@ -59,6 +61,37 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getMessagingEmailsListUrl = (projectId: string, params: MessagingEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/emails/`
+}
+
+/**
+ * Read the status of each email sent to an address in the last 30 days, newest first. Use it when you did not keep the `message_id` a send answered.
+ * @summary List a recipient's transactional emails
+ */
+export const messagingEmailsList = async (
+    projectId: string,
+    params: MessagingEmailsListParams,
+    options?: RequestInit
+): Promise<EmailStatusPageApi[]> => {
+    return apiMutator<EmailStatusPageApi[]>(getMessagingEmailsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/messaging/emails/${id}/`

@@ -40097,6 +40097,16 @@ export namespace Schemas {
       reason?: string;
     }
 
+    export interface EmailStatusPage {
+      /** The recipient's emails, newest first. */
+      results: EmailStatus[];
+      /**
+         * Pass this as `cursor` to read the next page. Null on the last page.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
     export interface EmailTag {
       /**
          * Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's.
@@ -134412,6 +134422,24 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MessagingEmailsListParams = {
+    /**
+     * The `next_cursor` of the previous page. Leave it out to read the first page.
+     */
+    cursor?: string;
+    /**
+     * How many emails a page holds, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * The recipient's address. Case and the spaces around it do not matter. A send's `cc` and `bcc` copies are not looked up.
+     * @minLength 1
+     */
+    to: string;
     };
 
     export type MessagingCategoriesListParams = {
