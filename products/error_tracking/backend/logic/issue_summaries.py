@@ -10,7 +10,7 @@ import time
 import hashlib
 from datetime import datetime, timedelta
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.db import IntegrityError
 from django.utils import timezone
@@ -21,6 +21,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from openai.types.shared_params import ResponseFormatJSONSchema
 from prometheus_client import Counter
 from pydantic import ValidationError
+from redis import Redis
 from redis.exceptions import RedisError
 
 from posthog.schema import DateRange, ErrorTrackingQuery
@@ -35,10 +36,15 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.redis import get_client
 from posthog.token_bucket import BucketDecision, BucketUnavailable, consume, peek, refund
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
+from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
 from products.error_tracking.backend.facade.queries import run_error_tracking_query
 from products.error_tracking.backend.facade.query_utils import (
@@ -64,6 +70,8 @@ from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_MAX_OUTPUT_TOKENS,
     ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL,
     ISSUE_SUMMARY_MODEL,
+    ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS,
+    ISSUE_SUMMARY_QUEUED_TTL_SECONDS,
     ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS,
     ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS,
 )
@@ -104,7 +112,39 @@ IN_APP_FRAME_MARKER = "[in-app]"
 WAIT_POLL_INTERVAL_SECONDS = 0.25
 # Event values must not open or close the <issue> block that fences them in the prompt.
 ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
-LOCK_HELD_FOR_GENERATION = "1"
+# A worker claims with this prefix and its own token, so only that worker can settle the claim.
+LOCK_CLAIM_PREFIX = "claim:"
+# Workers deployed before claim tokens claim with this value.
+LEGACY_LOCK_CLAIM = "1"
+LOCK_QUEUED = "queued"
+# Takes the lock when the key is free or holds only the queued marker. Returns nil on success, else the value that holds it.
+CLAIM_LUA = """
+local held = redis.call('GET', KEYS[1])
+if held == false or held == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    return false
+end
+return held
+"""
+# Writes the outcome only while the key still holds the caller's claim. An empty TTL keeps the current one.
+SETTLE_LUA = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+if ARGV[3] == '' then
+    redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+else
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+end
+return 1
+"""
+# Deletes the key only while it holds the queued marker, so a worker's claim or a hold outcome survives.
+RELEASE_QUEUED_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
 
 
 class IssueSummaryOutcome(StrEnum):
@@ -123,7 +163,13 @@ class IssueSummaryOutcome(StrEnum):
     GATEWAY_UNCONFIGURED = "gateway_unconfigured"
     MODEL_ERROR = "model_error"
     INVALID_OUTPUT = "invalid_output"
+    UNEXPECTED_ERROR = "unexpected_error"
 
+
+# Outcomes that hold the issue past the lock TTL, because each try runs the input queries before it finds them.
+HOLD_OUTCOMES = frozenset({IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED})
+# Outcomes that leave a summary current. The claim then stays until the lock expires.
+SETTLED_OUTCOMES = frozenset({IssueSummaryOutcome.GENERATED, IssueSummaryOutcome.UNCHANGED, IssueSummaryOutcome.FRESH})
 
 ISSUE_SUMMARY_OUTCOMES = Counter(
     "error_tracking_issue_summary_total",
@@ -147,6 +193,18 @@ class IssueSummaryInputs:
 
 def issue_summaries_enabled(team_id: int) -> bool:
     return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
+
+
+def summary_sources_readable(team_id: int, user: User) -> bool:
+    """False when the user may not read an event property the summary is written from.
+
+    One summary serves the whole team, so a user with a property restriction could otherwise read it through the summary.
+    """
+    try:
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+    except UserNotOrganizationMemberError:
+        return False
+    return ISSUE_SUMMARY_SOURCE_PROPERTIES.isdisjoint(split_restricted_property_names(restrictions).event)
 
 
 def is_ai_data_processing_approved(team_id: int) -> bool:
@@ -177,14 +235,62 @@ def generation_blocked(team_id: int, stored: ErrorTrackingIssueSummary | None) -
 
 
 def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
-    """Queue generation in the background when a summary may be due. Returns whether it queued a task.
+    """Queue generation in the background when a summary may be due. True when a summary may arrive soon.
 
     False means nothing will change soon, so the caller should not wait.
     """
     if generation_blocked(team_id, get_issue_summary(team_id, issue_id)) is not None:
         return False
-    generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
+    try:
+        client = _start_client()
+        key = _lock_key(team_id, issue_id)
+        if client.set(key, LOCK_QUEUED, nx=True, ex=ISSUE_SUMMARY_QUEUED_TTL_SECONDS):
+            return _queue_generation(team_id, issue_id)
+        held = client.get(key)
+    except RedisError:
+        logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
+        return _queue_generation(team_id, issue_id)
+    return _lock_outcome(held) == IssueSummaryOutcome.IN_PROGRESS
+
+
+def _queue_generation(team_id: int, issue_id: UUID | str) -> bool:
+    try:
+        _publish_generation(team_id, issue_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
+        # Without a task, the queued marker would keep reads waiting until it expires.
+        try:
+            _start_client().register_script(RELEASE_QUEUED_LUA)(keys=[_lock_key(team_id, issue_id)], args=[LOCK_QUEUED])
+        except RedisError:
+            logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
+        return False
     return True
+
+
+def _start_client() -> Redis:
+    """The lock client for the start, with the publish timeouts.
+
+    The lock and the broker share a Redis, so the default client's longer socket timeout would hold the read first.
+    """
+    return get_client(
+        socket_timeout=ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS,
+        socket_connect_timeout=ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS,
+    )
+
+
+def _publish_generation(team_id: int, issue_id: UUID | str) -> None:
+    """Queue the task on a connection with short timeouts and no publish retries.
+
+    The shared producer pool has no socket timeout and retries the publish, so an unresponsive broker blocks the read.
+    """
+    timeout = ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS
+    with generate_error_tracking_issue_summary.app.connection_for_write(
+        connect_timeout=timeout,
+        transport_options={"socket_timeout": timeout, "socket_connect_timeout": timeout},
+    ) as connection:
+        generate_error_tracking_issue_summary.apply_async(
+            args=(team_id, str(issue_id)), connection=connection, retry=False
+        )
 
 
 def wait_for_issue_summary(
@@ -211,7 +317,11 @@ def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSu
 
     Generation runs at most once at a time per issue. A failure keeps the stored summary.
     """
-    result = _get_or_generate(team_id, issue_id)
+    try:
+        result = _get_or_generate(team_id, issue_id)
+    except Exception:
+        ISSUE_SUMMARY_OUTCOMES.labels(outcome=IssueSummaryOutcome.UNEXPECTED_ERROR.value).inc()
+        raise
     ISSUE_SUMMARY_OUTCOMES.labels(outcome=result.outcome.value).inc()
     logger.info(
         "error_tracking_issue_summary",
@@ -227,9 +337,20 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     stored = get_issue_summary(team_id, issue_id)
     if (blocked := generation_blocked(team_id, stored)) is not None:
         return IssueSummaryResult(outcome=blocked, summary=stored)
-    if (held := _claim_generation(team_id, issue_id)) is not None:
+    claim = f"{LOCK_CLAIM_PREFIX}{uuid4().hex}"
+    if (held := _claim_generation(team_id, issue_id, claim)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
 
+    try:
+        result = _generate_claimed(team_id, issue_id)
+    except Exception:
+        _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR)
+        raise
+    _settle_claim(team_id, issue_id, claim, result.outcome)
+    return result
+
+
+def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     # Another worker can finish between the first read and the claim.
     stored = get_issue_summary(team_id, issue_id)
     if not regeneration_due(stored, timezone.now()):
@@ -239,7 +360,6 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     # The input queries run before `consume`, so an unchanged issue spends no token. This read keeps a team
     # with no tokens left from running them for every issue it opens. `consume` still makes the decision.
     if _budget_exhausted(budget_key):
-        _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
         return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
 
     team = Team.objects.get(id=team_id)
@@ -250,8 +370,6 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         logger.warning("error_tracking_issue_summary_inputs_failed", team_id=team_id, issue_id=str(issue_id))
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INPUTS_ERROR, summary=stored)
     if isinstance(inputs, IssueSummaryOutcome):
-        if inputs == IssueSummaryOutcome.NO_EXCEPTION:
-            _hold_generation(team_id, issue_id, inputs)
         return IssueSummaryResult(outcome=inputs, summary=stored)
     if stored is not None and stored.input_hash == inputs.input_hash:
         stored.checked_at = timezone.now()
@@ -261,7 +379,6 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     decision = consume(budget_key, ISSUE_SUMMARY_BUDGET)
     match decision:
         case BucketDecision(allowed=False):
-            _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
             return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
         case BucketUnavailable(error=bucket_error):
             # Fail open: the per-issue lock and the regenerate interval still bound the spend.
@@ -313,28 +430,39 @@ def _lock_key(team_id: int, issue_id: UUID | str) -> str:
     return f"{ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{team_id}:{issue_id}"
 
 
-def _claim_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
-    """None when this worker now holds the issue, else the outcome that holds it."""
+def _claim_generation(team_id: int, issue_id: UUID | str, claim: str) -> IssueSummaryOutcome | None:
+    """None when this worker now holds the issue under `claim`, else the outcome that holds it."""
     try:
-        client = get_client()
-        key = _lock_key(team_id, issue_id)
-        if client.set(key, LOCK_HELD_FOR_GENERATION, nx=True, ex=ISSUE_SUMMARY_LOCK_TTL_SECONDS):
-            return None
-        held = client.get(key)
+        held = get_client().register_script(CLAIM_LUA)(
+            keys=[_lock_key(team_id, issue_id)],
+            args=[LOCK_QUEUED, claim, ISSUE_SUMMARY_LOCK_TTL_SECONDS],
+        )
     except RedisError:
         # Fail open, as the budget does: a Redis outage can let two concurrent reads both pay.
         logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
         return None
+    return _lock_outcome(held) if held is not None else None
+
+
+def _lock_outcome(held: bytes | str | None) -> IssueSummaryOutcome:
+    """A live claim or a queued task means a summary may come. Every other value is the outcome that stopped generation."""
     value = held.decode() if isinstance(held, bytes) else held
-    if value in (IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED):
-        return IssueSummaryOutcome(value)
-    return IssueSummaryOutcome.IN_PROGRESS
+    if value is None or value in (LEGACY_LOCK_CLAIM, LOCK_QUEUED) or value.startswith(LOCK_CLAIM_PREFIX):
+        return IssueSummaryOutcome.IN_PROGRESS
+    return IssueSummaryOutcome(value)
 
 
-def _hold_generation(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
-    """Keep the issue claimed past the lock TTL, so reads return `outcome` without running the queries again."""
+def _settle_claim(team_id: int, issue_id: UUID | str, claim: str, outcome: IssueSummaryOutcome) -> None:
+    """Replace this worker's claim with `outcome` when no summary came of it, so reads stop waiting for one.
+
+    A hold outcome extends the lock. Any other failure keeps the lock TTL, so the retry spacing does not change.
+    Nothing is written when the key no longer holds `claim`: the lock expired, or another read took the issue.
+    """
+    if outcome in SETTLED_OUTCOMES:
+        return
+    ttl = str(ISSUE_SUMMARY_HOLD_SECONDS) if outcome in HOLD_OUTCOMES else ""
     try:
-        get_client().set(_lock_key(team_id, issue_id), outcome.value, ex=ISSUE_SUMMARY_HOLD_SECONDS)
+        get_client().register_script(SETTLE_LUA)(keys=[_lock_key(team_id, issue_id)], args=[claim, outcome.value, ttl])
     except RedisError:
         logger.warning("error_tracking_issue_summary_hold_unavailable", team_id=team_id, exc_info=True)
 
@@ -348,6 +476,13 @@ def compute_input_hash(*, fingerprints: list[str], latest_release: str | None, o
         "occurrence_bucket": max(occurrences, 0).bit_length(),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+# The only event properties the prompt builder sees, and the ones `summary_sources_readable` checks.
+# `_exception_event_properties` drops every other key, so a property left out is missing from the prompt, not leaked.
+ISSUE_SUMMARY_SOURCE_PROPERTIES = frozenset(
+    {"$exception_list", "$exception_level", "$lib", "$current_url", "$exception_release"}
+)
 
 
 def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummaryInputs | IssueSummaryOutcome:
@@ -496,7 +631,8 @@ def _exception_event_properties(
         )
     if not response.results:
         return {}
-    return as_record(parse_jsonish(response.results[0][0])) or {}
+    properties = as_record(parse_jsonish(response.results[0][0])) or {}
+    return {key: value for key, value in properties.items() if key in ISSUE_SUMMARY_SOURCE_PROPERTIES}
 
 
 def _aggregated_issue(team: Team, issue_id: UUID | str) -> dict[str, object]:

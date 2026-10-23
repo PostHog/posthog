@@ -470,6 +470,12 @@ export const SignalsReportsClaimBody = () => zod.object({
         .boolean()
         .default(signalsReportsClaimBodyTakeoverDefault)
         .describe("Explicitly end another actor's claim and take ownership."),
+    takeover_claim_id: zod
+        .string()
+        .optional()
+        .describe(
+            'With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim.'
+        ),
     pr_url: zod
         .url()
         .optional()
@@ -2635,7 +2641,7 @@ export const SignalsScoutRecordCheckResultBody = () => zod
     .describe('Request body for `scout-check-record-result`: the verdict on one dispatched report check.')
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -2697,6 +2703,8 @@ export const signalsScoutEditReportBodySuggestedPromptsMax = 3
 export const signalsScoutEditReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEditReportBodyLinksMax = 10
+
+export const signalsScoutEditReportBodyTagsMax = 10
 
 export const SignalsScoutEditReportBody = () => zod
     .object({
@@ -3002,6 +3010,13 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
             ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutEditReportBodyTagsMax)
+            .nullish()
+            .describe(
+                "The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one."
+            ),
         supersedes_implementation: zod
             .boolean()
             .optional()
@@ -3132,6 +3147,8 @@ export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
 export const signalsScoutEmitReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEmitReportBodyLinksMax = 10
+
+export const signalsScoutEmitReportBodyTagsMax = 10
 
 export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
@@ -3423,6 +3440,13 @@ export const SignalsScoutEmitReportBody = () => zod
             .optional()
             .describe(
                 'Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutEmitReportBodyTagsMax)
+            .optional()
+            .describe(
+                'Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.'
             ),
         idempotency_key: zod
             .string()

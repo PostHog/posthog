@@ -182,6 +182,8 @@ export type InboxReportActionType =
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+    | 'claim'
+    | 'unclaim'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
