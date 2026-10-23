@@ -327,3 +327,17 @@ class ActivityOverview:
     top_tools: list[ActivityToolRow] = field(default_factory=list)
     clients: list[ActivityClientRow] = field(default_factory=list)
     recent_calls: list[ActivityRecentCall] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class IntentTopicsRunOutcome:
+    """Result of one intent topics pipeline run (sync, assign or refit)."""
+
+    run_id: str
+    kind: str
+    status: str
+    n_intents: int = 0
+    n_topics: int = 0
+    n_outliers: int = 0
+    n_embeddings_requested: int = 0
+    error_message: str = ""
