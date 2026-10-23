@@ -125,6 +125,7 @@ def create_layer_reports(
             # and lifecycle monitoring expects that event from every promoted report.
             first_visible_at=now,
             billing_exempt_reason=billing_exempt_reason,
+            tags=list(parent.tags),
         )
         child_id = str(child.id)
         for judgment in judgments:

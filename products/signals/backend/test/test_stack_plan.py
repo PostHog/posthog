@@ -90,7 +90,11 @@ class TestStackPlan(BaseTest):
     def setUp(self):
         super().setUp()
         self.parent = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.READY, title="feat(x): the plan", summary="plan"
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="feat(x): the plan",
+            summary="plan",
+            tags=["billing", "api"],
         )
         for content in (
             SafetyJudgment(choice=True),
@@ -161,6 +165,7 @@ class TestStackPlan(BaseTest):
             "feat(x): ui",
         ]
         assert all(child.status == SignalReport.Status.READY for child in children.values())
+        assert all(child.tags == ["billing", "api"] for child in children.values())
         # A promoted report is expected to emit `signal_report_started`, and a layer never runs research.
         assert all(child.promoted_at is None for child in children.values())
         for index, child_id in enumerate(child_ids):
