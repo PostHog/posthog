@@ -351,3 +351,13 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+@frozen
+class ExperimentRunningTimeTarget:
+    """The target sample of an experiment's running time estimate."""
+
+    # The relative effect, as a percentage, that the target sizes the experiment to detect.
+    minimum_detectable_effect: float
+    # The exposures across the analyzed variants that the experiment needs. None when no stored result can size it.
+    recommended_sample_size: int | None

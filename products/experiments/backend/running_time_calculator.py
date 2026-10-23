@@ -129,10 +129,16 @@ def calculate_sample_size(
     if variance is None:
         return None
 
-    shares = _normalized_shares(split if split is not None else [1.0] * number_of_variants)
-    if shares is None:
-        return None
-    control_share, *variant_shares = shares
+    if split is None:
+        if number_of_variants < 2:
+            return None
+        # Every comparison of an even split is the same, so one share stands for all of them.
+        control_share, variant_shares = 1 / number_of_variants, [1 / number_of_variants]
+    else:
+        shares = _normalized_shares(split)
+        if shares is None:
+            return None
+        control_share, *variant_shares = shares
     sample_size = round_up_samples(
         max(
             comparison_sample_size(

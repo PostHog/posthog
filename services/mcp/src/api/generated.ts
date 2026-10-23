@@ -102712,8 +102712,9 @@ export namespace Schemas {
          */
       minimum_detectable_effect: number;
       /**
-         * Total number of variants including control (default 2).
+         * Total number of variants including control (default 2, at most 100).
          * @minimum 2
+         * @maximum 100
          */
       number_of_variants?: number;
       /**

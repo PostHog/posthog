@@ -6,6 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+import math
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
@@ -1779,7 +1780,8 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
         required=False,
         default=2,
         min_value=2,
-        help_text="Total number of variants including control (default 2).",
+        max_value=100,
+        help_text="Total number of variants including control (default 2, at most 100).",
     )
     exposure_rate_per_day = serializers.FloatField(
         required=False,
@@ -1811,8 +1813,9 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs.get("minimum_detectable_effect", 0) <= 0:
-            raise ValidationError({"minimum_detectable_effect": "Must be greater than 0."})
+        minimum_detectable_effect = attrs.get("minimum_detectable_effect", 0)
+        if not math.isfinite(minimum_detectable_effect) or minimum_detectable_effect <= 0:
+            raise ValidationError({"minimum_detectable_effect": "Must be a number greater than 0."})
 
         has_baseline_value = attrs.get("baseline_value") is not None
         has_baseline_stats = attrs.get("baseline_stats") is not None
@@ -1867,8 +1870,9 @@ class RunningTimeTargetQuerySerializer(serializers.Serializer):
     )
 
     def validate_minimum_detectable_effect(self, value: float) -> float:
-        if value <= 0:
-            raise ValidationError("Must be greater than 0.")
+        # FloatField accepts "nan" and "inf", and neither sizes a sample.
+        if not math.isfinite(value) or value <= 0:
+            raise ValidationError("Must be a number greater than 0.")
         return value
 
 

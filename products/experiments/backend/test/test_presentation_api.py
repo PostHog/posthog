@@ -9088,11 +9088,13 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["recommended_sample_size"], sample_size)
 
-    def test_rejects_an_effect_of_zero(self) -> None:
+    @parameterized.expand([("zero", "0"), ("not_a_number", "nan"), ("infinite", "inf")])
+    def test_rejects_an_effect_that_sizes_no_sample(self, _name: str, effect: str) -> None:
         experiment = self._experiment({})
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/?minimum_detectable_effect=0"
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/"
+            f"?minimum_detectable_effect={effect}"
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

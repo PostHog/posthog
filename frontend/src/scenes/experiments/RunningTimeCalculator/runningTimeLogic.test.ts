@@ -195,6 +195,27 @@ describe('runningTimeLogic', () => {
         })
     })
 
+    describe('automatic target', () => {
+        it('asks again when the metric sums change without new exposures', async () => {
+            runningTimeTargetMock.mockResolvedValue({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+
+            metricsLogicInstance.actions.setPrimaryMetricsResults([
+                {
+                    ...metricResultWithBaseline,
+                    baseline: { ...metricResultWithBaseline.baseline, sum: 150, sum_squares: 90 },
+                } as any,
+            ])
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculation']).toFinishAllListeners()
+
+            expect(runningTimeTargetMock).toHaveBeenCalledTimes(2)
+        })
+    })
+
     describe('save', () => {
         it('keeps the modal open with the edited config when the experiment save fails', async () => {
             // A failed estimate request stops the automatic estimate from saving anything on mount.

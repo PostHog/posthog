@@ -174,6 +174,9 @@ class TestCalculateSampleSize:
     def test_sample_size_powers_the_comparison_with_the_smallest_variant(self, _name, split, expected):
         assert calculate_sample_size("funnel", 0.1, 50, len(split), split=split) == expected
 
+    def test_sizes_an_even_split_of_any_count_without_a_list_per_variant(self):
+        assert calculate_sample_size("funnel", 0.1, 50, 10**12) == pytest.approx(576 * 10**12, rel=1e-9)
+
     def test_returns_none_for_zero_mde(self):
         assert calculate_sample_size("funnel", 0.1, 0, 2) is None
 

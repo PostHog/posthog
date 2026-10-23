@@ -80,7 +80,11 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_experiment_health_inputs,
+    get_running_time_target,
+)
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
@@ -161,7 +165,6 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
 )
-from products.experiments.backend.running_time_target import load_running_time_target
 from products.experiments.backend.session_buckets import (
     ExperimentSessionBucket,
     SessionBucketUnavailable,
@@ -1693,8 +1696,10 @@ class EnterpriseExperimentsViewSet(
         traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
         """
         experiment: Experiment = self.get_object()
-        target = load_running_time_target(
-            experiment, minimum_detectable_effect=request.validated_query_data.get("minimum_detectable_effect")
+        target = get_running_time_target(
+            team_id=self.team.id,
+            experiment_id=experiment.id,
+            minimum_detectable_effect=request.validated_query_data.get("minimum_detectable_effect"),
         )
         return Response(RunningTimeTargetSerializer(target).data)
 
