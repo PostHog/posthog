@@ -1215,13 +1215,6 @@ export class CdpApi {
             if (send) {
                 invocation.state.send = send
             }
-            const recipientHash = transactionalEmailRecipientHash(
-                { triggerEvent: event.event, recipientHash: emailRecipientHash(to, this.config.ENCRYPTION_SALT_KEYS) },
-                'route'
-            )
-            if (recipientHash) {
-                invocation.state.emailRecipientHash = recipientHash
-            }
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
             invocation.queue = 'email'
@@ -1277,6 +1270,16 @@ export class CdpApi {
                     }
                     return reply('quota_limited', 429, { error: 'quota_limited' })
                 }
+                const recipientHash = transactionalEmailRecipientHash(
+                    {
+                        triggerEvent: event.event,
+                        recipientHash: emailRecipientHash(to, this.config.ENCRYPTION_SALT_KEYS),
+                    },
+                    'route'
+                )
+                if (recipientHash) {
+                    invocation.state.emailRecipientHash = recipientHash
+                }
                 this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
                 try {
                     await this.hogflowQueue.queueInvocations([invocation])
@@ -1294,6 +1297,7 @@ export class CdpApi {
             if (idempotencyKey) {
                 await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
             }
+            const { emailRecipientHash: recipientHash } = invocation.state
             if (recipientHash) {
                 this.emailStatus.recordInBackground({
                     teamId: team.id,

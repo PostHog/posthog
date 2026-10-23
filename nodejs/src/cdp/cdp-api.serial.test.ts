@@ -2245,10 +2245,17 @@ describe('CDP API', () => {
             const missingBefore = await missingHashCount()
             const configuredSaltKeys = hub.ENCRYPTION_SALT_KEYS
             hub.ENCRYPTION_SALT_KEYS = saltKeys
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             try {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, keyed)
+                const retry = await send(
+                    hogFlow.id,
+                    { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                    keyed
+                )
 
                 expect(res.status).toEqual(202)
+                expect(retry.body).toMatchObject({ replayed: true })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                 expect(mockQueueInvocations.mock.calls[0][0][0].state.emailRecipientHash).toBeUndefined()
                 expect(statusRows()).toEqual([])
