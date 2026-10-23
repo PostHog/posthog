@@ -271,9 +271,7 @@ class ManagedWarehouseTarget:
     host: str
     ports: frozenset[int]
 
-    def accepts(
-        self, host: str, port: int | None, addresses: list[str] | None, ingress_ips: tuple[str, ...]
-    ) -> bool:
+    def accepts(self, host: str, port: int | None, addresses: list[str] | None, ingress_ips: tuple[str, ...]) -> bool:
         """Whether this target authorizes a dial to `host` on `port` at `addresses`.
 
         Every condition is required, and a missing one denies. `addresses` must be non-empty
