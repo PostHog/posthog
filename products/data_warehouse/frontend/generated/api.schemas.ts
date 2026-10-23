@@ -42,6 +42,8 @@ export interface DataModelingJobApi {
     /** @nullable */
     readonly saved_query_id: string | null
     readonly status: DataModelingJobStatusEnumApi
+    /** The engine that ran this materialization job. */
+    readonly engine: string
     /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
      *
      * * `full_refresh` - Full refresh
@@ -68,6 +70,31 @@ export interface DataModelingJobApi {
      * @nullable
      */
     readonly rows_expected: number | null
+    /**
+     * Bytes read by this run, including probes and retries.
+     * @nullable
+     */
+    readonly read_bytes: number | null
+    /**
+     * Rows read by this run, including probes and retries.
+     * @nullable
+     */
+    readonly read_rows: number | null
+    /**
+     * ClickHouse CPU time in microseconds.
+     * @nullable
+     */
+    readonly cpu_microseconds: number | null
+    /**
+     * Number of ClickHouse queries measured for this run.
+     * @nullable
+     */
+    readonly query_count: number | null
+    /**
+     * When usage was last measured. Null means unmeasured.
+     * @nullable
+     */
+    readonly usage_updated_at: string | null
 }
 
 export interface PaginatedDataModelingJobListApi {
@@ -5568,6 +5595,10 @@ export interface ViewLinkValidationErrorApi {
 }
 
 export type DataModelingJobsListParams = {
+    /**
+     * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
+     */
+    all_engines?: boolean
     /**
      * Number of results to return per page.
      */

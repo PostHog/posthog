@@ -29321,6 +29321,8 @@ export namespace Schemas {
       /** @nullable */
       readonly saved_query_id: string | null;
       readonly status: DataModelingJobStatusEnum;
+      /** The engine that ran this materialization job. */
+      readonly engine: string;
       /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
        *
        * * `full_refresh` - Full refresh
@@ -29347,6 +29349,31 @@ export namespace Schemas {
          * @nullable
          */
       readonly rows_expected: number | null;
+      /**
+         * Bytes read by this run, including probes and retries.
+         * @nullable
+         */
+      readonly read_bytes: number | null;
+      /**
+         * Rows read by this run, including probes and retries.
+         * @nullable
+         */
+      readonly read_rows: number | null;
+      /**
+         * ClickHouse CPU time in microseconds.
+         * @nullable
+         */
+      readonly cpu_microseconds: number | null;
+      /**
+         * Number of ClickHouse queries measured for this run.
+         * @nullable
+         */
+      readonly query_count: number | null;
+      /**
+         * When usage was last measured. Null means unmeasured.
+         * @nullable
+         */
+      readonly usage_updated_at: string | null;
     }
 
     /**
@@ -69976,6 +70003,118 @@ export namespace Schemas {
     export interface ModelCatalogueResponse {
       /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
       models: ModelChoice[];
+    }
+
+    export interface ModelUsageTotals {
+      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      runs: number;
+      /** Runs with recorded usage. Other runs have unknown cost. */
+      measured_runs: number;
+      /**
+         * Measured bytes read, including probes and retries. Null if unmeasured.
+         * @nullable
+         */
+      read_bytes: number | null;
+      /**
+         * Measured rows read. Null if unmeasured.
+         * @nullable
+         */
+      read_rows: number | null;
+      /**
+         * Measured CPU microseconds. Null if unmeasured.
+         * @nullable
+         */
+      cpu_microseconds: number | null;
+      /**
+         * Measured ClickHouse query count. Null if unmeasured.
+         * @nullable
+         */
+      query_count: number | null;
+    }
+
+    export interface ModelUsageDay {
+      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      runs: number;
+      /** Runs with recorded usage. Other runs have unknown cost. */
+      measured_runs: number;
+      /**
+         * Measured bytes read, including probes and retries. Null if unmeasured.
+         * @nullable
+         */
+      read_bytes: number | null;
+      /**
+         * Measured rows read. Null if unmeasured.
+         * @nullable
+         */
+      read_rows: number | null;
+      /**
+         * Measured CPU microseconds. Null if unmeasured.
+         * @nullable
+         */
+      cpu_microseconds: number | null;
+      /**
+         * Measured ClickHouse query count. Null if unmeasured.
+         * @nullable
+         */
+      query_count: number | null;
+      /** UTC day on which the runs finished. */
+      day: string;
+    }
+
+    export interface ModelUsageRow {
+      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      runs: number;
+      /** Runs with recorded usage. Other runs have unknown cost. */
+      measured_runs: number;
+      /**
+         * Measured bytes read, including probes and retries. Null if unmeasured.
+         * @nullable
+         */
+      read_bytes: number | null;
+      /**
+         * Measured rows read. Null if unmeasured.
+         * @nullable
+         */
+      read_rows: number | null;
+      /**
+         * Measured CPU microseconds. Null if unmeasured.
+         * @nullable
+         */
+      cpu_microseconds: number | null;
+      /**
+         * Measured ClickHouse query count. Null if unmeasured.
+         * @nullable
+         */
+      query_count: number | null;
+      /**
+         * Model ID, or null if permanently deleted.
+         * @nullable
+         */
+      saved_query_id: string | null;
+      /** Model name. */
+      name: string;
+      /** Whether this model has been deleted. */
+      deleted: boolean;
+    }
+
+    export interface ModelUsage {
+      /** Inclusive UTC start date. */
+      date_from: string;
+      /** Exclusive UTC end date. Today's incomplete usage is excluded. */
+      date_to: string;
+      /** Totals over the whole date range. */
+      overview: ModelUsageTotals;
+      /** Daily usage, attributed to when each run finished. */
+      trends: ModelUsageDay[];
+      /** Model breakdown, highest measured bytes first. */
+      models: ModelUsageRow[];
+      /** Total number of models in the breakdown. */
+      count: number;
+      /**
+         * Latest usage collection timestamp in this range.
+         * @nullable
+         */
+      usage_updated_at: string | null;
     }
 
     export interface MondayIssueSignalExtra {
@@ -126967,6 +127106,10 @@ export namespace Schemas {
 
     export type DataModelingJobsListParams = {
     /**
+     * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
+     */
+    all_engines?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -127037,6 +127180,26 @@ export namespace Schemas {
      * Saved query to build lineage for, resolved to its node. Alternative to node_id.
      */
     saved_query_id?: string;
+    };
+
+    export type DataModelingUsageListParams = {
+    /**
+     * Number of complete UTC days, up to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * Model breakdown page, starting at 1.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Models per page, up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number;
     };
 
     export type DataQualityChecksListParams = {

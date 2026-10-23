@@ -13,6 +13,7 @@ _LAZY = {
     "UnsatisfiableFrequencyError": "logic.freshness",
     "UnsupportedFrequencyTargetError": "logic.freshness",
     "humanize_cadence": "logic.freshness",
+    "get_model_usage": "logic.usage",
     "delete_metric_node": "logic.metric_dag_sync",
     "mark_metric_node_degraded": "logic.metric_dag_sync",
     "sync_metric_to_dag": "logic.metric_dag_sync",

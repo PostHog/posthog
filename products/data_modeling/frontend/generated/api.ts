@@ -13,8 +13,10 @@ import type {
     DataModelingNodesLineageRetrieveParams,
     DataModelingNodesListParams,
     DataModelingNodesRetrieveParams,
+    DataModelingUsageListParams,
     EdgeApi,
     LineageResponseApi,
+    ModelUsageApi,
     NodeApi,
     NodeResumeApi,
     NodeRunApi,
@@ -332,6 +334,33 @@ export const dataModelingNodesLineageRetrieve = async (
     options?: RequestInit
 ): Promise<LineageResponseApi> => {
     return apiMutator<LineageResponseApi>(getDataModelingNodesLineageRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataModelingUsageListUrl = (projectId: string, params?: DataModelingUsageListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_modeling_usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_usage/`
+}
+
+export const dataModelingUsageList = async (
+    projectId: string,
+    params?: DataModelingUsageListParams,
+    options?: RequestInit
+): Promise<ModelUsageApi> => {
+    return apiMutator<ModelUsageApi>(getDataModelingUsageListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
