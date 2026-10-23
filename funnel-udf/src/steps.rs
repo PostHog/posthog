@@ -209,11 +209,15 @@ impl AggregateFunnelRow {
             .filter(|i| **i <= final_index as i8)
             .count();
 
-        for i in 0..(final_index - optional_count) {
-            //if event_uuids[i].len() >= MAX_REPLAY_EVENTS && !event_uuids[i].contains(&final_value.uuids[i]) {
+        // final_value.uuids only holds the required steps, so each entry maps to the slot of the
+        // next required step rather than to the next slot. The slots are 0-indexed; steps are 1-indexed.
+        let required_step_slots = (1..=final_index)
+            .filter(|step| !args.optional_steps.contains(&(*step as i8)))
+            .map(|step| step - 1);
+        for (slot, uuid) in required_step_slots.zip(final_value.uuids.iter()) {
             // Always put the actual event uuids first, we use it to extract timestamps
             // This might create duplicates, but that's fine (we can remove it in clickhouse)
-            vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
+            vars.event_uuids[slot].insert(0, uuid.clone());
         }
 
         self.results.push(Result(
@@ -311,8 +315,10 @@ impl AggregateFunnelRow {
 
                         if !previous_step.excluded {
                             vars.entered_timestamp[step] = new_entered_timestamp.clone();
-                            if vars.event_uuids[previous_step_index].len() < MAX_REPLAY_EVENTS - 1 {
-                                vars.event_uuids[previous_step_index].push(event.uuid);
+                            // The slot belongs to the step this event matched, not to the step it chained from,
+                            // which is an earlier step when optional steps in between were skipped.
+                            if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
+                                vars.event_uuids[step - 1].push(event.uuid);
                             }
                         }
 
@@ -335,5 +341,64 @@ impl AggregateFunnelRow {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Bytes;
+    use rstest::rstest;
+
+    fn uuid(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn event(step: i8) -> Event {
+        Event {
+            timestamp: step as f64,
+            uuid: uuid(step as u128),
+            breakdown: PropVal::String(Bytes(vec![])),
+            steps: vec![step],
+        }
+    }
+
+    // A four-step funnel with steps 2 and 3 optional. Each matched event must land in the slot of
+    // the step it matched, whether or not the person skipped the optional steps before it.
+    #[rstest]
+    #[case(vec![1, 4], vec![vec![1], vec![], vec![], vec![4]], 0b1001)]
+    #[case(vec![1, 3, 4], vec![vec![1], vec![], vec![3], vec![4]], 0b1101)]
+    #[case(vec![1, 2, 3, 4], vec![vec![1], vec![2], vec![3], vec![4]], 0b1111)]
+    fn optional_steps_keep_matched_events_in_their_own_step_slot(
+        #[case] steps_done: Vec<i8>,
+        #[case] expected_slots: Vec<Vec<u128>>,
+        #[case] expected_steps_bitfield: u32,
+    ) {
+        let args = Args {
+            num_steps: 4,
+            conversion_window_limit: 3600,
+            breakdown_attribution_type: "first_touch".into(),
+            funnel_order_type: "ordered".into(),
+            prop_vals: vec![PropVal::String(Bytes(vec![]))],
+            optional_steps: vec![2, 3],
+            value: steps_done.into_iter().map(event).collect(),
+        };
+
+        let results = run(&args);
+
+        assert_eq!(results.len(), 1);
+        let Result(step_reached, _, _, event_uuids, steps_bitfield) = &results[0];
+        assert_eq!(*step_reached, 1, "two required steps completed, 0-indexed");
+        assert_eq!(*steps_bitfield, expected_steps_bitfield);
+        let expected: Vec<Vec<Uuid>> = expected_slots
+            .into_iter()
+            .map(|slot| slot.into_iter().map(uuid).collect())
+            .collect();
+        // The query applies arrayDistinct, so the duplicate of the conversion event is not a defect.
+        let distinct: Vec<Vec<Uuid>> = event_uuids
+            .iter()
+            .map(|slot| slot.iter().cloned().unique().collect())
+            .collect();
+        assert_eq!(distinct, expected);
     }
 }

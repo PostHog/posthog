@@ -399,8 +399,25 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             absolute_actors_step = self._absolute_actors_step
             if absolute_actors_step is None:
                 raise ValueError("Missing funnelStep actors query property")
-            return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
+            return [parse_expr(f"{self._matched_events_for_step(absolute_actors_step)} as matching_events")]
         return []
+
+    def _matched_events_for_step(self, absolute_step: int) -> str:
+        # matched_events_array is 1-indexed
+        slots = [f"matched_events_array[{absolute_step + 1}]"]
+        actors_query = self.context.actorsQuery
+        if actors_query is not None and actors_query.funnelStep is not None and actors_query.funnelStep < 0:
+            # A drop-off right after an optional step includes people who skipped that step, so their
+            # matched events sit in the slot of the last step they completed. Fall back one slot at a
+            # time until the previous required step.
+            for step in range(absolute_step, 0, -1):
+                if not getattr(self.context.query.series[step], "optionalInFunnel", False):
+                    break
+                slots.append(f"matched_events_array[{step}]")
+        expr = slots[-1]
+        for slot in reversed(slots[:-1]):
+            expr = f"if(notEmpty({slot}), {slot}, {expr})"
+        return expr
 
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         """
