@@ -131,6 +131,7 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         assert cached.status_code == status.HTTP_200_OK
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert throttled["Retry-After"] == "5"
         assert run.call_count == 1
 
     def test_a_failed_options_query_is_shared_with_the_next_caller(self) -> None:

@@ -179,6 +179,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(self._url(_encode("trace-1")) + suffix, headers=headers)
 
         assert response.status_code == 429
+        assert response["Retry-After"] == "5"
 
 
 class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
