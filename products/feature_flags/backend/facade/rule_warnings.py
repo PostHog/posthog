@@ -26,6 +26,7 @@ and it never claims an exact affected percentage.
 from collections.abc import Iterator
 from decimal import Decimal
 from fractions import Fraction
+from typing import Literal
 
 from posthog.dataclasses import frozen
 
@@ -39,7 +40,7 @@ from products.feature_flags.backend.facade.config_validation import (
 from products.feature_flags.backend.facade.warnings import ManagementWarning
 
 _Interval = tuple[Fraction, Fraction]  # (lo, hi] of a hash in (0, 1]
-_Dimension = tuple[str, str]  # (hash use, seed)
+_Dimension = tuple[Literal["rollout", "variant", "holdout"], str]  # (which of the rule's hashes, seed)
 _Box = dict[_Dimension, _Interval]  # an absent dimension is unconstrained
 _FULL: _Interval = (Fraction(0), Fraction(1))
 
@@ -339,9 +340,9 @@ def _served_regions(box: _Box, rule: ValidatedRule, split_variants: bool) -> Ite
 
 
 def _intersects(a: _Box, b: _Box) -> bool:
-    # Every stored interval is non-empty, so only seeds constrained on both sides can be disjoint.
-    for seed in a.keys() & b.keys():
-        (a_lo, a_hi), (b_lo, b_hi) = a[seed], b[seed]
+    # Every stored interval is non-empty, so only dimensions constrained on both sides can be disjoint.
+    for dimension in a.keys() & b.keys():
+        (a_lo, a_hi), (b_lo, b_hi) = a[dimension], b[dimension]
         if max(a_lo, b_lo) >= min(a_hi, b_hi):
             return False
     return True

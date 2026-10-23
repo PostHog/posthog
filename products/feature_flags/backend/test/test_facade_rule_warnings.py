@@ -356,7 +356,7 @@ class TestExperimentRuleWarnings:
             (
                 # The rollout above takes the same hash share, so the split enrolls nobody new.
                 "same_seed_rollout_above_leaves_the_split_nobody",
-                cfg(rollout(A, 40, "red"), split(B, 40), targeted(C, "red")),
+                cfg(rollout(A, 40, "red"), split(B, 40, values=("red", "blue")), targeted(C, "red")),
                 [(EXTENDS, "filters.rules[2]")],
             ),
         ]
@@ -374,6 +374,17 @@ class TestExperimentRuleWarnings:
         current = cfg(split(A, values=("red", "red")), targeted(B, "red"))
         proposed = cfg(targeted(B, "red"), split(A, values=("red", "red")))
         assert reorder_warnings(current, proposed) == ()
+
+    @parameterized.expand(
+        [
+            # Only the held-out share gets the default, so only it changes value.
+            ("holdout_serves_the_default", split(A, values=("red", "red"), holdout=10), targeted(B, "red")),
+            # Only the second arm differs from the targeted rule, and the split enrolls half.
+            ("later_arm_of_a_partial_split", split(A, 50, values=("green", "red")), targeted(B, "green")),
+        ]
+    )
+    def test_swapping_reaches_part_of_a_split(self, _name: str, upper: ValidatedRule, lower: ValidatedRule) -> None:
+        assert codes(reorder_warnings(cfg(upper, lower), cfg(lower, upper))) == [(REORDER, "filters.rules[0]")]
 
 
 class TestReorderWarnings:

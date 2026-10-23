@@ -53,7 +53,6 @@ MAX_VARIANTS = 20
 
 ConfigErrorCode = Literal["required", "invalid", "unknown_field", "not_unique", "unsupported", "limit_exceeded"]
 RolloutMissPolicy = Literal["continue", "return_default"]
-AdmittedRuleType = Literal["targeted_release", "percentage_rollout", "experiment"]
 
 RETURN_TYPES: tuple[str, ...] = get_args(FlagReturnType)
 RULE_TYPES: tuple[str, ...] = get_args(RuleType)
@@ -221,7 +220,7 @@ class ValidatedHoldout:
 @frozen
 class ValidatedRule:
     id: str
-    rule_type: AdmittedRuleType
+    rule_type: RuleType
     predicates: frozenset[Predicate]
     value: str | None  # canonical JSON text, see ``canonical_value``; None for an experiment rule
     rollout_percentage: Decimal | None = None
