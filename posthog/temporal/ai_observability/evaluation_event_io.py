@@ -91,11 +91,11 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
     )
     if event is None:
         if temporalio.activity.in_activity() and temporalio.activity.info().attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
-            # Only the last miss reaches error tracking: an earlier one is usually the lag above.
             raise NonReportableApplicationError(
                 "Generation not found",
                 type="generation_not_found",
                 next_retry_delay=GENERATION_NOT_FOUND_RETRY_DELAY if event_data.get("awaiting_ingestion") else None,
             )
-        raise ApplicationError("Generation not found", type="generation_not_found", non_retryable=True)
+        error_class = ApplicationError if event_data.get("awaiting_ingestion") else NonReportableApplicationError
+        raise error_class("Generation not found", type="generation_not_found", non_retryable=True)
     return event

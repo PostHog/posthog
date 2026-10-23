@@ -1550,12 +1550,12 @@ class TestAzureBlobIntegration:
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)
-    @patch("posthog.models.integration.azure_blob.is_url_allowed")
+    @patch("dns.resolver.Resolver.resolve_name")
     def test_create_azure_blob_integration(
-        self, mock_is_url_allowed: MagicMock, connection_string: str, client: HttpClient
+        self, mock_resolve_name: MagicMock, connection_string: str, client: HttpClient
     ) -> None:
         # Required mock otherwise we need a valid hostname for tests
-        mock_is_url_allowed.return_value = (True, None)
+        mock_resolve_name.return_value = MagicMock(addresses=MagicMock(return_value=["93.184.216.34"]))
         client.force_login(self.user)
 
         response = client.post(

@@ -792,6 +792,35 @@ class TestSignalReportListAPI(APIBaseTest):
         with patch("posthog.data_freshness._probe_app_metrics", side_effect=RuntimeError("store unavailable")):
             assert self.client.get(url).json()["source_suggestion"] is None
 
+    def test_plan_shows_on_the_detail_of_a_step_and_not_in_the_list(self):
+        plan = self._create_report(title="feat(x): the plan")
+        step = self._create_report(title="feat(x): a step")
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(step.id),
+            content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{step.id}/").json()
+        assert detail["plan"] == {
+            "id": str(plan.id),
+            "title": "feat(x): the plan",
+            "status": "ready",
+            "steps": [
+                {
+                    "id": str(step.id),
+                    "title": "feat(x): a step",
+                    "status": "ready",
+                    "depends_on": [],
+                    "implementation_pr_url": None,
+                    "implementation_pr_state": None,
+                }
+            ],
+        }
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(step.id))
+        assert row["plan"] is None
+
     @parameterized.expand([("unassigned", False), ("assigned", True)])
     def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
         channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
@@ -3702,8 +3731,10 @@ class TestSignalReportMergeAPI(APIBaseTest):
             )
 
     def test_merge_moves_the_work_log_and_archives_the_source(self):
-        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1)
-        source = self._report(signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4)
+        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1, tags=["billing"])
+        source = self._report(
+            signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4, tags=["api", "billing"]
+        )
         SignalReportArtefact.add_log(
             team_id=self.team.id,
             report_id=str(source.id),
@@ -3726,6 +3757,7 @@ class TestSignalReportMergeAPI(APIBaseTest):
         ]
         # The response renders the survivor as it stands after the merge, counters included.
         assert (payload["report"]["id"], payload["report"]["signal_count"]) == (str(survivor.id), 5)
+        assert payload["report"]["tags"] == ["billing", "api"]
 
         survivor.refresh_from_db()
         source.refresh_from_db()

@@ -10,7 +10,8 @@ The caller names the survivor and the sources. Nothing here guesses which report
 nothing here rewrites content: titles, summaries, charts and metrics are left exactly as they
 were, so the survivor's embeddings are untouched and the outcome of a merge is predictable
 without reading an LLM's mind. A caller that wants a combined summary edits the survivor
-afterwards, where the safety judge runs.
+afterwards, where the safety judge runs. Tags are metadata, not content: the survivor takes the
+union of its own tags and the sources' tags.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.recurrence import latest_recurrence_report
+from products.signals.backend.report_tags import set_report_tags, union_report_tags
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP
 
 logger = structlog.get_logger(__name__)
@@ -441,6 +443,8 @@ def merge_reports(
             # `add_log` enforces the `report_link` invariants, so a merge that would close a
             # duplicate_of cycle is a merge the caller cannot have, not a server fault.
             raise ReportMergeError(str(e))
+
+        set_report_tags(survivor, union_report_tags(survivor.tags, *(source.tags for source in sources)))
 
         SignalReportArtefact.add_log(
             team_id=team.id,

@@ -13328,6 +13328,15 @@ export namespace Schemas {
       limit: number;
     }
 
+    export type AttentionReasonsEnum = typeof AttentionReasonsEnum[keyof typeof AttentionReasonsEnum];
+
+
+    export const AttentionReasonsEnum = {
+      Errored: 'errored',
+      Silent: 'silent',
+      Worse: 'worse',
+    } as const;
+
     export interface AttributeBreakdownRow {
       count: number;
       error_count: number;
@@ -19188,6 +19197,15 @@ export namespace Schemas {
       limit: number;
     }
 
+    export type BucketStatusEnum = typeof BucketStatusEnum[keyof typeof BucketStatusEnum];
+
+
+    export const BucketStatusEnum = {
+      None: 'none',
+      Dip: 'dip',
+      Normal: 'normal',
+    } as const;
+
     /**
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID
@@ -22252,6 +22270,23 @@ export namespace Schemas {
       max_selections?: number | null;
       /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
       passing_rule?: CategoricalScorePassingRule | null;
+    }
+
+    export interface CategoryCount {
+      key: string;
+      label: string;
+      count: number;
+      /** Percentage of the previous period's graded runs with this category, or null when it graded too few to compare. */
+      previousShare: number | null;
+    }
+
+    export interface CategoriesSummary {
+      kind: 'categories';
+      multiple: boolean;
+      /** Sorted by count, most frequent first. */
+      categories: CategoryCount[];
+      /** Multiple-selection runs that returned no category. */
+      noCategoriesCount: number;
     }
 
     export interface CdcEnableResponse {
@@ -26960,6 +26995,50 @@ export namespace Schemas {
          * @nullable
          */
       color?: string | null;
+    }
+
+    /**
+     * * `GET` - GET
+     * * `HEAD` - HEAD
+     */
+    export type UptimeMonitorMethodEnum = typeof UptimeMonitorMethodEnum[keyof typeof UptimeMonitorMethodEnum];
+
+
+    export const UptimeMonitorMethodEnum = {
+      Get: 'GET',
+      Head: 'HEAD',
+    } as const;
+
+    export interface CreateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Display name for the monitor.
+         * @maxLength 255
+         */
+      name: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         */
+      interval_seconds?: number;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 10.
+         * @minimum 1
+         * @maximum 10
+         */
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
     }
 
     /**
@@ -35821,6 +35900,12 @@ export namespace Schemas {
       value: string | number;
     }
 
+    export interface DecagonConversationSignalExtra {
+      csat_rating: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
     /**
      * * `noul` - Yes or no
      * * `choice` - Multiple choice
@@ -43945,6 +44030,122 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface PassFailCounts {
+      passed: number;
+      failed: number;
+    }
+
+    export interface ScoreScale {
+      min: number;
+      max: number;
+    }
+
+    export interface ScoreDistribution {
+      mean: number;
+      /** The configured score bounds, or null when the evaluation sets none. */
+      scale: ScoreScale | null;
+    }
+
+    export interface PassRateSummary {
+      kind: 'pass_rate';
+      passed: number;
+      failed: number;
+      /** Counts in the previous period, or null when it graded too few to compare. */
+      previous: PassFailCounts | null;
+      /** The score of numeric evaluations with a passing rule. */
+      score: ScoreDistribution | null;
+    }
+
+    export interface ScoreSummary {
+      kind: 'score';
+      /** Null when the current period scored nothing. */
+      score: ScoreDistribution | null;
+      previousMean: number | null;
+    }
+
+    export interface SentimentSummary {
+      kind: 'sentiment';
+      positive: number;
+      neutral: number;
+      negative: number;
+      previousNegativeShare: number | null;
+    }
+
+    export interface EvaluationResultTrend {
+      /** Headline value per bucket, aligned with the overview's `buckets`. Null where nothing was graded. */
+      values: (number | null)[];
+      /** Graded runs per bucket. */
+      volume: number[];
+    }
+
+    export type ResultChangeUnitEnum = typeof ResultChangeUnitEnum[keyof typeof ResultChangeUnitEnum];
+
+
+    export const ResultChangeUnitEnum = {
+      Pp: 'pp',
+      Points: 'points',
+    } as const;
+
+    export interface ResultChange {
+      /** Signed difference against the previous period, rounded for display. */
+      value: number;
+      unit: ResultChangeUnitEnum;
+      /** What changed when it is not the headline, such as a category label. */
+      subject: string | null;
+    }
+
+    export interface EvaluationResult {
+      id: string;
+      name: string;
+      directoryName: string | null;
+      evaluationType: string;
+      outputType: string;
+      enabled: boolean;
+      /** Why the evaluation stopped with an error, as an evaluation status reason, or null when it has none. */
+      statusReason: string | null;
+      createdBy: string | null;
+      gradedCount: number;
+      /** Graded runs in the previous period, or null when none. */
+      previousGradedCount: number | null;
+      notApplicableCount: number;
+      /** Runs skipped before scoring. */
+      skippedCount: number;
+      /** The latest graded run in the current or previous period. */
+      lastRunAt: string | null;
+      summary: PassRateSummary | ScoreSummary | CategoriesSummary | SentimentSummary;
+      trend: EvaluationResultTrend;
+      /** Change against the previous period, or null when not comparable. */
+      change: ResultChange | null;
+      lowEvidence: boolean;
+      attentionReasons: AttentionReasonsEnum[];
+      /** Each bucket against the previous period. A bucket with too few graded runs to judge is never a dip. */
+      bucketStatus: BucketStatusEnum[];
+      /** Key of the category a categorical evaluation's trend follows. */
+      trackedCategory: string | null;
+    }
+
+    /**
+     * Null when the evaluation has no passing rule, or the run was not graded by it.
+     */
+    export type EvaluationRunOutcome = typeof EvaluationRunOutcome[keyof typeof EvaluationRunOutcome] | null;
+
+
+    export const EvaluationRunOutcome = {
+      Passed: 'passed',
+      Failed: 'failed',
+    } as const;
+
+    export interface EvaluationRun {
+      timestamp: string;
+      /** Null when the evaluation has no passing rule, or the run was not graded by it. */
+      outcome: EvaluationRunOutcome;
+      /** The evaluator's reasoning, cut to about 1,000 characters. */
+      reasoning: string | null;
+      /** The generation the run graded. Null for trace and session runs. */
+      targetEventId: string | null;
+      traceId: string | null;
+    }
+
     export interface EvaluationRunEvaluation {
       /** UUID of the evaluation being run. */
       id: string;
@@ -43977,6 +44178,76 @@ export namespace Schemas {
       evaluation: EvaluationRunEvaluation;
       /** UUID of the event being evaluated. */
       target_event_id: string;
+    }
+
+    export interface EvaluationRuns {
+      /** Newest first. */
+      results: EvaluationRun[];
+    }
+
+    export type EvaluationsOverviewIntervalEnum = typeof EvaluationsOverviewIntervalEnum[keyof typeof EvaluationsOverviewIntervalEnum];
+
+
+    export const EvaluationsOverviewIntervalEnum = {
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
+
+    /**
+     * The same figure for both periods, over only the evaluations with results in both.
+     */
+    export interface PeriodComparison {
+      current: number;
+      previous: number;
+    }
+
+    export interface OverviewSentiment {
+      evaluationId: string;
+      negativeShare: number;
+      previousShare: number | null;
+    }
+
+    export interface OverviewTotals {
+      graded: number;
+      /** Graded runs in each period, over evaluations with results in both. Null when none has. */
+      gradedComparison: PeriodComparison | null;
+      gradedTrend: number[];
+      sentiment: OverviewSentiment | null;
+    }
+
+    export interface PassRateOverviewEntry {
+      evaluationId: string;
+      rate: number;
+      lowEvidence: boolean;
+    }
+
+    export interface PassRateOverview {
+      /** Enabled pass rate evaluations, lowest rate first. */
+      entries: PassRateOverviewEntry[];
+      /** Median of the per-evaluation pass rates without low evidence. */
+      median: number | null;
+      /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
+      medianComparison: PeriodComparison | null;
+      /** Median pass rate per bucket, aligned with `buckets`. */
+      medianTrend: (number | null)[];
+    }
+
+    export interface EvaluationsOverview {
+      /** Start of the period, in the project's timezone. */
+      start: string;
+      /** End of the period, exclusive. */
+      end: string;
+      previousStart: string;
+      /** End of the previous period. While the current period runs, the previous one stops at the same point, so both cover the same length of time. */
+      previousEnd: string;
+      /** `hour` for a period of two days or less, else `day`. */
+      interval: EvaluationsOverviewIntervalEnum;
+      /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
+      buckets: string[];
+      evaluations: EvaluationResult[];
+      /** Totals over the enabled evaluations. */
+      totals: OverviewTotals;
+      passRateOverview: PassRateOverview;
     }
 
     export interface EventDefinitionBasic {
@@ -45207,6 +45478,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -45229,6 +45501,7 @@ export namespace Schemas {
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
+      EarlySignificance: 'early_significance',
     } as const;
 
     /**
@@ -45293,7 +45566,8 @@ export namespace Schemas {
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-       * * `new_flag_no_traffic` - New Flag No Traffic */
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `early_significance` - Early Significance */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45333,6 +45607,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -45353,6 +45628,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -45389,6 +45665,7 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -56176,6 +56453,14 @@ export namespace Schemas {
       fold?: HeatmapFoldSummary | null;
       /** True when more coordinate points exist beyond the returned page. Raise 'limit' or page with 'offset' to fetch them. Always false for scrolldepth, which returns every bucket. */
       has_more?: boolean;
+    }
+
+    export interface HelpscoutConversationSignalExtra {
+      number: string | null;
+      status: string | null;
+      state: string | null;
+      type: string | null;
+      created_at: string | null;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -76863,6 +77148,18 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed
+     */
     export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
 
 
@@ -77017,6 +77314,13 @@ export namespace Schemas {
       System: 'system',
     } as const;
 
+    /**
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged
+     */
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
 
 
@@ -77250,6 +77554,69 @@ export namespace Schemas {
       stale: boolean;
     }
 
+    export interface ReportPlanStep {
+      /** The step's report id. */
+      readonly id: string;
+      /**
+         * The step's report title.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** The step's report status. Monitoring reads as resolved when its rollout is disabled.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      readonly status: SignalReportStatusEnum;
+      /** Ids of the other steps in this plan that this step builds on. Empty when it builds on none. */
+      readonly depends_on: readonly string[];
+      /**
+         * The step's implementation pull request, if one is attached.
+         * @nullable
+         */
+      readonly implementation_pr_url: string | null;
+      /** Latest known state of that pull request: unknown, draft, open, closed, or merged.
+       *
+       * * `unknown` - Unknown
+       * * `draft` - Draft
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+    }
+
+    export interface ReportPlan {
+      /** The plan's report id. Equals the report's own id when the report is the plan. */
+      readonly id: string;
+      /**
+         * The plan's report title.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** The plan's report status. Monitoring reads as resolved when its rollout is disabled.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      readonly status: SignalReportStatusEnum;
+      /** The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out. */
+      readonly steps: readonly ReportPlanStep[];
+    }
+
     export interface SignalReportList {
       readonly id: string;
       /** @nullable */
@@ -77281,6 +77648,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetricList[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
@@ -77375,6 +77744,8 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      readonly plan: ReportPlan | null;
       /**
          * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
          * @nullable
@@ -79676,6 +80047,41 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: UploadedMedia[];
+    }
+
+    export interface UptimeMonitor {
+      /** Unique identifier of the monitor. */
+      id: string;
+      /** Project the monitor belongs to. */
+      team_id: number;
+      /** Display name for the monitor. */
+      name: string;
+      /** The http or https URL to check. */
+      url: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method: UptimeMonitorMethodEnum;
+      /** Seconds between checks, a whole number of minutes from 60 to 86400. */
+      interval_seconds: number;
+      /** Seconds to wait for a response before the check fails, from 1 to 10. */
+      timeout_seconds: number;
+      /** Whether checks run for this monitor. */
+      enabled: boolean;
+      /** When the monitor was created. */
+      created_at: string;
+      /** When the monitor was last changed. */
+      updated_at: string;
+    }
+
+    export interface PaginatedUptimeMonitorList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UptimeMonitor[];
     }
 
     export interface UserGitHubAccount {
@@ -90447,6 +90853,38 @@ export namespace Schemas {
       library_ids?: string[];
     }
 
+    export interface PatchedUpdateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Display name for the monitor.
+         * @maxLength 255
+         */
+      name?: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         */
+      interval_seconds?: number;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 10.
+         * @minimum 1
+         * @maximum 10
+         */
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
+    }
+
     /**
      * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
      */
@@ -99249,6 +99687,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetric[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
@@ -99343,6 +99783,8 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      readonly plan: ReportPlan | null;
     }
 
     /**
@@ -99796,6 +100238,11 @@ export namespace Schemas {
       created_time: string | null;
     }
 
+    export interface VitallyConversationSignalExtra {
+      external_url: string | null;
+      created_at: string | null;
+    }
+
     export interface SquadcastIncidentSignalExtra {
       status: string | null;
       priority: string | null;
@@ -99882,7 +100329,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -103279,6 +103726,11 @@ export namespace Schemas {
       effective_destination_ids?: string[];
     }
 
+    export interface ScoreBucket {
+      label: string;
+      count: number;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
          * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
@@ -103369,6 +103821,12 @@ export namespace Schemas {
       next_cursor: string | null;
       /** Versions on this page, newest first. */
       results: ScoreDefinitionVersion[];
+    }
+
+    export interface ScoreHistogram {
+      scale: ScoreScale;
+      /** One bucket per integer on a small integer scale, else ten equal buckets across the scale. */
+      buckets: ScoreBucket[];
     }
 
     export interface ScoringActivateRequest {
@@ -105957,6 +106415,8 @@ export namespace Schemas {
       pull_requests?: string[];
       /** Explicitly end another actor's claim and take ownership. */
       takeover?: boolean;
+      /** With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. */
+      takeover_claim_id?: string;
       /** Compatibility alias for adding one PR. Prefer pull_requests for new callers. */
       pr_url?: string;
       /** Release ownership while preserving any attached pull request. */
@@ -129260,6 +129720,77 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EvaluationsRunsRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string;
+    /**
+     * How many runs to return, newest first.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter with a 400.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * @minLength 1
+     */
+    outcome?: EvaluationsRunsRetrieveOutcome;
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean;
+    };
+
+    export type EvaluationsRunsRetrieveOutcome = typeof EvaluationsRunsRetrieveOutcome[keyof typeof EvaluationsRunsRetrieveOutcome];
+
+
+    export const EvaluationsRunsRetrieveOutcome = {
+      Passed: 'passed',
+      Failed: 'failed',
+    } as const;
+
+    export type EvaluationsScoreDistributionRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string;
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean;
+    };
+
+    export type EvaluationsOverviewRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string;
+    /**
+     * Only these evaluations. Defaults to every evaluation the user can see.
+     */
+    evaluation_ids?: string[];
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean;
+    };
+
     export type EventDefinitionsListParams = {
     /**
      * `event_custom` keeps only names without a `$` prefix and `event_posthog` only names with one. Default `event`.
@@ -136704,6 +137235,17 @@ export namespace Schemas {
       image: Blob;
       /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
       purpose?: UploadedMediaCreateBodyPurpose;
+    };
+
+    export type UptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisionAlertsListParams = {

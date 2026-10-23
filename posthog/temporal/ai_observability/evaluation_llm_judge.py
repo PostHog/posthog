@@ -84,7 +84,11 @@ from products.ai_observability.backend.models.evaluation_configs import (
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    EVENT_TEXT_MAX_CHARS,
+    sanitize_surrogates,
+    truncate_by_line_sampling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -553,7 +557,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     # Keep the full answer being graded outside the sampled context.
     context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
-    user_prompt = f"Input: {context}{output_section}"
+    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
 
     return call_llm_judge(
         evaluation=evaluation,

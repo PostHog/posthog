@@ -2605,6 +2605,9 @@ def _route_untagged_question(
         return ROUTE_HANDLED_LOCALLY
     if target.id not in enabled_integration_ids:
         return ROUTE_HANDLED_LOCALLY
+    # A post that tags the app also arrives as an ``app_mention``, and the mention pipeline answers that copy.
+    if _message_tags_bot(event, target):
+        return ROUTE_HANDLED_LOCALLY
 
     logger.info(
         "slack_app_untagged_question_dispatched",
