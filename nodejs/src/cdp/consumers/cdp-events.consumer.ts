@@ -15,7 +15,7 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, skipIfMalformed } from './message-parsing'
+import { parseBatch } from './message-parsing'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
@@ -181,68 +181,37 @@ export class CdpEventsConsumer<
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                // Parked rather than dropped: a schema we cannot read today is often one a later
-                // version can.
-                const park = (error: string): boolean =>
-                    this.deadLetterService.recordMessageFailure(message, { step: 'parse', error })
-
-                const clickHouseEvent = skipIfMalformed(
-                    'Error parsing message',
-                    () => assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent),
-                    park
-                )
-                if (!clickHouseEvent) {
-                    return
+        const park = (message: Message, error: string): boolean =>
+            this.deadLetterService.recordMessageFailure(message, { step: 'parse', error })
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                return {
+                    teamId: clickHouseEvent.team_id,
+                    toGlobals: (team) => {
+                        const globals = convertToHogFunctionInvocationGlobals(
+                            clickHouseEvent,
+                            team,
+                            this.config.SITE_URL
+                        )
+                        // The one place holding both. A failure found later in the pipeline carries
+                        // these globals, and this is how it gets back to the bytes to park.
+                        this.messageByGlobals.set(globals, message)
+                        return globals
+                    },
                 }
-
-                // A retriable error fails the batch, so the consumer reads the batch again. Any other
-                // lookup error parks the message for a replay, because failing the batch on an error
-                // that repeats stops the partition. The loaders send the team ids of the whole batch
-                // in one query, so one failed query parks every message in it. With the dead-letter
-                // topic off, nothing keeps the message, so the error fails the batch too.
-                const lookups = await Promise.all([
-                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
-                    this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                    this.deps.teamManager.getTeam(clickHouseEvent.team_id),
-                ]).catch((e) => {
-                    if (e?.isRetriable === true) {
-                        throw e
-                    }
-                    if (!park(e instanceof Error ? e.message : String(e))) {
-                        throw e
-                    }
-                    logger.error('Error looking up team data', e)
-                    return null
-                })
-                if (!lookups) {
-                    return
-                }
-                const [teamHogFunctions, teamHogFlows, team] = lookups
-
-                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                    return
-                }
-
-                const globals = skipIfMalformed(
-                    'Error parsing message',
-                    () => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
-                    park
-                )
-                if (!globals) {
-                    return
-                }
-                // The one place holding both. A failure found later in the pipeline carries
-                // these globals, and this is how it gets back to the bytes to park.
-                this.messageByGlobals.set(globals, message)
-                events.push(globals)
-            })
-        )
-
-        return events
+            },
+            loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            // Parked rather than dropped: a schema we cannot read today is often one a later
+            // version can.
+            onError: park,
+            // A lookup error that repeats stops the partition when it fails the batch, so this parks the
+            // message for a replay. The loaders send the team ids of the whole batch in one query, so one
+            // failed query parks every message in it. With the dead-letter topic off, nothing keeps the
+            // message, so the error fails the batch.
+            parkLookupError: park,
+        })
     }
 
     protected async startQueueProducers(): Promise<void> {

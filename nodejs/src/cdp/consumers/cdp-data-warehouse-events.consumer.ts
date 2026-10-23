@@ -20,7 +20,7 @@ import {
     HogFunctionTypeType,
 } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, skipIfMalformed } from './message-parsing'
+import { parseBatch } from './message-parsing'
 
 // Filter source / trigger type each kind of warehouse row matches against.
 const TRIGGER_TYPE_BY_TABLE_TYPE = {
@@ -148,38 +148,18 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                const event = skipIfMalformed('Error parsing message', () =>
-                    assertTeamId(CdpDataWarehouseEventSchema.parse(parseJSON(message.value!.toString())))
-                )
-                if (!event) {
-                    return
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const event = CdpDataWarehouseEventSchema.parse(parseJSON(message.value!.toString()))
+                return {
+                    teamId: event.team_id,
+                    toGlobals: (team) =>
+                        convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL),
                 }
-
-                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
-                const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                    this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
-                    this.hogFlowManager.getHogFlowsForTeam(event.team_id),
-                    this.deps.teamManager.getTeam(event.team_id),
-                ])
-
-                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                    return
-                }
-
-                const globals = skipIfMalformed('Error parsing message', () =>
-                    convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
-                )
-                if (globals) {
-                    events.push(globals)
-                }
-            })
-        )
-
-        return events
+            },
+            loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+        })
     }
 
     public override async start(): Promise<void> {
