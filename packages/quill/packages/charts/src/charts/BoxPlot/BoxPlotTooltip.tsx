@@ -35,22 +35,31 @@ export interface BoxPlotTooltipProps<Meta = unknown> {
     /** Whether multiple series are being shown — drives whether each box's series label is
      *  printed in the header above its stats. */
     grouped: boolean
+    /** Formats each statistic. Defaults to `toLocaleString`. */
+    valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
 }
 
 function defaultFormatValue(v: number): string {
-    return Number.isFinite(v) ? v.toLocaleString() : '—'
+    return v.toLocaleString()
 }
 
 export function BoxPlotTooltip<Meta = unknown>({
     ctx,
     userTooltip,
     grouped,
+    valueFormatter = defaultFormatValue,
 }: BoxPlotTooltipProps<Meta>): React.ReactElement | null {
     if (userTooltip) {
         return <>{userTooltip(ctx)}</>
     }
 
-    const entries: { key: string; color: string; label: string; datum: BoxPlotDatum }[] = []
+    const entries: {
+        key: string
+        color: string
+        label: string
+        datum: BoxPlotDatum
+        seriesEntry: TooltipContext['seriesData'][number]
+    }[] = []
     for (const seriesEntry of ctx.seriesData) {
         if (seriesEntry.series.visibility?.tooltip === false) {
             continue
@@ -64,6 +73,7 @@ export function BoxPlotTooltip<Meta = unknown>({
             color: seriesEntry.color,
             label: seriesEntry.series.label,
             datum,
+            seriesEntry,
         })
     }
     if (entries.length === 0) {
@@ -86,7 +96,11 @@ export function BoxPlotTooltip<Meta = unknown>({
                             {tooltipRows(entry.datum).map((row) => (
                                 <tr key={row.label}>
                                     <td className="pr-3 opacity-70">{row.label}</td>
-                                    <td className="font-medium">{defaultFormatValue(row.value)}</td>
+                                    <td className="font-medium">
+                                        {Number.isFinite(row.value)
+                                            ? valueFormatter(row.value, entry.seriesEntry)
+                                            : '—'}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>

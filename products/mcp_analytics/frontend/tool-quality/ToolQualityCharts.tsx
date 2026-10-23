@@ -245,6 +245,7 @@ export function ToolQualityCharts({
             showGrid: true,
             showAxisLines: true,
             yTickFormatter: formatMsAsSeconds,
+            tooltip: { valueFormatter: formatMsAsSeconds },
             xTickFormatter: createXAxisTickCallback({ allDays: data.labels, timezone, interval }),
         }),
         [data.labels, timezone, interval]
@@ -254,7 +255,7 @@ export function ToolQualityCharts({
         <div className="@container">
             <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-3">
                 <ChartCard
-                    title="Calls and errors"
+                    title={showErrorRate ? 'Error rate' : 'Calls and errors'}
                     action={
                         <ChartViewToggle
                             chart="calls"

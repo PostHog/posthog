@@ -374,9 +374,14 @@ function BoxPlotInner<Meta = unknown>({
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>) => (
-            <BoxPlotTooltip<Meta> ctx={ctx} userTooltip={tooltip} grouped={grouped} />
+            <BoxPlotTooltip<Meta>
+                ctx={ctx}
+                userTooltip={tooltip}
+                grouped={grouped}
+                valueFormatter={config?.tooltip?.valueFormatter}
+            />
         ),
-        [tooltip, grouped]
+        [tooltip, grouped, config?.tooltip?.valueFormatter]
     )
 
     const onPointClick = useCallback(

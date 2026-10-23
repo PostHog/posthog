@@ -2,7 +2,7 @@ import { waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart, waitForHogChartTooltip } from '../../testing'
-import { BoxPlot, type BoxPlotClickData } from './BoxPlot'
+import { BoxPlot, type BoxPlotClickData, type BoxPlotConfig } from './BoxPlot'
 import type { BoxPlotDatum, BoxPlotSeries } from './types'
 
 const THEME: ChartTheme = {
@@ -249,19 +249,47 @@ describe('BoxPlot', () => {
                     ['Min', '1'],
                 ],
             },
-        ])('$name', async ({ override, rows }) => {
-            const series: BoxPlotSeries[] = [{ key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] }]
-            const { chart } = renderHogChart(<BoxPlot series={series} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
-            chart.hoverAtIndex(0)
-            const tooltipEl = await waitForHogChartTooltip()
-            const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
-                (tr.firstElementChild as HTMLElement).textContent!.trim(),
-                (tr.lastElementChild as HTMLElement).textContent!.trim(),
-            ])
-            expect(rendered).toEqual(rows)
-        })
+            {
+                name: 'formats every row with the tooltip value formatter',
+                override: { min: 1, p25: 20, median: 30, mean: 40, p75: 50, max: 90, whiskerMax: 80 },
+                config: { tooltip: { valueFormatter: (v: number) => `${v}ms` } },
+                rows: [
+                    ['Max', '90ms'],
+                    ['Upper whisker', '80ms'],
+                    ['75th percentile', '50ms'],
+                    ['Median', '30ms'],
+                    ['Mean', '40ms'],
+                    ['25th percentile', '20ms'],
+                    ['Min', '1ms'],
+                ],
+            },
+        ])(
+            '$name',
+            async ({
+                override,
+                rows,
+                config,
+            }: {
+                override: Partial<BoxPlotDatum>
+                rows: string[][]
+                config?: BoxPlotConfig
+            }) => {
+                const series: BoxPlotSeries[] = [
+                    { key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] },
+                ]
+                const { chart } = renderHogChart(
+                    <BoxPlot series={series} labels={LABELS} theme={THEME} config={config} />,
+                    { nativeTooltip: true }
+                )
+                chart.hoverAtIndex(0)
+                const tooltipEl = await waitForHogChartTooltip()
+                const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
+                    (tr.firstElementChild as HTMLElement).textContent!.trim(),
+                    (tr.lastElementChild as HTMLElement).textContent!.trim(),
+                ])
+                expect(rendered).toEqual(rows)
+            }
+        )
 
         it('renders the values in the canonical row order', async () => {
             const { chart } = renderHogChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
