@@ -220,6 +220,18 @@ def _source_buckets(bounds: Sequence[float], counts: Sequence[float]) -> Iterato
             yield (bounds[index - 1] if index > 0 else min(0.0, bounds[0])), bounds[index], count
 
 
+def _row_distribution(row: Sequence[Any], group_count: int) -> tuple[list[float], list[float]]:
+    """Bounds and counts for one `_build_histogram_query` row, as ascending upper edges.
+
+    Converts an exponential histogram's stored lower edges to upper edges; other layouts are
+    already upper edges and pass through unchanged.
+    """
+    bounds, counts = list(row[1 + group_count]), list(row[2 + group_count])
+    if row[4 + group_count] == MetricType.EXPONENTIAL_HISTOGRAM.value:
+        bounds, counts = _exponential_upper_edges(bounds, counts)
+    return bounds, counts
+
+
 def _merge_histograms(distributions: Sequence[tuple[list[float], list[float]]]) -> tuple[list[float], list[float]]:
     """Merge bucket counts of different layouts onto the union of their edges.
 
@@ -752,10 +764,7 @@ class MetricQueryRunner:
         fingerprints: dict[tuple[Any, ...], set[int]] = {}
         for row in results:
             key = tuple(row[: 1 + group_count])
-            bounds, counts, metric_type = list(row[1 + group_count]), list(row[2 + group_count]), row[4 + group_count]
-            if metric_type == MetricType.EXPONENTIAL_HISTOGRAM.value:
-                bounds, counts = _exponential_upper_edges(bounds, counts)
-            layouts.setdefault(key, []).append((bounds, counts))
+            layouts.setdefault(key, []).append(_row_distribution(row, group_count))
             fingerprints.setdefault(key, set()).update(row[3 + group_count])
         extra = [(list(edges), [0.0] * (len(edges) + 1))] if edges else []
         merged: dict[tuple[Any, ...], MergedDistribution] = {}
@@ -774,9 +783,7 @@ class MetricQueryRunner:
         group_count = len(self.group_by)
         edges: set[float] = set()
         for row in results:
-            bounds = list(row[1 + group_count])
-            if row[4 + group_count] == MetricType.EXPONENTIAL_HISTOGRAM.value:
-                bounds, _ = _exponential_upper_edges(bounds, list(row[2 + group_count]))
+            bounds, _ = _row_distribution(row, group_count)
             edges.update(bounds)
         return sorted(edges)
 
