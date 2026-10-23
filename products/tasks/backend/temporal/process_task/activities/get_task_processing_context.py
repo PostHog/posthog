@@ -19,6 +19,7 @@ from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
@@ -91,6 +92,7 @@ class GetTaskProcessingContextInput:
     resumed_sandbox_id: str | None = None
     resumed_sandbox_backend: str | None = None
     stream_generation: str | None = None
+    launches_agent: bool = False
 
 
 @dataclass(frozen=False)
@@ -148,6 +150,7 @@ class TaskProcessingContext:
     overlap_clone_boot_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
+    agent_shadow_enabled: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -433,6 +436,28 @@ def _is_pi_acp_enabled(
         )
     except Exception as e:
         log_with_activity_context("pi_acp_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+
+def _is_agent_shadow_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                AGENT_SERVER_SHADOW_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("agent_shadow_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
 
@@ -1274,6 +1299,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     log_with_activity_context(
         f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run", run_id=run_id
     )
+    agent_shadow_enabled = input.launches_agent and _is_agent_shadow_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
     rtk_enabled = _is_rtk_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1431,6 +1461,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
+        agent_shadow_enabled=agent_shadow_enabled,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,

@@ -83,7 +83,6 @@ from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
 
-AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
 
 PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS = 30.0
 
@@ -211,23 +210,6 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
             )
 
 
-def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                AGENT_SERVER_SHADOW_FEATURE_FLAG,
-                distinct_id=ctx.distinct_id,
-                groups={"organization": ctx.organization_id},
-                group_properties={"organization": {"id": ctx.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("agent_shadow_flag_check_failed", run_id=ctx.run_id)
-        return False
-
-
 def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
     try:
         result = sandbox.execute(
@@ -245,7 +227,7 @@ def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bo
         return False
     if current_activity_attempt() > 1 and _has_agent_shadow_launch_marker(ctx, sandbox):
         return True
-    if not _is_agent_shadow_enabled(ctx):
+    if not ctx.agent_shadow_enabled:
         return False
     quoted_run_id = shlex.quote(ctx.run_id)
     command = (
