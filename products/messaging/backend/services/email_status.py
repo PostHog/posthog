@@ -10,8 +10,10 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
 from products.messaging.backend.facade.contracts import EmailStatus, EmailStatusCursor, EmailStatusRecord
+from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_TTL_DAYS
 
 RECIPIENT_HASH_CONTEXT = b"email-recipient-hash-v1"
+EMAIL_STATUS_RETENTION = timedelta(days=EMAIL_STATUS_TTL_DAYS)
 # The pipeline stamps `created_at` from the message id's time; a margin keeps the read on the right days.
 CREATED_AT_MARGIN = timedelta(minutes=1)
 
