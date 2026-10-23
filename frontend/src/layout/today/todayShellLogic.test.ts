@@ -86,7 +86,7 @@ describe('todayShellLogic', () => {
         ['home', false, '/home'],
         ['spaces', true, '/spaces/new'],
         ['spaces', false, '/ai'],
-        ['analytics', false, '/airplane'],
+        ['analytics', false, '/analytics/product-analytics'],
         ['products', false, '/airplane'],
     ] as const)('opens the %s section when its rail item is picked, sandbox %s', (pane, sandbox, pathname) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: sandbox })
