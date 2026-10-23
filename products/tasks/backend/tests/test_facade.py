@@ -1,3 +1,4 @@
+import json
 import importlib
 import threading
 from datetime import datetime, timedelta
@@ -1928,6 +1929,49 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("runtime_adapter"), "claude")
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+
+
+def _tool_update(tool_response: object) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "t1",
+                    "rawOutput": "out",
+                    "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": tool_response}},
+                }
+            },
+        },
+    }
+
+
+class TestThreadViewOfLogContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("output_copy_dropped", {"stdout": "x" * 500, "stderr": ""}, None),
+            (
+                "denial_fields_kept",
+                {"decisionReason": "Denied", "message": "No", "stdout": "x"},
+                {"decisionReason": "Denied", "message": "No"},
+            ),
+            ("non_object_dropped", "plain text", None),
+        ]
+    )
+    def test_reduces_the_tool_response_copy(self, _name: str, tool_response: object, expected: object) -> None:
+        other = {"type": "notification", "notification": {"method": "_posthog/run_started", "params": {}}}
+        content = "\n".join([json.dumps(other), json.dumps(_tool_update(tool_response)), "not json", ""])
+
+        lines = facade.thread_view_of_log_content(content).split("\n")
+
+        self.assertEqual(lines[0], json.dumps(other))
+        self.assertEqual(lines[2:], ["not json", ""])
+        update = json.loads(lines[1])["notification"]["params"]["update"]
+        self.assertEqual(update["rawOutput"], "out")
+        self.assertEqual(update["_meta"]["claudeCode"].get("toolResponse"), expected)
+        self.assertEqual(update["_meta"]["claudeCode"]["toolName"], "Bash")
 
 
 class TestAppendLogAgentActivity(SimpleTestCase):
