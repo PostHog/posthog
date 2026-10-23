@@ -140,13 +140,21 @@ class TestBuildCompatibilityHint:
         assert hint is not None
         assert expected_start in hint
 
-    @parameterized.expand([("string_and_number", "String, UInt8", True), ("date_and_number", "Date, UInt16", False)])
+    @parameterized.expand(
+        [
+            (
+                "string_and_number",
+                "String, UInt8 because some of them are String/FixedString and some of them are not",
+                True,
+            ),
+            ("date_and_number", "Date, UInt16 because some of them are Date/DateTime and some of them are not", False),
+        ]
+    )
     def test_no_common_type_cast_advice_follows_string_types(
-        self, _name: str, types: str, expects_cast_advice: bool
+        self, _name: str, types_and_reason: str, expects_cast_advice: bool
     ) -> None:
         hint = build_compatibility_hint(
-            f"Code: 386. DB::Exception: There is no supertype for types {types} because some of them are "
-            "String/FixedString and some of them are not. (NO_COMMON_TYPE)"
+            f"Code: 386. DB::Exception: There is no supertype for types {types_and_reason}. (NO_COMMON_TYPE)"
         )
         assert hint is not None
         assert ("toFloat(properties.x)" in hint) == expects_cast_advice

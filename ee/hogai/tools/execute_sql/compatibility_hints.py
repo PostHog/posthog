@@ -221,7 +221,7 @@ def _no_common_type_rewrite(error_message: str) -> str | None:
 
 def _type_mismatch_advice(lead: str, types: str) -> str:
     if not _names_a_string_type(types):
-        return f"{lead} Check the argument types with toTypeName(x) and convert them to what the function expects."
+        return f"{lead} Check the types with toTypeName(x) and convert one side to match the other."
     return (
         f"{lead} Event, person and session properties are strings in HogQL, so cast them before arithmetic, "
         "numeric comparison or date functions: toFloat(properties.x), toInt(properties.x) or "
@@ -230,7 +230,7 @@ def _type_mismatch_advice(lead: str, types: str) -> str:
 
 
 def _names_a_string_type(types: str) -> bool:
-    """True when one of the rejected argument types is a String, with or without Nullable or LowCardinality."""
+    """True when one of the mismatched types is a String, with or without Nullable or LowCardinality."""
     unwrapped = types
     while (stripped := _TYPE_WRAPPER_RE.sub(r"\1", unwrapped)) != unwrapped:
         unwrapped = stripped
