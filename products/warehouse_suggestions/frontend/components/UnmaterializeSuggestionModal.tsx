@@ -27,6 +27,7 @@ export function UnmaterializeSuggestionModal(): JSX.Element | null {
     return (
         <LemonModal
             isOpen
+            closable={!inFlight}
             onClose={closeAcceptConfirm}
             title={`Stop materializing ${payload.subject_name}?`}
             footer={

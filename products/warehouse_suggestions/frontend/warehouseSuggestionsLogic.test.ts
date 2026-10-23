@@ -225,8 +225,11 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.surfaceSuggestions).toEqual([])
     })
 
-    it('restores a dismissed card and reloads when someone else decided it first', async () => {
-        mockDismiss.mockRejectedValue(new ApiError('conflict', 409, undefined, { detail: 'already decided' }))
+    it.each([
+        ['someone else decided it first', 409],
+        ['its view or table was deleted', 404],
+    ])('restores a dismissed card and reloads when %s', async (_name, status) => {
+        mockDismiss.mockRejectedValue(new ApiError('stale', status, undefined, { detail: 'stale' }))
         await mountLogic()
 
         logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_now')
@@ -564,6 +567,18 @@ describe('warehouseSuggestionsLogic', () => {
         expect(mockAccept).toHaveBeenCalledWith(expect.any(String), DEPRECATE.id, body)
         expect((lemonToast.success as jest.Mock).mock.calls[0][0]).toEqual(toast)
         expect(logic.values.acceptConfirmSuggestion).toBeNull()
+    })
+
+    it('reloads the list when an accept finds the view or table deleted', async () => {
+        mockAccept.mockRejectedValue(new ApiError('Not found.', 404, undefined, { detail: 'Not found.' }))
+        await mountLogic()
+
+        logic.actions.acceptSuggestion(MATERIALIZE.id, { refresh_interval_seconds: 86400 })
+
+        await expectLogic(logic).toDispatchActions(['loadSuggestions', 'loadSuggestionsSuccess'])
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            'This suggestion is gone, or its view or table was deleted. The list is up to date now.'
+        )
     })
 
     it('shows why the backend refused to stop materializing, closes the dialog and reloads', async () => {

@@ -38,6 +38,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
     return (
         <LemonModal
             isOpen
+            closable={!inFlight}
             onClose={closeAcceptConfirm}
             title={`Mark ${payload.subject_name} as deprecated?`}
             footer={

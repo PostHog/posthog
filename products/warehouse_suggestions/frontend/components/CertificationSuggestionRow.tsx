@@ -3,12 +3,13 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
+import { subjectUrl } from '../subjectUrl'
 import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCostLabel } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DismissSuggestionMenu } from './DismissSuggestionMenu'
@@ -16,19 +17,11 @@ import { SuggestionRow } from './SuggestionRow'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view or table'
-const TABLE_PREVIEW_LIMIT = 100
+const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
 
 export interface CertificationSuggestionRowProps {
     suggestion: WarehouseSuggestionApi
     windowDays: number
-}
-
-function subjectUrl(suggestion: WarehouseSuggestionApi): string {
-    if (suggestion.subject_kind === 'table') {
-        const table = escapePropertyAsHogQLIdentifier(suggestion.payload.subject_name)
-        return urls.sqlEditor({ query: `SELECT * FROM ${table} LIMIT ${TABLE_PREVIEW_LIMIT}` })
-    }
-    return urls.sqlEditor({ view_id: suggestion.subject_id })
 }
 
 export function CertificationSuggestionRow({ suggestion, windowDays }: CertificationSuggestionRowProps): JSX.Element {
@@ -39,6 +32,11 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
     const leaving = leavingSuggestionIds.includes(suggestion.id)
     const inFlight = !!actionsInFlight[suggestion.id]
     const blockedReason = !suggestion.can_act ? EDIT_ACCESS_REASON : leaving ? 'Working' : undefined
+    const acceptBlockedReason =
+        blockedReason ??
+        (userHasAccess(AccessControlResourceType.DataCatalog, AccessControlLevel.Editor)
+            ? undefined
+            : CATALOG_EDIT_ACCESS_REASON)
     const deprecating = isDeprecatePayload(payload)
     const confirmsFirst = deprecating && !isTable
 
@@ -86,7 +84,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                         type="secondary"
                         icon={deprecating ? <IconWarning /> : <IconCheckCircle />}
                         loading={inFlight}
-                        disabledReason={blockedReason}
+                        disabledReason={acceptBlockedReason}
                         onClick={() =>
                             confirmsFirst ? openAcceptConfirm(suggestion.id) : acceptSuggestion(suggestion.id)
                         }

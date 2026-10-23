@@ -25,6 +25,7 @@ export const getStorybookAppContext = (): AppContext => ({
     },
     resource_access_control: {
         action: 'manager',
+        data_catalog: 'manager',
         feature_flag: 'manager',
         hog_flow: 'manager',
         heatmap: 'manager',

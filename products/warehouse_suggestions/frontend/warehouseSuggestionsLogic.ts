@@ -65,6 +65,7 @@ const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
 }
 const VIEW_IN_SQL_EDITOR_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
+const NOT_FOUND_STATUS = 404
 const PICK_INTERVAL_REASON = 'Pick how often it refreshes'
 const INCOMPLETE_INCREMENTAL_REASON = 'Select the incremental column and unique key columns'
 const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => string> = {
@@ -783,7 +784,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         } else {
                             reportAcceptFailure(error)
                             actions.acceptSuggestionFailed(id)
-                            if (isConflict(error)) {
+                            if (isStale(error)) {
                                 actions.loadSuggestions()
                             }
                         }
@@ -806,7 +807,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     } catch (error) {
                         actions.restoreSuggestion(id)
                         reportFailure(error, 'Could not dismiss the suggestion.')
-                        if (isConflict(error)) {
+                        if (isStale(error)) {
                             actions.loadSuggestions()
                         }
                     } finally {
@@ -824,7 +825,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         actions.restoreSuggestion(id)
                     } catch (error) {
                         reportFailure(error, 'Could not bring the suggestion back.')
-                        if (isConflict(error)) {
+                        if (isStale(error)) {
                             actions.loadSuggestions()
                         }
                     } finally {
@@ -842,6 +843,14 @@ function isConflict(error: unknown): boolean {
     return error instanceof ApiError && error.status === CONFLICT_STATUS
 }
 
+function isNotFound(error: unknown): boolean {
+    return error instanceof ApiError && error.status === NOT_FOUND_STATUS
+}
+
+function isStale(error: unknown): boolean {
+    return isConflict(error) || isNotFound(error)
+}
+
 function reportAcceptFailure(error: unknown): void {
     if (isConflict(error) && error instanceof ApiError && error.detail) {
         lemonToast.error(error.detail)
@@ -853,6 +862,10 @@ function reportAcceptFailure(error: unknown): void {
 function reportFailure(error: unknown, fallback: string): void {
     if (isConflict(error)) {
         lemonToast.error('Someone already decided this suggestion. The list is up to date now.')
+        return
+    }
+    if (isNotFound(error)) {
+        lemonToast.error('This suggestion is gone, or its view or table was deleted. The list is up to date now.')
         return
     }
     lemonToast.error((error instanceof ApiError && error.detail) || fallback)

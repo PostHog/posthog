@@ -53,6 +53,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
     return (
         <LemonModal
             isOpen
+            closable={!inFlight}
             onClose={closeMaterializeModal}
             title={`Materialize ${payload.subject_name}`}
             footer={
