@@ -184,28 +184,41 @@ describe("decideTitleGeneration", () => {
 });
 
 describe("canApplyTitleFromPrompts", () => {
-  it("allows the first-prompt fire to write the title", () => {
-    expect(
-      canApplyTitleFromPrompts(1, { title: "Custom", description: "d" }),
-    ).toBe(true);
-  });
+  const realTitle = {
+    title: "Fix login bug",
+    description: "the login page 500s",
+  };
+  const placeholder = { title: "Fix login", description: "Fix login" };
 
-  it("blocks later fires from rewriting a real title", () => {
-    expect(
-      canApplyTitleFromPrompts(1 + REGENERATE_INTERVAL, {
-        title: "Fix login bug",
-        description: "the login page 500s",
-      }),
-    ).toBe(false);
-  });
-
-  it("allows later fires to replace a placeholder title", () => {
-    expect(
-      canApplyTitleFromPrompts(1 + REGENERATE_INTERVAL, {
-        title: "Fix login",
-        description: "Fix login",
-      }),
-    ).toBe(true);
+  it.each([
+    {
+      name: "allows the opening prompt to rename a real title",
+      prompts: ["the login page 500s"],
+      task: realTitle,
+      expected: true,
+    },
+    {
+      name: "blocks a lone later prompt from a resumed or tail-loaded window",
+      prompts: ["now switch to auto mode and open the PR"],
+      task: realTitle,
+      expected: false,
+    },
+    {
+      name: "blocks later fires from rewriting a real title",
+      prompts: ["the login page 500s", "add a test"],
+      task: realTitle,
+      expected: false,
+    },
+    {
+      name: "allows later fires to replace a placeholder title",
+      prompts: ["a", "b"],
+      task: placeholder,
+      expected: true,
+    },
+  ])("$name", ({ prompts, task, expected }) => {
+    expect(canApplyTitleFromPrompts(prompts, task, task.description)).toBe(
+      expected,
+    );
   });
 });
 
