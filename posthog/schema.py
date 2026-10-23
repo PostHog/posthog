@@ -1914,15 +1914,7 @@ class LLMDetectorConfig(BaseModel):
         default=None,
         description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
     )
-    threshold: confloat(ge=0.0, le=1.0) | None = Field(
-        default=None,
-        description=("Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"),
-    )
     type: Literal["llm"] = "llm"
-    window: conint(ge=5, le=400) | None = Field(
-        default=None,
-        description="How many recent points the model is shown (default: 90)",
-    )
 
 
 class LLMSentimentMessage(BaseModel):
@@ -27543,10 +27535,7 @@ class DashboardFilter(BaseModel):
         default=None,
         description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
     )
-    metricFilters: list[MetricsQueryFilter] | None = Field(
-        default=None,
-        description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
-    )
+    metricFilters: list[MetricsQueryFilter] | None = None
     metricVariables: list[MetricsDashboardVariable] | None = Field(
         default=None,
         description=("Variables that metrics tiles refer to as `$name`. Other tiles ignore them."),

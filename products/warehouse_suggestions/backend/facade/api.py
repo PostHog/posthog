@@ -1,6 +1,7 @@
 """Facade for warehouse_suggestions."""
 
 from collections.abc import Sequence
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -159,7 +160,7 @@ def accept_suggestion(
             [outcome.suggestion],
             team=team,
             user=user,
-            properties={"changed_fields": list(outcome.changed_fields)},
+            properties={"changed_fields": list(outcome.changed_fields), **asdict(outcome.savings)},
         )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 

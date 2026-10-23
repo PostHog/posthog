@@ -4,6 +4,7 @@ import { buildConfigFromDraft, createDraft, validateDraft } from './scoreDefinit
 const definition: ScoreDefinitionApi = {
     tags: [],
     id: 'scorer-example',
+    short_name: '',
     name: 'Answer quality',
     description: '',
     kind: 'boolean',

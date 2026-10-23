@@ -94,6 +94,12 @@ Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread
 It waits until the navigator is mounted and the session has loaded, and handles each notification id once.
 The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
 
+Chat taps reuse the single chat screen. If the target task is already open in the same account
+and project, the tap leaves its session and draft intact. Otherwise it replaces the open chat
+with the target conversation. The comparison uses the live session's task, so it also works for
+chats started in the composer and after the person taps New chat. Close returns to the screen
+underneath without stepping through older chats.
+
 | Payload | Route |
 | --- | --- |
 | `type: 'report'`, project is current or absent | `/report/{report_id}` |

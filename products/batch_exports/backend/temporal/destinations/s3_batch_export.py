@@ -26,6 +26,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.models.integration import (
     AWSS3Integration,
@@ -443,14 +445,17 @@ async def get_credentials_using_user_aws_role(
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
     """
-    if not settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN:
+    external_role_arn = await asyncio.to_thread(
+        get_or_settings, "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.BATCH_EXPORTS
+    )
+    if not external_role_arn:
         raise ExternalRoleArnNotConfiguredError()
 
     for attempt in range(1, max_attempts + 1):
         try:
             async with SESSION.client("sts") as sts:
                 first_response = await sts.assume_role(
-                    RoleArn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
+                    RoleArn=external_role_arn,
                     RoleSessionName=session_name,
                     # Hard limit of 1h imposed by AWS
                     # TODO: Support refreshable credentials so we can support batch

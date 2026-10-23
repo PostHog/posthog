@@ -11204,6 +11204,35 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("default_keeps_the_copy", "", status.HTTP_200_OK, True),
+            ("thread_drops_the_copy", "?view=thread", status.HTTP_200_OK, False),
+            ("thread_drops_the_copy_from_a_page", "?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
+            ("unknown_view_rejected", "?view=compact", status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_view(self, _name: str, query: str, expected_status: int, has_copy: bool | None, mock_read):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+        entry = {
+            "notification": {
+                "method": "session/update",
+                "params": {"update": {"_meta": {"claudeCode": {"toolResponse": {"stdout": "x"}}}}},
+            }
+        }
+        mock_read.side_effect = lambda path, missing_ok=False: json.dumps(entry) + "\n" if path == run.log_url else None
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/{query}")
+
+        self.assertEqual(response.status_code, expected_status)
+        if has_copy is not None:
+            claude_code = json.loads(response.content.decode("utf-8").splitlines()[0])["notification"]["params"][
+                "update"
+            ]["_meta"]["claudeCode"]
+            self.assertEqual("toolResponse" in claude_code, has_copy)
+
+    @parameterized.expand(
+        [
             ("latest_turn_across_the_chain", "?tail_bytes=1", status.HTTP_200_OK, ("2", "3", "1"), ["latest"]),
             ("older_page_before_an_offset", "?tail_bytes=1&before=2", status.HTTP_200_OK, ("0", "3", "0"), ["older"]),
             ("before_needs_tail_bytes", "?before=2", status.HTTP_400_BAD_REQUEST, None, None),

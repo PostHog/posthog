@@ -54,6 +54,10 @@ On a development build with notifications enabled:
    After expiry, the snooze reminder should appear. Repeat using a task already associated in the cache.
 4. Deliver two distinct `awaiting` notifications for one run: neither should be lost to a run-wide cooldown.
 5. Tap a notification while signed out, sign in, and verify that its report opens once.
+   For chats, open a conversation, enter a draft, background the app and tap a push for that chat.
+   Verify the draft and scroll position stay intact. Repeat with a chat just started in the composer.
+   Tap a push for a different chat and verify its history loads; one Close must return to the screen
+   underneath. Also tap New chat, then tap a push for the conversation you just left; it must reopen.
 6. Repeat a delivery with the app backgrounded or terminated. App-side filtering does **not** provide the same
    guarantees there; server consolidation and synchronized snoozes remain follow-ups in [GAPS.md](GAPS.md).
 
