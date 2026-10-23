@@ -21,6 +21,23 @@ interface PercentileSeries {
     points: { value: number | null }[]
 }
 
+/** The index of the first edge >= `value` in an ascending array, or -1 past the last edge. Mirrors
+ * `bounds.findIndex((bound) => value <= bound)`, but in O(log n): a histogram can carry tens of
+ * thousands of edges, and this runs per plotted point. */
+function upperEdgeIndex(bounds: number[], value: number): number {
+    let low = 0
+    let high = bounds.length
+    while (low < high) {
+        const mid = (low + high) >>> 1
+        if (bounds[mid] >= value) {
+            high = mid
+        } else {
+            low = mid + 1
+        }
+    }
+    return low === bounds.length ? -1 : low
+}
+
 /** The bucket that limits the percentile lines on a chart, or null when the buckets are fine enough. */
 export function coarsePercentileResolution(series: PercentileSeries[]): PercentileResolution | null {
     const edges = new Set<number>()
@@ -35,7 +52,7 @@ export function coarsePercentileResolution(series: PercentileSeries[]): Percenti
             if (value === null || !Number.isFinite(value)) {
                 continue
             }
-            const index = bounds.findIndex((bound) => value <= bound)
+            const index = upperEdgeIndex(bounds, value)
             const lower =
                 index === -1 ? bounds[bounds.length - 1] : index > 0 ? bounds[index - 1] : Math.min(0, bounds[0])
             const upper = index === -1 ? Infinity : bounds[index]

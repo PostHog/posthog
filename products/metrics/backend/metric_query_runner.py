@@ -170,16 +170,27 @@ def _exponential_upper_edges(bounds: list[float], counts: list[Any]) -> tuple[li
     nearest zero, then for each positive bucket `(base**i, base**(i+1)]` its lower edge. Consecutive
     stored edges give `base`. A sign with only one bucket gives no `base`, so that bucket becomes zero-width
     at its stored edge, which is inside its true range. Empty buckets fill the gaps between ranges.
+
+    A bucket shares its inner edge with its neighbor, so that edge reuses the neighbor's exact stored
+    value instead of recomputing it as `bound * base`: the two can differ in the last bit, which makes
+    the edges stop being sorted. Only the outermost bucket on each side has no neighbor to reuse, so it
+    falls back to the computed edge.
     """
     negative = [(bound, count) for bound, count in zip(bounds, counts) if bound < 0]
     positive = [(bound, count) for bound, count in zip(bounds, counts) if bound > 0]
     buckets: list[tuple[float, float, Any]] = [(0.0, 0.0, count) for bound, count in zip(bounds, counts) if bound == 0]
     if negative:
         base = negative[1][0] / negative[0][0] if len(negative) > 1 else 1.0
-        buckets += [(bound * base, bound, count) for bound, count in negative]
+        buckets += [
+            (negative[i + 1][0] if i + 1 < len(negative) else bound * base, bound, count)
+            for i, (bound, count) in enumerate(negative)
+        ]
     if positive:
         base = positive[1][0] / positive[0][0] if len(positive) > 1 else 1.0
-        buckets += [(bound, bound * base, count) for bound, count in positive]
+        buckets += [
+            (bound, positive[i + 1][0] if i + 1 < len(positive) else bound * base, count)
+            for i, (bound, count) in enumerate(positive)
+        ]
     buckets.sort(key=lambda bucket: (bucket[1], bucket[0]))
 
     edges: list[float] = []

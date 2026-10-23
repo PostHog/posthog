@@ -75,10 +75,38 @@ class TestExponentialUpperEdges:
                 [0, 2, 1, 0, 5, 0, 3, 4],
             ),
             ("empty", [], [], [], []),
+            (
+                # Repro: base=sqrt(2) between 2**-20 and 2**-19.5 computes 2**-19 one bit off from the
+                # stored bound, so a naive recompute inserts a spurious empty bucket and sorts out of order.
+                "consecutive_buckets_at_a_fine_scale_share_an_exact_edge",
+                [2**-20, 2**-19.5, 2**-19],
+                [5, 5, 5],
+                [2**-20, 2**-19.5, 2**-19, 2**-18.5],
+                [0, 5, 5, 5],
+            ),
+            (
+                "consecutive_buckets_at_a_coarse_scale_share_an_exact_edge",
+                [2**10, 2**10.5, 2**11],
+                [2, 3, 4],
+                [2**10, 2**10.5, 2**11, 2**11.5],
+                [0, 2, 3, 4],
+            ),
         ]
     )
     def test_upper_edges(self, _name, bounds, counts, expected_bounds, expected_counts):
         assert _exponential_upper_edges(bounds, counts) == (expected_bounds, expected_counts)
+
+    def test_upper_edges_are_always_sorted_ascending(self):
+        # The quantile and _resolution_edges both assume ascending edges; unsorted edges silently
+        # drop a real edge (see test_resolution_edges_keep_the_real_edge below).
+        edges, _ = _exponential_upper_edges([2**-20, 2**-19.5, 2**-19], [5, 5, 5])
+        assert edges == sorted(edges)
+
+    def test_resolution_edges_keep_the_real_edge(self):
+        # Before the fix, bisecting this unsorted edge list silently dropped the 2**-19 edge.
+        bounds, counts = _exponential_upper_edges([2**-20, 2**-19.5, 2**-19], [5, 5, 5])
+        merged_bounds, merged_counts = _merge_histograms([(bounds, counts)])
+        assert _resolution_edges([(bounds, counts)], merged_bounds) == merged_bounds
 
     @parameterized.expand(
         [

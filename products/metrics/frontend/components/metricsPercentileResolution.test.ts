@@ -38,6 +38,22 @@ describe('coarsePercentileResolution', () => {
         expect(coarsePercentileResolution([series([null, null])])).toBeNull()
         expect(coarsePercentileResolution([])).toBeNull()
     })
+
+    it('finds the right bucket by binary search when there are many edges', () => {
+        // A handful of edges can't exercise a binary search's midpoint handling; this puts the
+        // target bucket in the middle of 1000 edges, where an off-by-one would show up.
+        const edges = [
+            ...Array.from({ length: 500 }, (_, index) => index + 1), // 1..500
+            2000, // the busiest bucket, (500, 2000]
+            ...Array.from({ length: 499 }, (_, index) => index + 2001), // 2001..2499
+        ]
+
+        expect(coarsePercentileResolution([series([1000, 1000, 1000], edges)])).toMatchObject({
+            lower: 500,
+            upper: 2000,
+            share: 1,
+        })
+    })
 })
 
 describe('suggestedBucketEdges', () => {
