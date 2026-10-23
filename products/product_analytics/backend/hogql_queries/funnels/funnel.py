@@ -400,7 +400,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if absolute_actors_step is None:
                 raise ValueError("Missing funnelStep actors query property")
             funnelStep = self.context.actorsQuery.funnelStep
-            if funnelStep is not None and funnelStep < 0:
+            if UDF_VERSION >= 13 and funnelStep is not None and funnelStep < 0:
                 # The drop-off condition matches on the prior required step, so read the recordings from the same step
                 absolute_actors_step = self._prior_required_step_index(abs(funnelStep) - 1)
             return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
