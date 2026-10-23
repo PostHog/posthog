@@ -10,7 +10,7 @@ function isRunResult(result: unknown): boolean {
     return typeof result === 'object' && result !== null && !('needsConfiguration' in result)
 }
 
-export function MetricsWidget({ config, result, loading, onEdit }: DashboardWidgetComponentProps): JSX.Element {
+export function MetricsWidget({ config, result, onEdit }: DashboardWidgetComponentProps): JSX.Element {
     // The config decides this state, so a tile saved a moment ago never shows the last run's result.
     if (metricsWidgetNeedsConfiguration(config)) {
         return (
@@ -27,12 +27,9 @@ export function MetricsWidget({ config, result, loading, onEdit }: DashboardWidg
         )
     }
 
+    // A saved query waits here for its first run: a fetch error replaces the body, so no other state applies.
     if (!isRunResult(result)) {
-        return loading ? (
-            <WidgetLoadingState />
-        ) : (
-            <WidgetCardBodyMessage>No data for this metric yet.</WidgetCardBodyMessage>
-        )
+        return <WidgetLoadingState />
     }
 
     return (

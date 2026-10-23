@@ -366,6 +366,7 @@ def _run_widget_query(
     dashboard_id: int,
     distinct_id: str,
     dashboard_filters: DashboardFilter | None = None,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     tile_id = work_item["tile_id"]
     widget_type = work_item["widget_type"]
@@ -387,7 +388,7 @@ def _run_widget_query(
         try:
             query_fn = work_item["query_fn"]
             dashboard_kwargs: dict[str, Any] = (
-                {"dashboard_id": dashboard_id, "dashboard_filters": dashboard_filters}
+                {"dashboard_id": dashboard_id, "dashboard_filters": dashboard_filters, "force_refresh": force_refresh}
                 if work_item["receives_dashboard_filters"]
                 else {}
             )
@@ -3822,6 +3823,16 @@ class DashboardsViewSet(
                 description="Comma-separated dashboard tile IDs to run widgets for.",
             ),
             FILTERS_OVERRIDE_PARAM,
+            OpenApiParameter(
+                name="refresh",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Recompute widgets that follow dashboard filters (such as metrics) instead of serving their "
+                    "query cache, as a manual refresh of an insight tile does."
+                ),
+            ),
         ],
         responses={200: RunWidgetsResponseSerializer},
     )
@@ -3935,6 +3946,8 @@ class DashboardsViewSet(
             else None
         )
 
+        force_refresh = str_to_bool(request.query_params.get("refresh", "false"))
+
         if query_work_items:
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -3946,6 +3959,7 @@ class DashboardsViewSet(
                         dashboard_id=dashboard.id,
                         distinct_id=distinct_id,
                         dashboard_filters=dashboard_filters,
+                        force_refresh=force_refresh,
                     ): work_item["tile_id"]
                     for work_item in query_work_items
                 }

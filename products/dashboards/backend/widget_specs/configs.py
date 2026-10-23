@@ -21,6 +21,7 @@ from products.dashboards.backend.constants import (
     DEFAULT_WIDGET_LIST_LIMIT,
     LOGS_LIST_DEFAULT_LIMIT,
     METRICS_WIDGET_MAX_CLAUSES,
+    METRICS_WIDGET_MAX_QUERY_JSON_LENGTH,
     METRICS_WIDGET_MAX_QUERY_TEXT_LENGTH,
 )
 from products.dashboards.backend.widget_specs.common import (
@@ -406,6 +407,13 @@ class MetricsWidgetQuery(MetricsQuery):
     # Variable definitions hold their own SQL or PromQL, and widgets don't take dashboard variables yet.
     variables: SkipJsonSchema[None] = None
 
+    @model_validator(mode="after")
+    def cap_stored_size(self) -> Self:
+        # Every dashboard read returns the config, so filters, formulas and display settings share one size cap.
+        if len(self.model_dump_json(exclude_none=True)) > METRICS_WIDGET_MAX_QUERY_JSON_LENGTH:
+            raise ValueError(f"The query is larger than {METRICS_WIDGET_MAX_QUERY_JSON_LENGTH} characters.")
+        return self
+
 
 class MetricsWidgetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -423,6 +431,11 @@ class MetricsWidgetConfig(BaseModel):
     @classmethod
     def upgrade_query(cls, value: Any) -> Any:
         # Saved insight queries migrate through the same upgrade on read, so stored widgets survive schema changes.
-        if isinstance(value, dict):
+        # The migration walker keys on `kind`, so anything but the metrics kind goes straight to validation.
+        if not (isinstance(value, dict) and value.get("kind") == "MetricsQuery"):
+            return value
+        try:
             return upgrade(value)
-        return value
+        except (TypeError, KeyError, AttributeError, ValueError) as error:
+            # A malformed nested node must fail validation, not reach the client as a server error.
+            raise ValueError("The query has a node that can't be read.") from error

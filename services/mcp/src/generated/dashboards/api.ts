@@ -730,6 +730,12 @@ export const DashboardsRunWidgetsRetrieveParams = () => zod.object({
 
 export const DashboardsRunWidgetsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    refresh: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Recompute widgets that follow dashboard filters (such as metrics) instead of serving their query cache, as a manual refresh of an insight tile does.'
+        ),
     tile_ids: zod.string().describe('Comma-separated dashboard tile IDs to run widgets for.'),
 })
 

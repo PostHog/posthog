@@ -33,7 +33,7 @@ interface MetricsQueryNodeProps {
 /** Renders a `MetricsQuery` wherever the generic `Query` component is used —
  * saved insights, dashboard tiles, notebooks. */
 const EMPTY_QUERY_MESSAGE: Record<MetricsQueryLanguage, string> = {
-    builder: 'Pick a metric to see its time series.',
+    builder: 'Pick a metric to see its chart.',
     promql: 'Run a query to see results.',
     sql: 'Run a query to see results.',
 }

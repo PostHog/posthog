@@ -5229,6 +5229,32 @@ describe('dashboardLogic', () => {
             }
         )
 
+        it('keeps the newest widget result when an older request for the tile returns last', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            let releaseOlder: (value: Awaited<ReturnType<typeof widgetFetchUtils.fetchRunWidgets>>) => void = () => {}
+            const result = (marker: string): Awaited<ReturnType<typeof widgetFetchUtils.fetchRunWidgets>> => [
+                { tile_id: WIDGET_TILE.id, widget_type: 'error_tracking_list', result: { marker }, error: null },
+            ]
+            fetchRunWidgetsMock.mockClear()
+            fetchRunWidgetsMock
+                .mockImplementationOnce(() => new Promise((resolve) => (releaseOlder = resolve)))
+                .mockResolvedValueOnce(result('newer'))
+
+            logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            // Let the older refresh pass its breakpoint and send its request before the newer one starts.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            }).toDispatchActions(['setWidgetRunResults'])
+            releaseOlder(result('older'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({ marker: 'newer' })
+        })
+
         it('refetches only the widgets that follow dashboard filters when the filters change', async () => {
             const metricsTile: DashboardTile = {
                 id: 9,

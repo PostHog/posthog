@@ -358,7 +358,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
     metrics: {
         groupId: 'metrics',
         label: 'Metric',
-        description: 'A service metric. Write the query with the builder, PromQL or SQL.',
+        description: 'A service metric, charted the way you choose.',
         defaultConfig: metricsWidgetDefaultConfig('line'),
         defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
         productAccess: 'metrics',

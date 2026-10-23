@@ -69,6 +69,7 @@ import {
     findNewlyAddedWidgetTiles,
     isWidgetStale,
     WIDGET_CLIENT_TTL_MS,
+    widgetDashboardFilters,
 } from 'scenes/dashboard/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -788,7 +789,8 @@ export interface dashboardLogicActions {
         forceRefresh?: boolean | undefined
         previewUnsavedFilters?: boolean | undefined
     }
-    refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
+    refreshDashboardWidgets: (payload: { filters?: DashboardFilter; forceRefresh?: boolean; tileIds: number[] }) => {
+        filters?: DashboardFilter | undefined
         forceRefresh?: boolean | undefined
         tileIds: number[]
     }
@@ -1339,7 +1341,8 @@ export interface dashboardLogicMeta {
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
         dashboardControlScopes: (
             insightTiles: DashboardTile[],
-            widgetTiles: DashboardTile[]
+            widgetTiles: DashboardTile[],
+            dashboardWidgetsEnabled: boolean
         ) => Record<DashboardControl, DashboardControlScope>
         itemsLoading: (
             dashboardLoading: boolean,
@@ -1537,7 +1540,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
             previewUnsavedFilters?: boolean
         }) => payload,
-        refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
+        /** `filters` are the dashboard filters the insights refresh with; the applied filters by default. */
+        refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean; filters?: DashboardFilter }) =>
+            payload,
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
         applyWidgetIssueMetadataChange: (payload: {
@@ -3298,14 +3303,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.text)],
         dashboardControlScopes: [
-            (s) => [s.insightTiles, s.widgetTiles],
+            (s) => [s.insightTiles, s.widgetTiles, s.dashboardWidgetsEnabled],
             (
                 insightTiles: DashboardTile[],
-                widgetTiles: DashboardTile[]
+                widgetTiles: DashboardTile[],
+                dashboardWidgetsEnabled: boolean
             ): Record<DashboardControl, DashboardControlScope> =>
                 getDashboardControlScopes(
                     insightTiles,
-                    widgetTiles.flatMap((tile) => {
+                    (dashboardWidgetsEnabled ? widgetTiles : []).flatMap((tile) => {
                         const widget = tile.widget
                         const dashboardControls = widget
                             ? tryGetDashboardWidgetCatalogEntry(widget.widget_type)?.dashboardControls
@@ -4582,6 +4588,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const dashboardId: number = props.id
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
+            let widgetsRefreshed = false
+            const refreshWidgets = (): void => {
+                if (
+                    widgetsRefreshed ||
+                    !values.dashboardWidgetsEnabled ||
+                    values.placement === DashboardPlacement.Export ||
+                    values.placement === DashboardPlacement.Public
+                ) {
+                    return
+                }
+                widgetsRefreshed = true
+                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
+                if (widgetTileIds.length > 0) {
+                    actions.refreshDashboardWidgets({
+                        tileIds: widgetTileIds,
+                        forceRefresh: !!forceRefresh,
+                        filters: combineDashboardFilters(settingsToRefresh.filters, values.externalFilters),
+                    })
+                }
+            }
             if (filterChange) {
                 filterChange.remainingInsightIds = new Set(allInsightTiles.map((tile) => tile.insight!.short_id))
             }
@@ -4622,6 +4648,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.abortAnyRunningQuery()
                 cache.abortController = new AbortController()
                 const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
+                // Widgets refresh alongside the insights, so a filter change reaches metric widgets without
+                // waiting for every insight to finish.
+                refreshWidgets()
 
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
@@ -4773,20 +4802,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.forceRefreshIfStale()
             }
 
-            if (values.placement !== DashboardPlacement.Export && values.placement !== DashboardPlacement.Public) {
-                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
-                if (widgetTileIds.length > 0) {
-                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
-                }
-            }
+            refreshWidgets()
         },
-        refreshDashboardWidgets: async ({ tileIds, forceRefresh }, breakpoint) => {
+        refreshDashboardWidgets: async ({ tileIds, forceRefresh, filters }, breakpoint) => {
             if (values.placement === DashboardPlacement.Export || values.placement === DashboardPlacement.Public) {
                 return
             }
 
-            const filtersOverride = values.filtersOverrideForRequests
-            const filtersKey = JSON.stringify(filtersOverride ?? {})
+            const filtersOverride = widgetDashboardFilters(filters ?? values.effectiveRefreshFilters)
+            const filtersKey = JSON.stringify(filtersOverride)
             const tilesFollowingDashboardFilters = new Set(
                 values.widgetTiles
                     .filter(
@@ -4822,6 +4846,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setWidgetRefreshStatuses(staleTileIds, true)
             await breakpoint()
 
+            // A later refresh of the same tile (after a filter change, say) wins, even when this one returns last.
+            cache.widgetRefreshGeneration = (cache.widgetRefreshGeneration ?? 0) + 1
+            const generation: number = cache.widgetRefreshGeneration
+            const latestRefreshByTileId: Record<number, number> = (cache.widgetLatestRefreshByTileId ??= {})
+            for (const tileId of staleTileIds) {
+                latestRefreshByTileId[tileId] = generation
+            }
+            const isLatest = (tileId: number): boolean => latestRefreshByTileId[tileId] === generation
+
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
@@ -4831,19 +4864,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         filtersOverride: chunk.some((tileId) => tilesFollowingDashboardFilters.has(tileId))
                             ? filtersOverride
                             : undefined,
+                        refresh: !!forceRefresh,
                     })
-                    const resultsByTileId = Object.fromEntries(results.map((result) => [result.tile_id, result]))
-                    actions.setWidgetRunResults(resultsByTileId)
-                    actions.setWidgetFiltersKeys(chunk, filtersKey)
-                    for (const result of results) {
+                    const latestResults = results.filter((result) => isLatest(result.tile_id))
+                    actions.setWidgetRunResults(
+                        Object.fromEntries(latestResults.map((result) => [result.tile_id, result]))
+                    )
+                    actions.setWidgetFiltersKeys(chunk.filter(isLatest), filtersKey)
+                    for (const result of latestResults) {
                         actions.setWidgetRefreshStatuses(
                             [result.tile_id],
                             false,
                             result.error ? DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE : null
                         )
                     }
-                } catch {
-                    actions.setWidgetRefreshStatuses(chunk, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+                } catch (error) {
+                    // An insight refresh aborts running requests and starts its own widget refresh, so an abort is no error.
+                    actions.setWidgetRefreshStatuses(
+                        chunk.filter(isLatest),
+                        false,
+                        shouldCancelQuery(error) ? null : DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE
+                    )
                 }
             })
 
