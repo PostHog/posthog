@@ -8,6 +8,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -90,6 +91,14 @@ function TestAccountFiltersConfig(): JSX.Element {
                     (insights, dashboards) and also works in CDP destinations if the cohort contains{' '}
                     <strong>exclusively person property filters</strong>. Cohorts with behavioral filters or no
                     properties defined will cause CDP destinations to error.
+                    <p className="mt-2 mb-0">
+                        Person property and cohort filters can't exclude events that have no person profile, such as
+                        anonymous events. To filter those out, add an event property filter, or identify your internal
+                        users so they get a person profile.{' '}
+                        <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles" target="_blank">
+                            Learn about person profiles
+                        </Link>
+                    </p>
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
