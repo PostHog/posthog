@@ -1,4 +1,4 @@
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type { ExperimentExposureHealthFinding, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 const SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
 
@@ -14,6 +14,13 @@ export function hasSampleRatioMismatch(exposures: ExperimentExposureQueryRespons
 
 export const SAMPLE_RATIO_MATCH_DESCRIPTION =
     'No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.'
+
+/** The server's sample ratio finding in the exposure answer, or undefined when the server reports none. */
+export function serverSampleRatioFinding(
+    exposures: ExperimentExposureQueryResponse | null | undefined
+): ExperimentExposureHealthFinding | undefined {
+    return exposures?.health_findings?.find(({ code }) => code === 'srm')
+}
 
 /** What the exposures card says about the sample ratio test. */
 export type SampleRatioLine = {
@@ -34,7 +41,7 @@ export function sampleRatioLine(
     if (exposures?.sample_ratio_mismatch == null) {
         return null
     }
-    const finding = followsServer ? exposures.health_findings?.find(({ code }) => code === 'srm') : undefined
+    const finding = followsServer ? serverSampleRatioFinding(exposures) : undefined
     if (finding) {
         return {
             tone: 'warning',

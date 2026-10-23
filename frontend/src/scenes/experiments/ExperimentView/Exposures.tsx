@@ -23,6 +23,7 @@ import {
     getTotalExposures,
     hasSampleRatioMismatch,
     sampleRatioLine,
+    serverSampleRatioFinding,
 } from 'products/experiments/frontend/health/exposureHealth'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
@@ -178,7 +179,7 @@ export function Exposures(): JSX.Element {
 
     // With the health panel, its row reports the finding as shown. The card reports the same finding, so that opening
     // the card's evidence counts against the panel's "shown" event and not a second one.
-    const srmFinding = healthUi === 'panel' ? exposures?.health_findings?.find(({ code }) => code === 'srm') : undefined
+    const srmFinding = healthUi === 'panel' ? serverSampleRatioFinding(exposures) : undefined
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
         hasSRM && !isExperimentDraft && !exposuresLoading
             ? srmFinding
