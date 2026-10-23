@@ -11797,49 +11797,49 @@ snapshots:
     scenes-app-inbox-detail-expected-impact--load-failure--light:
         hash: v1.k794b7964.85826d6ccb24433d86966725347d200f33d0708a733f4a02cec2ab4a9b239088.1BuwrA1Z8r6S6fT1Ui-MjT413KAf5IsWxKH9S6lXajY
     scenes-app-inbox-detail-expected-impact--metric-check--dark:
-        hash: v1.k794b7964.edd5299beb69a84a93bbf0f52027dbe6f13a5b9d9585a2c29baa188cb6ed7a42.kXjmkRCQpYM5AA02sRPqTPT0YaWs-WY_CmDsG0GdQLA
+        hash: v1.k794b7964.da03dae120e49f2eadfd787294cd09753cec36420e4bc8269d177232caf89af8.Yb_sRouoITM7ucAEGywRJtD6ZZYNl4dnZmyiK8_16Bk
     scenes-app-inbox-detail-expected-impact--metric-check--light:
-        hash: v1.k794b7964.310dcf4af274f3011c148d9890a4a72507418b43a800535b192d91f4cb709791.HBW72C9W6XXe-cgONBY3vJ9VA4q_26sThTLfFgQv0X0
+        hash: v1.k794b7964.7ab8e90eb19c85a88dc1bb00f25078f3ecae1532c11a13fa36be30863e7f4368.lg23x_vgJyHnX5NKQnStjyfu1wUfhRAetsusxBYUMU4
     scenes-app-inbox-detail-expected-impact--monitoring-definition--dark:
-        hash: v1.k794b7964.58e7bdde7ab8b92554a4b2ad7fb68424c27ebc7bb18e40e93d1671489fe2ed28.XMKOV6wUwzwsKWSVTiSbjj7y2abLYeFrhh1_vYlHRuc
+        hash: v1.k794b7964.ae082b6c8b0a012d3202c17c9634b9ac315d056fc43bcce706ff6ea928d19138.71UgrCjD51Kcfhd3rtnjdqZujFR93GXF3J6boYjLty0
     scenes-app-inbox-detail-expected-impact--monitoring-definition--light:
-        hash: v1.k794b7964.ce4f3f94e83d15d3be80ef5fab7ca4148205d5389ea0ed06389e2d5b77a21c54.VrNcx2wCHyqnyK3qC2jiA6SLidLpUCR1y6-Fnjo0xn0
+        hash: v1.k794b7964.c108b43638b8cce49fe8ed3c896e0ce3441a9ac04c4ee61ef5ba20791ddc4560.0ByZGqISFjPW0rQ0WfqHUBZMO9UYjyOaRRJ5vshQ0c8
     scenes-app-inbox-detail-expected-impact--monitoring-definition-flag-off--dark:
-        hash: v1.k794b7964.2159fc93ebc60413cf0baf9a6c23baf5f9002555a57d494983bcb253cc87b72a.Bnyv9obRcLTsAv-h4FIC7THgEui8LoOsj1H2qjW-lj0
+        hash: v1.k794b7964.4497d91ad86cef9418def048c904a2131583ce05c1a15d2deb7e38b699df028d.3NQ1y1BDagcnvl_l2RVbVBg8Kyu9Lc0-pzlMepD7W5c
     scenes-app-inbox-detail-expected-impact--monitoring-definition-flag-off--light:
-        hash: v1.k794b7964.6a75f114a3b82e271240e13ebd0ba8d8d21f5a11da64fdf4e1c3fab06920adaa.NgM0xTjXuMDY9mDs2T1TozhdgCmL15Bp9TyklOe3htg
+        hash: v1.k794b7964.7cab971b1c23034a13ac2b2a45a725eb7c410a3cda556e23f3303eb60a1dbc92.T05I-VgaKuqgym0kk7nZwj1wScADW4axDtfBds-gH1E
     scenes-app-inbox-detail-expected-impact--monitoring-definition-narrow--dark:
-        hash: v1.k794b7964.809623d87ec66a9f3c2438ac3b0d89838c738e5ceb8e2c866dc3cf315eee922f.77MBOHyuDbAABWmzn_GyRTQTycocf3ZViVv4V26yxC8
+        hash: v1.k794b7964.76c4fdad05b00703fa8530424e61bb9789c4805793a70298164865ec630bae8d.Pk8LcjrJEdmO-8Gq3vEYYH2GcdLaqAyPMokg9XAQGdo
     scenes-app-inbox-detail-expected-impact--monitoring-definition-narrow--light:
-        hash: v1.k794b7964.cf0dc541d523067724d10755144c5fa65c2825d8bfe04928558454648a623c56.4h83sN5i9Pdzzxa65I-9wn7yqTAvyE4VZK2t9M8-f4g
+        hash: v1.k794b7964.3c3b28a94b593ff7b39e902ec4ce8483036c932570eab787e898066e2636c811.IflAvfIywiiVs1CvlnkkwVoy-c380eAF_pS0xcpFzPU
     scenes-app-inbox-detail-expected-impact--monitoring-fixed-target--dark:
-        hash: v1.k794b7964.b60d812dc930d97a889442fd71319543843f6434f09d1923ea8f509942b8aa5b.DIfYuulD17nhvclTxpYZ5Y08x2zKXXW6DBGjJS_V880
+        hash: v1.k794b7964.2dc49216d939b862ed4b4af4435a0ec07d4246f963890abeff85671fb6e9032b.gqy-VN-suwuM2gwwKbsIcYi7JwduPOekD-8wMvAx06A
     scenes-app-inbox-detail-expected-impact--monitoring-fixed-target--light:
-        hash: v1.k794b7964.210fe320188acf7e5959ba35870e42bca8b4728fb29ed72031667b6ba6b74c63.WJruO37FR7o92GjIv8PE9VyGPEWq5X7nGhE1Rf4-Q7c
+        hash: v1.k794b7964.4df11ac2d37c9aaccb50ab43f2f83afd910600f2887cd69d878f68313957e4e8.uF6EdinhHAWGdVlJ76JWlKz9HigzscmZh6OGiGuCk-8
     scenes-app-inbox-detail-expected-impact--monitoring-rate-target--dark:
-        hash: v1.k794b7964.b733c20ee84a5eaf01efcf7f7169a1058eab10cd17b6c9146d2f70693feaaa4a.MX4zc2myg-67cHuwFEsy3nRbg4AzqNPfMh4J73FOVic
+        hash: v1.k794b7964.e9923773f00a6c0baf1e2c2891e0192f4fdc11acc897ab1f59cdb21fb2f03520.q_ISmmYWbCDEa19-uio1lzbld2iNG_uUROlkMR51NXA
     scenes-app-inbox-detail-expected-impact--monitoring-rate-target--light:
-        hash: v1.k794b7964.3823fa715a59a2bfe844c3e2045043c2dec6df075de3b617b4fb4b0a891ef381.DxKXtEZaT_xTocZLLQOjuJng-otgs_79wYHRvx34M9o
+        hash: v1.k794b7964.1b8a7f47fd05086899755a3f919a46ff8ca3e72b6a881b5f3a648425ba7f5631.wUWr3my_HYpf3IHuJyH9NMG101IkjAgGExJIFsBGr6E
     scenes-app-inbox-detail-expected-impact--monitoring-window-ended--dark:
-        hash: v1.k794b7964.6ec50d57e6127d351c2261ee96bab3610d8ce692b263aee1c1159dba9d56770b.o41iNPIsGzixQa7phsk8RrRf-y0w1Z-uDUqEiS6PQqU
+        hash: v1.k794b7964.ae082b6c8b0a012d3202c17c9634b9ac315d056fc43bcce706ff6ea928d19138.2xGELj0Bz1vbDuU5ZJyIm2h1Ck0xMkdPUdFkKOqWA-0
     scenes-app-inbox-detail-expected-impact--monitoring-window-ended--light:
-        hash: v1.k794b7964.01953dba2882e795858f3e65868b260fbb119c649f580d18622016c2620ed3d6.03C3bZztWuRWnPQdiH-kmpRPlSbwwoeMSy_Wu6Ne6PU
+        hash: v1.k794b7964.c108b43638b8cce49fe8ed3c896e0ce3441a9ac04c4ee61ef5ba20791ddc4560.QVAeCVpM7VfD16qdypZ-MJg9eX4qopU-G0r2GYwhxA0
     scenes-app-inbox-detail-expected-impact--narrow--dark:
-        hash: v1.k794b7964.a2aea8677171f649ba45a21aa7103003773b36dcf0efe8093a2b4184897ac105.FESJsY6WQhEi2AtXx4RHoVDnx-pVcqRVizXrGQbSus0
+        hash: v1.k794b7964.65edbc03c7425a2abaa6575c3c88458f57e386316f4869e74ca8a5be5e66abd6.xiIWioJYGe6e0pwn4phanMW1UnZgcdEgnUakgxq7b44
     scenes-app-inbox-detail-expected-impact--narrow--light:
-        hash: v1.k794b7964.fb0aa8004cfbe31b6b40b37ec5e39a35c8310307e28580e9ff08006229c8dbfd.MTcKNISbyB7gTLJI4uZUeRJhDbM_r500IBS_NHXnonI
+        hash: v1.k794b7964.50f8492c10e8aaaf6fe29df14bcdda972c6a05226cc356699e581f6025d24bc3.RyPZaCDqK27kZ3NNqJHF1Y6FdWry8bvwvvE94vStrSM
     scenes-app-inbox-detail-expected-impact--range-goal--dark:
-        hash: v1.k794b7964.25ca512fe2e87c2c0e7b8d2e696e4ce6c51fd213931323f36d35f72f47325c01.deF-U-1oFJCQ19Yl-YcwVEgg_8te5wFly2OtkNJfMKk
+        hash: v1.k794b7964.d775f73c0702b1409b7c11b9ccdd2c01e385d0371e2420f4ace53b60e175a185.GBoAu-DyZCKHHG-MoaqByqL4KQWIQWofxV0AaWWp2Do
     scenes-app-inbox-detail-expected-impact--range-goal--light:
-        hash: v1.k794b7964.b78440c96c51cd20fa18314e14555f52a0cee552b1ed3b437dc708189c633a25.SCoc4Z715pkdcCkH5lbjUeFUvcTt6KSYcgUgHbUg958
+        hash: v1.k794b7964.ff9f962cfbc53d10b1f05c82f8314c83318f3c3aa8355a006b1405d03ef45249.4dDfLh9vzg3zUs8e7Kend-QoB8z8Qodx0FDxWgWgKkk
     scenes-app-inbox-detail-expected-impact--replacement-unavailable--dark:
-        hash: v1.k794b7964.11e024cae252d5f4a911741317d05326233cc0eae261a5c7d7347661dbe467c2.OSfzCDh8yBUfdfhDlQGNV8QbIvZitNT4evut8N46StE
+        hash: v1.k794b7964.fcc3f4688b1ff08a3dd606db2337e1d621f0f85b1020a5a34fe32440a986ea4b.DJU5Tsk7kVflGl8SmM4jtY6CInUC9cHPNNYJwthjWfg
     scenes-app-inbox-detail-expected-impact--replacement-unavailable--light:
-        hash: v1.k794b7964.5e53f571b0a25a214aaa48bf8657bafa6fc5e5b7d0bf3121e9d325189a3854f7.Ldh-3_DNPkkNJwM66AlgwKjrLhd-4VRkkR9crqU9YRA
+        hash: v1.k794b7964.255b55f7170b6523b6e21f9381eaea395e08283d289e4569a73a8f7ec752d662.wIq1CUQZYNqkWzgnP17AAaaLS-wOyEL9G7fyg9YQ1_I
     scenes-app-inbox-detail-follow-up-checks--every-state--dark:
-        hash: v1.k794b7964.b2d0413b7187f874afae44518461bb0c5cd33192952321712580e25e3bddd9e1.G8AgFzVjqgR2YdWYjcDkw2Eaoqg97AWcCTYAGH7N-cg
+        hash: v1.k794b7964.1fb2e55d040b2e54708b04edc022c95a9b223ed1a1f6911a5b97d5f29e615fd9.fDAJnYMmvwIB5sGK790KcV3QWzOvJcxFUQDmDhcAMRk
     scenes-app-inbox-detail-follow-up-checks--every-state--light:
-        hash: v1.k794b7964.4655bef6e24070355e1a13becdc153fa8e4abc3dcdbfd2d880db3789376ae8b8.uNlpCBaS1VvSDAmoBks4FPoKLMJIY1G63WlKQ7bd64k
+        hash: v1.k794b7964.275081e63f24959c0017f4a3f295444edd91eb89f9cf9876ab4365dc29c8107c.FaarzsWlYt7_qiYo7KGl1dukS7877MEEhxlH1ZiiyzU
     scenes-app-inbox-detail-follow-up-checks--monitoring--dark:
         hash: v1.k794b7964.8203910c8643bee68c2895b77db7101544290e636a6cecaf6a7fd27d6e0fe87b.RurNhxFb2VgJ6Y5LHmClwOH4ihVHG6V9Rivg06oEqlE
     scenes-app-inbox-detail-follow-up-checks--monitoring--light:
@@ -11849,13 +11849,13 @@ snapshots:
     scenes-app-inbox-detail-follow-up-checks--monitoring-narrow-rail--light:
         hash: v1.k794b7964.9baf07cf5b989f8f22c8fadba9d915297b026d3eee1128dbf28478cc88e0b98c.g2-gNbvDMXhe7Wkkt9JfjDNK3N3S3kyqfaLdwM96-98
     scenes-app-inbox-detail-follow-up-checks--narrow-rail--dark:
-        hash: v1.k794b7964.104726ab1adb7689ef0fa98cb6d95b32488a9d7a1384ff7b311dba39da93eaee.zynwpgfgVGiMUAfnykJ1qIB-DuF-fQ_VAvJWVyVhvIc
+        hash: v1.k794b7964.be9f8ab7b553ea303e03e4b375a4156c486fad10ce4b66936fb4fbe923ad0bdd.m4ThsrMsAizyTDwlW6uvlP5yjhc0ZjL96P66-MNn85M
     scenes-app-inbox-detail-follow-up-checks--narrow-rail--light:
-        hash: v1.k794b7964.4335078ee499a8b64b5a0c253a2128960c42afb6e657a9d8139350a9c775b89b.3Ze8wnGg4UHYbTtf0kAFagAWOSLrhDpuchVRUQfY01s
+        hash: v1.k794b7964.bfa881131dd33abb1f00779499c5858ab7eab74738d5d564224c3550a102e260.64zPNw1gska6Ovqm9kGgeRutSl-TS_mG342pDW2MxuY
     scenes-app-inbox-detail-follow-up-checks--running--dark:
-        hash: v1.k794b7964.7c9c84d49f542f37fb20a337d4e097ceac512f7916476f8313f52403a0c8272e.Qbic0TtjJ_u8tITXga4NzK-pjvZVxEv_eDiiDbAZ6To
+        hash: v1.k794b7964.57a616b7d836445e00ca0df54fed2537d723ec8349a3b60185c101f2b5b33642.iLshi-9beYAkMte1pr4v2FabFLItrIVd7k38Y6lT6NA
     scenes-app-inbox-detail-follow-up-checks--running--light:
-        hash: v1.k794b7964.a5e08bb11b3723765e5cc33b4afb36d6ad9217d9a8975497677cf4b2fc513071.Kvc9DMV6mta5XCyUg5mxeDQrjWC5zatz04E4OgsVWpc
+        hash: v1.k794b7964.cc445c86aacf5799a1a4bda66e63264bda5dc4b5e52ac82008734620b57d3b2e.kh55Ac8x-rkJ6KcvB_Z2I8lVSTiw4DsztZayp-UOVBQ
     scenes-app-inbox-detail-runs--narrow-rail--dark:
         hash: v1.k794b7964.b063aeeabbdbee852bc6a55c5e1e32b8075273ed3e211d8d0d490582a63d632f.ZNR24H-doELGCmC8Wwc5dFzukDi9dWeEuzsM7A5Fjfg
     scenes-app-inbox-detail-runs--narrow-rail--light:
