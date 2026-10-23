@@ -948,8 +948,8 @@ def test_scalar_cte_chains_preserve_results(depth: int) -> None:
 
 
 def test_wide_subquery_scalar_cte_references_stay_within_budget() -> None:
-    columns = ", ".join(f"user_id AS c{i}" for i in range(60))
-    references = ", ".join("total" for _ in range(60))
+    columns = ", ".join(f"user_id AS c{i}" for i in range(100))
+    references = ", ".join("total" for _ in range(100))
     sql, _ = prepare_and_print_ast(
         parse_select(
             f"WITH wide AS (SELECT {columns} FROM users), (SELECT count() FROM wide) AS total SELECT {references}"
@@ -957,7 +957,7 @@ def test_wide_subquery_scalar_cte_references_stay_within_budget() -> None:
         _context_with_trino_table(),
         "trino",
     )
-    assert sql.count('(SELECT count(*) FROM "wide")') == 60
+    assert sql.count('(SELECT count(*) FROM "wide")') == 100
 
 
 def test_rejects_excessive_scalar_cte_expansion() -> None:
