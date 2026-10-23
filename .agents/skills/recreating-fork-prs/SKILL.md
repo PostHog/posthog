@@ -45,6 +45,26 @@ GitHub serves fork commits by SHA from this repository:
 ```sh
 git fetch origin master <sha>
 git switch -c <branch> origin/master
+```
+
+List who wrote the commits. GitHub credits an author only when the commit email is linked to their account, and an empty `login` means it is not:
+
+```sh
+gh pr view <n> --json commits --jq '.commits[].authors[] | {login, email}'
+```
+
+When one person wrote every commit (merges from master aside), squash.
+Use their linked email, or else the PR author's no-reply address:
+
+```sh
+gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'
+git merge --squash <sha>
+git commit --author="<name> <email>"
+```
+
+When several people wrote commits, cherry-pick, so each author keeps credit:
+
+```sh
 git cherry-pick --no-merges "$(git merge-base origin/master <sha>)..<sha>"
 ```
 
@@ -53,32 +73,9 @@ An empty commit, such as one pushed only to rerun CI, stops the cherry-pick. Dro
 A conflict can mean that master already has part of the change, from another PR or an earlier re-creation.
 Search master for it before you resolve the conflict, and stop if the fork PR is no longer needed.
 
-Cherry-pick keeps each commit's author and makes you the committer.
+Both paths keep the contributor as author and make you the committer.
 Every branch here requires signed commits, so contributor commits cannot be pushed as they are.
-The cherry-picked commits carry your signature when `commit.gpgsign` is on.
-
-GitHub credits an author only when the commit email is linked to their account.
-An empty `login` here means the email is not linked:
-
-```sh
-gh pr view <n> --json commits --jq '.commits[].authors[] | {login, email}'
-```
-
-Then rewrite the author to their no-reply address before you add any commit of your own:
-
-```sh
-gh api users/<login> --jq '"\(.id)+\(.login)@users.noreply.github.com"'
-git rebase origin/master --exec 'git commit --amend --no-edit --author="<name> <no-reply address>"'
-```
-
-When one person wrote every commit and the history is noisy (many fixups, merges from master), squash it instead:
-
-```sh
-git merge --squash <sha>
-git commit --author="<name> <linked email or no-reply address>"
-```
-
-With several authors, cherry-pick, so each author keeps credit.
+Your commits carry your signature when `commit.gpgsign` is on.
 
 ## 3. Compare before the first push
 
@@ -86,7 +83,8 @@ A push to this repository cannot be taken back, so check the branch first.
 Run this before you add your own commits:
 
 ```sh
-git diff <sha> HEAD -- $(gh pr view <n> --json files --jq '.files[].path')
+git diff --name-only --no-renames -z "$(git merge-base origin/master <sha>)" <sha> |
+  xargs -0 git diff <sha> HEAD --
 ```
 
 No output means the branch matches the reviewed code in every file the PR touches.

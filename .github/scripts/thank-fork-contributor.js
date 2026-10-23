@@ -1,11 +1,11 @@
-#!/usr/bin/env node
-
-// Runs when a pull request merges. If its body carries the line that the
-// recreating-fork-prs skill writes ("Contributed by @<login> in #<n>"), it tells
-// the contributor on fork PR #<n> where their change landed, then closes that PR.
+// Runs through actions/github-script when a pull request merges. If its body
+// carries the line that the recreating-fork-prs skill writes
+// ("Contributed by @<login> in #<n>"), it tells the contributor on fork PR #<n>
+// where their change landed, then closes that PR.
 
 const MARKER = '<!-- fork-contribution-landed -->'
-const CONTRIBUTION_PATTERN = /Contributed by @([A-Za-z0-9-]+) in #(\d+)/
+// Accepts "#123" and a markdown link to ".../pull/123".
+const CONTRIBUTION_PATTERN = /Contributed by @([A-Za-z0-9-]+) in (?:#|\[[^\]]*\]\([^)\s]*\/pull\/)(\d+)/
 const HANDBOOK_URL = 'https://posthog.com/handbook/engineering/fork-pull-requests'
 
 function parseContribution(body) {
@@ -29,10 +29,11 @@ function skipReason(forkPr, login) {
     if (!sameLogin(forkPr.author?.login, login)) {
         return `opened by ${forkPr.author?.login}, not ${login}`
     }
-    if (forkPr.comments.nodes.some((comment) => comment.body.includes(MARKER))) {
-        return 'contributor already told'
-    }
     return null
+}
+
+function alreadyTold(forkPr) {
+    return forkPr.comments.nodes.some((comment) => comment.body.includes(MARKER))
 }
 
 function buildComment({ login, mergedPrNumber, mergeCommitSha, credited }) {
@@ -46,30 +47,6 @@ function buildComment({ login, mergedPrNumber, mergeCommitSha, credited }) {
         lines.push('', 'GitHub lists you as a co-author of the merged commit.')
     }
     return lines.join('\n')
-}
-
-async function github(token, method, path, body) {
-    const response = await fetch(`https://api.github.com${path}`, {
-        method,
-        headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/vnd.github+json',
-            'Content-Type': 'application/json',
-        },
-        body: body ? JSON.stringify(body) : undefined,
-    })
-    if (!response.ok) {
-        throw new Error(`${method} ${path} failed: ${response.status} ${await response.text()}`)
-    }
-    return response.json()
-}
-
-async function graphql(token, query, variables) {
-    const result = await github(token, 'POST', '/graphql', { query, variables })
-    if (result.errors) {
-        throw new Error(`GraphQL query failed: ${JSON.stringify(result.errors)}`)
-    }
-    return result.data.repository.pullRequest
 }
 
 const MERGED_PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -92,40 +69,52 @@ const FORK_PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   }
 }`
 
-async function main() {
-    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
-    const [owner, name] = GITHUB_REPOSITORY.split('/')
-    const mergedPrNumber = Number(PR_NUMBER)
+async function fetchPullRequest(github, query, variables) {
+    try {
+        const data = await github.graphql(query, variables)
+        return data.repository.pullRequest
+    } catch (error) {
+        // A number that names an issue or nothing at all is a typo in the PR body, not a job failure.
+        if (error.errors?.every((entry) => entry.type === 'NOT_FOUND')) {
+            return null
+        }
+        throw error
+    }
+}
 
-    const mergedPr = await graphql(GITHUB_TOKEN, MERGED_PR_QUERY, { owner, name, number: mergedPrNumber })
+module.exports = async ({ github, context, core }) => {
+    const { owner, repo } = context.repo
+    const mergedPrNumber = context.payload.pull_request.number
+
+    const mergedPr = await fetchPullRequest(github, MERGED_PR_QUERY, { owner, name: repo, number: mergedPrNumber })
     const contribution = parseContribution(mergedPr.body)
     if (!contribution) {
-        console.log(`#${mergedPrNumber} has no "Contributed by" line`)
+        core.info(`#${mergedPrNumber} has no "Contributed by" line`)
         return
     }
     const { login, forkPrNumber } = contribution
 
-    const forkPr = await graphql(GITHUB_TOKEN, FORK_PR_QUERY, { owner, name, number: forkPrNumber })
+    const forkPr = await fetchPullRequest(github, FORK_PR_QUERY, { owner, name: repo, number: forkPrNumber })
     const reason = skipReason(forkPr, login)
     if (reason) {
-        console.log(`Skipping #${forkPrNumber}: ${reason}`)
+        core.warning(`Skipping #${forkPrNumber}: ${reason}`)
         return
     }
 
-    const credited = mergedPr.mergeCommit.authors.nodes.some((author) => sameLogin(author.user?.login, login))
-    const body = buildComment({ login, mergedPrNumber, mergeCommitSha: mergedPr.mergeCommit.oid, credited })
-    await github(GITHUB_TOKEN, 'POST', `/repos/${GITHUB_REPOSITORY}/issues/${forkPrNumber}/comments`, { body })
-    if (forkPr.state === 'OPEN') {
-        await github(GITHUB_TOKEN, 'PATCH', `/repos/${GITHUB_REPOSITORY}/pulls/${forkPrNumber}`, { state: 'closed' })
+    if (!alreadyTold(forkPr)) {
+        const credited = mergedPr.mergeCommit.authors.nodes.some((author) => sameLogin(author.user?.login, login))
+        const body = buildComment({ login, mergedPrNumber, mergeCommitSha: mergedPr.mergeCommit.oid, credited })
+        await github.rest.issues.createComment({ owner, repo, issue_number: forkPrNumber, body })
+        core.info(`Told @${login} on #${forkPrNumber} (credited: ${credited})`)
     }
-    console.log(`Told @${login} on #${forkPrNumber} (credited: ${credited})`)
+    if (forkPr.state === 'OPEN') {
+        await github.rest.pulls.update({ owner, repo, pull_number: forkPrNumber, state: 'closed' })
+        core.info(`Closed #${forkPrNumber}`)
+    }
 }
 
-if (require.main === module) {
-    main().catch((error) => {
-        console.error(error)
-        process.exit(1)
-    })
-}
-
-module.exports = { MARKER, parseContribution, skipReason, buildComment }
+module.exports.MARKER = MARKER
+module.exports.parseContribution = parseContribution
+module.exports.skipReason = skipReason
+module.exports.alreadyTold = alreadyTold
+module.exports.buildComment = buildComment
