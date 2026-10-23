@@ -37,8 +37,8 @@ function alreadyTold(forkPr) {
 }
 
 function buildComment({ login, mergedPrNumber, credited }) {
-    const merged = credited ? `Merged in #${mergedPrNumber}, with you as co-author.` : `Merged in #${mergedPrNumber}.`
-    return `${MARKER}\nThank you for your contribution @${login}! ${merged} Fork PRs can't run our backend CI, so we merged your change through a new PR ([why](${HANDBOOK_URL})).`
+    const coAuthor = credited ? ', with you as co-author' : ''
+    return `${MARKER}\nThank you for your contribution @${login}! Fork PRs can't run our backend CI, so we merged your change through #${mergedPrNumber}${coAuthor} ([why](${HANDBOOK_URL})).`
 }
 
 const MERGED_PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
