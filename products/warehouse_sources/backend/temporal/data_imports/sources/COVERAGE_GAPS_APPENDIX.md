@@ -6175,20 +6175,20 @@ Note: Enumerated the API reference from https://docs.hyperspell.com/llms.txt, th
 
 ## Hyros — gaps
 
-Today (14): `AdAccounts`, `Ads`, `CallConversionPaths`, `Calls`, `Keywords`, `LeadConversionPaths`, `Leads`, `Products`, `SaleConversionPaths`, `Sales`, `Sources`, `Stages`, `Subscriptions`, `Tags`
+Today (16): `AdAccounts`, `Ads`, `CallConversionPaths`, `Calls`, `Carts`, `CustomCosts`, `Keywords`, `LeadConversionPaths`, `Leads`, `Products`, `SaleConversionPaths`, `Sales`, `Sources`, `Stages`, `Subscriptions`, `Tags`
 
 Diffed against: <https://api-docs.hyros.com/ai-context/rest-api.txt>
 
 - [x] `Ad Accounts (GET /api/v1.0/ad-accounts)` — resolve adAccountId on sources and attribution records to account names and platforms (high)
 - [x] `Ads (GET /api/v1.0/ads)` — resolve adSourceId on sources and attribution records to individual ads (high)
 - [x] `Products (GET /api/v1.0/products)` — add product prices and cost of goods to sales for profit analysis, using their existing product IDs (high)
-- [ ] `Ads Attribution Report (GET /api/v1.0/attribution)` — produce vendor attribution metrics and ad spend across attribution models and reporting levels (high)
-- [ ] `ROAS (GET /api/v1.0/attribution/roas)` — measure collected revenue against ad spend using the vendor's fixed return calculation (high)
+- ~~`Ads Attribution Report (GET /api/v1.0/attribution)` — produce vendor attribution metrics and ad spend across attribution models and reporting levels (high)~~ — skipped: a parameterized report, not a list. Each call needs explicit ids at one platform-specific level, an attribution model, a metric list and a date window, and with an ad account id it can't group rows by day
+- ~~`ROAS (GET /api/v1.0/attribution/roas)` — measure collected revenue against ad spend using the vendor's fixed return calculation (high)~~ — skipped: a preset over `GET /attribution` that reports one entity id over one date window per call, so there is no list to sync
 - [x] `Conversion Paths (GET /api/v1.0/conversion-paths)` — analyze ordered source touches for each conversion and calculate custom attribution models (high)
 - [ ] `Lead Clicks (GET /api/v1.0/leads/clicks)` — analyze click histories behind attributed sales instead of only first and last touches (medium)
 - [ ] `Leads Journey (GET /api/v1.0/leads/journey)` — measure stage changes, opt-ins, email activity, and other events across each lead's timeline (medium)
-- [ ] `Custom Costs (GET /api/v1.0/custom-costs)` — include recurring and one-time business costs in campaign profitability calculations (medium)
-- [ ] `Carts (GET /api/v1.0/carts)` — measure cart abandonment and connect purchase intent with attributed sales (medium)
+- [x] `Custom Costs (GET /api/v1.0/custom-costs)` — include recurring and one-time business costs in campaign profitability calculations (medium)
+- [x] `Carts (GET /api/v1.0/carts)` — measure cart abandonment and connect purchase intent with attributed sales (medium)
 
 Note: Parsed the vendor's REST OpenAPI 3.1 YAML, linked from its llms.txt, and inspected source and sale schemas. Tags/count and stages already cover their current lookup endpoints. Clicks and journeys require lead IDs, while reports need explicit windows and attribution choices. Tracking configuration and write-status polling are excluded.
 
@@ -7734,15 +7734,15 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Medusa — gaps
 
-Today (9): `CustomerGroups`, `Customers`, `DraftOrders`, `Orders`, `PriceLists`, `Products`, `ProductVariants`, `Regions`, `Returns`
+Today (13): `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `PriceLists`, `Products`, `ProductVariants`, `Regions`, `Returns`, `StockLocations`
 
 Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
-- [ ] `Stock locations (GET /admin/stock-locations)` — resolve location_id on returns and support stock analysis by warehouse (high)
-- [ ] `Claims (GET /admin/claims)` — resolve claim_id on returns and analyze reasons for after-sale claims (high)
-- [ ] `Exchanges (GET /admin/exchanges)` — resolve exchange_id on returns and measure replacement activity (high)
+- [x] `Stock locations (GET /admin/stock-locations)` — resolve location_id on returns and support stock analysis by warehouse (high). Added as `StockLocations`.
+- [x] `Claims (GET /admin/claims)` — resolve claim_id on returns and analyze reasons for after-sale claims (high). Added as `Claims`.
+- [x] `Exchanges (GET /admin/exchanges)` — resolve exchange_id on returns and measure replacement activity (high). Added as `Exchanges`.
 - [ ] `Payments (GET /admin/payments)` — track captured and refunded payments for revenue reconciliation (high)
-- [ ] `Inventory items (GET /admin/inventory-items)` — measure available, reserved, and stocked quantities, including nested location levels (high)
+- [x] `Inventory items (GET /admin/inventory-items)` — measure available, reserved, and stocked quantities, including nested location levels (high). Added as `InventoryItems` (full refresh: the list route has no timestamp filters).
 - [ ] `Reservations (GET /admin/reservations)` — analyze inventory commitments and their impact on available stock (medium)
 - [ ] `Promotions (GET /admin/promotions)` — compare discount rules with order revenue and promotional performance (medium)
 - [ ] `Campaigns (GET /admin/campaigns)` — measure promotion budgets and campaign usage (medium)
@@ -7772,11 +7772,11 @@ Diffed against: <https://www.membrain.com/developers/api-documentation>
 
 - [ ] `Sales processes (GET /API/v2/salesProcesses/)` — resolve opportunity process and stage IDs, including stage order and process-specific fields (high)
 - [ ] `Prospecting processes (GET /API/v2/prospectingProcesses/)` — resolve prospect process and stage IDs for conversion analysis (high)
-- [ ] `Account Growth processes (GET /API/v2/accountGrowthProcesses/)` — resolve account-growth process and stage IDs for expansion analysis (high)
-- [ ] `Ticket processes (GET /API/v2/ticketProcesses/)` — resolve ticket process and stage IDs for support workflow analysis (high)
-- [ ] `Currencies (GET /API/v2/currencies/)` — resolve ValueCurrencyId and supply exchange rates for comparable pipeline values (high)
+- [x] `Account Growth processes (GET /API/v2/accountGrowthProcesses/)` — resolve account-growth process and stage IDs for expansion analysis (high)
+- [x] `Ticket processes (GET /API/v2/ticketProcesses/)` — resolve ticket process and stage IDs for support workflow analysis (high)
+- [x] `Currencies (GET /API/v2/currencies/)` — resolve ValueCurrencyId and supply exchange rates for comparable pipeline values (high)
 - [ ] `Labels (GET /API/v2/labels/)` — resolve LabelIds on companies and contacts for consistent segmentation (high)
-- [ ] `Activity types (GET /API/v2/activityTypes/)` — resolve ActivityTypeId and provide the complete activity taxonomy (high)
+- [x] `Activity types (GET /API/v2/activityTypes/)` — resolve ActivityTypeId and provide the complete activity taxonomy (high)
 - [ ] `Process Container Contacts (GET /API/v2/processContainerContacts/)` — connect contacts to sales processes and their stakeholder roles (medium)
 - [ ] `Opportunity Products (GET /API/v2/opportunityProducts/)` — join products to opportunities for product-level pipeline and revenue analysis (medium)
 - [ ] `Orders and Order Rows (GET /API/v2/orders/; GET /API/v2/orderRows/)` — measure booked sales and item-level amounts against opportunities and products (medium)
