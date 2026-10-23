@@ -148,15 +148,15 @@ class TestMightyNetworksSourceNonFanout:
 class TestMightyNetworksSourceFanout:
     @parameterized.expand(
         [
-            ("SpaceMembers", "spaces", "members", "space_id"),
-            ("PlanMembers", "plans", "members", "plan_id"),
-            ("MemberTags", "members", "tags", "member_id"),
-            ("MemberBadges", "members", "badges", "member_id"),
-            ("EventRsvps", "events", "rsvps", "event_id"),
+            ("SpaceMembers", "spaces", "members", "space_id", True),
+            ("PlanMembers", "plans", "members", "plan_id", True),
+            ("MemberTags", "members", "tags", "member_id", False),
+            ("MemberBadges", "members", "badges", "member_id", False),
+            ("EventRsvps", "events", "rsvps", "event_id", False),
         ]
     )
     def test_fans_out_per_parent_and_keys_rows_by_parent(
-        self, endpoint: str, parent: str, child: str, parent_key: str
+        self, endpoint: str, parent: str, child: str, parent_key: str, resumable: bool
     ) -> None:
         base = "/admin/v1/networks/1234"
         result = _driver().run(
@@ -182,6 +182,8 @@ class TestMightyNetworksSourceFanout:
         ]
         assert [(row[parent_key], row["id"]) for row in result.rows] == [(10, 1), (10, 2), (20, 1)]
         assert all(f"_{parent.capitalize()}_id" not in row for row in result.rows)
+        # A checkpoint over network-wide parents would list every member or event it completed.
+        assert bool(result.saved_states) is resumable
 
     def test_skips_parent_deleted_before_its_child_fetch(self) -> None:
         result = _driver().run(
@@ -200,21 +202,21 @@ class TestMightyNetworksSourceFanout:
 
     def test_resume_skips_parents_already_read(self) -> None:
         result = _driver().run(
-            "MemberTags",
+            "SpaceMembers",
             route(
                 {
-                    "/admin/v1/networks/1234/members": [_response([{"id": 10}, {"id": 20}], total_pages=1)],
-                    "/admin/v1/networks/1234/members/20/tags": [_response([{"id": 3}], total_pages=1)],
+                    "/admin/v1/networks/1234/spaces": [_response([{"id": 10}, {"id": 20}], total_pages=1)],
+                    "/admin/v1/networks/1234/spaces/20/members": [_response([{"id": 3}], total_pages=1)],
                 }
             ),
             resume_state=MightyNetworksResumeConfig(
-                fanout_state={"completed": ["/members/10/tags"], "current": None, "child_state": None}
+                fanout_state={"completed": ["/spaces/10/members"], "current": None, "child_state": None}
             ),
         )
 
         assert result.raised is None
-        assert result.paths == ["/admin/v1/networks/1234/members", "/admin/v1/networks/1234/members/20/tags"]
-        assert [(row["member_id"], row["id"]) for row in result.rows] == [(20, 3)]
+        assert result.paths == ["/admin/v1/networks/1234/spaces", "/admin/v1/networks/1234/spaces/20/members"]
+        assert [(row["space_id"], row["id"]) for row in result.rows] == [(20, 3)]
 
 
 class TestValidateCredentials:

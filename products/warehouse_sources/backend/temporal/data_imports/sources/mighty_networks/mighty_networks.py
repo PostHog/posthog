@@ -81,6 +81,9 @@ _ROW_FIXUPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 _DATA_SELECTOR: Endpoint = {"data_selector": "data", "data_selector_required": True}
 
 
+_UNBOUNDED_FANOUT_PARENTS = frozenset({"Members", "Events"})
+
+
 def _client_config(api_key: str, network_id: str) -> ClientConfig:
     return {
         "base_url": _network_url(network_id),
@@ -98,18 +101,25 @@ def _fanout_resource(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[MightyNetworksResumeConfig],
 ) -> Resource:
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    fanout = FANOUTS[endpoint]
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
+    resume: Optional[MightyNetworksResumeConfig] = None
+    # The fan-out checkpoint lists every completed parent, so it grows without bound when the
+    # parent is a network-wide list like Members or Events. Those children are short, so a restart
+    # costs little. Spaces and Plans are few, and their member lists are long.
+    if fanout.parent_name not in _UNBOUNDED_FANOUT_PARENTS:
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state:
-            resumable_source_manager.save_state(MightyNetworksResumeConfig(fanout_state=state))
+        def resume_hook(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(MightyNetworksResumeConfig(fanout_state=state))
 
     return cast(
         Resource,
         build_dependent_resource(
             endpoint_configs=ENDPOINT_CONFIGS,
             child_endpoint=endpoint,
-            fanout=FANOUTS[endpoint],
+            fanout=fanout,
             client_config=_client_config(api_key, network_id),
             path_format_values={},
             team_id=team_id,
@@ -118,7 +128,7 @@ def _fanout_resource(
             parent_endpoint_extra=_DATA_SELECTOR,
             child_endpoint_extra=_DATA_SELECTOR,
             page_size_param="per_page",
-            resume_hook=save_fanout_checkpoint,
+            resume_hook=resume_hook,
             initial_paginator_state=resume.fanout_state if resume else None,
         ),
     )
