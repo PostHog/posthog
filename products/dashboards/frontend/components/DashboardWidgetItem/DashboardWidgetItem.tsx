@@ -79,13 +79,22 @@ type DashboardWidgetItemProps = {
     onRemove?: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    /** Opens the widget settings when the tile first renders, as right after the tile is added. */
+    openEditorOnMount?: boolean
+    onEditorClose?: () => void
     /** Injected by react-grid-layout / react-resizable — must render inside the card root. */
     children?: React.ReactNode
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
 
 type DashboardWidgetItemContentProps = Omit<
     DashboardWidgetItemProps,
-    'children' | 'className' | 'style' | 'showResizeHandles' | 'canEnterEditModeFromEdge' | 'onEnterEditModeFromEdge'
+    | 'children'
+    | 'className'
+    | 'style'
+    | 'showResizeHandles'
+    | 'canEnterEditModeFromEdge'
+    | 'onEnterEditModeFromEdge'
+    | 'openEditorOnMount'
 > & {
     widget: NonNullable<DashboardTile['widget']>
     definition: DashboardWidgetDefinition | undefined
@@ -163,9 +172,11 @@ function DashboardWidgetItemContent({
     editOpen,
     setEditOpen,
     showBody,
+    onEditorClose,
 }: DashboardWidgetItemContentProps): JSX.Element {
     const widgetTypeLabel = getDashboardWidgetGroupLabel(headerCatalogEntry.groupId)
-    const defaultTitle = headerCatalogEntry.headerTitle ?? widgetTypeLabel
+    const defaultTitle =
+        definition?.getDefaultTitle?.(widget.config) ?? headerCatalogEntry.headerTitle ?? widgetTypeLabel
     const title = widget.name?.trim() || ''
     const description = widget.description?.trim() || ''
     const showDescription = tile.show_description !== false
@@ -180,6 +191,7 @@ function DashboardWidgetItemContent({
             : undefined
 
     const canUpdateWidgetTileConfig = !!onUpdateWidgetTile && !!canEditDashboard
+    const EditModal = definition?.EditModal
 
     const componentProps: DashboardWidgetComponentProps = {
         tileId: tile.id,
@@ -202,11 +214,11 @@ function DashboardWidgetItemContent({
               }
             : undefined,
         onConfigPublished: canUpdateWidgetTileConfig ? onConfigPublished : undefined,
+        onEdit: showEditingControls && EditModal ? () => setEditOpen(true) : undefined,
     }
 
     const TileFilters = definition?.TileFilters
     const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
-    const EditModal = definition?.EditModal
     const MenuItems = definition?.MenuItems
 
     const hasDashboardSectionActions =
@@ -366,7 +378,10 @@ function DashboardWidgetItemContent({
                     <Suspense fallback={null}>
                         <EditModal
                             isOpen={editOpen}
-                            onClose={() => setEditOpen(false)}
+                            onClose={() => {
+                                setEditOpen(false)
+                                onEditorClose?.()
+                            }}
                             config={widget.config}
                             name={title}
                             defaultTitle={defaultTitle}
@@ -409,6 +424,8 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onRemove,
             onMoveToDashboard,
             onCopyToDashboard,
+            openEditorOnMount,
+            onEditorClose,
             children,
             className,
             style,
@@ -417,7 +434,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
         ref
     ): JSX.Element | null {
         const widget = tile.widget
-        const [editOpen, setEditOpen] = useState(false)
+        const [editOpen, setEditOpen] = useState(!!openEditorOnMount && !!showEditingControls)
         const exportPlacement = placement === DashboardPlacement.Export
         const { ref: visibilityRef, inView } = useInView({
             rootMargin: '500px',
@@ -504,6 +521,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     editOpen={editOpen}
                     setEditOpen={setEditOpen}
                     showBody={showBody}
+                    onEditorClose={onEditorClose}
                 />
             </WidgetCard>
         )

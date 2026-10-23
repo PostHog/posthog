@@ -103,6 +103,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         canEditDashboard,
         widgetResultsByTileId,
         widgetRefreshStatus,
+        widgetEditorTileId,
         scrollToBottomSignal,
         sizeKey,
     } = useValues(dashboardLogic)
@@ -120,6 +121,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveToDashboard,
         copyToDashboard,
         setDashboardEditing,
+        setWidgetEditorTileId,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
@@ -713,10 +715,17 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         isDashboardEditMode={layoutEditMode}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
-                                            runResult?.error ?? refreshState?.error
+                                            runResult?.error ?? refreshState?.error,
+                                            runResult?.error_is_user_facing
                                         )}
                                         loading={!!refreshState?.loading}
                                         lastFetchedAt={refreshState?.fetchedAt}
+                                        openEditorOnMount={widgetEditorTileId === tile.id}
+                                        onEditorClose={
+                                            widgetEditorTileId === tile.id
+                                                ? () => setWidgetEditorTileId(null)
+                                                : undefined
+                                        }
                                         onRefresh={tileActions.refreshWidget}
                                         onRefreshWidgetData={scheduleRefreshDashboardWidgets}
                                         onApplyWidgetIssueMetadataChange={onWidgetIssueMetadataChange}

@@ -634,7 +634,6 @@ export const INSIGHT_VISUAL_ORDER = {
     lifecycle: 60,
     calendarHeatmap: 70,
     sql: 80,
-    metrics: 85,
     hog: 90,
 }
 

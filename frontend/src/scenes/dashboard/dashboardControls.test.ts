@@ -28,17 +28,17 @@ describe('dashboardControls', () => {
         expect(dashboardControlsForQuery(tile.insight?.query)).toEqual(expected)
     })
 
-    it('counts the insights that each control changes', () => {
-        const scopes = getDashboardControlScopes([trendsTile, retentionTile, metricsTile])
+    it('counts the insights and metric widgets that each control changes', () => {
+        const scopes = getDashboardControlScopes([trendsTile, retentionTile, metricsTile], [['dateRange']])
 
-        expect(scopes.dateRange).toEqual({ applies: 3, total: 3 })
-        expect(scopes.interval).toEqual({ applies: 1, total: 3 })
-        expect(scopes.properties).toEqual({ applies: 2, total: 3 })
-        expect(scopes.metricVariables).toEqual({ applies: 1, total: 3 })
+        expect(scopes.dateRange).toEqual({ applies: 4, total: 4 })
+        expect(scopes.interval).toEqual({ applies: 1, total: 4 })
+        expect(scopes.properties).toEqual({ applies: 2, total: 4 })
+        expect(scopes.metricVariables).toEqual({ applies: 1, total: 4 })
     })
 
     it.each([
-        [{ applies: 4, total: 9 }, 'Applies to 4 of 9 insights'],
+        [{ applies: 4, total: 9 }, 'Applies to 4 of 9 charts'],
         [{ applies: 9, total: 9 }, null],
         [{ applies: 0, total: 9 }, null],
         [{ applies: 0, total: 0 }, null],

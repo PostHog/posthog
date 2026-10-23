@@ -6,6 +6,8 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -126,6 +128,29 @@ describe('AddWidgetModal', () => {
 
         await userEvent.click(topIssuesCard)
         expect(topIssuesCard).toHaveAttribute('aria-checked', 'false')
+    })
+
+    it('offers metric presets only with the metrics flag, and adds the picked preset as a metrics widget', async () => {
+        const onAdd = jest.fn().mockResolvedValue(undefined)
+        renderAddWidgetModal({ onAdd })
+        expect(screen.queryByLabelText('Single stat')).not.toBeInTheDocument()
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
+        renderAddWidgetModal({ onAdd })
+        expect(
+            ['Time series', 'Single stat', 'Table', 'Heatmap'].map((label) => !!screen.queryByLabelText(label))
+        ).toEqual([true, true, true, true])
+
+        await userEvent.click(screen.getByLabelText('Single stat'))
+        await userEvent.click(screen.getByTestId('add-widget-submit'))
+
+        expect(onAdd).toHaveBeenCalledWith([
+            {
+                widgetType: 'metrics',
+                config: { query: expect.objectContaining({ kind: 'MetricsQuery', display: { type: 'stat' } }) },
+            },
+        ])
     })
 
     it('submits all selected widget types', async () => {

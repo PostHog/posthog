@@ -3,6 +3,7 @@ import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
 import type { ConversationsWidgetTicket } from '../../widgets/conversations/conversationsWidgetUtils'
 import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
+import { METRICS_WIDGET_SAMPLE_RESPONSE, metricsWidgetSampleQuery } from '../../widgets/metrics/metricsWidgetSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -548,6 +549,15 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     hasMore: true,
                     totalCount: 12,
                 },
+            }
+        case 'metrics':
+            return {
+                title: 'http_server_requests',
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { query: metricsWidgetSampleQuery('time_series') },
+                loading: false,
+                result: METRICS_WIDGET_SAMPLE_RESPONSE,
             }
         default: {
             const exhaustiveCheck: never = catalogKey

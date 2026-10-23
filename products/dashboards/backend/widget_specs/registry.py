@@ -15,6 +15,7 @@ from products.dashboards.backend.widget_specs.configs import (
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
+    METRICS_WIDGET_TYPE,
     NOTEBOOK_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
@@ -25,6 +26,7 @@ from products.dashboards.backend.widget_specs.configs import (
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
     LogsListWidgetConfig,
+    MetricsWidgetConfig,
     NotebookWidgetConfig,
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
@@ -41,6 +43,7 @@ DashboardWidgetType = Literal[
     "logs_list",
     "conversations_recent_tickets",
     "canvas_app",
+    "metrics",
 ]
 
 __all__ = [
@@ -83,6 +86,16 @@ class WidgetSpec:
     # Adds-only rollout gate: creating a tile of this type requires this feature flag (resolved via
     # feature_flags.widget_flag_enabled in widget_create). Existing tiles keep rendering when it's off.
     creation_flag: str | None = None
+    # Widgets that chart the same data as an insight tile follow the dashboard's filters (date range, metric
+    # label filters, metric variables) like one. run_widgets then passes `dashboard_id` and the effective
+    # `dashboard_filters` to `query_fn`.
+    receives_dashboard_filters: bool = False
+    # "widget": every run counts against the shared per-team widget query throttle. "query_runner": the
+    # query runner enforces its own concurrency and budget limits, and serves repeat runs from the query cache,
+    # so a tile is limited like an insight tile instead.
+    throttle_policy: Literal["widget", "query_runner"] = "widget"
+    # Config keys left out of the config that shared and public dashboards receive.
+    public_config_exclude: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.is_live:
@@ -126,6 +139,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.metrics import run_metrics_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
@@ -269,6 +283,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("conversations_enabled",),
             form_fields=("limit",),
             filter_fields=("status", "priorities", "channel", "assignees", "search"),
+            public_config_exclude=("search",),
         ),
         CANVAS_APP_WIDGET_TYPE: WidgetSpec(
             widget_type=CANVAS_APP_WIDGET_TYPE,
@@ -285,6 +300,29 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             form_fields=("canvasId",),
             filter_fields=(),
             creation_flag="small-software-apps",
+        ),
+        METRICS_WIDGET_TYPE: WidgetSpec(
+            widget_type=METRICS_WIDGET_TYPE,
+            config_model=MetricsWidgetConfig,
+            query_fn=run_metrics_widget,
+            required_scopes=("metrics:read",),
+            group_id="metrics",
+            group_label="Metrics",
+            label="Metric",
+            description=(
+                "A service metric as a time series, single stat, gauge, bar gauge, table or heatmap. "
+                "Write the query with the builder, PromQL or SQL."
+            ),
+            required_product_access="metrics",
+            product_access_denied_message="You do not have access to metrics.",
+            availability_requirements=(),
+            form_fields=("query",),
+            filter_fields=(),
+            creation_flag="metrics",
+            receives_dashboard_filters=True,
+            throttle_policy="query_runner",
+            # Shared dashboards show a placeholder for widget tiles, so the query text has no reason to leave.
+            public_config_exclude=("query",),
         ),
     }
 

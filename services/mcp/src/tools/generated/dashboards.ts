@@ -841,6 +841,14 @@ const DashboardWidgetsRunSchema = () => {
     return DashboardsRunWidgetsRetrieveParams.omit({ project_id: true })
         .extend(DashboardsRunWidgetsRetrieveQueryParams.omit({ format: true }).shape)
         .extend({ id: z.preprocess(castStringToInt, DashboardsRunWidgetsRetrieveParams.shape['id']) })
+        .extend({
+            filters_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+                ),
+        })
 }
 
 const dashboardWidgetsRun = (): ToolBase<
@@ -855,6 +863,7 @@ const dashboardWidgetsRun = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_widgets/`,
             query: {
+                filters_override: params.filters_override,
                 tile_ids: params.tile_ids,
             },
         })

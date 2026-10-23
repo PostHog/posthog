@@ -236,20 +236,35 @@ describe('insightNavLogic', () => {
         })
 
         describe('metrics tab visibility', () => {
-            const enableMetricsBuilder = (): void => {
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.METRICS]: true,
-                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
-                })
-            }
-
-            it('hides the metrics tab without both flags', () => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true })
-                expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
+            it.each([
+                ['no flags', {}, false],
+                ['only the builder flag', { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true }, false],
+                [
+                    'both metrics flags',
+                    { [FEATURE_FLAGS.METRICS]: true, [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true },
+                    true,
+                ],
+                [
+                    'both metrics flags and dashboard widgets, which make metrics charts widgets',
+                    {
+                        [FEATURE_FLAGS.METRICS]: true,
+                        [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+                        [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                    },
+                    false,
+                ],
+            ])('on a new insight with %s, shows the metrics tab: %s', (_, flags, shown) => {
+                featureFlagLogic.actions.setFeatureFlags([], flags)
+                expect(logic.values.tabs.map((tab) => tab.type).includes(InsightType.METRICS)).toBe(shown)
             })
 
             it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
-                enableMetricsBuilder()
+                // With dashboard widgets on, only an open metrics query keeps the tab, as for a saved metrics insight.
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.METRICS]: true,
+                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+                    [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                })
 
                 await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.METRICS)

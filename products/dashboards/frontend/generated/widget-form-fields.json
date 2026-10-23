@@ -5,70 +5,88 @@
             "configTypeExport": "ActivityEventsWidgetConfig",
             "formSchemaExport": "activityEventsWidgetFormSchema",
             "formFields": ["limit", "dateRange", "filterTestAccounts"],
-            "live": false
+            "live": false,
+            "creationFlag": null
         },
         "canvas_app": {
             "configSchemaExport": "canvasAppWidgetConfigSchema",
             "configTypeExport": "CanvasAppWidgetConfig",
             "formSchemaExport": "canvasAppWidgetFormSchema",
             "formFields": ["canvasId"],
-            "live": false
+            "live": false,
+            "creationFlag": "small-software-apps"
         },
         "conversations_recent_tickets": {
             "configSchemaExport": "conversationsRecentTicketsWidgetConfigSchema",
             "configTypeExport": "ConversationsRecentTicketsWidgetConfig",
             "formSchemaExport": "conversationsRecentTicketsWidgetFormSchema",
             "formFields": ["limit"],
-            "live": false
+            "live": false,
+            "creationFlag": null
         },
         "error_tracking_list": {
             "configSchemaExport": "errorTrackingWidgetConfigSchema",
             "configTypeExport": "ErrorTrackingWidgetConfig",
             "formSchemaExport": "errorTrackingWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts", "status"],
-            "live": false
+            "live": false,
+            "creationFlag": null
         },
         "experiment_results": {
             "configSchemaExport": "experimentResultsWidgetConfigSchema",
             "configTypeExport": "ExperimentResultsWidgetConfig",
             "formSchemaExport": "experimentResultsWidgetFormSchema",
             "formFields": ["experimentId"],
-            "live": false
+            "live": false,
+            "creationFlag": null
         },
         "experiments_list": {
             "configSchemaExport": "experimentsWidgetConfigSchema",
             "configTypeExport": "ExperimentsWidgetConfig",
             "formSchemaExport": "experimentsWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "status", "createdBy"],
-            "live": false
+            "live": false,
+            "creationFlag": null
         },
         "logs_list": {
             "configSchemaExport": "logsWidgetConfigSchema",
             "configTypeExport": "LogsWidgetConfig",
             "formSchemaExport": "logsWidgetFormSchema",
             "formFields": ["limit", "dateRange", "wrapLines", "timezone"],
-            "live": false
+            "live": false,
+            "creationFlag": null
+        },
+        "metrics": {
+            "configSchemaExport": "metricsWidgetConfigSchema",
+            "configTypeExport": "MetricsWidgetConfig",
+            "formSchemaExport": "metricsWidgetFormSchema",
+            "formFields": ["query"],
+            "live": false,
+            "creationFlag": "metrics"
         },
         "notebook_widget": {
             "configSchemaExport": "notebookWidgetConfigSchema",
             "configTypeExport": "NotebookWidgetConfig",
             "formSchemaExport": "notebookWidgetFormSchema",
             "formFields": [],
-            "live": false
+            "live": false,
+            "creationFlag": "notebook-generated-widgets"
         },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",
             "configTypeExport": "SessionReplayWidgetConfig",
             "formSchemaExport": "sessionReplayWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"],
-            "live": false
+            "live": false,
+            "creationFlag": null
         },
         "survey_results": {
             "configSchemaExport": "surveyResultsWidgetConfigSchema",
             "configTypeExport": "SurveyResultsWidgetConfig",
             "formSchemaExport": "surveyResultsWidgetFormSchema",
             "formFields": ["surveyId", "limit", "dateRange"],
-            "live": false
+            "live": false,
+            "creationFlag": null
         }
     }
 }

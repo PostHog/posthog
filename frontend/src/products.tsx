@@ -21,7 +21,6 @@ import {
     HogQLFilters,
     HogQLQuery,
     HogQLVariable,
-    MetricsQuery,
     Node,
     NodeKind,
     ProductItemCategory,
@@ -2245,17 +2244,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.insightNew({ type: InsightType.LIFECYCLE }),
         iconType: 'insight/lifecycle',
         visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
-        sceneKeys: ['Insight'],
-    },
-    {
-        path: `Insight/Metrics`,
-        type: 'insight',
-        href: urls.insightNew({
-            query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
-        }),
-        flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
-        iconType: 'metrics',
-        visualOrder: INSIGHT_VISUAL_ORDER.metrics,
         sceneKeys: ['Insight'],
     },
     {

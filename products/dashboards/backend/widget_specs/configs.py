@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
-from posthog.schema import ErrorTrackingOrderBy, PropertyOperator
+from posthog.schema import ErrorTrackingOrderBy, MetricsQuery, MetricsQueryClause, PropertyOperator
+
+from posthog.schema_migrations.upgrade import upgrade
 
 from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.dashboards.backend.constants import (
@@ -17,6 +20,8 @@ from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH,
     DEFAULT_WIDGET_LIST_LIMIT,
     LOGS_LIST_DEFAULT_LIMIT,
+    METRICS_WIDGET_MAX_CLAUSES,
+    METRICS_WIDGET_MAX_QUERY_TEXT_LENGTH,
 )
 from products.dashboards.backend.widget_specs.common import (
     ActivityWidgetLimit,
@@ -38,6 +43,7 @@ LOGS_LIST_WIDGET_TYPE = "logs_list"
 CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
 NOTEBOOK_WIDGET_TYPE = "notebook_widget"
 CANVAS_APP_WIDGET_TYPE = "canvas_app"
+METRICS_WIDGET_TYPE = "metrics"
 
 
 class CanvasAppWidgetConfig(BaseModel):
@@ -367,4 +373,56 @@ class ConversationsRecentTicketsWidgetConfig(BaseModel):
             return None
         if not isinstance(value, str):
             raise ValueError("savedViewId must be a string.")
+        return value
+
+
+class MetricsWidgetQuery(MetricsQuery):
+    """A `MetricsQuery` as a metrics widget stores it.
+
+    Response, modifier and tag fields are runtime state, so a stored config can't carry them.
+    """
+
+    clauses: list[MetricsQueryClause] = Field(
+        default_factory=list,
+        max_length=METRICS_WIDGET_MAX_CLAUSES,
+        description="Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.",
+    )
+    promql: str | None = Field(
+        default=None,
+        max_length=METRICS_WIDGET_MAX_QUERY_TEXT_LENGTH,
+        description="PromQL expression, run as a range query. Used when `language` is `promql`.",
+    )
+    sql: str | None = Field(
+        default=None,
+        max_length=METRICS_WIDGET_MAX_QUERY_TEXT_LENGTH,
+        description=(
+            "HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` "
+            "and a `value` column; every other column is a series label."
+        ),
+    )
+    response: SkipJsonSchema[None] = None
+    modifiers: SkipJsonSchema[None] = None
+    tags: SkipJsonSchema[None] = None
+    # Variable definitions hold their own SQL or PromQL, and widgets don't take dashboard variables yet.
+    variables: SkipJsonSchema[None] = None
+
+
+class MetricsWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: MetricsWidgetQuery = Field(
+        default_factory=MetricsWidgetQuery,
+        description=(
+            "Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, "
+            "bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides "
+            "it. A config update replaces the whole query."
+        ),
+    )
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def upgrade_query(cls, value: Any) -> Any:
+        # Saved insight queries migrate through the same upgrade on read, so stored widgets survive schema changes.
+        if isinstance(value, dict):
+            return upgrade(value)
         return value
