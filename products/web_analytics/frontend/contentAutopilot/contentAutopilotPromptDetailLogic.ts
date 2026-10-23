@@ -250,8 +250,11 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         prompt: [
             null as AEOPromptApi | null,
             {
-                loadAeoPrompt: async (promptId: string) =>
-                    aeoPromptsRetrieve(String(values.currentTeamIdStrict), promptId),
+                loadAeoPrompt: async (promptId: string, breakpoint) => {
+                    const prompt = await aeoPromptsRetrieve(String(values.currentTeamIdStrict), promptId)
+                    breakpoint()
+                    return prompt
+                },
             },
         ],
         versions: [
@@ -264,19 +267,26 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         stats: [
             null as AEOPromptStatsApi | null,
             {
-                loadAeoPromptStats: async (promptId: string) =>
-                    aeoPromptsStats(String(values.currentTeamIdStrict), promptId),
+                loadAeoPromptStats: async (promptId: string, breakpoint) => {
+                    const stats = await aeoPromptsStats(String(values.currentTeamIdStrict), promptId)
+                    breakpoint()
+                    return stats
+                },
             },
         ],
         latestChecks: [
             {} as Record<string, AEOPromptCheckApi>,
             {
-                loadAeoPromptLatestChecks: async ({ promptId, engines }: { promptId: string; engines: string[] }) => {
+                loadAeoPromptLatestChecks: async (
+                    { promptId, engines }: { promptId: string; engines: string[] },
+                    breakpoint
+                ) => {
                     const pages = await Promise.all(
                         engines.map((engine) =>
                             aeoPromptsChecks(String(values.currentTeamIdStrict), promptId, { engine, limit: 1 })
                         )
                     )
+                    breakpoint()
                     return Object.fromEntries(
                         pages.flatMap((page) => page.results.slice(0, 1)).map((check) => [check.engine, check])
                     )
@@ -431,11 +441,12 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             actions.loadAeoPromptStats(promptId)
             actions.loadAeoPromptChecks()
         },
-        loadAeoPromptStatsSuccess: ({ stats }) => {
-            if (values.promptId) {
+        loadAeoPromptStatsSuccess: ({ stats, payload: promptId }) => {
+            // Stats from a prompt the user already left must not drive the next prompt's answers.
+            if (promptId && promptId === values.promptId) {
                 actions.loadAeoPromptLatestChecks({
-                    promptId: values.promptId,
-                    engines: stats ? stats.engines.map((engine) => engine.engine) : [],
+                    promptId,
+                    engines: stats.engines.map((engine) => engine.engine),
                 })
             }
         },
