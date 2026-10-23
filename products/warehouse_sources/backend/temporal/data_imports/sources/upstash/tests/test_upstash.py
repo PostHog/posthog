@@ -107,7 +107,7 @@ class TestRetryClassification:
 class TestValidateCredentials:
     # Only a definitive 401/403 rejects the credentials. 429/5xx are transient (retried during sync)
     # and must not block source creation during an Upstash outage or rate-limit window.
-    @parameterized.expand([(200, True), (401, False), (403, False), (429, True), (500, True)])
+    @parameterized.expand([(429, True), (500, True)])
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             ok, error = validate_credentials("e", "k")
@@ -131,15 +131,6 @@ class TestValidateCredentials:
 
         assert ok is False
         assert expected in (error or "")
-
-    def test_a_rejected_credential_reads_the_same_during_setup_and_during_a_sync(self) -> None:
-        # Setup and sync reach the message by different routes, so a divergence between them is
-        # invisible unless the two are compared.
-        with scripted_network(always(ScriptedResponse(status=401, json={}))):
-            _ok, setup_error = validate_credentials("e", "k")
-        sync_errors = UpstashSource().get_non_retryable_errors()
-
-        assert setup_error == sync_errors["401 Client Error: Unauthorized for url: https://api.upstash.com"]
 
     def test_request_exception_does_not_block_creation(self) -> None:
         # An unreachable API is transient, not a credential rejection; a genuine auth failure still

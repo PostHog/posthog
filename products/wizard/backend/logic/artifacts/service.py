@@ -1,8 +1,9 @@
-import logging
 from hashlib import sha256
 from uuid import UUID
 
 from django.conf import settings
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
@@ -20,7 +21,7 @@ from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES, M
 from products.wizard.backend.logic.runs import store as run_store
 from products.wizard.backend.observability.service import wizard_observability as run_observability
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -110,7 +111,9 @@ def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID)
     if content_hash != stored_artifact.content_hash:
         logger.error(
             "wizard_git_diff_integrity_check_failed",
-            extra={"team_id": team_id, "run_id": str(run_id), "artifact_id": str(artifact_id)},
+            team_id=team_id,
+            run_id=str(run_id),
+            artifact_id=str(artifact_id),
         )
         raise ValueError("Stored Wizard diff failed its integrity check")
 

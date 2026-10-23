@@ -1,6 +1,20 @@
 {
     "name": "Host metrics",
     "description": "CPU, memory, disk and network of hosts that run the Prometheus node exporter.",
+    "variables": [
+        {
+            "name": "instance",
+            "label": "Instance",
+            "source": "sql",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'instance' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "cpu_busy",
@@ -17,13 +31,25 @@
                                 "key": "mode",
                                 "op": "eq",
                                 "value": "idle"
+                            },
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     },
                     {
                         "name": "b",
                         "metricName": "node_cpu_seconds_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -63,12 +89,26 @@
                     {
                         "name": "a",
                         "metricName": "node_memory_MemAvailable_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "b",
                         "metricName": "node_memory_MemTotal_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -108,7 +148,14 @@
                     {
                         "name": "a",
                         "metricName": "node_load1",
-                        "aggregation": "avg"
+                        "aggregation": "avg",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -132,12 +179,26 @@
                     {
                         "name": "a",
                         "metricName": "node_filesystem_avail_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "b",
                         "metricName": "node_filesystem_size_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -182,6 +243,13 @@
                             {
                                 "key": "mode"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -210,6 +278,13 @@
                             {
                                 "key": "instance"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -234,12 +309,26 @@
                     {
                         "name": "received",
                         "metricName": "node_network_receive_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "sent",
                         "metricName": "node_network_transmit_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -263,12 +352,26 @@
                     {
                         "name": "read",
                         "metricName": "node_disk_read_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "written",
                         "metricName": "node_disk_written_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -292,17 +395,38 @@
                     {
                         "name": "load1",
                         "metricName": "node_load1",
-                        "aggregation": "avg"
+                        "aggregation": "avg",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "load5",
                         "metricName": "node_load5",
-                        "aggregation": "avg"
+                        "aggregation": "avg",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "load15",
                         "metricName": "node_load15",
-                        "aggregation": "avg"
+                        "aggregation": "avg",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -329,6 +453,13 @@
                         "groupBy": [
                             {
                                 "key": "mountpoint"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }

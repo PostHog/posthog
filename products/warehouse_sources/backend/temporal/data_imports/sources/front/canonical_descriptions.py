@@ -243,4 +243,75 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "values": "Possible values, for a custom field of type `enum`.",
         },
     },
+    "conversation_followers": {
+        "description": "A teammate who follows a conversation. One row per conversation and follower.",
+        "docs_url": "https://dev.frontapp.com/reference/list-conversation-followers",
+        "columns": {
+            "id": "Unique identifier of the following teammate.",
+            "conversation_id": "Identifier of the followed conversation.",
+            "email": "The teammate's email address.",
+            "username": "The teammate's username.",
+            "first_name": "The teammate's first name.",
+            "last_name": "The teammate's last name.",
+        },
+    },
+    "teammate_groups": {
+        "description": "A group of teammates in the Front workspace, linked to teams and inboxes.",
+        "docs_url": "https://dev.frontapp.com/reference/list-company-teammate-groups",
+        "columns": {
+            "id": "Unique identifier of the teammate group.",
+            "name": "Name of the teammate group.",
+            "description": "Description of the teammate group.",
+            "is_managed_by_scim": "Whether the group is managed by SCIM provisioning.",
+            "permissions": "Permissions granted to the members of the group.",
+        },
+    },
+    "teammate_group_teammates": {
+        "description": "A teammate who is a member of a teammate group. One row per group and teammate.",
+        "docs_url": "https://dev.frontapp.com/reference/list-company-teammate-group-teammates",
+        "columns": {
+            "id": "Unique identifier of the teammate.",
+            "teammate_group_id": "Identifier of the teammate group.",
+            "email": "The teammate's email address.",
+            "username": "The teammate's username.",
+        },
+    },
+    "teammate_group_teams": {
+        "description": "A team added to a teammate group. One row per group and team.",
+        "docs_url": "https://dev.frontapp.com/reference/list-company-teammate-group-teams",
+        "columns": {
+            "id": "Unique identifier of the team.",
+            "teammate_group_id": "Identifier of the teammate group.",
+            "name": "Name of the team.",
+        },
+    },
+    "teammate_group_inboxes": {
+        "description": "An inbox that a teammate group can access through its teams. One row per group and inbox.",
+        "docs_url": "https://dev.frontapp.com/reference/list-company-teammate-group-team-inboxes",
+        "columns": {
+            "id": "Unique identifier of the inbox.",
+            "teammate_group_id": "Identifier of the teammate group.",
+            "name": "Name of the inbox.",
+            "is_private": "Whether the inbox is private.",
+        },
+    },
+    "contact_lists": {
+        "description": "A list of contacts, used to segment contacts.",
+        "docs_url": "https://dev.frontapp.com/reference/list-contact-lists",
+        "columns": {
+            "id": "Unique identifier of the contact list.",
+            "name": "Name of the contact list.",
+            "is_private": "Whether the list is private to its owner.",
+        },
+    },
+    "contact_list_contacts": {
+        "description": "A contact that belongs to a contact list. One row per list and contact.",
+        "docs_url": "https://dev.frontapp.com/reference/list-contacts-in-contact-list",
+        "columns": {
+            "id": "Unique identifier of the contact.",
+            "contact_list_id": "Identifier of the contact list.",
+            "name": "The contact's name.",
+            "handles": "Handles (email addresses, phone numbers, etc.) used to reach the contact.",
+        },
+    },
 }

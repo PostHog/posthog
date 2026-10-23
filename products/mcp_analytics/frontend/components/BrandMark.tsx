@@ -25,7 +25,15 @@ const ICON_MARKS: Record<
 }
 
 function isIconMark(name: BrandMarkName): name is IconMarkName {
-    return name in ICON_MARKS
+    return Object.prototype.hasOwnProperty.call(ICON_MARKS, name)
+}
+
+// Mark names from untrusted input, such as HogQL's withIcon(), must pass through here before reaching BrandMark.
+export function toBrandMarkName(name: string): BrandMarkName {
+    return Object.prototype.hasOwnProperty.call(ICON_MARKS, name) ||
+        Object.prototype.hasOwnProperty.call(BRAND_MARKS, name)
+        ? (name as BrandMarkName)
+        : 'Other harnesses'
 }
 
 // Pass a label only when the mark stands alone. Next to a visible name, an unlabelled mark stays hidden

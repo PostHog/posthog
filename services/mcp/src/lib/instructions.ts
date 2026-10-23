@@ -209,6 +209,7 @@ export class ToolDomainExtractor {
         'archive',
         'calculate',
         'cancel',
+        'check',
         'claim',
         'complete',
         'compose',

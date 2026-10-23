@@ -37,7 +37,7 @@ An instance without one makes no request at all: `scrape` and `search` raise `Fi
 ## Typed client
 
 Callers use `client.py` rather than `firecrawl_request`.
-`scrape(url, source=...)` returns a `FirecrawlScrape` (markdown, summary, page title, description, status code, credits used).
+`scrape(url, source=...)` returns a `FirecrawlScrape` (final URL after redirects, markdown, summary, page title, description, status code, credits used).
 It raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including a 200 that carries `success: false`.
 `search(query, source=...)` returns a `FirecrawlSearch` of web results and raises `FirecrawlSearchFailed` on the same conditions.
 It rejects a `limit` above `MAX_SEARCH_LIMIT` or a query above `MAX_SEARCH_QUERY_CHARS` before any call.
@@ -48,3 +48,4 @@ Only `POST /v2/scrape` and `POST /v2/search` are wired up.
 - [Rate limits](https://docs.firecrawl.dev/rate-limits): per-minute limits by plan for `/scrape` and `/search`.
 - [Errors](https://docs.firecrawl.dev/api-reference/errors): `Retry-After` on a 429, and no rate-limit status headers.
 - [Billing](https://docs.firecrawl.dev/billing): one credit per scrape, two credits per ten search results.
+- [Scrape](https://docs.firecrawl.dev/api-reference/endpoint/scrape): `metadata.url` is the final URL after redirects, and `metadata.sourceURL` is the requested URL.

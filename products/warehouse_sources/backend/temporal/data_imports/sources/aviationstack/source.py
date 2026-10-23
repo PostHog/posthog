@@ -134,7 +134,7 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
             name=ExternalDataSourceType.AVIATIONSTACK,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Aviationstack",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your aviationstack access key to pull real-time, scheduled, and historical flight data plus aviation reference tables into the PostHog Data warehouse.
 
 You can find your access key in your [aviationstack dashboard](https://aviationstack.com/dashboard).

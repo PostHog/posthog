@@ -2,15 +2,16 @@ import time
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from datetime import UTC, datetime
-from typing import Any, Optional, cast
+from typing import Any, ClassVar, Optional, cast
 
 import structlog
 from requests import Request, Response, Session
 from requests.exceptions import HTTPError
-from urllib3.util.retry import Retry
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
+    BoundedRetry,
     make_tracked_session,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -60,6 +61,13 @@ class IntercomResumeConfig:
     last_company_id: str | None = None
     # Page-number list endpoints: the next page to fetch.
     page: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class IntercomConversationCursor:
+    cursor_kind: ClassVar[str] = "intercom_conversation_updated_at"
+    # `updated_at` of the newest conversation whose HITL events this run read.
+    updated_at: int
 
 
 def _load_resume_state(
@@ -154,7 +162,7 @@ def _auth_headers(access_token: str, api_version: str) -> dict[str, str]:
 # it's safe to retry it on transient read timeouts and 429/5xx like everything else.
 # Derived from DEFAULT_RETRY so the shared policy stays the single source of
 # truth — the only intentional difference is adding POST to allowed_methods.
-_INTERCOM_RETRY = Retry(
+_INTERCOM_RETRY = BoundedRetry(
     total=DEFAULT_RETRY.total,
     backoff_factor=DEFAULT_RETRY.backoff_factor,
     status_forcelist=DEFAULT_RETRY.status_forcelist,
@@ -344,7 +352,7 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
     if cfg.paginator_kind == "pages":
         return IntercomPagesPaginator()
     if cfg.paginator_kind == "page_number":
-        return PageNumberPaginator(base_page=1, total_path="total_pages")
+        return PageNumberPaginator(base_page=1, total_path=cfg.total_pages_path)
     return SinglePagePaginator()
 
 
@@ -479,20 +487,27 @@ def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> 
     return _request_with_rate_limit_retry(do)
 
 
+def _fetch_conversation_parts(session: Session, conversation: dict[str, Any]) -> list[dict[str, Any]]:
+    full = _intercom_get(session, f"/conversations/{conversation['id']}")
+    return (full.get("conversation_parts") or {}).get("conversation_parts") or []
+
+
 def _conversation_parts_generator(
     session: Session,
     incremental_field: str,
     db_incremental_field_last_value: Optional[Any],
     resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
+    fetch_children: Callable[[Session, dict[str, Any]], list[dict[str, Any]]] = _fetch_conversation_parts,
 ) -> Iterator[dict[str, Any]]:
-    """Yield each conversation part. Parents come from `POST /conversations/search`
-    with the same `updated_at >` server-side filter the conversations endpoint uses,
-    so only parents whose timestamp advanced are refetched. The part rows carry their
-    own `updated_at`, so the pipeline's cursor watermark advances per-part.
-    `conversation_id` is injected onto each row for joinability.
+    """Yield each conversation part, or the rows `fetch_children` returns for each
+    conversation. Parents come from `POST /conversations/search` with the same
+    `updated_at >` server-side filter the conversations endpoint uses, so only parents
+    whose timestamp advanced are refetched. Part rows carry their own `updated_at`, so
+    the pipeline's cursor watermark advances per-part. `conversation_id` is injected onto
+    each row for joinability.
 
     The resume cursor is the parent page plus the conversations in it that are done,
-    staged after each conversation's parts are yielded. A resume refetches that page
+    staged after each conversation's children are yielded. A resume refetches that page
     and skips the done conversations."""
     body = _build_search_body(INTERCOM_ENDPOINTS["conversations"], incremental_field, db_incremental_field_last_value)
     completed: list[str] = []
@@ -510,8 +525,8 @@ def _conversation_parts_generator(
         resumable_source_manager.save_state(
             IntercomResumeConfig(cursor=page_cursor, query_value=query_value, completed_conversation_ids=list(done))
         )
-        # Every part the staged cursor covers is yielded and nothing is buffered here. Many
-        # conversations have no parts, so the walk can make many requests between rows.
+        # Every row the staged cursor covers is yielded and nothing is buffered here. Many
+        # conversations have no children, so the walk can make many requests between rows.
         resumable_source_manager.safe_point()
 
     while True:
@@ -523,16 +538,15 @@ def _conversation_parts_generator(
             if conversation_id in done_ids:
                 continue
             try:
-                full = _intercom_get(session, f"/conversations/{conv['id']}")
+                children = fetch_children(session, conv)
             except HTTPError as exc:
                 if not _is_not_found(exc):
                     raise
                 logger.warning("intercom_conversation_not_found", conversation_id=conv["id"])
             else:
-                parts = (full.get("conversation_parts") or {}).get("conversation_parts") or []
-                for part in parts:
-                    part["conversation_id"] = conv["id"]
-                    yield part
+                for child in children:
+                    child["conversation_id"] = conv["id"]
+                    yield child
             completed.append(conversation_id)
             done_ids.add(conversation_id)
             stage(page_cursor, completed)
@@ -714,12 +728,44 @@ def _company_segments_generator(
             resumable_source_manager.safe_point()
 
 
+def _conversation_hitl_events_generator(
+    session: Session,
+    should_use_incremental_field: bool,
+    cursor_manager: SourceCursorManager[IntercomConversationCursor] | None,
+    resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield the HITL events of each conversation, with `conversation_id` and `round_index` injected.
+
+    The events carry only `created_at`, and many workspaces have none, so a watermark taken from
+    the rows would never move. The source cursor holds the newest parent `updated_at` the walk
+    reached instead, and the next run searches only conversations updated after it."""
+    stored = cursor_manager.load() if should_use_incremental_field and cursor_manager is not None else None
+
+    def fetch_events(session: Session, conversation: dict[str, Any]) -> list[dict[str, Any]]:
+        events = _intercom_get(session, f"/conversations/{conversation['id']}/hitl_events").get("data") or []
+        for event in events:
+            # Rounds of one consultation share every other key column, sometimes `created_at` too.
+            event["round_index"] = (event.get("data") or {}).get("round_index") or 0
+        if cursor_manager is not None and conversation.get("updated_at") is not None:
+            cursor_manager.stage(IntercomConversationCursor(updated_at=int(conversation["updated_at"])))
+        return events
+
+    return _conversation_parts_generator(
+        session,
+        "updated_at",
+        stored.updated_at if stored is not None else None,
+        resumable_source_manager,
+        fetch_children=fetch_events,
+    )
+
+
 def _substream_items(
     session: Session,
     endpoint: str,
     incremental_field: str | None,
     db_incremental_field_last_value: Optional[Any],
     resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
+    cursor_manager: SourceCursorManager[IntercomConversationCursor] | None = None,
 ) -> Iterator[dict[str, Any]]:
     if endpoint == "conversation_parts":
         if not incremental_field:
@@ -729,6 +775,10 @@ def _substream_items(
             incremental_field = "updated_at"
         return _conversation_parts_generator(
             session, incremental_field, db_incremental_field_last_value, resumable_source_manager
+        )
+    if endpoint == "conversation_hitl_events":
+        return _conversation_hitl_events_generator(
+            session, incremental_field is not None, cursor_manager, resumable_source_manager
         )
     if endpoint == "company_segments":
         return _company_segments_generator(session, resumable_source_manager)
@@ -797,6 +847,7 @@ def intercom_source(
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
+    cursor_manager: SourceCursorManager[IntercomConversationCursor] | None = None,
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
     if cfg.api_versions is not None and api_version not in cfg.api_versions:
@@ -817,7 +868,12 @@ def intercom_source(
             had_resume_state = resumable_source_manager.can_resume()
             try:
                 yield from _substream_items(
-                    session, endpoint, incremental_field, db_incremental_field_last_value, resumable_source_manager
+                    session,
+                    endpoint,
+                    incremental_field,
+                    db_incremental_field_last_value,
+                    resumable_source_manager,
+                    cursor_manager,
                 )
             except HTTPError as exc:
                 if had_resume_state and _is_invalid_resume_cursor(exc):

@@ -21,6 +21,7 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { escapeHogQLString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -57,6 +58,14 @@ export interface FlagUsageChart<Q extends FlagUsageQuery = FlagUsageQuery> {
     title: string
     description: string
     query: Q
+    emptyState?: Pick<QueryContext, 'emptyStateHeading' | 'emptyStateDetail'>
+}
+
+// A cached empty daily result can hide new calls for hours, so point at Reload and the log, not the query.
+const FLAG_CALLS_EMPTY_STATE: FlagUsageChart['emptyState'] = {
+    emptyStateHeading: 'No calls to this flag in this date range',
+    emptyStateDetail:
+        'New calls can take a few minutes to show in the charts. Click Reload to check again. The log below lists calls as they arrive.',
 }
 
 function flagCalledProperties({ flagKey, aggregationGroupTypeIndex }: FlagUsageQueryOptions): AnyPropertyFilter[] {
@@ -114,6 +123,7 @@ export function buildFlagCalledTotalVolumeChart(
             },
             ChartDisplayType.ActionsLineGraph
         ),
+        emptyState: FLAG_CALLS_EMPTY_STATE,
     }
 }
 
@@ -147,6 +157,7 @@ export function buildFlagCalledUniqueCallersChart(
             },
             ChartDisplayType.ActionsTable
         ),
+        emptyState: FLAG_CALLS_EMPTY_STATE,
     }
 }
 
@@ -190,12 +201,12 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// The table stores a JSON-null $feature_flag_response as 'null' and a missing one as ''. The events-mode
-// breakdown puts both cases in one bucket labelled BREAKDOWN_NULL_DISPLAY, so these charts do the same.
+// The table reads a null or missing $feature_flag_response as NULL. The events-mode breakdown labels that
+// bucket BREAKDOWN_NULL_DISPLAY, so these charts do the same.
 // The label is in the query because the SQL line chart names a NULL series "[No value]" and the SQL
 // table draws a NULL cell as a dash. A variant whose key equals the label merges into this bucket. The flag
 // editor rejects that key, but the API accepts it.
-const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
+const FLAG_EVALUATIONS_VARIANT = `ifNull(response, ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)})`
 
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
 export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {

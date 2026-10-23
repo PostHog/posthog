@@ -89,7 +89,7 @@
         }
     },
     "experiment-get-by-flag-key": {
-        "description": "Get an experiment by its feature flag key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the flag key but not the experiment's numeric ID; use `experiment-get` when you have the ID. Returns the full experiment with `found: true`, or `found: false` with a message when no flag or no linked experiment exists — a miss is data, not an error, so an existence check before `experiment-create` needs no special handling. Archived flags and experiments are included. A miss carries `reason`: `no_flag` or `no_experiment` mean the key is free to create on; `ambiguous` means several experiments share the flag (experiment-duplicate reuses it) and none is the single live one, so `candidates` (id, name, status, archived, dates) lists them to pick from with `experiment-get`. When exactly one is live it is returned directly.",
+        "description": "Get an experiment by its feature flag key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the flag key but not the experiment's numeric ID; use `experiment-get` when you have the ID. Returns the full experiment with `found: true`, or `found: false` with a message when no flag or no linked experiment exists — a miss is data, not an error, so an existence check before `experiment-create` needs no special handling. Archived flags and experiments are included. A miss carries `reason`: `no_flag` or `no_experiment` mean the key is free to create on; `ambiguous` means several experiments share the flag (experiment-duplicate reuses it) and none is the single live one, so `candidates` (id, name, status, archived, dates) lists them to pick from with `experiment-get`. When exactly one is live it is returned directly. A found experiment also carries `variant_screenshot_urls`, which maps each variant key to the viewable URLs of its screenshots.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get an experiment by its feature flag key.",
@@ -109,6 +109,7 @@
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -123,6 +124,7 @@
         "summary": "Deprecated alias for skill-archive.",
         "title": "Archive skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/archive/"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -137,6 +139,7 @@
         "summary": "Deprecated alias for skill-create.",
         "title": "Create skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -151,6 +154,7 @@
         "summary": "Deprecated alias for skill-duplicate.",
         "title": "Duplicate skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/duplicate/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -165,6 +169,7 @@
         "summary": "Deprecated alias for skill-file-create.",
         "title": "Create skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/files/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -179,6 +184,7 @@
         "summary": "Deprecated alias for skill-file-delete.",
         "title": "Delete skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/llm_skills/name/{skill_name}/files/{file_path}/"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -193,6 +199,7 @@
         "summary": "Deprecated alias for skill-file-get.",
         "title": "Get skill file (deprecated)",
         "required_scopes": ["llm_skill:read"],
+        "api_operations": ["GET /api/projects/{project_id}/llm_skills/name/{skill_name}/files/{file_path}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -207,6 +214,7 @@
         "summary": "Deprecated alias for skill-file-rename.",
         "title": "Rename skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/files-rename/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -221,6 +229,7 @@
         "summary": "Deprecated alias for skill-get.",
         "title": "Get skill (deprecated)",
         "required_scopes": ["llm_skill:read"],
+        "api_operations": ["GET /api/projects/{project_id}/llm_skills/name/{skill_name}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -235,6 +244,7 @@
         "summary": "Deprecated alias for skill-list.",
         "title": "List skills (deprecated)",
         "required_scopes": ["llm_skill:read"],
+        "api_operations": ["GET /api/projects/{project_id}/llm_skills/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -249,6 +259,7 @@
         "summary": "Deprecated alias for skill-update.",
         "title": "Update skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/llm_skills/name/{skill_name}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -263,12 +274,33 @@
         "summary": "Run a saved insight's query and return results.",
         "title": "Query insight",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events"
+    },
+    "insight-trust-check": {
+        "description": "Check whether the numbers of a product analytics insight can be trusted. It looks at the events behind the insight for four common problems that inflate its numbers: events from internal and test users, events from local development, bot and crawler traffic, and events sent twice. Pass the `id` or 8-character `short_id` of a saved insight, or the `query` of one that is not saved yet, such as a query you are about to pass to `insight-create`. Use it after you create or change a trends, funnel, stickiness, or lifecycle insight, and when the user asks whether an insight's numbers are accurate or can be trusted.\n\nOnly event series are checked. The `status` is `unsupported` for a SQL insight, for a series built on an action or a data warehouse table, for an insight that still stores legacy `filters`, and when a property of the project is hidden from you. It is `no_events` when no event matches the insight.\n\nEach check has a `level` (`passed`, `warning`, `problem` or `skipped`), the `events` it found with their `share`, and the `top_events` it found most often. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to true on the query, with `insight-update` for a saved insight. When it is `open_filter_settings`, the project's internal and test users filter misses the team, and the user must change it in the project settings. The checks read the newest days of the date range, up to 7, and `coverage` says which days and how many events. Each check's `method` says whether it counted every event on those days or read a sample, and `scaled` is true when its `events` is an estimate from a sample. The internal users check matches the organization's member emails only with the `organization_member:read` scope, and its verified domains only with `organization:read`. Checking a `query` needs the `query:read` scope as well.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Check whether an insight's numbers can be trusted.",
+        "title": "Check whether an insight's numbers can be trusted",
+        "required_scopes": ["insight:read", "query:read"],
+        "api_operations": [
+            "GET /api/projects/{project_id}/insights/{id}/data_checks/",
+            "POST /api/projects/{project_id}/insights/data_checks/"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "insight-data-checks"
     },
     "notebook-edit": {
         "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
@@ -277,6 +309,10 @@
         "summary": "Edit part of a notebook's content.",
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/save/"
+        ],
         "feature_flag": "notebooks-collaboration",
         "hidden_when_flag_on": "revamped-py-notebooks",
         "superseded_by": ["notebooks-update-cell", "notebooks-add-cell"],
@@ -295,6 +331,7 @@
         "summary": "Create a markdown notebook for deep-dive analysis with SQL and Python cells.",
         "title": "Create markdown notebook",
         "required_scopes": ["notebook:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/"],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -310,6 +347,11 @@
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
         "title": "Add notebook cell",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -325,6 +367,11 @@
         "summary": "Update a cell's code and re-run it.",
         "title": "Update notebook cell",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -340,6 +387,7 @@
         "summary": "Delete a notebook cell.",
         "title": "Delete notebook cell",
         "required_scopes": ["notebook:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/"],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": true,
@@ -355,6 +403,12 @@
         "summary": "Run every SQL and Python cell of a notebook in document order.",
         "title": "Run notebook",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/runs/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -370,6 +424,11 @@
         "summary": "Run one SQL or Python cell of a notebook.",
         "title": "Run notebook cell",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -385,6 +444,11 @@
         "summary": "Continue waiting on a notebook run and write its results into the document.",
         "title": "Notebook run status",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -400,6 +464,7 @@
         "summary": "Set a notebook's variables; cells read them as {name} in SQL or globals in Python.",
         "title": "Set notebook variables",
         "required_scopes": ["notebook:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/notebooks/{short_id}/"],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -415,12 +480,14 @@
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
         "required_scopes": ["warehouse_table:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events"
     },
     "llma-parser-recipe-create": {
         "description": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server loads the exact event (by trace_id + event_uuid), compiles your YAML, and validates it against that event, saving the recipe only when a previously-unrecognized input or output side becomes recognized. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
@@ -653,12 +720,14 @@
         "summary": "Execute an SQL query.",
         "title": "Execute SQL query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/execute_sql/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events_or_warehouse"
     },
     "read-data-schema": {
         "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.\n\nPut all parameters in `query`. Select the schema with `kind`:\n\n```json\n{ \"query\": { \"kind\": \"events\" } }\n```",
@@ -667,12 +736,14 @@
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
         "required_scopes": ["action:read", "event_definition:read", "property_definition:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/read_taxonomy/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "reads_ingested_data": "events_or_warehouse"
     },
     "workflows-enable": {
         "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
@@ -709,6 +780,7 @@
         "summary": "Size workflow audience",
         "title": "Size workflow audience",
         "required_scopes": ["hog_flow:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/hog_flows/user_blast_radius/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

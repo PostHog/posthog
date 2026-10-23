@@ -63,11 +63,6 @@ def _exit_for_signal(signum, _frame):
 def main():
     """Main entry point for the toolbox command."""
     try:
-        # If we're in a flox environment, exit
-        if "FLOX_ENV" in os.environ:
-            print("⚠️ Please exit the flox environment by typing `exit` before connecting to a toolbox.")  # noqa: T201
-            sys.exit(0)
-
         # Set up argument parser
         parser = argparse.ArgumentParser(
             description="Connect to a toolbox pod and manage pod claims. This script will automatically connect you to your latest claimed pod.",
@@ -288,7 +283,7 @@ def main():
                     delete_pod(pod_name, namespace=namespace, context=selected_context)
         sys.exit(rc)
     except KeyboardInterrupt:
-        print("\n👋 Goodbye! \n \n Did something not work as expected? Ask in #team-infrastructure")  # noqa: T201
+        print("\n👋 Goodbye! \n \n Did something not work as expected? Ask in #support-infrastructure")  # noqa: T201
         # POSIX convention: SIGINT exits 128 + signum (130). sys.exit(0) here
         # would mask Ctrl-C as a clean success to any wrapper checking $?, and
         # is inconsistent with the SIGTERM/SIGHUP handlers which already use 128 + signum.

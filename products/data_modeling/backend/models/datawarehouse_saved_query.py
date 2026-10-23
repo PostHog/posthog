@@ -155,6 +155,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
     # Null on rows that predate the column; the write path accepts any token for those until their first edit.
     query_revision = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
+    query_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
@@ -293,14 +294,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def name_chain(self) -> list[str]:
         return self.name.split(".")
 
-    def setup_model_paths(self):
-        from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-
-        if not DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self).exists():
-            DataWarehouseModelPath.objects.create_from_saved_query(self)
-        else:
-            DataWarehouseModelPath.objects.update_from_saved_query(self)
-
     def schedule_materialization(
         self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
     ):
@@ -334,11 +327,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         node: Node | None = None
         try:
-            # If this query's DAG runs on cadence tiers, those tiers materialize it. A bare whole-DAG
-            # schedule does not count: reconcile refuses to add tiers beside one, so bootstrap sweeps it.
+            # If this query's DAG runs on cadence tiers, those tiers materialize it.
             # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
             # contract below rather than leaving is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id, tiered_only=True)
+            on_v2 = self.id in get_v2_saved_query_ids([self.id])
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
@@ -427,10 +419,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 saved_query_id=str(self.id),
             )
 
-    def revert_materialization(self):
+    def revert_materialization(self, *, delete_joins: bool = True):
         from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
-        from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
         self.sync_frequency_interval = None
         self.last_run_at = None
@@ -439,13 +430,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.is_materialized = False
 
         with transaction.atomic():
+            self.table_id = (
+                DataWarehouseSavedQuery.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values_list("table_id", flat=True)
+                .first()
+            )
             # delete the materialized table reference
             if self.table is not None:
-                self.table.soft_delete()
+                self.table.soft_delete(delete_joins=delete_joins)
                 self.table_id = None
 
             self.save()
-            DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
 
         # A reverted matview must also leave its cadence tier, or it would keep being
         # materialized on tiered v2. Best-effort — the revert itself already succeeded.

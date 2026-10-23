@@ -80,7 +80,7 @@ class GhostSource(ResumableSource[GhostSourceConfig, GhostResumeConfig], Validat
             label="Ghost (Ghost Foundation)",
             iconPath="/static/services/ghost.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ghost",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create a custom integration in Ghost settings. Copy its Admin API key and API URL. Requires Ghost 6 or later.",
             fields=cast(
                 list[FieldType],

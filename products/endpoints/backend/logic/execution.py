@@ -76,11 +76,12 @@ from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQu
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
+from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
+from products.endpoints.backend.logic.validation import NATIVE_CLUSTER_UNSUPPORTED
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
-    ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
@@ -364,6 +365,8 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         offset: int | None = None,
     ) -> None:
+        if (version.query.get("modifiers") or {}).get("useNewEventsCluster"):
+            raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
         strategy = strategy_for(endpoint, version, self.team)
 
         is_materialized = bool(version.is_materialized and version.saved_query)
@@ -633,11 +636,24 @@ class EndpointExecutionService(PydanticModelMixin):
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.CONCURRENCY,
+                scope=EndpointRateLimitReason.CONCURRENCY.value,
+            )
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
         except APIQueriesBudgetExceeded:
             # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
             # execution counter alone: the budget path counts its own refusals.
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.READ_BUDGET,
+                scope=EndpointRateLimitReason.READ_BUDGET.value,
+            )
             raise
         except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
             execution_status = "query_performance"

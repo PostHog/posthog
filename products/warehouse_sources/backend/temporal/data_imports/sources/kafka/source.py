@@ -138,7 +138,7 @@ class KafkaSource(SimpleSource[KafkaSourceConfig], CursorSource[KafkaCursor]):
                 "text. PostHog connects to every broker your cluster advertises, so each one must be "
                 "reachable from the internet."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             iconPath="/static/services/kafka.png",
             fields=cast(
                 list[FieldType],

@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
@@ -13,8 +14,10 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -97,6 +100,28 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         res = self._put_project_access_control()
         res = self._put_project_access_control({"access_level": None})
         assert res.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_rule_changes_are_written_to_the_activity_log(self):
+        self._org_membership(OrganizationMembership.Level.OWNER)
+        subject = {"organization_member": str(self.organization_membership.id)}
+        for level in ("member", "admin", None):
+            self._put_project_access_control({**subject, "access_level": level})
+
+        logs = list(ActivityLog.objects.filter(scope="AccessControl").order_by("created_at"))
+        details = [log.detail or {} for log in logs]
+        assert [(log.activity, detail["changes"][0]["after"]) for log, detail in zip(logs, details)] == [
+            ("created", "member"),
+            ("updated", "admin"),
+            ("deleted", None),
+        ]
+        assert {log.user for log in logs} == {self.user}
+        assert details[0]["context"] == {
+            "resource": "project",
+            "resource_id": str(self.team.id),
+            "access_level": "member",
+            "role_id": None,
+            "organization_member_id": str(self.organization_membership.id),
+        }
 
     def test_project_change_if_in_access_control(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -1226,7 +1251,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="my notebook")
 
         # Baseline call to trigger caching of one off things like instance settings
+        content_type_for(Dashboard)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        # Tag lookups read content types through a process-wide cache. Fill it here so the counts
+        # do not depend on which tests ran before in the same worker.
+        ContentType.objects.get_for_models(Dashboard, FeatureFlag)
 
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -1237,7 +1266,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 18
+        baseline = 17
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 4):
@@ -1280,7 +1309,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 17
+        baseline = 16
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 5):
@@ -1330,10 +1359,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
+        content_type_for(FeatureFlag)
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
+        baseline = 14  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
         # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
         # IDs, the project's replay gates
@@ -2680,6 +2710,7 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag"]
         assert block["total"] == 1
+        assert block["hidden"] == 1
         assert block["has_more"] is False
 
     def test_used_in_includes_restricted_flags_for_org_admins(self):
@@ -2690,7 +2721,66 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
         assert block["total"] == 2
+        assert block["hidden"] == 0
         assert block["has_more"] is False
+
+    def _create_reference(self, resource: str, cohort: Cohort, created_by: User, archived: bool = False) -> int:
+        reference = {"type": "cohort", "key": "id", "value": cohort.id}
+        if resource == "insight":
+            return Insight.objects.create(
+                team=self.team,
+                created_by=created_by,
+                query={
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["*"], "properties": [reference]},
+                },
+            ).id
+        if resource == "cohort":
+            return Cohort.objects.create(
+                team=self.team,
+                created_by=created_by,
+                name="Outer Cohort",
+                filters={"properties": {"type": "OR", "values": [{"type": "OR", "values": [reference]}]}},
+            ).id
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=created_by,
+            key=f"flag-{uuid.uuid4().hex[:8]}",
+            active=not archived,
+            archived=archived,
+            filters=self._cohort_flag_filters(cohort.id),
+        ).id
+
+    @parameterized.expand(
+        [
+            ("insight_member", "insight", "insights", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("insight_admin", "insight", "insights", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            ("cohort_member", "cohort", "cohorts", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("cohort_admin", "cohort", "cohorts", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            # An archived flag never blocks a delete, so it is not a hidden blocker.
+            ("archived_flag_member", "feature_flag", "feature_flags", OrganizationMembership.Level.MEMBER, True, 1, 0),
+        ]
+    )
+    def test_used_in_counts_hidden_references_that_block_a_delete(
+        self,
+        _name: str,
+        resource: str,
+        block_key: str,
+        level: OrganizationMembership.Level,
+        hidden_is_archived: bool,
+        total: int,
+        hidden: int,
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Target Cohort")
+        self._create_reference(resource, cohort, created_by=self.user)
+        hidden_id = self._create_reference(resource, cohort, created_by=self.other_user, archived=hidden_is_archived)
+        AccessControl.objects.create(team=self.team, resource=resource, resource_id=str(hidden_id), access_level="none")
+        self._org_membership(level)
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()[block_key]
+        assert (len(block["results"]), block["total"], block["hidden"]) == (total, total, hidden)
 
 
 class TestOrganizationMemberProjectAccess(BaseAccessControlTest):

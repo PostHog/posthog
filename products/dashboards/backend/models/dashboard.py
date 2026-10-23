@@ -12,8 +12,6 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
 
-from products.dashboards.backend.facade import enums
-
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -57,11 +55,6 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
             "Unlisted (product-embedded)",
         )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
 
-    # Aliases of the facade enums, which is where callers outside this product read them from.
-    # Kept on the model so `Dashboard.PrivilegeLevel` and the `choices=` below stay unchanged.
-    RestrictionLevel = enums.RestrictionLevel
-    PrivilegeLevel = enums.PrivilegeLevel
-
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -78,10 +71,6 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
         "posthog.DataColorTheme", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
-    restriction_level = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        choices=RestrictionLevel.choices,
-    )
     insights = models.ManyToManyField(
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
     )  # type: models.ManyToManyField

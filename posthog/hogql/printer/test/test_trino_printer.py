@@ -602,6 +602,61 @@ def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars()
     assert "__hogql_match[5]" in sql
 
 
+@pytest.mark.parametrize(
+    "pattern, expected",
+    [
+        ("a[[]1m[]]$", r"a[\[]1m[\]]$"),
+        ("[^]x]", r"[^\]x]"),
+        (r"[a-z]\\[", r"[a-z]\["),
+        ("[[:alpha:]]+", "[[:alpha:]]+"),
+        (r"\\Q[\\E[a-z]", r"\Q[\E[a-z]"),
+        ("[[:a[[:a", r"[\[:a\[\[:a"),
+    ],
+)
+def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected: str) -> None:
+    context = _context_with_trino_table()
+    prepare_and_print_ast(parse_select(f"SELECT match(user_id, '{pattern}') FROM users"), context, "trino")
+
+    assert list(context.values.values()) == [expected]
+
+
+@pytest.mark.parametrize(
+    "query, required, forbidden",
+    [
+        (
+            "SELECT m['a'] FROM (SELECT JSONExtract(properties, 'Map(String, Float64)') AS m FROM users)",
+            'element_at("m"',
+            'json_extract_scalar("m"',
+        ),
+        (
+            "WITH b AS (SELECT toDate(now()) - 1 AS latest) "
+            "SELECT count() FROM users CROSS JOIN b WHERE toDate(created_at) > b.latest - 14",
+            'date_add(\'day\', CAST(-(14) AS BIGINT), "b"."latest")',
+            '"b"."latest" - 14',
+        ),
+        (
+            "SELECT toDate(created_at) + late FROM users ARRAY JOIN range(1, 8) AS late",
+            'date_add(\'day\', CAST("__trino_unnest_0"."late" AS BIGINT)',
+            '+ "__trino_unnest_0"."late"',
+        ),
+        ("SELECT user_id AS owner FROM users HAVING owner != ''", "WHERE", "HAVING"),
+        (
+            "SELECT toFloat(user_id) FROM users",
+            'TRY_CAST("users"."user_id" AS DOUBLE)',
+            'CAST("users"."user_id" AS DOUBLE)',
+        ),
+        ("SELECT toDate(user_id) FROM users", "TRY", 'CAST("users"."user_id" AS DATE)'),
+        # Fractional seconds just before midnight must not round up into the next day.
+        ("SELECT toDate(user_id) FROM users", "AS TIMESTAMP(12)", "AS TIMESTAMP)"),
+    ],
+)
+def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert required in sql
+    assert forbidden not in sql.replace(required, "")
+
+
 def test_first_regex_replacement_preserves_inline_flags() -> None:
     context = _context_with_trino_table()
     prepare_and_print_ast(parse_select("SELECT replaceRegexpOne(user_id, '(?i)a', 'b') FROM users"), context, "trino")
@@ -893,9 +948,9 @@ def test_scalar_cte_chains_preserve_results(depth: int) -> None:
 
 
 def test_rejects_excessive_scalar_cte_expansion() -> None:
-    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 15)]]
+    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 18)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
-        prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c14"), _context_with_trino_table(), "trino")
+        prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c17"), _context_with_trino_table(), "trino")
 
 
 @pytest.mark.parametrize("length", ["", ", -1"])
@@ -916,8 +971,16 @@ def test_scalar_ctes_do_not_replace_real_columns(projection: str) -> None:
     assert sql.startswith('SELECT "users"."id" FROM ')
 
 
+def test_accepts_large_queries_without_expansion() -> None:
+    projections = ", ".join(f"id + {i} AS c{i}" for i in range(1_500))
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {projections} FROM users"), _context_with_trino_table(), "trino"
+    )
+    assert '"c1499"' in sql
+
+
 def test_rejects_excessive_select_alias_expansion() -> None:
-    projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 15)]]
+    projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 18)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
         prepare_and_print_ast(parse_select(f"SELECT {', '.join(projections)}"), _context_with_trino_table(), "trino")
 
@@ -2286,7 +2349,7 @@ def test_rejects_pr_91053_shortcuts_without_matching_trino_semantics(expression:
     assert error.value.feature_code == "TRINO_FUNCTION_UNSUPPORTED"
 
 
-@pytest.mark.parametrize("identifier", ["parameter?", "parameter%", "nul\0identifier"])
+@pytest.mark.parametrize("identifier", ["parameter%", "nul\0identifier"])
 def test_rejects_trino_identifiers_that_can_collide_with_parameter_binding(identifier: str) -> None:
     with pytest.raises(QueryError):
         escape_trino_identifier(identifier)

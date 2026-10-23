@@ -37,7 +37,6 @@ import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
-import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
@@ -53,6 +52,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -78,10 +78,11 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
+import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
-import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
+import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -94,7 +95,6 @@ import { AgentUsageSettings } from './environment/AgentUsageSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CloudEnvironmentsSettings } from './environment/CloudEnvironmentsSettings'
 import { CloudImagesSettings } from './environment/CloudImagesSettings'
-import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
@@ -143,7 +143,7 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ProjectTimezoneName } from './environment/ProjectTimezoneName'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
-import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
+import { SDKInstallOptions } from './environment/SDKInstallOptions'
 import {
     CanvasCaptureSettings,
     LogCaptureSettings,
@@ -203,13 +203,6 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
-import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import {
-    HomepageSetting,
-    SidebarItemsSetting,
-    SidebarLayoutSetting,
-    SidebarMyProductsSetting,
-} from './user/SidebarSettings'
 import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -245,9 +238,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'snippet',
                 title: 'SDK setup',
                 description:
-                    'Install PostHog in your app using one of our SDKs. Select your platform to see the setup instructions.',
+                    'Install PostHog in your app with Wizard, or set it up manually by following the instructions for your platform.',
                 docsUrl: 'https://posthog.com/docs/getting-started/install',
-                component: <SDKSetupInstructions />,
+                component: <SDKInstallOptions />,
                 keywords: [
                     'install',
                     'setup',
@@ -255,6 +248,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'code',
                     'sdk',
                     'snippet',
+                    'wizard',
+                    'setup agent',
                     'javascript',
                     'html',
                     'react',
@@ -315,9 +310,10 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'display-name',
                 title: 'Project details',
-                description: 'Name this project and label it so you can group and find it across your organization.',
+                description:
+                    'Name this project, add a logo and label it so you can group and find it across your organization.',
                 component: <ProjectDetails />,
-                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
+                keywords: ['name', 'rename', 'logo', 'icon', 'image', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
@@ -729,7 +725,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-data-quality',
         title: 'Data quality',
-        flag: 'DATA_QUALITY_CHECKS',
         group: 'Products',
         settings: [
             {
@@ -1338,15 +1333,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['person', 'properties', 'join', 'query', 'performance'],
             },
             {
-                id: 'correlation-analysis',
-                title: 'Correlation analysis exclusions',
-                description:
-                    'Correlation analysis automatically surfaces relevant signals for conversion. Exclude events or properties that do not provide useful signals.',
-                docsUrl: 'https://posthog.com/docs/product-analytics/funnels#correlation-analysis',
-                component: <CorrelationConfig />,
-                keywords: ['funnel', 'conversion', 'exclude', 'property'],
-            },
-            {
                 id: 'person-display-name',
                 title: 'Person display name',
                 description:
@@ -1798,15 +1784,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
             },
             {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
-            },
-            {
                 id: 'web-analytics-pre-aggregated-tables',
                 title: 'Pre-aggregated tables',
                 description: 'Configure pre-aggregated tables to speed up web analytics queries.',
@@ -1863,6 +1840,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'workflows-utm-defaults',
+                title: 'UTM tags on email links',
+                description:
+                    'Default UTM tags for new broadcasts and workflow emails, so visits from your emails show up as their own campaigns in web analytics. Each email can still change them.',
+                component: <WorkflowsUtmDefaultsSettings />,
+                keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
+            },
+            {
                 id: 'workflows-email-tracking-consent',
                 title: 'Email tracking consent',
                 description:
@@ -1894,9 +1879,35 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'AI task limits',
                 description:
                     'How many AI tasks your workflows can create in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause task creation. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
-                component: <WorkflowsTaskLimitsSettings />,
+                component: (
+                    <WorkflowsDailyLimitsSettings
+                        perWorkflowField="workflow_task_rate_limit_per_day"
+                        perProjectField="workflow_task_team_rate_limit_per_day"
+                        defaultPerWorkflow={100}
+                        defaultPerProject={500}
+                        unit="tasks"
+                        attrPrefix="workflows-task"
+                    />
+                ),
                 flag: 'WORKFLOW_AI_TASK_ACTION',
                 keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
+            },
+            {
+                id: 'workflows-replay-vision-limits',
+                title: 'Replay Vision scan limits',
+                description:
+                    'How many Replay Vision scans your workflows can request in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause scans. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
+                component: (
+                    <WorkflowsDailyLimitsSettings
+                        perWorkflowField="replay_vision_scan_rate_limit_per_day"
+                        perProjectField="replay_vision_scan_team_rate_limit_per_day"
+                        defaultPerWorkflow={100}
+                        defaultPerProject={500}
+                        unit="scans"
+                        attrPrefix="workflows-replay-vision"
+                    />
+                ),
+                keywords: ['workflows', 'replay', 'vision', 'scan', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
         ],
     },
@@ -2619,6 +2630,21 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode',
+                title: 'Developer mode tokens',
+                description: 'AI gateway tokens for PostHog staff.',
+                component: <DevModeSetting />,
+                staffOnly: true,
+                keywords: ['ai gateway', 'llm gateway', 'token', 'developer mode', 'phe_'],
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -2643,16 +2669,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AllowImpersonation />,
                 flag: 'CONTROL_SUPPORT_LOGIN',
                 keywords: ['impersonation', 'support login', 'debug'],
-            },
-            {
-                id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new products',
-                description:
-                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
-                component: <SidebarAutoSuggestSetting />,
-                // Suggestions land in custom products, which the simple sidebar does not show.
-                flag: '!SIMPLE_SIDEPANEL',
-                keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
                 id: 'web-analytics-achievements',
@@ -2682,46 +2698,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
-            },
-        ],
-    },
-    {
-        level: 'user',
-        id: 'user-navigation',
-        title: 'Navigation',
-        // The simple sidebar edits these inline, from its own customize dialog.
-        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
-        settings: [
-            {
-                id: 'homepage',
-                title: 'Homepage',
-                description:
-                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
-                component: <HomepageSetting />,
-                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
-            },
-            {
-                id: 'sidebar-layout',
-                title: 'Layout',
-                description: 'Control how dense the sidebar rows are.',
-                component: <SidebarLayoutSetting />,
-                keywords: ['sidebar', 'layout', 'density', 'compact', 'comfortable'],
-            },
-            {
-                id: 'sidebar-items',
-                title: 'Navigation items',
-                description:
-                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
-                component: <SidebarItemsSetting />,
-                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
-            },
-            {
-                id: 'sidebar-my-tools',
-                title: 'My products',
-                description:
-                    'Choose which products appear in the My products section of your sidebar. This selection applies to the current project.',
-                component: <SidebarMyProductsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'my products', 'customize'],
             },
         ],
     },

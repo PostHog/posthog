@@ -123,7 +123,10 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
         experiment_id = str(body["id"])
         self.assertEqual(created.data["id"], experiment_id)
-
+        expected_author = None if auth_kind == "project_key" else self.user.pk
+        self.assertEqual(
+            OfflineExperiment.objects.for_team(self.team.id).get(pk=experiment_id).created_by_id, expected_author
+        )
         incomplete = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
         self.assertEqual(incomplete.status_code, status.HTTP_409_CONFLICT, incomplete.data)
         self.assertEqual(incomplete.data["code"], "expected_count_mismatch")
@@ -160,6 +163,13 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(failed.status_code, status.HTTP_200_OK, failed.data)
         self.assertEqual(failed.data["status"], "failed")
         self.assertEqual(failed.data["accepted_result_count"], 0)
+
+        self._authenticate("project_key" if auth_kind != "project_key" else "session")
+        retried = self.client.post(self._endpoint(), body, format="json")
+        self.assertEqual(retried.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            OfflineExperiment.objects.for_team(self.team.id).get(pk=experiment_id).created_by_id, expected_author
+        )
 
     @parameterized.expand(
         [

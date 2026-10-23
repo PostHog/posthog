@@ -55,10 +55,10 @@ class SimplesatSource(ResumableSource[SimplesatSourceConfig, SimplesatResumeConf
             name=ExternalDataSourceType.SIMPLESAT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Simplesat",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Simplesat API key to pull your customer satisfaction survey data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API keys** in [Simplesat](https://app.simplesat.io/). The key must include read scopes for each resource you want to sync — surveys, questions, answers, and responses.
+You can create an API key under **Settings → API keys** in [Simplesat](https://app.simplesat.io/). The key must include read scopes for each resource you want to sync — surveys, questions, answers, responses, and customers.
 """,
             iconPath="/static/services/simplesat.png",
             docsUrl="https://posthog.com/docs/cdp/sources/simplesat",
@@ -99,9 +99,8 @@ You can create an API key under **Settings → API keys** in [Simplesat](https:/
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Simplesat's list endpoints expose no reliably
-        # ordered server-side timestamp filter, so there is no incremental cursor to advance
-        # (INCREMENTAL_FIELDS is empty, so build_endpoint_schemas marks each as full refresh).
+        # Only endpoints with a server-side timestamp filter (customers) have INCREMENTAL_FIELDS;
+        # build_endpoint_schemas marks the rest as full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -133,4 +132,7 @@ You can create an API key under **Settings → API keys** in [Simplesat](https:/
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            incremental_field=inputs.incremental_field,
         )

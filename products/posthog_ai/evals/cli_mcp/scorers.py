@@ -31,11 +31,24 @@ unrelated cases don't drag the rollup down.
   before any successful ``query-*`` call?
 * ``DidNotCiteRawSqlAfterTypedQuery`` — after a typed query tool succeeded,
   did the final answer avoid hand-writing the equivalent raw SQL?
+* ``ChartShown`` — did the user see the query result as a chart, through
+  ``render-ui``, the client's inline view, or a chart link in the answer?
+* ``ChartFromTypedQuery`` — was that chart the typed query, not rewritten SQL?
+* ``NoMarkdownDataTable`` — did the agent avoid retyping the result as a long
+  Markdown table?
 """
 
 from __future__ import annotations
 
 import re
+import json
+from collections.abc import Mapping
+from urllib.parse import parse_qs, urlsplit
+
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
 from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, is_schema_discovery_call
@@ -43,12 +56,15 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
     "CalledTargetTool",
+    "ChartFromTypedQuery",
+    "ChartShown",
     "DidNotCiteRawSqlAfterTypedQuery",
     "DidNotRenderUi",
     "DrilledIntoSchema",
     "ExecBeforeRender",
     "InfoBeforeCall",
     "FirstRelevantTool",
+    "NoMarkdownDataTable",
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
     "RecoveredToCorrectTool",
@@ -1088,3 +1104,407 @@ class DidNotRenderUi(Scorer):
             score=1.0,
             metadata={"scope": "any render-ui" if target_set is None else sorted(target_set)},
         )
+
+
+# Mirrors ``UI_APP_RENDER_NOTE`` in ``services/mcp/src/lib/build-tool-result.ts``: the MCP server appends it to a
+# query result when the client already displays that result's UI app inline.
+INLINE_VIEW_NOTE = "already sees this result as an interactive view"
+
+# A Markdown link alone in its paragraph, which PostHog Desktop draws as a full-size chart card.
+# The URL runs to the closing parenthesis because SQL in ``open_query`` keeps unencoded ``(`` and ``)``.
+_CHART_LINK_RE = re.compile(r'^\[[^\]]+\]\((https?://\S+?)(?:\s+"[^"]*")?\)$')
+# A block-display object tag alone in its paragraph, the other chart syntax in
+# ``products/desktop/packages/ui/src/utils/remarkObjectTags.ts``. A tag inside a sentence renders as a chip.
+_CHART_TAG_RE = re.compile(r"^<(insight|hogql)\b([^>]*?)/?>(.*?)(?:</\1>)?$", re.IGNORECASE | re.DOTALL)
+_TAG_ATTR_RE = re.compile(r'(\w+)="([^"]*)"')
+_CODE_FENCE_RE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
+_PROJECT_URL_RE = re.compile(r"/project/(\d+)/")
+
+
+def assistant_text(output: dict | None) -> str:
+    """All text the agent wrote to the user, across every assistant message.
+
+    ``last_message`` is only the final text block, which is often a closing line written after
+    a follow-up tool call, so presentation checks read the whole conversation instead.
+    """
+    texts: list[str] = []
+    for message in (output or {}).get("messages") or []:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            texts.extend(
+                block["text"]
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+            )
+    if not texts:
+        last_message = (output or {}).get("last_message")
+        if isinstance(last_message, str):
+            texts.append(last_message)
+    return "\n\n".join(text for text in texts if text)
+
+
+def tool_output_text(output: str) -> str:
+    """The text a tool returned, without the MCP content blocks that the log keeps around it."""
+    try:
+        payload = json.loads(output)
+    except (TypeError, ValueError):
+        return output
+    if isinstance(payload, dict):
+        payload = payload.get("content")
+    if not isinstance(payload, list):
+        return output
+    texts = [
+        block["text"]
+        for block in payload
+        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+    ]
+    return "\n".join(texts) if texts else output
+
+
+def _query_node_kind(node: object) -> str | None:
+    """``sql`` for a ``HogQLQuery`` at any wrapper depth, ``insight`` for any other query kind."""
+    for _ in range(3):
+        if not isinstance(node, dict):
+            return None
+        kind = node.get("kind")
+        if kind == "HogQLQuery":
+            return "sql"
+        if not isinstance(node.get("source"), dict):
+            return "insight" if isinstance(kind, str) and kind else None
+        node = node["source"]
+    return None
+
+
+def _collect_saved_insight_kinds(node: object, kinds: dict[str, str]) -> None:
+    if isinstance(node, dict):
+        short_id = node.get("short_id")
+        kind = _query_node_kind(node.get("query"))
+        if isinstance(short_id, str) and short_id and kind is not None:
+            kinds[short_id] = kind
+        for value in node.values():
+            _collect_saved_insight_kinds(value, kinds)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_saved_insight_kinds(value, kinds)
+
+
+# Both match JSON and the TOON text that exec returns in its default output format.
+_SHORT_ID_RE = re.compile(r"""(?:\bshort_id["']?\s*:\s*["']?|/insights/)(\w+)""")
+_QUERY_KIND_RE = re.compile(r"""\bkind["']?\s*:\s*["']?(\w+)""")
+
+
+def saved_insight_kinds(calls: list[ToolCall]) -> dict[str, str]:
+    """The query kind (``insight`` or ``sql``) of each saved insight whose query a tool call showed.
+
+    A saved insight can hold a ``HogQLQuery``, so its link alone does not tell a typed chart from a
+    SQL chart. JSON output is read exactly. Text output is read only when it names one insight.
+    """
+    kinds: dict[str, str] = {}
+    for call in calls:
+        if call.is_error:
+            continue
+        text = tool_output_text(call.output)
+        try:
+            _collect_saved_insight_kinds(json.loads(text), kinds)
+        except (TypeError, ValueError):
+            pass
+        short_ids = set(_SHORT_ID_RE.findall(text)) - {"new"}
+        if len(short_ids) != 1 or next(iter(short_ids)) in kinds:
+            continue
+        query = call.input.get("query")
+        query_kinds = set(_QUERY_KIND_RE.findall(text + (json.dumps(query) if isinstance(query, dict) else "")))
+        if "HogQLQuery" in query_kinds:
+            kinds[next(iter(short_ids))] = "sql"
+        elif any(kind.endswith("Query") for kind in query_kinds):
+            kinds[next(iter(short_ids))] = "insight"
+    return kinds
+
+
+def _chart_tag_kind(paragraph: str, insight_kinds: Mapping[str, str]) -> str | None:
+    match = _CHART_TAG_RE.match(paragraph)
+    if match is None:
+        return None
+    tag, attrs, body = match.group(1).lower(), dict(_TAG_ATTR_RE.findall(match.group(2))), match.group(3).strip()
+    if attrs.get("display") != "block":
+        return None
+    if tag == "insight":
+        short_id = attrs.get("id")
+        return insight_kinds.get(short_id, "saved") if short_id else None
+    return "sql" if body else None
+
+
+def chart_references(
+    text: str, project_ids: frozenset[str] = frozenset(), insight_kinds: Mapping[str, str] | None = None
+) -> list[str]:
+    """Kinds of the full-size charts in ``text``, in order.
+
+    ``insight`` is a typed query, ``sql`` is a SQL query, and ``saved`` is a saved insight that is
+    not in ``insight_kinds``, so its query kind is unknown. Only a paragraph that holds nothing but a
+    chart link or a block tag counts, and code blocks are skipped, because Desktop draws nothing else
+    as a chart card. When ``project_ids`` is not empty, a link to any other project is skipped.
+    """
+    insight_kinds = insight_kinds or {}
+    kinds: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", _CODE_FENCE_RE.sub("", text)):
+        paragraph = paragraph.strip()
+        match = _CHART_LINK_RE.match(paragraph)
+        if match is None:
+            tag_kind = _chart_tag_kind(paragraph, insight_kinds)
+            if tag_kind is not None:
+                kinds.append(tag_kind)
+            continue
+        link_kind = _chart_link_kind(match.group(1), project_ids, insight_kinds)
+        if link_kind is not None:
+            kinds.append(link_kind)
+    return kinds
+
+
+def _hogql_from_query_node(raw: str) -> str | None:
+    try:
+        node = json.loads(raw)
+    except ValueError:
+        return None
+    for _ in range(3):
+        if not isinstance(node, dict):
+            return None
+        if node.get("kind") == "HogQLQuery" and isinstance(node.get("query"), str):
+            return node["query"]
+        node = node.get("source")
+    return None
+
+
+def _chart_link_kind(url: str, project_ids: frozenset[str], insight_kinds: Mapping[str, str]) -> str | None:
+    """Mirror ``parsePostHogObjectUrl`` in ``products/desktop/packages/core/src/posthog-objects/objectUrls.ts``.
+
+    A saved insight (``/insights/<id>``, ``/i/<id>``) takes its kind from ``insight_kinds``. ``/sql?open_query=`` and an
+    ``/insights/new#q=`` link that holds a ``HogQLQuery`` are SQL charts; an unsaved typed query is no
+    chart. Desktop also requires the app host, which the eval cannot know because the agent's links
+    and the tool results use different hosts, so only the project is checked.
+    """
+    parts = urlsplit(url)
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if segments[:1] == ["project"]:
+        if len(segments) < 2 or (project_ids and segments[1] not in project_ids):
+            return None
+        segments = segments[2:]
+    if segments == ["sql"]:
+        query = parse_qs(parts.query).get("open_query", [""])[0].strip()
+        if query.startswith("{"):
+            query = (_hogql_from_query_node(query) or "").strip()
+        return "sql" if query else None
+    if segments == ["insights", "new"]:
+        node = parse_qs(parts.fragment).get("q", [""])[0]
+        return "sql" if (_hogql_from_query_node(node) or "").strip() else None
+    if len(segments) >= 2 and segments[0] in ("insights", "i") and segments[1] != "new":
+        return insight_kinds.get(segments[1], "saved")
+    return None
+
+
+# Inputs the exec wrapper accepts that are not part of the query, so a render that leaves them out still matches.
+_NON_QUERY_INPUT_KEYS = frozenset({"output_format"})
+
+
+def _query_input(call: ToolCall) -> dict:
+    return {key: value for key, value in call.input.items() if key not in _NON_QUERY_INPUT_KEYS}
+
+
+def _render_matches_query(render: ToolCall, calls: list[ToolCall]) -> bool:
+    """True when a ``render-ui`` call passes the input of a successful call to the same query tool.
+
+    ``render-ui`` succeeds for any input because it only emits a render directive, and the chart then
+    fetches its own data. An empty or invented input therefore shows an error, not a chart.
+    """
+    tool_name = _rendered_tool_name(render)
+    tool_input = render.input.get("tool_input")
+    if not isinstance(tool_input, dict) or not tool_input:
+        return False
+    rendered = {key: value for key, value in tool_input.items() if key not in _NON_QUERY_INPUT_KEYS}
+    return any(
+        not call.is_error and call.name == tool_name and _query_input(call) == rendered
+        for call in calls
+        if call.position < render.position
+    )
+
+
+def _chart_paths(output: dict | None, parser: LogParser, tools: set[str]) -> list[str]:
+    """How the user saw a chart: ``render-ui``, ``inline`` (the client's UI app), or a ``chart_references`` kind."""
+    paths: list[str] = []
+    calls = parser.get_tool_calls()
+    for call in _render_ui_calls(parser):
+        if not call.is_error and _rendered_tool_name(call) in tools and _render_matches_query(call, calls):
+            paths.append("render-ui")
+    for call in calls:
+        if not call.is_error and call.name in tools and INLINE_VIEW_NOTE in call.output:
+            paths.append("inline")
+    project_ids = frozenset(match for call in calls for match in _PROJECT_URL_RE.findall(call.output))
+    paths.extend(chart_references(assistant_text(output), project_ids, saved_insight_kinds(calls)))
+    return paths
+
+
+def _chart_tools(expected: dict | None, scorer_name: str) -> set[str] | None:
+    spec = _read_spec(expected, scorer_name)
+    if spec is None:
+        return None
+    allowed = spec.get("tool_name_any_of")
+    return {t for t in allowed if isinstance(t, str) and t} if isinstance(allowed, list) else set()
+
+
+class ChartShown(Scorer):
+    """Binary: did the user get the analytics result as a chart?
+
+    ``expected = {"chart_shown": {"tool_name_any_of": ["query-trends"]}}``
+
+    Any chart path counts: ``render-ui`` with a listed query tool, a listed query tool result
+    that the client already displays inline (``INLINE_VIEW_NOTE``), or a full-size chart link or
+    block tag in the answer (a saved insight or a SQL query). ``ChartFromTypedQuery``
+    grades which of these the agent chose. ``None`` if the spec is absent.
+    """
+
+    def _name(self) -> str:
+        return "chart_shown"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        tools = _chart_tools(expected, self._name())
+        if tools is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        paths = _chart_paths(output, parser, tools)
+        if paths:
+            return Score(name=self._name(), score=1.0, metadata={"paths": paths})
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={"reason": "No chart was shown for the expected query tools", "expected_any_of": sorted(tools)},
+        )
+
+
+class ChartFromTypedQuery(Scorer):
+    """Binary: when a chart was shown, did it come from the typed query rather than rewritten SQL?
+
+    ``expected = {"chart_from_typed_query": {"tool_name_any_of": ["query-trends"]}}``
+
+    An agent that answers with ``query-trends`` and then links a hand-written SQL chart shows
+    numbers computed by a different query, without PostHog's standard definitions such as the
+    project timezone or test-account filtering. Score 1.0 when any chart comes from
+    ``render-ui``, the inline view, or a saved insight that holds a typed query; 0.0 when every
+    chart is a SQL query. ``None`` when no chart was shown (graded by ``ChartShown``), when the only
+    other charts are saved insights whose query kind no tool call showed, or the spec is absent.
+    """
+
+    def _name(self) -> str:
+        return "chart_from_typed_query"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        tools = _chart_tools(expected, self._name())
+        if tools is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        paths = _chart_paths(output, parser, tools)
+        if not paths:
+            return Score(name=self._name(), score=None, metadata={"reason": "No chart was shown"})
+        if any(path not in ("sql", "saved") for path in paths):
+            return Score(name=self._name(), score=1.0, metadata={"paths": paths})
+        if "saved" in paths:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"paths": paths, "reason": "No tool call showed the query of the linked saved insight"},
+            )
+        return Score(name=self._name(), score=0.0, metadata={"paths": paths})
+
+
+_TABLE_SEPARATOR_RE = re.compile(r"^(?=.*\|)\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
+
+
+def markdown_table_row_counts(text: str) -> list[int]:
+    """Count the data rows of each Markdown table in ``text``, in order."""
+    lines = text.splitlines()
+    counts: list[int] = []
+    index = 1
+    while index < len(lines):
+        if "|" in lines[index - 1] and _TABLE_SEPARATOR_RE.match(lines[index]):
+            rows = 0
+            index += 1
+            while index < len(lines) and "|" in lines[index] and lines[index].strip():
+                rows += 1
+                index += 1
+            counts.append(rows)
+        index += 1
+    return counts
+
+
+class NoMarkdownDataTable(Scorer):
+    """Binary: did the agent avoid restating the query result as a Markdown table?
+
+    ``expected = {"no_markdown_data_table": {}}`` or ``{"no_markdown_data_table": {"max_rows": 3}}``
+
+    A chart already shows the series, so a table that retypes it adds length and hides
+    the conclusion. Small summary tables (at most ``max_rows`` data rows, default 3, such as
+    this period against the previous one) still pass. Score 0.0 when any table in the agent's
+    messages is longer. ``None`` if the spec is absent or the agent wrote no text.
+    """
+
+    DEFAULT_MAX_ROWS = 3
+
+    def _name(self) -> str:
+        return "no_markdown_data_table"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _read_spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+
+        text = assistant_text(output)
+        if not text.strip():
+            return Score(name=self._name(), score=None, metadata={"reason": "No agent text"})
+
+        max_rows = spec.get("max_rows", self.DEFAULT_MAX_ROWS)
+        row_counts = markdown_table_row_counts(text)
+        too_long = [rows for rows in row_counts if rows > max_rows]
+        return Score(
+            name=self._name(),
+            score=0.0 if too_long else 1.0,
+            metadata={"table_row_counts": row_counts, "max_rows": max_rows},
+        )
+
+
+class _TableSources(TraversingVisitor):
+    def __init__(self) -> None:
+        self.tables: list[str] = []
+        self.ctes: set[str] = set()
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.ctes.update(name.lower() for name in node.ctes or {})
+        super().visit_select_query(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field):
+            self.tables.append(".".join(str(part) for part in node.table.chain).lower())
+        super().visit_join_expr(node)
+
+
+def is_catalog_sql(call: ToolCall) -> bool:
+    """True when an ``execute-sql`` call reads only PostHog entity tables (``system.*``).
+
+    Catalog lookups, such as checking for a saved insight or an action, are justified SQL
+    under the routing rules, so they never count as an analytics query. A query that the
+    HogQL parser cannot read counts as analytics SQL.
+    """
+    query = call.input.get("query")
+    if not isinstance(query, str):
+        return False
+    try:
+        sources = _TableSources()
+        sources.visit(parse_select(query))
+    except BaseHogQLError:
+        return False
+    tables = [table for table in sources.tables if table not in sources.ctes]
+    return bool(tables) and all(table.startswith("system.") for table in tables)

@@ -24,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.square.set
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import (
+    SQUARE_API_VERSION_2026_09_16,
+    SQUARE_API_VERSION_V2,
     SquareResumeConfig,
     square_source,
     validate_credentials as validate_square_credentials,
@@ -47,8 +49,8 @@ class SquareSource(ResumableSource[SquareSourceConfig, SquareResumeConfig]):
         swiftpm=("github.com/square/squarepointofsalesdk-ios",),
     )
 
-    supported_versions = ("v2",)
-    default_version = "v2"
+    supported_versions = (SQUARE_API_VERSION_V2, SQUARE_API_VERSION_2026_09_16)
+    default_version = SQUARE_API_VERSION_2026_09_16
     api_docs_url = "https://developer.squareup.com/docs"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -156,18 +158,20 @@ Grant these read permissions to the token for the data you want to sync:
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        is_valid, is_forbidden = validate_square_credentials(config.access_token, config.environment, schema_name)
-        if is_valid:
+        probe = validate_square_credentials(
+            config.access_token, config.environment, self.resolve_api_version(api_version), schema_name
+        )
+        if probe.is_valid:
             return True, None
 
         # A 403 means the token is genuine but lacks the scope for this endpoint.
         # Accept that at source-create (schema_name=None) — users may only grant
         # scopes for the endpoints they intend to sync — and reject only when
         # validating a specific schema.
-        if is_forbidden and schema_name is None:
+        if probe.is_forbidden and schema_name is None:
             return True, None
 
-        if is_forbidden:
+        if probe.is_forbidden:
             return False, f"The Square access token is missing the permission required to sync '{schema_name}'"
 
         return False, "Invalid Square access token"
@@ -187,6 +191,7 @@ Grant these read permissions to the token for the data you want to sync:
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

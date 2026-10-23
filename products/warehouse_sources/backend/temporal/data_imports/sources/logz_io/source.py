@@ -74,7 +74,7 @@ class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
             name=ExternalDataSourceType.LOGZIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Logz.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your Logz.io API token to sync your log data, alerts, and account configuration "
                 "into the PostHog Data warehouse. Create a token under **Settings → Tools → Manage tokens → "

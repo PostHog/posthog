@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 import requests
 import structlog
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -37,6 +38,9 @@ TOKEN_CHECK_FAILED_ERROR = (
     "Microsoft Clarity rejected the connection check. Confirm the token is still listed in Clarity "
     "under Settings -> Data Export, then reconnect."
 )
+CLARITY_UNREACHABLE_ERROR = (
+    "Couldn't reach Microsoft Clarity to check your token. This is usually temporary, so try again in a few minutes."
+)
 
 
 def _build_params(num_of_days: str, dimensions: list[str]) -> dict[str, str]:
@@ -46,10 +50,10 @@ def _build_params(num_of_days: str, dimensions: list[str]) -> dict[str, str]:
     return params
 
 
-def _fetch(token: str, num_of_days: str, dimensions: list[str]) -> requests.Response:
+def _fetch(token: str, num_of_days: str, dimensions: list[str], retry: Retry | None = None) -> requests.Response:
     # make_tracked_session already retries 429/5xx with backoff; the daily quota is a hard cap so a
     # 429 that survives those retries is genuine and should surface, not be retried again here.
-    session = make_tracked_session(redact_values=(token,))
+    session = make_tracked_session(redact_values=(token,), retry=retry)
     return session.get(
         f"{BASE_URL}{INSIGHTS_PATH}",
         params=_build_params(num_of_days, dimensions),
@@ -60,9 +64,11 @@ def _fetch(token: str, num_of_days: str, dimensions: list[str]) -> requests.Resp
 
 def validate_credentials(token: str) -> tuple[bool, str | None]:
     try:
-        response = _fetch(token, _VALIDATION_NUM_OF_DAYS, [])
+        # The probe runs inline on an API worker, so it takes a single attempt. Default retries
+        # honor the Retry-After of a quota 429 and outlast the gateway timeout.
+        response = _fetch(token, _VALIDATION_NUM_OF_DAYS, [], retry=Retry(total=0))
     except requests.RequestException:
-        return False, "Could not reach Microsoft Clarity. Please try again."
+        return False, CLARITY_UNREACHABLE_ERROR
 
     if response.ok:
         return True, None
@@ -74,6 +80,8 @@ def validate_credentials(token: str) -> tuple[bool, str | None]:
         # The project's 10-requests/day quota is already exhausted (possibly by other tooling), but
         # that doesn't mean the token itself is invalid — don't block source creation over it.
         return True, None
+    if response.status_code >= 500:
+        return False, CLARITY_UNREACHABLE_ERROR
     LOGGER.warning("Microsoft Clarity rejected the credential probe", status_code=response.status_code)
     return False, TOKEN_CHECK_FAILED_ERROR
 

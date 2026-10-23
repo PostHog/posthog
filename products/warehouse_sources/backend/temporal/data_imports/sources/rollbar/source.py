@@ -110,7 +110,7 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
         pub=("rollbar_flutter", "rollbar_dart", "rollbar_common"),
         rubygems=("rollbar", "ratchetio", "resque-rollbar"),
         swiftpm=("github.com/rollbar/rollbar-apple",),
-        competes_with=(ProductKey.ERROR_TRACKING,),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -156,7 +156,7 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
 You can find or create a project access token in your Rollbar project under Settings > Project Access Tokens. A token with the `read` scope is sufficient. Each PostHog source connects to one Rollbar project — add one source per project.""",
             iconPath="/static/services/rollbar.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rollbar",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

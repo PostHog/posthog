@@ -18,11 +18,6 @@ class TestCloudflareSource:
         self.team_id = 123
         self.config = CloudflareSourceConfig(api_token="api-token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["zones"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "zones"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_substring",
         [

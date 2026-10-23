@@ -180,5 +180,5 @@ Every table is fetched per company number, so start with the companies you want 
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

@@ -62,6 +62,19 @@ def _central_run_default(team_id: int, user_id: int | None) -> ResolvedAIRunConf
     return resolved
 
 
+def resolve_effective_runtime_adapter(runtime_adapter: str | None, *, team_id: int, user_id: int | None) -> str | None:
+    """The runtime adapter a new run will use.
+
+    `resolve_run_preferences` leaves the triple empty when a central default exists, and
+    `create_run` fills it in later. A caller that must know the runtime before the run
+    exists (to choose its billing) reads the same default here.
+    """
+    if runtime_adapter:
+        return runtime_adapter
+    central_default = _central_run_default(team_id, user_id)
+    return central_default.runtime_adapter if central_default else None
+
+
 def _coherent_preferences(
     model: str | None,
     reasoning_effort: str | None,

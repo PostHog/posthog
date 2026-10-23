@@ -21,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_mera
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.settings import (
     AUTH_ERROR,
     ENDPOINTS,
+    EVENTS_LOOKBACK_SECONDS,
+    INCREMENTAL_FIELDS,
     NOT_FOUND_ERROR,
     ORGANIZATION_ERROR,
     PERMISSION_ERROR,
@@ -86,7 +88,13 @@ class CiscoMerakiSource(ResumableSource[CiscoMerakiSourceConfig, CiscoMerakiResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            default_incremental_lookback_seconds={"network_events": EVENTS_LOOKBACK_SECONDS},
+        )
 
     def validate_credentials(
         self,
@@ -113,6 +121,8 @@ class CiscoMerakiSource(ResumableSource[CiscoMerakiSourceConfig, CiscoMerakiResu
             inputs.team_id,
             inputs.job_id,
             resumable_source_manager,
+            inputs.should_use_incremental_field,
+            inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -122,11 +132,12 @@ class CiscoMerakiSource(ResumableSource[CiscoMerakiSourceConfig, CiscoMerakiResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cisco Meraki",
             iconPath="/static/services/cisco_meraki.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Meraki Dashboard, open **Organization > API & Webhooks > API keys and access**. Create an API key. "
                 "Enable API access for your organization. Use an administrator account with read access to the selected tables. "
-                "Each connection imports one organization. Tables use full refresh. Health alerts include active alerts only."
+                "Each connection imports one organization. Network events support incremental sync, and other tables use full refresh. "
+                "Network clients include clients seen in the last 31 days. Health alerts include active alerts only."
             ),
             fields=cast(
                 list[FieldType],

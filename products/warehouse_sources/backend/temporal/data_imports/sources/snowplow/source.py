@@ -127,7 +127,7 @@ class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]
         pub=("snowplow_tracker",),
         rubygems=("snowplow-tracker",),
         swiftpm=("github.com/snowplow/snowplow-ios-tracker", "github.com/snowplow/snowplow-objc-tracker"),
-        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -148,7 +148,7 @@ class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]
             name=ExternalDataSourceType.SNOWPLOW,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Snowplow Analytics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Snowplow BDP Console API credentials to pull your pipeline health and data modeling job data into the PostHog Data warehouse.
 
 Find your **Organization ID** on the Console's *Manage organization* page, then create an API key (a key ID + key secret pair) under **Console settings → API keys**. Note that all Snowplow Console API keys carry admin privileges, so store them carefully.

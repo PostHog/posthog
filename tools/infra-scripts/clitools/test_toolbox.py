@@ -46,6 +46,11 @@ class TestToolbox(unittest.TestCase):
         ensure_patcher = patch.object(toolbox_script, "ensure_tailscale_connected")
         self.m_ensure_tailscale = ensure_patcher.start()
         self.addCleanup(ensure_patcher.stop)
+        # The real capture sends events to PostHog whenever an SDK is importable,
+        # and the SDK registers its own atexit hook that the cleanup tests count.
+        telemetry_patcher = patch.object(toolbox_script, "capture_invocation")
+        telemetry_patcher.start()
+        self.addCleanup(telemetry_patcher.stop)
 
     def test_kubectl_cmd_without_context(self):
         """kubectl_cmd with context=None returns the same shape as a bare kubectl call."""
@@ -917,11 +922,48 @@ class TestToolbox(unittest.TestCase):
     @patch("toolbox.tailscale.subprocess.run")
     @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
     def test_ensure_tailscale_connected_passes_silently_when_running(self, mock_which, mock_run):
-        mock_run.return_value = self._tailscale_status_result({"BackendState": "Running"})
+        mock_run.return_value = self._tailscale_status_result(
+            {"BackendState": "Running", "CurrentTailnet": {"Name": "posthog.com"}}
+        )
         exit_code, output = self._run_tailscale_check()
 
         self.assertIsNone(exit_code)
         self.assertEqual(output, "")
+
+    @patch("builtins.input", return_value="n")
+    @patch("toolbox.tailscale.sys.stdin")
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_exits_when_switch_declined(self, mock_which, mock_run, mock_stdin, mock_input):
+        mock_stdin.isatty.return_value = True
+        mock_run.return_value = self._tailscale_status_result(
+            {"BackendState": "Running", "CurrentTailnet": {"Name": "someone@example.com"}}
+        )
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("'someone@example.com' tailnet", output)
+        self.assertIn("tailscale switch posthog.com", output)
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("builtins.input", return_value="")
+    @patch("toolbox.tailscale.sys.stdin")
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_switches_tailnet_by_default(self, mock_which, mock_run, mock_stdin, mock_input):
+        mock_stdin.isatty.return_value = True
+        mock_run.side_effect = [
+            self._tailscale_status_result(
+                {"BackendState": "Running", "CurrentTailnet": {"Name": "someone@example.com"}}
+            ),
+            MagicMock(returncode=0),
+            self._tailscale_status_result({"BackendState": "Running", "CurrentTailnet": {"Name": "posthog.com"}}),
+        ]
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertIsNone(exit_code)
+        self.assertEqual(mock_run.call_args_list[1].args[0], ["/usr/bin/tailscale", "switch", "posthog.com"])
+        self.assertIn("Connected to the posthog.com tailnet", output)
 
     @patch("toolbox.tailscale.os.path.isfile", return_value=False)
     @patch("toolbox.tailscale.shutil.which", return_value=None)
@@ -1318,7 +1360,6 @@ class TestToolbox(unittest.TestCase):
     def _clean_env(self):
         os.environ.pop("KUBE_CONTEXT", None)
         os.environ.pop("KUBE_NAMESPACE", None)
-        os.environ.pop("FLOX_ENV", None)
 
     def test_main_jumphost_pool_dispatches_correct_kwargs(self):
         """--pool flags-cache-jumphost threads the jumphost app/claim labels into helpers."""
@@ -1436,7 +1477,6 @@ class TestToolbox(unittest.TestCase):
                     patch.dict(os.environ, env_override, clear=False),
                 ):
                     os.environ.pop("KUBE_CONTEXT", None)
-                    os.environ.pop("FLOX_ENV", None)
                     if env_namespace is None:
                         os.environ.pop("KUBE_NAMESPACE", None)
                     with self.assertRaises(SystemExit):
@@ -1469,7 +1509,6 @@ class TestToolbox(unittest.TestCase):
             patch.dict(os.environ, {"KUBE_CONTEXT": "posthog-dev"}, clear=False),
         ):
             os.environ.pop("KUBE_NAMESPACE", None)
-            os.environ.pop("FLOX_ENV", None)
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
@@ -1543,7 +1582,6 @@ class TestToolbox(unittest.TestCase):
             patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
             patch.dict(os.environ, {"KUBE_CONTEXT": "bogus"}, clear=False),
         ):
-            os.environ.pop("FLOX_ENV", None)
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
 
