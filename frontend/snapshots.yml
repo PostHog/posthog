@@ -2581,9 +2581,9 @@ snapshots:
     components-search--product-recents-and-starred--light:
         hash: v1.k794b7964.45213063c3c767175033b9c3ff72d94df2e3ffc9ffe46398bc78c45c3708f1b5.X_mXo_erMw09YXsaZY6-sc_9vQx8VtriGVHZgr_wJmw
     components-search--searching--dark:
-        hash: v1.k794b7964.03acd9350d844642fcd4971fedf6ccd292cd55de90491de1e0e61e3d2f2c6351.d7owNfoNUSyFo1hSaw30YobKmlUwv7-6KTuJ1gmFTdQ
+        hash: v1.k794b7964.7a088f57255fbe050124561d8dbb0e9464b1d34f6729b88ce58085c93cbf902b.PS12b-Flj9MCUCsa-ChQ8wbxu49vsSienh18-s1mYeo
     components-search--searching--light:
-        hash: v1.k794b7964.51550119b35091ec40c82de96dbd0f24321f97c57ff3478d89bea67725e12af9.Nleu2HKxfxKvGQ_3IatPMgra85XmDbPQu1tCIUE5QvI
+        hash: v1.k794b7964.e6477b41865c3376f5a24ed5225883fe9b197695d9f241e35c0833993e588ebd.cyyfF4nXVOR3TbPowtuorT1Ca_qvcShZ93NclbOsxDs
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.7e8e5dd2e09d246cc3668f362f2391fe67618bd1143aa393832297f5dc30e558.yptEWKc5RAUY613Fwd5cQ0VIinMvpdoI6cuKgagAGxk
     components-sentencelist--full-sentence--light:
@@ -14947,9 +14947,9 @@ snapshots:
     scenes-app-settings-user--settings-user-customization--light:
         hash: v1.k794b7964.7dd3a0e1ed8d43adc48d896e39767f217cdde8c6de106730b2a584cae5c8f360.uhLhBiVfiGwjx6-Wj3O0ni5l7jVsSbdYOFeOGeoccJ8
     scenes-app-settings-user--settings-user-danger-zone--dark:
-        hash: v1.k794b7964.199bdfbeb1306a1136590674838b1ace855bdf727ed269fb303d6c9c3c8c13d3.ahpMr0R7FDPjv2mclgIztiqNOOUN5LcmTtFceGyAFRw
+        hash: v1.k794b7964.6f691b35f7fe4520f5d03223b2738cbb2b749c05b9b7e33e2d5c6ec6fa9aed9b.J8C2GMobfV7Ykm_9m54-XEwt7ERZ8X0QnkP1yax3DGY
     scenes-app-settings-user--settings-user-danger-zone--light:
-        hash: v1.k794b7964.aa21e966bebeddda6d5e572e2fbdd55c3700d74dccd9afca5124b099324dd6d7.27weAmO2tDo7xcy2EBk7B6i0Y5v4Z18ab5CQ1hKKHys
+        hash: v1.k794b7964.5fb30bd1852fe032fa739683a51eae41509ed07e2a264108478017ccb9f9f3ac.nxd9zh_kdsZFb99zdbfJOBmPjge0USX0m_DryemMe28
     scenes-app-settings-user--settings-user-notifications--dark:
         hash: v1.k794b7964.7ff881d5b3744cbe47fb402143301668b5fb624da10619a6b4c47eedf8c548b9.s75CAbF-SofJ_Af38F2iWb2VNc6XC73HtkIywqwqqHU
     scenes-app-settings-user--settings-user-notifications--light:
