@@ -371,6 +371,15 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["code"] == "delivery_unavailable"
         assert capture.call_args.kwargs["properties"]["outcome"] == "unavailable"
 
+    def test_a_send_that_breaks_after_the_pipeline_answers_is_counted_as_an_error(self, mock_post, _flag, capture):
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {})
+        self.client.raise_request_exception = False
+
+        response = self.client.post(self.url, self.body, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert capture.call_args.kwargs["properties"]["outcome"] == "error"
+
     @parameterized.expand(
         [
             ("update", "", {"name": "Reset"}),
