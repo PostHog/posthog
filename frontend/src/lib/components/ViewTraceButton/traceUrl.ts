@@ -23,7 +23,8 @@ export function inApiCase(id: string): string {
 /** Path + query for a trace view, relative to the app root. */
 export function traceUrl({ traceId, spanId, ts }: TraceLinkParams): string {
     const params = new URLSearchParams({ trace: inApiCase(traceId) })
-    if (spanId) {
+    // A log written outside any span carries OTel's all-zero span id, which no span in the trace has.
+    if (spanId && !/^0+$/.test(spanId)) {
         params.set('span', inApiCase(spanId))
     }
     if (ts) {

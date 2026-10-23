@@ -66,7 +66,7 @@ function missingParentNode(parentSpanId: string, child: Span): SpanNode {
 }
 
 // A root span has the all-zero OTel parent id, which the API returns as hex ("0000000000000000"), not "".
-function parentSpanIdOf(span: Span): string | null {
+export function parentSpanIdOf(span: Span): string | null {
     if (span.is_root_span || !span.parent_span_id || /^0+$/.test(span.parent_span_id)) {
         return null
     }
