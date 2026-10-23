@@ -1110,7 +1110,7 @@ export const ErrorTrackingSentryMigrationApplyCreateBody = /* @__PURE__ */ zod.o
         .max(errorTrackingSentryMigrationApplyCreateBodyBaseUrlMax)
         .default(errorTrackingSentryMigrationApplyCreateBodyBaseUrlDefault)
         .describe(
-            'Base URL of the Sentry instance. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
         ),
     organization_slug: zod
         .string()
@@ -1159,7 +1159,7 @@ export const ErrorTrackingSentryMigrationPreviewCreateBody = /* @__PURE__ */ zod
         .max(errorTrackingSentryMigrationPreviewCreateBodyBaseUrlMax)
         .default(errorTrackingSentryMigrationPreviewCreateBodyBaseUrlDefault)
         .describe(
-            'Base URL of the Sentry instance. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
         ),
     organization_slug: zod
         .string()
@@ -1198,7 +1198,7 @@ export const ErrorTrackingSentryMigrationProjectsCreateBody = /* @__PURE__ */ zo
         .max(errorTrackingSentryMigrationProjectsCreateBodyBaseUrlMax)
         .default(errorTrackingSentryMigrationProjectsCreateBodyBaseUrlDefault)
         .describe(
-            'Base URL of the Sentry instance. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
         ),
 })
 

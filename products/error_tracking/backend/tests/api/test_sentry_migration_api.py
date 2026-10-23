@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 from urllib.parse import urlparse
 
@@ -10,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from products.error_tracking.backend.logic.sentry_migration import client as sentry_client
 from products.error_tracking.backend.models import ErrorTrackingSettings, ErrorTrackingSuppressionRule
 
 TOKEN = "sntryu_test_token_value"
@@ -140,6 +142,31 @@ class TestSentryMigrationAPI(APIBaseTest):
         assert message in response.json()["detail"]
         assert TOKEN not in response.content.decode()
 
+    @parameterized.expand(
+        [
+            ("plain_http_url", {"base_url": "http://sentry.example.com"}, None, "https://", 0),
+            ("more_pages_than_allowed", {}, ("MAX_PAGES", 1), "more Sentry data than PostHog can read", 1),
+            ("slower_than_the_total_budget", {}, ("TOTAL_TIMEOUT_SECONDS", 0), "took too long", 0),
+        ]
+    )
+    def test_connection_limits_return_a_message_instead_of_partial_results(
+        self, _name: str, body: dict, client_override: tuple[str, int] | None, message: str, requests_sent: int
+    ) -> None:
+        routes = {
+            "/api/0/organizations/": _response(
+                [{"slug": "acme", "name": "Acme"}],
+                headers={"Link": '<https://sentry.io/x>; rel="next"; results="true"; cursor="0:100:0"'},
+            )
+        }
+        override = patch.object(sentry_client, *client_override) if client_override else nullcontext()
+
+        with override:
+            response = self._post("projects", routes, body)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in response.json()["detail"]
+        assert len(self.requested) == requests_sent
+
     def test_preview_then_apply_imports_only_the_selected_items(self) -> None:
         preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
 
@@ -184,6 +211,29 @@ class TestSentryMigrationAPI(APIBaseTest):
             "replaces the project's current rate limit of 5,000 exceptions per 1 hour"
             in (second_items["rate_limit:key2"]["note"])
         )
+
+        repeated = self._post("apply", PROJECT_RESPONSES, self._project_body(item_ids=selected))
+
+        assert repeated.json() == {"suppression_rules_created": 0, "rate_limit_updated": False}
+        assert ErrorTrackingSuppressionRule.objects.filter(team=self.team).count() == 2
+
+    @parameterized.expand(
+        [
+            ("sampled_rule", {"sampling_rate": 0.5}),
+            ("disabled_rule", {"disabled_data": {"message": "Rule failed to run"}}),
+        ]
+    )
+    def test_preview_only_counts_rules_that_drop_every_match(self, _name: str, rule_fields: dict) -> None:
+        preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
+        item = next(i for i in preview.json()["items"] if i["sentry_value"] == "*ResizeObserver loop*")
+        ErrorTrackingSuppressionRule.objects.create(
+            team=self.team, filters=item["suppression_rule_filters"], bytecode=[], order_key=0, **rule_fields
+        )
+
+        second_preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
+
+        same_item = next(i for i in second_preview.json()["items"] if i["id"] == item["id"])
+        assert not same_item["already_in_posthog"]
 
     @parameterized.expand(
         [
