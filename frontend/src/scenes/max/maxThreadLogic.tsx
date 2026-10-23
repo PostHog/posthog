@@ -14,6 +14,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import type { DisposablesManager } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -26,7 +27,9 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { objectsEqual } from 'lib/utils/objects'
+import { retryImport } from 'lib/utils/retryImport'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -160,17 +163,38 @@ async function shouldBlockPendingPiTask(pendingBindTaskId: string): Promise<bool
     }
 }
 
+// Keyed by the mount's disposables manager, so each mount loads once and a remount loads again.
+// Adding the 'billing-context' disposable a second time would unmount the logic and load billing again.
+const billingContextLoads = new WeakMap<DisposablesManager, Promise<void>>()
+
 // The billing context loads billing usage, spend and destinations when it mounts. Only flagged
 // organizations send it, so the other threads skip both the requests and the code.
-function mountBillingContext(cache: Record<string, any>): void {
-    void import('./maxBillingContextLogic').then(({ maxBillingContextLogic }) => {
-        if (cache.disposables.isDisposed) {
-            return
-        }
-        cache.billingContextLogic = maxBillingContextLogic
-        // Pausing would unmount it while the tab is hidden, and every return would load billing again.
-        cache.disposables.add(() => maxBillingContextLogic.mount(), 'billing-context', { pauseOnPageHidden: false })
-    })
+function mountBillingContext(cache: Record<string, any>): Promise<void> {
+    const disposables: DisposablesManager = cache.disposables
+    const existing = billingContextLoads.get(disposables)
+    if (existing) {
+        return existing
+    }
+    const load = retryImport(() => import('./maxBillingContextLogic'))
+        .then(({ maxBillingContextLogic }) => {
+            if (disposables.isDisposed) {
+                return
+            }
+            cache.billingContextLogic = maxBillingContextLogic
+            // Pausing would unmount it while the tab is hidden, and every return would load billing again.
+            disposables.add(() => maxBillingContextLogic.mount(), 'billing-context', { pauseOnPageHidden: false })
+        })
+        .catch((error) => {
+            // Messages go out without billing context. The next flag change or mount tries again.
+            billingContextLoads.delete(disposables)
+            if (isChunkLoadError(error)) {
+                console.warn('[PostHog AI] Billing context chunk failed to load', error)
+            } else {
+                posthog.captureException(error)
+            }
+        })
+    billingContextLoads.set(disposables, load)
+    return load
 }
 
 function flaggedBillingContext(cache: Record<string, any>, featureFlags: FeatureFlagsSet): MaxBillingContext | null {
@@ -3038,15 +3062,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         }
 
-        if (values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
-            mountBillingContext(cache)
-        }
-
         if (values.queueingEnabled && values.conversation?.id) {
             actions.loadQueueData()
         }
 
         if (values.autoRun && values.question) {
+            if (values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
+                // The first message carries the billing context, so wait for its chunk before sending.
+                const disposables = cache.disposables
+                await mountBillingContext(cache)
+                if (disposables.isDisposed || !(logic as BuiltLogic<maxThreadLogicType>).isMounted()) {
+                    return
+                }
+            }
             actions.askMax(values.question)
             actions.setAutoRun(false)
             return
@@ -3119,7 +3147,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
+        // Also fires on mount. The flag can turn on after mount when the bootstrap leaves it out.
+        featureFlags: (featureFlags: FeatureFlagsSet) => {
+            if (featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
+                void mountBillingContext(cache)
+            }
+        },
         sceneId: (sceneId: Scene | null) => {
             // Defer to next tick to allow URL-based mode setting to complete first
             // This prevents race conditions where the subscription fires during mount
