@@ -3,13 +3,12 @@ from uuid import UUID
 
 from celery import current_app
 
-from posthog.cdp.workflow_step_resume import (
+from products.cdp.backend.workflow_step_resume import (
     RESULT_BYTE_CAP,
     WorkflowStepResumeStatus,
     cap_value,
     emit_workflow_step_resume,
 )
-
 from products.tasks.backend.logic.services.workflow_task_output import RUN_OUTPUT_RESERVED_KEYS
 from products.tasks.backend.models import Task, TaskRun
 

@@ -12,6 +12,9 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
@@ -33,6 +36,22 @@ STRIPE_POSTHOG_SECRET_NAMES = (
     "posthog_project_id",
     "posthog_oauth_client_id",
 )
+
+
+def stripe_signing_secret() -> str:
+    """The Stripe app signing secret, resolved fresh so rotation and recovery take effect immediately."""
+    return get_or_settings("STRIPE_SIGNING_SECRET", CredentialsCaller.INTEGRATIONS)
+
+
+def _local_oauth_client_id(key: str) -> str:
+    """One of PostHog's own Stripe OAuth application ids, for finding and deleting local tokens.
+
+    Falling back during an outage (or recovery) cannot expose a credential and must not block revocation.
+    """
+    try:
+        return get_or_settings(key, CredentialsCaller.INTEGRATIONS)
+    except CredentialsServiceFailure:
+        return getattr(settings, key, "")
 
 
 @frozen
@@ -121,7 +140,7 @@ class StripeIntegration:
         from stripe import StripeClient  # noqa: PLC0415
 
         try:
-            oauth_config = oauth.OauthIntegration.oauth_config_for_kind("stripe")
+            client = oauth.OauthIntegration.client_credentials_for_kind("stripe")
         except NotImplementedError as e:
             capture_exception(
                 e,
@@ -130,7 +149,7 @@ class StripeIntegration:
                 },
             )
             return None
-        return StripeClient(oauth_config.client_secret)
+        return StripeClient(client.client_secret)
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> StripeSecretPublication:
         """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
@@ -219,30 +238,31 @@ class StripeIntegration:
         if not stripe_user_id:
             raise ValueError("Missing stripe_user_id on integration")
 
-        client = self._stripe_client()
-        if client is None:
+        try:
+            client = self._stripe_client()
+            if client is None:
+                return
+
+            for name in STRIPE_POSTHOG_SECRET_NAMES:
+                try:
+                    client.apps.secrets.delete_where(
+                        params={
+                            "scope": {"type": "account"},
+                            "name": name,
+                        },
+                        options={"stripe_account": stripe_user_id},
+                    )
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        {
+                            "secret_name": name,
+                            "stripe_user_id": stripe_user_id,
+                        },
+                    )
+        finally:
+            # Revoke locally even when the credentials service lookup raises.
             self._destroy_posthog_oauth_tokens()
-            return
-
-        for name in STRIPE_POSTHOG_SECRET_NAMES:
-            try:
-                client.apps.secrets.delete_where(
-                    params={
-                        "scope": {"type": "account"},
-                        "name": name,
-                    },
-                    options={"stripe_account": stripe_user_id},
-                )
-            except Exception as e:
-                capture_exception(
-                    e,
-                    {
-                        "secret_name": name,
-                        "stripe_user_id": stripe_user_id,
-                    },
-                )
-
-        self._destroy_posthog_oauth_tokens()
 
     def _destroy_posthog_oauth_tokens(self) -> None:
         """Delete the local OAuth access and refresh tokens created for this Stripe integration."""
@@ -259,8 +279,10 @@ class StripeIntegration:
 
         Returns None when the setting is unset or names the orchestrator, rather than minting there.
         """
-        client_id = settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID
-        if not client_id or client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        client_id = get_or_settings("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
+        if not client_id or client_id == get_or_settings(
+            "STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS
+        ):
             # Minting on the orchestrator's application is the vulnerability, whether the setting
             # is unset or mapped to the orchestrator's own id, so both fail closed: a new install
             # gets no credential rather than a privileged one.
@@ -282,7 +304,12 @@ class StripeIntegration:
         Revocation has to span both or tokens issued before the application split survive it.
         """
         client_ids = [
-            cid for cid in (settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID, settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID) if cid
+            cid
+            for cid in (
+                _local_oauth_client_id("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID"),
+                _local_oauth_client_id("STRIPE_POSTHOG_OAUTH_CLIENT_ID"),
+            )
+            if cid
         ]
         if not client_ids:
             return []

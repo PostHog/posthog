@@ -1,0 +1,200 @@
+{
+    "id": "f041bc74-fedd-4438-8455-ac97031b98a7",
+    "name": "Support tickets with session context",
+    "description": "When a customer creates a support ticket, Replay Vision summarizes their session and posts it to Slack, so whoever picks up the ticket knows what happened.",
+    "version": 1,
+    "created_at": "2026-10-16T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-16T00:00:00Z",
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_ticket_created",
+                    "name": "New ticket created",
+                    "type": "events"
+                }
+            ],
+            "properties": [
+                {
+                    "key": "$session_id",
+                    "type": "event",
+                    "operator": "is_set"
+                }
+            ]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "action_function_02a1b96f-f091-48f8-906c-172af4e01060",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_02a1b96f-f091-48f8-906c-172af4e01060",
+            "to": "action_function_dd61516d-e5ac-477e-887d-3a23a5e95725",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_dd61516d-e5ac-477e-887d-3a23a5e95725",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Support ticket created",
+            "description": "Runs when a customer creates a support ticket from a session PostHog recorded.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "output_variable": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_created",
+                            "name": "New ticket created",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "$session_id",
+                            "type": "event",
+                            "operator": "is_set"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "id": "action_function_02a1b96f-f091-48f8-906c-172af4e01060",
+            "name": "Summarize the session",
+            "description": "Replay Vision watches the session where the ticket was created and summarizes what the customer did before asking for help.",
+            "on_error": "continue",
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": [
+                {
+                    "key": "vision_summary",
+                    "result_path": "output.summary"
+                }
+            ],
+            "config": {
+                "template_id": "template-posthog-replay-vision",
+                "inputs": {
+                    "analysis": {
+                        "value": {
+                            "type": "summarizer",
+                            "prompt": "This customer just created a support ticket. Whoever picks up the ticket will read your summary first, so they understand the problem before replying.\n\nSummarize the session with a focus on the moments before the ticket:\n1. What the customer was trying to do, and the steps they took.\n2. The page or feature they were on when they asked for help.\n3. Any errors, failed requests, error messages on screen, or broken or slow pages, with when they happened.\n4. Where they got stuck or confused, for example repeated attempts, rage clicks, or going back and forth between pages.\n5. Anything they tried to fix it themselves, such as reloading or searching the docs.\n\nKeep it short and factual. If the session shows no clear problem, say so."
+                        }
+                    },
+                    "non_failure_status_codes": {
+                        "value": [409]
+                    }
+                }
+            }
+        },
+        {
+            "id": "action_function_dd61516d-e5ac-477e-887d-3a23a5e95725",
+            "name": "Notify in Slack",
+            "description": "Posts the new ticket and the session summary to a Slack channel.",
+            "on_error": null,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "*New support ticket from {person.name}*\n*Email:* {person.email}\n\n*What happened in the session:*\n{substring(variables.vision_summary, 1, 2500)}"
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View person in PostHog"
+                                        },
+                                        "url": "{person.url}"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "*{person.name}* created a support ticket",
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [
+        {
+            "key": "vision_summary",
+            "type": "string",
+            "default": ""
+        }
+    ],
+    "billable_action_types": ["function"],
+    "tags": ["ai", "replay vision", "support", "support ticket", "slack"],
+    "scope": "global"
+}

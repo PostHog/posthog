@@ -27,8 +27,14 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { type ComposerSeed, composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import {
+    type ComposerSeed,
+    composerSeedLogic,
+    runnerPanelLogic,
+    taskLogic,
+} from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import type { ToolRegistration } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
@@ -115,7 +121,7 @@ export function parseCommandString(options: string): ParsedCommand {
 }
 
 function handleCommandString(options: string, actions: maxLogicType['actions'], effectivePhaiView: PhaiViewMode): void {
-    if (options === REPORT_AI_PANEL) {
+    if (options === REPORT_AI_PANEL || options === SCOUT_AI_PANEL) {
         return
     }
     const parsed = parseCommandString(options)
@@ -382,7 +388,8 @@ export interface maxLogicMeta {
             chatTitle: string | null,
             conversationHistoryVisible: boolean,
             searchParams: Record<string, any>,
-            activeStreamingThreads: number
+            activeStreamingThreads: number,
+            arg: string | null
         ) => Breadcrumb[]
     }
 }
@@ -692,16 +699,24 @@ export const maxLogic = kea<maxLogicType>([
                 s.conversationHistoryVisible,
                 s.searchParams,
                 s.activeStreamingThreads,
+                (state): string | null => {
+                    const taskId = s.searchParams(state).task
+                    return typeof taskId === 'string'
+                        ? taskLogic.findMounted({ taskId })?.selectors.task(state)?.title || null
+                        : null
+                },
             ],
             (
                 conversationId: string | null,
                 chatTitle: string | null,
                 conversationHistoryVisible: boolean,
                 searchParams: Record<string, any>,
-                activeStreamingThreads: number
+                activeStreamingThreads: number,
+                taskTitle: string | null
             ): Breadcrumb[] => {
                 const isStreaming = activeStreamingThreads > 0
-                const hasConversationBreadcrumb = !conversationHistoryVisible && conversationId
+                const historyVisible = conversationHistoryVisible && !taskTitle
+                const hasConversationBreadcrumb = !historyVisible && (conversationId || taskTitle)
                 return [
                     {
                         key: Scene.Max,
@@ -709,7 +724,7 @@ export const maxLogic = kea<maxLogicType>([
                         path: urls.ai(),
                         iconType: 'chat',
                     },
-                    ...(conversationHistoryVisible || searchParams.from === 'history'
+                    ...(historyVisible || searchParams.from === 'history'
                         ? [
                               {
                                   key: Scene.Max,
@@ -723,8 +738,10 @@ export const maxLogic = kea<maxLogicType>([
                         ? [
                               {
                                   key: Scene.Max,
-                                  name: chatTitle || 'Chat',
-                                  path: urls.ai(conversationId),
+                                  name: taskTitle || chatTitle || 'Chat',
+                                  path: taskTitle
+                                      ? urls.aiTask(searchParams.task)
+                                      : urls.ai(conversationId ?? undefined),
                                   iconType: isStreaming ? ('loading' as const) : ('chat' as const),
                               },
                           ]
@@ -1104,6 +1121,20 @@ export const maxLogic = kea<maxLogicType>([
         }
     }),
 ])
+
+/**
+ * The side panel chat logic. The first call holds a mount for the rest of the session, so the open chat
+ * survives when the panel closes and unmounts its React tree. The hold is separate from any mount React
+ * already has, because that mount ends when the panel closes.
+ */
+export function sidePanelMaxLogic(): ReturnType<typeof maxLogic.build> {
+    const logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+    if (!logic.cache.sessionMountHeld) {
+        logic.mount()
+        logic.cache.sessionMountHeld = true
+    }
+    return logic
+}
 
 export function getScrollableContainer(element?: Element | null): HTMLElement | null {
     if (!element) {

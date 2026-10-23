@@ -16,7 +16,7 @@ def get_s3_function_call(s3_folder: str, credentials: AWSKeyPair | None, num_par
     Note: We use %% for the modulo operator because the ClickHouse client uses % for
     parameter substitution, so %% produces a literal % in the final query.
     """
-    s3_url = f"{s3_folder}/export_{{{{_partition_id}}}}.arrow"
+    s3_url = f"{s3_folder}/export_{{_partition_id}}.arrow"
     if credentials is not None:
         # Escape single quotes by doubling them (ClickHouse SQL escaping)
         escaped_key = credentials.access_key_id.replace("'", "''")

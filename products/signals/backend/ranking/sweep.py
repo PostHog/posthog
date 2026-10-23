@@ -26,8 +26,9 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
@@ -154,6 +155,7 @@ def _live_vectors(since: datetime.datetime, rendering: str) -> dict[str, tuple[i
             },
             settings=CANDIDATE_VECTORS_QUERY_SETTINGS,
             workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.SIGNALS,
         )
         or [],
     )
@@ -302,6 +304,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         peak_rss_mb=_peak_rss_mb(),
     )
 
+    project_vectors = scorer.pass_project_vectors(serving, list(ids_by_team))
     # A scorer call holds the vectors and matrices of all its reports, so one call scores at most one
     # vector read of one team. Each call persists its scores, so a pass that stops keeps its progress.
     chunks = [
@@ -320,7 +323,13 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
                 continue
             try:
                 outcomes = scorer.score_reports(
-                    team_id, list(report_ids), persist=True, now=now, serving=serving, capture=capture
+                    team_id,
+                    list(report_ids),
+                    persist=True,
+                    now=now,
+                    serving=serving,
+                    capture=capture,
+                    project_vectors=project_vectors,
                 )
             except (scorer.ScoringError, ModelLoadError):
                 # A pass without a served score is worse than no pass.

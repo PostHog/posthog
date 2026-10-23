@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EvaluationQuickStart } from '../evaluations/EvaluationQuickStart'
 import { EvaluationsPreview } from './EvaluationsPreview'
 import { evaluationsSetupLogic } from './evaluationsSetupLogic'
 
@@ -37,9 +38,10 @@ export const evaluationsEmptyState: SceneProductEmptyState = {
             },
             dataAttr: 'create-evaluation-button',
         },
+        SetupActions: EvaluationQuickStart,
         docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
         skippable: false,
-        previewLabel: 'Your evaluations, once running',
+        previewLabel: 'Example: how your evaluations will score',
         Preview: EvaluationsPreview,
     },
 }

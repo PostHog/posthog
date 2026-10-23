@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 
-export type EditModeEdge = 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se'
+export type EditModeEdge = 's' | 'w' | 'e' | 'sw' | 'se'
 
 interface EditModeEdgeOverlayProps {
     onEnterEditMode: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
@@ -19,19 +19,14 @@ const edgeOverlayBaseStyle: React.CSSProperties = {
     background: 'none',
 }
 
-// Top/bottom zones hug the tile border. They still win the shared border pixel via a higher z-index.
-const TOP_BOTTOM_Z = 7
+const BOTTOM_EDGE_Z = 7
 // Corners sit above edges so a press in the corner resolves to the diagonal handle.
-const cornerZoneStyle: React.CSSProperties = { zIndex: TOP_BOTTOM_Z, width: 18, height: 18 }
+const cornerZoneStyle: React.CSSProperties = { zIndex: BOTTOM_EDGE_Z, width: 18, height: 18 }
 
 const zones: { edge: EditModeEdge; style: React.CSSProperties; cursor: React.CSSProperties['cursor'] }[] = [
-    // Shallow on top (the card header/menu lives just below) and deeper on the bottom for a comfortable target.
-    { edge: 'n', style: { left: 0, right: 0, top: -2, height: 10, zIndex: TOP_BOTTOM_Z }, cursor: 'ns-resize' },
-    { edge: 's', style: { left: 0, right: 0, bottom: -2, height: 14, zIndex: TOP_BOTTOM_Z }, cursor: 'ns-resize' },
+    { edge: 's', style: { left: 0, right: 0, bottom: -2, height: 14, zIndex: BOTTOM_EDGE_Z }, cursor: 'ns-resize' },
     { edge: 'w', style: { top: 0, bottom: 0, left: -6, width: 12 }, cursor: 'ew-resize' },
     { edge: 'e', style: { top: 0, bottom: 0, right: -6, width: 12 }, cursor: 'ew-resize' },
-    { edge: 'nw', style: { ...cornerZoneStyle, top: -2, left: -2 }, cursor: 'nw-resize' },
-    { edge: 'ne', style: { ...cornerZoneStyle, top: -2, right: -2 }, cursor: 'ne-resize' },
     { edge: 'sw', style: { ...cornerZoneStyle, bottom: -2, left: -2 }, cursor: 'sw-resize' },
     { edge: 'se', style: { ...cornerZoneStyle, bottom: -2, right: -2 }, cursor: 'se-resize' },
 ]
@@ -171,14 +166,16 @@ export function useResizeHandleScrollbarPassThrough(enabled: boolean): void {
             if (
                 !(hovered instanceof HTMLElement) ||
                 !(gridItem instanceof HTMLElement) ||
+                hovered.classList.contains('react-resizable-handle-se') ||
                 yielded.has(hovered) ||
                 !pointIsOverScrollbarInside(gridItem, event.clientX, event.clientY)
             ) {
                 return
             }
-            // Corner handles overlap the edge handles at the ends, so yield every handle stacked on
-            // the point at once — otherwise the one beneath swallows a press until its own mousemove.
             for (const handle of gridItem.querySelectorAll<HTMLElement>('.react-resizable-handle')) {
+                if (handle.classList.contains('react-resizable-handle-se')) {
+                    continue
+                }
                 const rect = handle.getBoundingClientRect()
                 if (
                     event.clientX >= rect.left &&
@@ -193,6 +190,9 @@ export function useResizeHandleScrollbarPassThrough(enabled: boolean): void {
         }
 
         const handlePressCapture = (event: MouseEvent): void => {
+            if (event.target instanceof Element && event.target.closest('.react-resizable-handle-se')) {
+                return
+            }
             const gridItem = event.target instanceof Element ? event.target.closest('.react-grid-item') : null
             if (gridItem instanceof HTMLElement && pointIsOverScrollbarInside(gridItem, event.clientX, event.clientY)) {
                 event.stopPropagation()
@@ -233,7 +233,7 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
 
     const evaluateScrollbarPassThrough = (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge): void => {
         const container = event.currentTarget.parentElement
-        if (!container || scrollbarPassThroughEdges.has(edge)) {
+        if (!container || edge === 'se' || scrollbarPassThroughEdges.has(edge)) {
             return
         }
         const { clientX, clientY } = event
@@ -247,7 +247,7 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
         setScrollbarPassThroughEdges((prev) => {
             let next: Set<EditModeEdge> | null = null
             for (const [zoneEdge, zone] of zoneRefs.current) {
-                if (!zone || prev.has(zoneEdge)) {
+                if (!zone || zoneEdge === 'se' || prev.has(zoneEdge)) {
                     continue
                 }
                 const rect = zone.getBoundingClientRect()
@@ -300,7 +300,7 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
         // the scrollbar below. The press is lost either way (it targeted the zone), but it must not
         // throw the user into edit mode when they were aiming at a scrollbar.
         const container = event.currentTarget.parentElement
-        if (container && pointIsOverScrollbarInside(container, event.clientX, event.clientY)) {
+        if (edge !== 'se' && container && pointIsOverScrollbarInside(container, event.clientX, event.clientY)) {
             return
         }
         // Claim the press so it does not start a text selection; pointer travel decides whether it becomes a resize.

@@ -38,11 +38,16 @@ locals {
     { name = "version", type = "Int64" },
   ]
 
-  person_distinct_id2_columns = concat(local.kafka_person_distinct_id2_columns, [
+  person_distinct_id2_columns = [
+    { name = "team_id", type = "Int64" },
+    { name = "distinct_id", type = "String" },
+    { name = "person_id", type = "UUID" },
+    { name = "is_deleted", type = "Int8" },
+    { name = "version", type = "Int64", default_expression = "1" },
     { name = "_timestamp", type = "DateTime" },
     { name = "_offset", type = "UInt64" },
     { name = "_partition", type = "UInt64" },
-  ])
+  ]
 }
 
 module "person_distinct_id_family" {
@@ -111,6 +116,18 @@ module "person_distinct_id2_family" {
     settings    = "index_granularity = 512"
     indexes = [
       { name = "kafka_timestamp_minmax_person_distinct_id2", expression = "_timestamp", type = "minmax", granularity = 3 },
+    ]
+  }
+  routing = {
+    write_columns = [
+      { name = "team_id", type = "Int64" },
+      { name = "distinct_id", type = "String" },
+      { name = "person_id", type = "UUID" },
+      { name = "is_deleted", type = "Int8" },
+      { name = "version", type = "Int64" },
+      { name = "_timestamp", type = "DateTime" },
+      { name = "_offset", type = "UInt64" },
+      { name = "_partition", type = "UInt64" },
     ]
   }
   kafka = {

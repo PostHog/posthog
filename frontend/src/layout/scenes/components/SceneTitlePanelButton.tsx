@@ -12,11 +12,10 @@ import { cn } from 'lib/utils/css-classes'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
-
-import { sceneLayoutLogic } from '../sceneLayoutLogic'
 
 /**
  * The click on the PostHog AI button is the only proof the handler ran. Every route into the
@@ -40,7 +39,7 @@ export function SceneTitlePanelButton({
     buttonClassName?: string
     maxButtonLabel?: string
 }): JSX.Element | null {
-    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
+    const { defaultTab } = useValues(sidePanelLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
@@ -50,9 +49,6 @@ export function SceneTitlePanelButton({
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
-
-    // Open Info tab if scene has panel content, otherwise default to PostHog AI
-    const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
     if (sidePanelOpen || (todayRailEnabled && phoneLayout)) {
         return null

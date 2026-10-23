@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EverhourSource(ResumableSource[EverhourSourceConfig, EverhourResumeConfig]):
+    codebase_detection = detect(env=("^EVERHOUR_",))
+
     api_docs_url = "https://everhour.docs.apiary.io/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -47,7 +50,7 @@ class EverhourSource(ResumableSource[EverhourSourceConfig, EverhourResumeConfig]
             name=ExternalDataSourceType.EVERHOUR,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Everhour",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Everhour API key to pull your Everhour time-tracking data into the PostHog Data warehouse.
 
 You can find your API key in your [Everhour profile settings](https://app.everhour.com/#/account/profile) under the API section.

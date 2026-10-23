@@ -1,6 +1,6 @@
 """The inbox trigger: auto-review self-driving (Signals) implementations when they produce a PR.
 
-A `post_save` receiver on `tasks.TaskRun` (resolved via the app registry — tasks never imports
+A `post_save` receiver on `tasks.TaskRun`, connected through the tasks facade hook (tasks never imports
 review_hog, keeping every product edge in the existing direction). The trigger is the save that
 records a review target on the run's `output` — NOT run completion: on the tasks architecture a
 successful run deliberately never leaves `in_progress` (it stays followable and the PR follow-up
@@ -39,9 +39,7 @@ import json
 import logging
 from typing import Any
 
-from django.apps import apps as django_apps
 from django.db import transaction
-from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -54,6 +52,7 @@ from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidenceState,
     register_review_evidence_provider,
 )
+from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
 # posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
@@ -68,11 +67,7 @@ REVIEWER_NAME = "PostHog Review"
 
 def connect() -> None:
     """Wire the TaskRun-save receiver and the stamphog hooks; called once from `AppConfig.ready()`."""
-    post_save.connect(
-        handle_task_run_saved,
-        sender=django_apps.get_model("tasks", "TaskRun"),
-        dispatch_uid="review_hog_task_run_completed",
-    )
+    connect_task_run_post_save(handle_task_run_saved, dispatch_uid="review_hog_task_run_completed")
     # Stamphog re-checks this toggle before re-reviewing a self-driving PR. It gets the resolver
     # through a hook because importing review_hog from stamphog would be a dependency cycle.
     register_inbox_acting_reviewer_resolver(resolve_stamphog_acting_reviewer)

@@ -36,6 +36,7 @@ export function AccessControls({
         filteredRoles,
         filteredMembers,
         canEdit,
+        terraformDisabledReason,
         loading,
         activePanelSubject,
         visibleResourceKeySet,
@@ -97,6 +98,7 @@ export function AccessControls({
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
+                                cannotEditReason={terraformDisabledReason}
                                 visibleResources={visibleResourceKeySet}
                                 filteredResources={filteredResourceKeySet}
                                 selectedEntryId={openInPanelId}

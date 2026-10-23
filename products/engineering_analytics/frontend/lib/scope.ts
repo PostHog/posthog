@@ -1,7 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 
-/** Carry the shared window, run scope, source, and repo onto an internal nav URL, so drilling in or stepping
- *  back never silently resets them. */
+/** Carry the shared window, run scope, and source onto an internal nav URL, so drilling in or stepping back
+ *  never silently resets them. The repository rides in the path, never as a param. */
 export function withScope(
     url: string,
     searchParams: Record<string, string | undefined>,
@@ -12,12 +12,11 @@ export function withScope(
         ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
         ...(searchParams.run_scope ? { run_scope: searchParams.run_scope } : {}),
         ...(sourceId ? { source: sourceId } : {}),
-        ...(searchParams.repo ? { repo: searchParams.repo } : {}),
     }).url
 }
 
 /** Like withScope, but reads the live URL for module-level link builders that don't have searchParams in
- *  scope, so a source-only link still carries the current window / run scope / repo. */
+ *  scope, so a source-only link still carries the current window and run scope. */
 export function withCurrentScope(url: string, sourceId: string | null | undefined): string {
     return withScope(url, router.values.searchParams, sourceId)
 }

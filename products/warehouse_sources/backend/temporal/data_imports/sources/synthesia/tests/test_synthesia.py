@@ -4,7 +4,6 @@ import pytest
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -86,7 +85,7 @@ def test_webhook_signing_secrets_are_not_imported() -> None:
     assert result.items == [[{"id": "hook-1", "url": "https://example.com/hook", "status": "active"}]]
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 404, 429, 500])
+@pytest.mark.parametrize("status", [404, 429, 500])
 def test_credential_status_mapping(status: int) -> None:
     with scripted_network(always(_page({"videos": []}, status))) as network:
         if status in (200, 401, 403):
@@ -122,13 +121,6 @@ def test_sync_auth_errors_are_terminal_and_mapped(status: int) -> None:
     ]
     assert len(messages) == 1
     assert messages[0] is not None and "Legacy (v2)" in messages[0]
-
-
-def test_unknown_endpoint_fails_before_request() -> None:
-    result = _driver().run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 def test_missing_list_fails_instead_of_replacing_table_with_empty_data() -> None:

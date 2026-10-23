@@ -1,11 +1,15 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
+
 from parameterized import parameterized, parameterized_class
 
 from products.customer_analytics.backend.logic.person_property_projection import (
+    person_properties_flag_enabled,
     person_property_projection,
     person_property_sync_sources,
+    saved_queries_with_property_sources,
 )
 from products.customer_analytics.backend.models import CustomPropertySource, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
@@ -13,6 +17,64 @@ from products.customer_analytics.backend.test.factories import create_custom_pro
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding, schema_binding
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+
+class PersonPropertyRolloutFlagTest(SimpleTestCase):
+    @staticmethod
+    def _set_team(only):
+        only.return_value.get.return_value.organization_id = 123
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=False)
+    def test_self_hosted_instances_do_not_depend_on_the_rollout_flag(self, is_cloud, feature_enabled, only):
+        self._set_team(only)
+
+        assert person_properties_flag_enabled(1) is True
+        is_cloud.assert_called_once_with()
+        feature_enabled.assert_not_called()
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=False)
+    @override_settings(WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False)
+    def test_self_hosted_operator_kill_switch_disables_the_feature(self, is_cloud, feature_enabled, only):
+        self._set_team(only)
+
+        assert person_properties_flag_enabled(1) is False
+        feature_enabled.assert_not_called()
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=True)
+    def test_cloud_instances_use_the_rollout_flag(self, is_cloud, feature_enabled, only):
+        self._set_team(only)
+        feature_enabled.return_value = True
+
+        assert person_properties_flag_enabled(1) is True
+        feature_enabled.assert_called_once_with(
+            "warehouse-person-properties",
+            "123",
+            groups={"organization": "123"},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        feature_enabled.reset_mock()
+        feature_enabled.return_value = False
+        assert person_properties_flag_enabled(1) is False
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.capture_exception")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=True)
+    def test_cloud_flag_errors_fail_closed(self, is_cloud, feature_enabled, capture_exception, only):
+        self._set_team(only)
+        error = RuntimeError("flag service unavailable")
+        feature_enabled.side_effect = error
+
+        assert person_properties_flag_enabled(1) is False
+        capture_exception.assert_called_once_with(error)
 
 
 # Both binding kinds run every case: the resolvers pick the filter column from the binding, and picking
@@ -158,3 +220,37 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
             return_value=False,
         ):
             assert resolver(self.team.id, self.binding) is None
+
+
+class SavedQueriesWithPropertySourcesTest(TeamScopedTestMixin, BaseTest):
+    def _source(self, saved_query, target_type: str, *, is_enabled: bool = True) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name=f"{saved_query.name} {target_type}", target_type=target_type
+        )
+        CustomPropertySource.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            definition=definition,
+            saved_query=saved_query,
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+            is_enabled=is_enabled,
+        )
+
+    @patch(
+        "products.customer_analytics.backend.logic.person_property_projection.person_properties_flag_enabled",
+        return_value=False,
+    )
+    def test_finds_views_with_an_enabled_source_whatever_the_rollout_flag_says(self, _flag) -> None:
+        person = create_saved_query(team_id=self.team.id, name="person_view")
+        account = create_saved_query(team_id=self.team.id, name="account_view")
+        disabled = create_saved_query(team_id=self.team.id, name="disabled_view")
+        unused = create_saved_query(team_id=self.team.id, name="unused_view")
+        self._source(person, TargetType.PERSON.value)
+        self._source(account, TargetType.ACCOUNT.value)
+        self._source(disabled, TargetType.PERSON.value, is_enabled=False)
+
+        found = saved_queries_with_property_sources(
+            self.team.id, [str(view.id) for view in (person, account, disabled, unused)]
+        )
+
+        assert found == {str(person.id), str(account.id)}

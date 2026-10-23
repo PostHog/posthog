@@ -17,6 +17,7 @@ export function toolInvocationToMessage(invocation: ToolInvocation | undefined):
         claudeToolName: resolved.claudeToolName,
         rawInput: invocation.input,
         innerInput: resolved.innerInput,
+        proxiedToolName: resolved.proxiedToolName,
         rawOutput: invocation.output,
         content: invocation.contentBlocks,
         status: invocation.status,

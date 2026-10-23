@@ -6,7 +6,9 @@ from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
+from posthog.schema_enums import ProductKey
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -71,6 +73,103 @@ _MISSING_SCOPE_ERROR = (
 
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
+    # gtag.js loads from googletagmanager.com, so a Tag Manager container also matches. It nearly always carries GA.
+    codebase_detection = detect(
+        env=(
+            "^GOOGLE_ANALYTICS_",
+            "^GA4_",
+            "^NEXT_PUBLIC_GA_ID$",
+            "^NEXT_PUBLIC_GA_MEASUREMENT_ID$",
+            "^NUXT_PUBLIC_GTAG_ID$",
+            "^GA_MEASUREMENT_ID$",
+            "^GA_TRACKING_ID$",
+            "^ANALYTICS_PROPERTY_ID$",
+        ),
+        script_hosts=("google-analytics.com", "googletagmanager.com", "stats.g.doubleclick.net"),
+        npm=(
+            "react-ga4",
+            "@google-analytics/data",
+            "@google-analytics/admin",
+            "react-ga",
+            "ga-gtag",
+            "vue-gtag",
+            "vue-gtag-next",
+            "vue-analytics",
+            "nuxt-gtag",
+            "@nuxtjs/google-analytics",
+            "@nuxtjs/google-gtag",
+            "gatsby-plugin-google-gtag",
+            "gatsby-plugin-google-analytics",
+            "ngx-google-analytics",
+            "@analytics/google-analytics",
+            "@types/gtag.js",
+            "@types/google.analytics",
+            "universal-analytics",
+            "@react-native-firebase/analytics",
+            "expo-firebase-analytics",
+            "ga-4-react",
+            "nextjs-google-analytics",
+            "autotrack",
+            "@vuepress/plugin-google-analytics",
+        ),
+        pypi=(
+            "google-analytics-data",
+            "google-analytics-admin",
+            "analytics-mcp",
+            "ga4mp",
+            "google-measurement-protocol",
+        ),
+        cargo=(
+            "google-analytics3",
+            "google-analyticsreporting4",
+            "google-analyticsdata1_beta",
+            "google-analyticsadmin1_alpha",
+        ),
+        cocoapods=("FirebaseAnalytics", "GoogleAnalytics", "GoogleAppMeasurement"),
+        composer=(
+            "google/analytics-data",
+            "google/analytics-admin",
+            "theiconic/php-ga-measurement-protocol",
+            "spatie/laravel-analytics",
+            "br33f/php-ga4-mp",
+        ),
+        go=("cloud.google.com/go/analytics",),
+        hex=(
+            "google_api_analytics",
+            "google_api_analytics_admin",
+            "google_api_analytics_data",
+            "google_api_analytics_reporting",
+        ),
+        maven=(
+            "com.google.analytics:google-analytics-data",
+            "com.google.analytics:google-analytics-admin",
+            "com.google.apis:google-api-services-analytics",
+            "com.google.apis:google-api-services-analyticsreporting",
+            "com.google.apis:google-api-services-analyticsadmin",
+            "com.google.apis:google-api-services-analyticsdata",
+            "com.google.firebase:firebase-analytics",
+            "com.google.firebase:firebase-analytics-ktx",
+            "com.google.android.gms:play-services-analytics",
+        ),
+        pub=("firebase_analytics", "usage"),
+        rubygems=(
+            "google-analytics-data",
+            "google-analytics-admin",
+            "google-analytics-data-v1beta",
+            "google-analytics-admin-v1alpha",
+            "google-apis-analytics_v3",
+            "google-apis-analyticsreporting_v4",
+            "google-apis-analyticsadmin_v1alpha",
+            "google-apis-analyticsdata_v1beta",
+            "staccato",
+            "legato",
+            "gabba",
+            "google-analytics-rails",
+        ),
+        swiftpm=("github.com/google/googleappmeasurement",),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developers.google.com/analytics/devguides/reporting/data/v1"

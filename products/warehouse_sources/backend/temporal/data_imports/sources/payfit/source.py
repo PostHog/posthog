@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PayFitSource(ResumableSource[PayFitSourceConfig, PayFitResumeConfig]):
+    codebase_detection = detect(env=("^(PAY_FIT|PAYFIT)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.payfit.io/reference/"
 
@@ -41,7 +44,7 @@ class PayFitSource(ResumableSource[PayFitSourceConfig, PayFitResumeConfig]):
             name=ExternalDataSourceType.PAYFIT,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="PayFit",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your PayFit API key to pull your HR and payroll data into the PostHog Data warehouse.
 
 You can create an API key from the **API access** tab on the [integrations page](https://app.payfit.com/integrations/hub/api) of your PayFit admin account. Grant it the `collaborators:read`, `contracts:read`, `time:read`, and `contracts:payslips:read` scopes so every table can sync.

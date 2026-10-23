@@ -38,15 +38,37 @@ describe('CanvasDataBridge query routing', () => {
         expect(api.query).not.toHaveBeenCalled()
     })
 
+    const tags = { productKey: 'canvas', scene: 'Canvas' }
+
     test.each([
-        { query: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] } },
-        { query: { kind: 'HogQLQuery', query: 'SELECT 1' } },
-        { hogql: 'SELECT 1' },
-    ])('runs a supported query: %j', async (input) => {
+        {
+            input: { query: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] } },
+            sent: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }], tags },
+        },
+        {
+            input: { query: { kind: 'HogQLQuery', query: 'SELECT 1', tags: { productKey: 'spoofed', name: 'n' } } },
+            sent: { kind: 'HogQLQuery', query: 'SELECT 1', tags: { ...tags, name: 'n' } },
+        },
+        {
+            input: { query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } } },
+            sent: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'SELECT 1', tags }, tags },
+        },
+        {
+            input: { query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } } },
+            sent: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [], tags } },
+        },
+        {
+            input: { query: { kind: 'InsightActorsQuery', source: { kind: 'TrendsQuery', series: [] } } },
+            sent: { kind: 'InsightActorsQuery', source: { kind: 'TrendsQuery', series: [], tags }, tags },
+        },
+        {
+            input: { query: { kind: 'WebAnalyticsExternalSummaryQuery', dateRange: {} } },
+            sent: { kind: 'WebAnalyticsExternalSummaryQuery', dateRange: {} },
+        },
+        { input: { hogql: 'SELECT 1' }, sent: { kind: 'HogQLQuery', query: 'SELECT 1', tags } },
+    ])('runs a supported query tagged as canvas: %j', async ({ input, sent }) => {
         await expect(bridge().handle('query', input)).resolves.toEqual({ results: [], columns: [] })
-        expect(api.query).toHaveBeenCalledWith(input.query ?? { kind: 'HogQLQuery', query: input.hogql }, {
-            refresh: 'blocking',
-        })
+        expect(api.query).toHaveBeenCalledWith(sent, { refresh: 'blocking' })
     })
 })
 

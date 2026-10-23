@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.auth import SessionAuthentication
 from posthog.models.oauth import (
     OAuthApplication,
@@ -15,6 +16,7 @@ from posthog.models.oauth import (
     live_oauth_refresh_tokens,
     revoke_oauth_session,
 )
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.user import User
 from posthog.permissions import TimeSensitiveActionPermission
 
@@ -27,14 +29,27 @@ class ConnectedAppSerializer(serializers.Serializer):
     authorized_at = serializers.DateTimeField(help_text="When the user first authorized this application")
     is_verified = serializers.BooleanField(help_text="Whether this application has been verified by PostHog")
     is_first_party = serializers.BooleanField(help_text="Whether this is a first-party PostHog application")
+    requires_access_confirmation = serializers.BooleanField(
+        help_text=(
+            "Whether the user must choose to keep or disconnect this application, because it set up one of "
+            "the user's organizations and PostHog has not verified it"
+        )
+    )
+    is_self_registered = serializers.BooleanField(
+        help_text=(
+            "Whether the application registered itself, through dynamic client registration or a client ID "
+            "metadata document. MCP clients connect this way; applications PostHog registers do not."
+        )
+    )
 
 
-@extend_schema(tags=["oauth"])
+@extend_schema(tags=["oauth"], extensions={"x-product": "core"})
 class ConnectedAppsViewSet(viewsets.ViewSet):
     """
     ViewSet for listing and revoking OAuth applications connected to the current user.
     """
 
+    scope_object = "INTERNAL"
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated, TimeSensitiveActionPermission]
     http_method_names = ["get", "post"]
@@ -70,6 +85,11 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
             record(refresh_token["application_id"], refresh_token["created"], refresh_token["access_token__scope"])
 
         applications = OAuthApplication.objects.filter(id__in=app_map.keys())
+        provisioner_ids = set(
+            OrganizationProvisioning.objects.filter(
+                application_id__in=app_map.keys(), organization__membership__user=user
+            ).values_list("application_id", flat=True)
+        )
 
         results = []
         for app in applications:
@@ -83,6 +103,10 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
                     "authorized_at": app_data["authorized_at"],
                     "is_verified": app.is_verified,
                     "is_first_party": app.is_first_party,
+                    "requires_access_confirmation": (
+                        app.id in provisioner_ids and not app.is_verified and not app.is_first_party
+                    ),
+                    "is_self_registered": app.is_dcr_client or is_cimd_client_id(app.client_id),
                 }
             )
 
@@ -91,6 +115,7 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     @extend_schema(
+        request=None,
         responses={204: None},
         summary="Revoke a connected OAuth application",
         description="Revokes all tokens and grants for the specified application for the current user.",

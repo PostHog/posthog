@@ -65,9 +65,8 @@ pub struct DurabilityConfig {
     /// BufWriter).
     pub max_upload_buffers: usize,
 
-    /// Maximum time allowed for a complete checkpoint import. This includes listing checkpoints,
-    /// downloading metadata, and downloading all files. Should be less than Kafka max.poll.interval.ms
-    /// to prevent consumer group kicks.
+    /// Maximum time to download one checkpoint candidate's files. A candidate that takes longer
+    /// fails and ends the search, because older candidates are about as large.
     pub checkpoint_import_timeout: Duration,
 
     /// Maximum age of a local checkpoint before the local store is considered stale and the service
@@ -75,6 +74,16 @@ pub struct DurabilityConfig {
     /// local staleness must be tighter because if a pod was down for longer than this, another pod
     /// likely consumed the partition and local data is behind.
     pub local_checkpoint_max_staleness: Duration,
+
+    /// Age past which the next upload is full: it bounds how far back a restore's chain of
+    /// incremental uploads reaches.
+    pub full_upload_interval: Duration,
+
+    /// Average read rate one upload may take from the store's disk.
+    pub upload_max_bytes_per_sec: u64,
+
+    /// Budget for the final checkpoint on a graceful stop, from the drain to the end of its upload.
+    pub final_upload_timeout: Duration,
 }
 
 impl Default for DurabilityConfig {
@@ -88,7 +97,7 @@ impl Default for DurabilityConfig {
             s3_access_key_id: None,
             s3_secret_access_key: None,
             s3_force_path_style: false,
-            checkpoint_import_window_hours: 24,
+            checkpoint_import_window_hours: 20,
             s3_operation_timeout: Duration::from_secs(120),
             s3_attempt_timeout: Duration::from_secs(20),
             s3_max_retries: 3,
@@ -96,10 +105,13 @@ impl Default for DurabilityConfig {
             max_concurrent_checkpoint_file_downloads: 40,
             max_concurrent_checkpoint_file_uploads: 40,
             max_upload_buffers: 40,
-            checkpoint_import_timeout: Duration::from_secs(240),
+            checkpoint_import_timeout: Duration::from_secs(7200),
             local_checkpoint_max_staleness: Duration::from_secs(
                 DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
             ),
+            full_upload_interval: Duration::from_secs(86_400),
+            upload_max_bytes_per_sec: 64 * 1024 * 1024,
+            final_upload_timeout: Duration::from_secs(45),
         }
     }
 }

@@ -31,12 +31,14 @@ from django.db import transaction
 import structlog
 from pydantic import ValidationError
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
 from posthog.ph_client import feature_enabled_or_false
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TaskRunArtefact
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
@@ -86,6 +88,9 @@ def schedule_reviewer_pr_assignment(
     on a worker instead of holding up a claim, a PR sync, or a reviewer edit. `robust=True` keeps a
     broker outage from failing a write that already committed.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return
+
     # A null state reads as unknown, the same way the rest of the assignment code reads the column,
     # so a row that never recorded a state is not silently skipped forever.
     if not pr_url or (pr_state or SignalReportAssignment.PrState.UNKNOWN) not in ASSIGNABLE_PR_STATES:
@@ -116,7 +121,7 @@ def _latest_reviewer_rows(report_id: str) -> list[dict[str, Any]]:
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .first()
     )
     if latest is None:
@@ -243,7 +248,9 @@ def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
 def _github_for_repository(*, team_id: int, report_id: str, repository: str) -> GitHubIntegration | None:
     """The team's GitHub integration for a repository, or None when there is none to call."""
     try:
-        return GitHubIntegration.first_for_team_repository(team_id, repository)
+        return GitHubIntegration.first_for_team_repository(
+            team_id, repository, source="signals_reviewers", priority=Priority.BATCH
+        )
     except Exception:
         logger.exception(
             "signals.reviewer_pr_assignment.integration_lookup_failed",
@@ -300,6 +307,8 @@ def _add_assignees(
     """
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
     try:
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+            return None
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
         log.exception("signals.reviewer_pr_assignment.assign_failed")
@@ -349,6 +358,8 @@ def _request_reviews(
         return []
 
     try:
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+            return []
         result = github.request_pull_request_reviews(parsed.repository, parsed.number, wanted)
     except Exception:
         log.exception("signals.reviewer_pr_assignment.review_request_failed")
@@ -454,6 +465,9 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     so a person somebody assigned by hand stays on the pull request. Returns an empty list when
     there is nothing to do or the call failed, and raises nothing.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return []
+
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
         return []
 

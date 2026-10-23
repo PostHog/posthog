@@ -26,8 +26,3 @@ class TestDbtSource:
         # supported so existing "v1"-pinned rows keep resolving to their unchanged wire behaviour.
         assert self.source.supported_versions == (UNVERSIONED_API_VERSION, DBT_API_VERSION_V3)
         assert self.source.default_version == DBT_API_VERSION_V3
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["runs"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "runs"

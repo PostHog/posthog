@@ -112,8 +112,10 @@ module "sharded_ai_events_family" {
   database = var.database
   columns  = local.sharded_ai_events_columns
   storage = {
+    engine       = "ReplacingMergeTree"
+    engine_args  = ["_timestamp"]
     partition_by = "toYYYYMM(drop_date)"
-    order_by     = "(team_id, trace_id, timestamp)"
+    order_by     = "(team_id, trace_id, timestamp, uuid)"
     ttl          = var.ttl ? "drop_date" : null
     settings     = "index_granularity = 8192, ttl_only_drop_parts = 1"
     indexes = [
@@ -133,7 +135,7 @@ module "sharded_ai_events_family" {
     write        = false
     read_columns = local.sharded_ai_events_columns
   }
-  sharding_key = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+  sharding_key = "rand()"
   deployment = merge({
     keeper_path = "/clickhouse/tables/{shard}/${var.database}.ai_events"
     cluster     = "ai_events"

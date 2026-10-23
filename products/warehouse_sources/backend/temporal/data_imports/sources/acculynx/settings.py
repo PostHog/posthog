@@ -90,6 +90,60 @@ ENDPOINTS: dict[str, AcculynxEndpoint] = {
             parent_field_renames={"id": "job_id"},
         ),
     ),
+    "job_milestone_history": AcculynxEndpoint(
+        path="jobs/{jobId}/milestone-history",
+        offset_param=None,
+        primary_keys=("job_id", "name", "date"),
+        partition_key="date",
+        fanout=DependentEndpointConfig(
+            parent_name="jobs",
+            resolve_param="jobId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "job_id"},
+        ),
+    ),
+    # History rows have no identifier, so every documented field is part of the key.
+    "job_history": AcculynxEndpoint(
+        path="jobs/{jobId}/history",
+        primary_keys=("job_id", "date", "type", "action"),
+        partition_key="date",
+        fanout=DependentEndpointConfig(
+            parent_name="jobs",
+            resolve_param="jobId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "job_id"},
+        ),
+    ),
+    "financial_amendments": AcculynxEndpoint(
+        path="financials/{financialsId}/amendments",
+        offset_param="pageStartIndex",
+        primary_keys=("financials_id", "id"),
+        partition_key="createdDate",
+        fanout=DependentEndpointConfig(
+            parent_name="financials",
+            resolve_param="financialsId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "financials_id"},
+        ),
+    ),
+    "estimate_section_items": AcculynxEndpoint(
+        path="estimates/{estimateId}/sections/{estimateSectionId}/items",
+        offset_param=None,
+        primary_keys=("estimate_id", "estimate_section_id", "id"),
+        fanout=DependentEndpointConfig(
+            parent_name="estimate_sections",
+            resolve_param="estimateSectionId",
+            resolve_field="id",
+            include_from_parent=["id", "_estimate_index_id"],
+            parent_field_renames={"id": "estimate_section_id", "_estimate_index_id": "estimate_id"},
+            child_params={
+                "estimateId": {"type": "resolve", "resource": "estimate_sections", "field": "_estimate_index_id"}
+            },
+        ),
+    ),
     "calendars": AcculynxEndpoint(path="calendars"),
     "calendar_appointments": AcculynxEndpoint(
         path="calendars/{calendarId}/appointments",
@@ -113,6 +167,16 @@ ENDPOINTS: dict[str, AcculynxEndpoint] = {
 PARENT_ENDPOINTS = {
     **ENDPOINTS,
     "estimate_index": AcculynxEndpoint(path="estimates", offset_param="pageStartIndex"),
+    "estimate_sections": AcculynxEndpoint(
+        path="estimates/{estimateId}/sections",
+        offset_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="estimate_index",
+            resolve_param="estimateId",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+    ),
 }
 
 # ModifiedDate filtering needs account-level verification before incremental sync can be enabled.

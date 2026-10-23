@@ -25,6 +25,7 @@ module "catalog" {
 
   database            = var.database
   ttl                 = !var.test
+  tiered_storage      = false
   test                = var.test
   dictionary_user     = var.dictionary_user
   dictionary_password = var.dictionary_password
@@ -39,6 +40,10 @@ module "catalog" {
       engine   = "Kafka(warpstream_ingestion)"
       settings = "date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_billing_usage_records', kafka_topic_list = 'clickhouse_billing_usage_records'"
     }
+    # A single server writes events straight to storage: it has none of Cloud's deduplication and buffer tables.
+    events_json_table_mv = { to_table = "${var.database}.writable_events_json" }
+    # jsonbf_v1 exists only in PostHog's ClickHouse build.
+    sharded_events_json = { drop_indexes = ["properties_bf", "person_properties_bf"] }
   }, { for name, override in local.test_overrides : name => override if var.test })
 
   deployment = {
@@ -88,7 +93,6 @@ module "catalog" {
       "preaggregation_results",
       "precalculated",
       "property_values",
-      "query_log_archive",
       "raw_sessions",
       "session_replay",
       "sessions",

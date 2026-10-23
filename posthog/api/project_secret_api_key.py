@@ -6,6 +6,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -15,10 +16,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
-from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
+from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
@@ -97,14 +98,7 @@ def _enforce_gateway_bans(request: Request, team) -> None:
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="project_secret_api_key")
         refused = False
-    if refused or wizard_identity_blocked(
-        distinct_id=str(user.distinct_id or ""),
-        email=user.email,
-        user_uuid=str(user.uuid),
-        organization_ids=[str(team.organization_id)],
-        team_ids=[team.id],
-        surface="project_secret_api_key",
-    ):
+    if refused:
         raise PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
 
@@ -120,6 +114,12 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         ),
     )
     created_by = UserBasicSerializer(read_only=True)
+    ai_credential = serializers.SerializerMethodField(
+        help_text=(
+            "Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway "
+            "spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled."
+        ),
+    )
 
     class Meta:
         model = ProjectSecretAPIKey
@@ -133,6 +133,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             "last_used_at",
             "last_rolled_at",
             "scopes",
+            "ai_credential",
         ]
         read_only_fields = [
             "id",
@@ -145,6 +146,10 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
     def get_key_value(self, obj: ProjectSecretAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ai_credential(self, obj: ProjectSecretAPIKey) -> str | None:
+        return ai_credential_value(obj.secure_value) if obj.secure_value else None
 
     def validate_scopes(self, scopes):
         allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)

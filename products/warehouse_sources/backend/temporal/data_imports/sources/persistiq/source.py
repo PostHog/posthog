@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PersistIqSource(ResumableSource[PersistIqSourceConfig, PersistiqResumeConfig]):
+    codebase_detection = detect(env=("^(PERSIST_IQ|PERSISTIQ)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://apidocs.persistiq.com/"
@@ -52,7 +55,7 @@ class PersistIqSource(ResumableSource[PersistIqSourceConfig, PersistiqResumeConf
             name=ExternalDataSourceType.PERSISTIQ,
             category=DataWarehouseSourceCategory.SALES,
             label="PersistIq",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your PersistIQ API key to pull your sales engagement data into the PostHog Data warehouse.
 
 You can find your API key under **Profile → Integrations → PersistIQ API** in [PersistIQ](https://app.persistiq.com). The key grants read access to your leads, users, and campaigns.

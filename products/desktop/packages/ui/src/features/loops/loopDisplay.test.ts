@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   describeTrigger,
-  loopFireBlockedMessage,
-  loopPausedDescription,
   loopStatusColor,
   loopStatusLabel,
   nextScheduleRun,
@@ -10,95 +8,14 @@ import {
   summarizeTrigger,
 } from "./loopDisplay";
 
-const statusFields = (
-  overrides: Partial<{
-    enabled: boolean;
-    disabled_reason: string | null;
-    last_run_status: string | null;
-  }> = {},
-) => ({
-  enabled: true,
-  disabled_reason: null,
-  last_run_status: null,
-  ...overrides,
-});
-
 describe("loopStatusLabel and loopStatusColor", () => {
   it.each([
-    [statusFields(), "Active", "green"],
-    [statusFields({ last_run_status: "failed" }), "Failing", "red"],
-    [statusFields({ enabled: false }), "Paused", "gray"],
-    [
-      statusFields({ enabled: false, disabled_reason: "usage_limited" }),
-      "Paused: usage limit",
-      "red",
-    ],
-    [
-      statusFields({ enabled: false, disabled_reason: "repeated_failures" }),
-      "Auto-paused",
-      "red",
-    ],
-    [
-      statusFields({ enabled: false, disabled_reason: "owner_deactivated" }),
-      "Auto-paused",
-      "red",
-    ],
+    [{ enabled: true, last_run_status: null }, "Active", "green"],
+    [{ enabled: true, last_run_status: "failed" }, "Failing", "red"],
+    [{ enabled: false, last_run_status: "failed" }, "Paused", "gray"],
   ])("derives label and color (%#)", (loop, label, color) => {
     expect(loopStatusLabel(loop)).toBe(label);
     expect(loopStatusColor(loop)).toBe(color);
-  });
-
-  it("ignores disabled_reason while the loop is enabled", () => {
-    const loop = statusFields({ disabled_reason: "usage_limited" });
-    expect(loopStatusLabel(loop)).toBe("Active");
-    expect(loopStatusColor(loop)).toBe("green");
-  });
-});
-
-describe("loopPausedDescription", () => {
-  it.each([
-    ["usage_limited", "usage limit"],
-    ["repeated_failures", "failed runs in a row"],
-    ["owner_deactivated", "deactivated"],
-    ["owner_removed_from_org", "left the organization"],
-    ["github_integration_disconnected", "GitHub connection"],
-  ])("explains a %s pause", (reason, expected) => {
-    expect(
-      loopPausedDescription(
-        statusFields({ enabled: false, disabled_reason: reason }),
-      ),
-    ).toContain(expected);
-  });
-
-  it("falls back to a generic sentence for unknown reasons", () => {
-    expect(
-      loopPausedDescription(
-        statusFields({ enabled: false, disabled_reason: "something_new" }),
-      ),
-    ).toBe("Paused automatically.");
-  });
-
-  it.each([
-    [statusFields()],
-    [statusFields({ enabled: false })],
-    [statusFields({ disabled_reason: "usage_limited" })],
-  ])("returns null without a backend-driven pause (%#)", (loop) => {
-    expect(loopPausedDescription(loop)).toBeNull();
-  });
-});
-
-describe("loopFireBlockedMessage", () => {
-  it.each([
-    ["gate_blocked", "usage limit"],
-    ["overlap_skipped", "still in progress"],
-    ["rate_capped", "daily run cap"],
-    ["team_rate_capped", "daily loop run cap"],
-    ["deduped", "already started"],
-    ["disabled", "disabled"],
-    ["owner_inactive", "no longer start runs"],
-    ["owner_changed", "owner changed"],
-  ] as const)("describes %s", (reason, expected) => {
-    expect(loopFireBlockedMessage(reason)).toContain(expected);
   });
 });
 
@@ -136,21 +53,7 @@ describe("describeTrigger", () => {
     ).toBe("Schedule · */15 * * * * (UTC)");
   });
 
-  it.each([
-    [undefined, "GitHub · posthog/posthog · pull_request"],
-    [
-      [{ path: "requested_team.slug", equals: "team-security" }],
-      "GitHub · posthog/posthog · pull_request · 1 payload condition",
-    ],
-    [
-      [
-        { path: "requested_team.slug", equals: "team-security" },
-        { path: "pull_request.draft", equals: "false" },
-      ],
-      "GitHub · posthog/posthog · pull_request · 2 payload conditions",
-    ],
-    // A gated trigger must not read the same as an ungated one in the detail view.
-  ])("surfaces payload conditions on a github trigger", (payload, expected) => {
+  it("describes a github trigger by repository and event", () => {
     expect(
       describeTrigger({
         type: "github",
@@ -158,10 +61,9 @@ describe("describeTrigger", () => {
           github_integration_id: 7,
           repository: "posthog/posthog",
           events: ["pull_request"],
-          ...(payload ? { filters: { payload } } : {}),
         },
       }),
-    ).toBe(expected);
+    ).toBe("GitHub · posthog/posthog · pull_request");
   });
 });
 
@@ -169,23 +71,17 @@ describe("summarizeNotificationDestinations", () => {
   it("lists enabled destinations and includes the Slack channel", () => {
     expect(
       summarizeNotificationDestinations({
-        push: { enabled: true, events: [], params: {} },
-        email: { enabled: false, events: [], params: {} },
-        slack: {
-          enabled: true,
-          events: [],
-          params: { channel_name: "#loops" },
-        },
+        email: { enabled: true, params: {} },
+        slack: { enabled: true, params: { channel_name: "#loops" } },
       }),
-    ).toEqual(["Push", "Slack · #loops"]);
+    ).toEqual(["Email", "Slack · #loops"]);
   });
 
   it("omits disabled destinations", () => {
     expect(
       summarizeNotificationDestinations({
-        push: { enabled: false, events: [], params: {} },
-        email: { enabled: false, events: [], params: {} },
-        slack: { enabled: false, events: [], params: {} },
+        email: { enabled: false, params: {} },
+        slack: { enabled: false, params: {} },
       }),
     ).toEqual([]);
   });

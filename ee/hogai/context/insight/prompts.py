@@ -76,7 +76,7 @@ Here is the generated HogQL (a PostHog's subset of ClickHouse SQL) query used to
 """.strip()
 
 FUNNEL_STEPS_EXAMPLE_PROMPT = """
-You are given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating a series with a breakdown. For example, `---control` indicates that the series is for the value `control`.
+You are given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating a series with a breakdown. For example, `---control` indicates that the series is for the value `control`. The count row names what the funnel counts: persons, groups, sessions, or unique values of a custom HogQL expression.
 
 Example:
 ```

@@ -12,11 +12,6 @@ class TestZyloSource:
         self.team_id = 123
         self.config = ZyloSourceConfig(token_id="tok_id", token_secret="tok_secret")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Applications"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Applications"
-
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),
         [

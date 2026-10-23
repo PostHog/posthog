@@ -72,6 +72,64 @@ locals {
   sharded_events_recent_columns = concat(local.writable_events_recent_columns, [
     { name = "inserted_at", type = "DateTime64(6, 'UTC')", default_expression = "now64()" },
   ])
+
+  distributed_events_recent_columns = [
+    { name = "uuid", type = "UUID" },
+    { name = "event", type = "String" },
+    { name = "properties", type = "String", codec = "ZSTD(3)" },
+    { name = "timestamp", type = "DateTime64(6, 'UTC')" },
+    { name = "team_id", type = "Int64" },
+    { name = "distinct_id", type = "String" },
+    { name = "elements_chain", type = "String" },
+    { name = "created_at", type = "DateTime64(6, 'UTC')" },
+    { name = "person_id", type = "UUID" },
+    { name = "person_created_at", type = "DateTime64(3)" },
+    { name = "person_properties", type = "String", codec = "ZSTD(3)" },
+    { name = "group0_properties", type = "String", codec = "ZSTD(3)" },
+    { name = "group1_properties", type = "String", codec = "ZSTD(3)" },
+    { name = "group2_properties", type = "String", codec = "ZSTD(3)" },
+    { name = "group3_properties", type = "String", codec = "ZSTD(3)" },
+    { name = "group4_properties", type = "String", codec = "ZSTD(3)" },
+    { name = "group0_created_at", type = "DateTime64(3)" },
+    { name = "group1_created_at", type = "DateTime64(3)" },
+    { name = "group2_created_at", type = "DateTime64(3)" },
+    { name = "group3_created_at", type = "DateTime64(3)" },
+    { name = "group4_created_at", type = "DateTime64(3)" },
+    { name = "person_mode", type = "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)" },
+    { name = "_timestamp", type = "DateTime" },
+    { name = "_offset", type = "UInt64" },
+    { name = "_partition", type = "UInt64" },
+    { name = "inserted_at", type = "DateTime64(6, 'UTC')", default_expression = "now64()" },
+    { name = "_timestamp_ms", type = "DateTime64(3)" },
+  ]
+
+  events_recent_columns = [
+    { name = "uuid", type = "UUID" },
+    { name = "event", type = "String" },
+    { name = "properties", type = "String" },
+    { name = "timestamp", type = "DateTime64(6, 'UTC')" },
+    { name = "team_id", type = "Int64" },
+    { name = "distinct_id", type = "String" },
+    { name = "elements_chain", type = "String" },
+    { name = "created_at", type = "DateTime64(6, 'UTC')" },
+    { name = "person_id", type = "UUID" },
+    { name = "person_created_at", type = "DateTime64(3)" },
+    { name = "person_properties", type = "String" },
+    { name = "group0_properties", type = "String" },
+    { name = "group1_properties", type = "String" },
+    { name = "group2_properties", type = "String" },
+    { name = "group3_properties", type = "String" },
+    { name = "group4_properties", type = "String" },
+    { name = "group0_created_at", type = "DateTime64(3)" },
+    { name = "group1_created_at", type = "DateTime64(3)" },
+    { name = "group2_created_at", type = "DateTime64(3)" },
+    { name = "group3_created_at", type = "DateTime64(3)" },
+    { name = "group4_created_at", type = "DateTime64(3)" },
+    { name = "person_mode", type = "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)" },
+    { name = "_timestamp", type = "DateTime" },
+    { name = "_offset", type = "UInt64" },
+    { name = "inserted_at", type = "DateTime64(6, 'UTC')" },
+  ]
 }
 
 module "sharded_events_recent_family" {
@@ -91,8 +149,8 @@ module "sharded_events_recent_family" {
     settings     = "index_granularity = 8192, ttl_only_drop_parts = 1"
   }
   routing = {
-    read_columns  = local.sharded_events_recent_columns
-    write_columns = local.writable_events_recent_columns
+    read_columns  = local.distributed_events_recent_columns
+    write_columns = local.sharded_events_recent_columns
   }
   sharding_key = "sipHash64(distinct_id)"
   deployment   = merge({ cluster = "posthog_writable", read_cluster = "posthog_primary_replica" }, local.deployment)
@@ -198,6 +256,6 @@ module "events_recent" {
   database = var.database
   name     = "events_recent"
   engine   = "Distributed('posthog_primary_replica', '${var.database}', 'sharded_events_recent', sipHash64(distinct_id))"
-  columns  = local.sharded_events_recent_columns
+  columns  = local.events_recent_columns
   override = try(local.deployment.overrides["events_recent"], {})
 }

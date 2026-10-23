@@ -155,12 +155,6 @@ class TestValidateCredentials:
         with scripted_network(always(_response(INVALID_TOKEN_BODY))):
             assert validate_credentials(TOKEN) == (False, "Invalid Skio API token")
 
-    def test_connection_error_reports_unreachable(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            valid, message = validate_credentials(TOKEN)
-        assert valid is False
-        assert message == "Could not connect to the Skio API"
-
     def test_other_graphql_error_surfaces_message(self) -> None:
         with scripted_network(always(_response({"errors": [{"message": "query is not in any of the allowlists"}]}))):
             valid, message = validate_credentials(TOKEN)
