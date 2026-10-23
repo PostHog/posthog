@@ -1,5 +1,5 @@
 import concurrent.futures
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -68,25 +68,8 @@ _DELEGATION_FLAG_MAX_QUEUE = _DELEGATION_FLAG_MAX_WORKERS * 2
 
 class OrganizationInviteManager:
     @staticmethod
-    def combine_invites(
-        organization_id: UUID | str,
-        validated_data: dict[str, Any],
-        combine_pending_invites: bool = True,
-        *,
-        can_replace: Callable[[OrganizationInvite], bool],
-    ) -> dict[str, Any]:
-        """Combines multiple pending invites for the same email address."""
-        if not combine_pending_invites:
-            return validated_data
-
-        existing_invites = [
-            invite
-            for invite in OrganizationInviteManager._get_invites_for_user_org(
-                organization_id=organization_id, target_email=validated_data["target_email"]
-            )
-            if can_replace(invite)
-        ]
-
+    def combine_invites(validated_data: dict[str, Any], existing_invites: list[OrganizationInvite]) -> dict[str, Any]:
+        """Combines the given pending invites for the same email address into the new invite."""
         if not existing_invites:
             return validated_data
 
@@ -142,16 +125,8 @@ class OrganizationInviteManager:
         return [{"id": project_id, "level": level} for project_id, level in combined_access.items()]
 
     @staticmethod
-    def delete_existing_invites(
-        organization_id: UUID | str, target_email: str, *, can_replace: Callable[[OrganizationInvite], bool]
-    ) -> None:
-        """Deletes the existing invites for a given email in an organization that `can_replace` accepts."""
-        existing_invites = OrganizationInviteManager._get_invites_for_user_org(
-            organization_id=organization_id, target_email=target_email, include_expired=True
-        )
-        OrganizationInvite.objects.filter(
-            id__in=[invite.id for invite in existing_invites if can_replace(invite)]
-        ).delete()
+    def delete_invites(invites: list[OrganizationInvite]) -> None:
+        OrganizationInvite.objects.filter(id__in=[invite.id for invite in invites]).delete()
 
 
 def _project_access_level_exceeds(*, requested_level: str, granted_level: Optional[str]) -> bool:
@@ -344,24 +319,25 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             organization_id=self.context["organization_id"], user=self.context["request"].user
         )
 
-        def can_replace(invite: OrganizationInvite) -> bool:
-            return self._inviter_can_grant(invite, inviter_membership)
+        replaceable_invites = [
+            invite
+            for invite in OrganizationInviteManager._get_invites_for_user_org(
+                organization_id=self.context["organization_id"],
+                target_email=validated_data["target_email"],
+                include_expired=True,
+            )
+            if self._inviter_can_grant(invite, inviter_membership)
+        ]
 
         # Handle invite combination if requested
         if combine_pending_invites:
             validated_data = OrganizationInviteManager.combine_invites(
-                organization_id=self.context["organization_id"],
                 validated_data=validated_data,
-                combine_pending_invites=True,
-                can_replace=can_replace,
+                existing_invites=[invite for invite in replaceable_invites if not invite.is_expired()],
             )
 
         # Delete existing invites for this email
-        OrganizationInviteManager.delete_existing_invites(
-            organization_id=self.context["organization_id"],
-            target_email=validated_data["target_email"],
-            can_replace=can_replace,
-        )
+        OrganizationInviteManager.delete_invites(replaceable_invites)
 
         # Create new invite
         invite: OrganizationInvite = OrganizationInvite.objects.create(
