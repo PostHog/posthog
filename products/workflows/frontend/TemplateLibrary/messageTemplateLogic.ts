@@ -1028,6 +1028,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         releaseTemplateSuccess: ({ template }) => {
             actions.resetTemplate(template)
             actions.setOriginalTemplate(template)
+            const edits = values.refusedEdits
+            if (edits) {
+                // Back in the editable form, a later refusal rescues these together with the edits made after.
+                actions.setRefusedEdits(null)
+                actions.setTemplateValues({ name: edits.name, description: edits.description, content: edits.content })
+            }
             lemonToast.success('This template is no longer managed by code. You can edit it here.')
             actions.replayDeferredExternalEdit()
         },

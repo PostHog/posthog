@@ -725,6 +725,27 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toMatchValues({ isCodeManaged: true, refusedEdits: keptEdits })
         })
 
+        it('keeps the edits from before and after a release when a second upload refuses them', async () => {
+            await refuse(claimThenAutosave)
+            serverTemplate = { ...claimed, managed_by: 'gui' }
+            await expectLogic(logic, () => {
+                logic.actions.releaseTemplate()
+            }).toDispatchActions(['releaseTemplateSuccess'])
+            await expectLogic(logic).toMatchValues({ refusedEdits: null, hasUnsavedChanges: true })
+
+            logic.actions.setTemplateValue('description', 'Edited after the release')
+            await claimThenAutosave()
+            await expectLogic(logic).toDispatchActions(['claimedByUpload']).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                isCodeManaged: true,
+                refusedEdits: expect.objectContaining({
+                    name: 'Welcome, edited here',
+                    description: 'Edited after the release',
+                }),
+            })
+        })
+
         it('asks before a navigation drops the refused edits', async () => {
             const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
             await refuse(claimThenAutosave)
