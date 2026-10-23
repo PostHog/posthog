@@ -1970,7 +1970,7 @@ class ExperimentService:
             # A side-effect mutation can't be routed through the change-request flow (this runs
             # inside archive_experiment's transaction, so an ApprovalRequired would roll back the
             # just-created ChangeRequest) — refuse up front instead of letting the gate fire.
-            if flag_disable_requires_approval(feature_flag):
+            if flag_disable_requires_approval(feature_flag.id, team=self.team):
                 raise PermissionDenied(
                     "Disabling this feature flag requires approval. Disable it from the feature flag page "
                     "to go through the approval flow, then archive the experiment."
