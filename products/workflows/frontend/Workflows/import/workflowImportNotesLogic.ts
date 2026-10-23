@@ -28,10 +28,10 @@ export interface workflowImportNotesLogicActions {
         errorObject?: any
     }
     loadImportRecordSuccess: (
-        importRecord: WorkflowImportRecordApi,
+        importRecord: WorkflowImportRecordApi | null,
         payload?: any
     ) => {
-        importRecord: WorkflowImportRecordApi
+        importRecord: WorkflowImportRecordApi | null
         payload?: any
     }
 }
