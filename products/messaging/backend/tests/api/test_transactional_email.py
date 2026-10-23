@@ -25,7 +25,7 @@ from products.messaging.backend.presentation.views.transactional_email_api impor
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 
 PASSWORD_RESET_HASH = "v1:973d41bbe3fdca5c52bb951cd4b5fd7159ae630b56c8f3997cbb31afd1ea76fd"
 
@@ -530,7 +530,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"text": "Hi", "from": "Example <security@example.com>", "reply_to": ["help@example.com"]},
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
-                    "from": {"integrationId": "sender", "email": "security@example.com", "name": "Example"},
+                    "from": {"integrationId": "default", "email": "security@example.com", "name": "Example"},
                     "replyTo": ["help@example.com"],
                     "tracking": {"captureEngagement": True},
                 },
@@ -544,7 +544,7 @@ class TestTransactionalEmail(APIBaseTest):
                         "html": "<p>Hi {{ variables.name }}</p>",
                         "text": "Hi {{ variables.name }}",
                     },
-                    "from": {"integrationId": "sender"},
+                    "from": {"integrationId": "default"},
                     "tracking": {"captureEngagement": False},
                 },
             ),
@@ -552,7 +552,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "template_by_key",
                 {"from": "hello@example.com", "reply_to": ["help@example.com"]},
                 {
-                    "from": {"integrationId": "sender", "email": "hello@example.com"},
+                    "from": {"integrationId": "hello", "email": "hello@example.com"},
                     "replyTo": ["help@example.com"],
                     "tracking": {"captureEngagement": True},
                 },
@@ -563,6 +563,11 @@ class TestTransactionalEmail(APIBaseTest):
     )
     def test_a_send_carries_what_the_caller_set_over_its_workflow(self, mock_post, _flag, _capture, case, fields, sent):
         self._cdp_accepts(mock_post)
+        newer_default = Integration.objects.create(
+            team=self.team, kind="email", integration_id="news@example.com", config={"verified": True}
+        )
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=newer_default.id)
+        sender_ids = {"hello": self.sender.id, "default": newer_default.id}
         if case.startswith("template_by_key"):
             body = {**self.body, "template": {"key": "password-reset"}, **fields}
         elif case.startswith("template_by_id"):
@@ -574,7 +579,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         if sent is not None and "from" in sent:
-            sent = {**sent, "from": {**sent["from"], "integrationId": self.sender.id}}
+            sent = {**sent, "from": {**sent["from"], "integrationId": sender_ids[sent["from"]["integrationId"]]}}
         assert mock_post.call_args.kwargs["json"].get("send") == sent
 
     @parameterized.expand(
