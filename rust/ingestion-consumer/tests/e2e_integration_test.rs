@@ -630,9 +630,9 @@ fn make_kafka_consumer_with_context(
     kafka_consumer
 }
 
-/// One un-acked sub-batch per worker; a 10 s ack timeout (production: 60 s) so a stalled request fences quickly.
+/// Each FakeWorker serves gRPC on its HTTP port + 1; a 10 s ack timeout (production: 60 s) so a stalled request fences quickly.
 fn test_transport() -> GrpcTransport {
-    GrpcTransport::new(GrpcPort::OffsetFromHttp(1), 1, Duration::from_secs(10))
+    GrpcTransport::new(GrpcPort::OffsetFromHttp(1), Duration::from_secs(10))
 }
 
 /// Ticks every 100 ms, against 1 s in production.

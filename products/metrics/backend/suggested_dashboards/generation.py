@@ -47,9 +47,10 @@ from products.metrics.backend.suggested_dashboards.dashboards import (
     attribute_variable,
     create_dashboard,
     drop_preview,
+    fill_rows,
 )
 from products.metrics.backend.suggested_dashboards.llm import MODEL, ask_model, image_block, text_block
-from products.metrics.backend.suggested_dashboards.matching import template_metric_names
+from products.metrics.backend.suggested_dashboards.matching import query_metric_names, template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import (
     DashboardDraft,
     DraftPanel,
@@ -276,6 +277,33 @@ def _with_known_references(draft: DraftPanel, valid: _ValidVariables) -> DraftPa
     return draft.model_copy(update={"query": draft.query.model_copy(update={"clauses": clauses})})
 
 
+def _variable_definitions(
+    variables: Sequence[DraftVariable], panels: Sequence[DraftPanel], queries: Mapping[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """MetricsDashboardVariable JSON for each variable that a panel refers to.
+
+    Its options are only the values of the metrics of the panels that refer to it, not every value in the project.
+    """
+    metric_names: dict[str, set[str]] = {}
+    for panel in panels:
+        names = query_metric_names(queries[panel.key])
+        for clause in panel.query.clauses:
+            for item in clause.filters:
+                for name in referenced_names(item.value):
+                    metric_names.setdefault(name, set()).update(names)
+    return {
+        variable.name: attribute_variable(
+            name=variable.name,
+            label=" ".join(variable.label.split())[:100],
+            attribute=variable.attribute,
+            multi=variable.multi,
+            metric_names=metric_names[variable.name],
+        )
+        for variable in variables
+        if variable.name in metric_names
+    }
+
+
 def _convert(
     drafts: Sequence[DraftPanel],
     team: Team,
@@ -293,15 +321,6 @@ def _convert(
     """
     valid = _valid_variables(variables, attributes or {}, checks)
     valid_variables = valid.variables
-    definitions = {
-        variable.name: attribute_variable(
-            name=variable.name,
-            label=" ".join(variable.label.split())[:100],
-            attribute=variable.attribute,
-            multi=variable.multi,
-        )
-        for variable in valid_variables
-    }
     drafts = [_with_known_references(draft, valid) for draft in drafts]
     validator = PanelValidator(team=team, catalog=catalog, promql_available=False)
     queries = {draft.key: PanelQuery(language="builder", builder=draft.query) for draft in drafts}
@@ -324,25 +343,22 @@ def _convert(
         accepted.append(draft)
     if checks is not None and accepted:
         errors = checks.run_errors(
-            {draft.key: queries_by_key[draft.key] for draft in accepted}, list(definitions.values())
+            {draft.key: queries_by_key[draft.key] for draft in accepted},
+            list(_variable_definitions(valid_variables, accepted, queries_by_key).values()),
         )
         dropped.extend(f"{draft.title}: {errors[draft.key]}" for draft in accepted if draft.key in errors)
         accepted = [draft for draft in accepted if draft.key not in errors]
     boxes = place_screenshot_boxes(
         [RequestedBox(key=draft.key, layout=draft.layout, min_w=2, min_h=2) for draft in accepted]
     )
+    # A dropped panel leaves a hole in its row, so the rest of the row spreads across the full width again.
+    layouts = fill_rows([(index, boxes[draft.key]) for index, draft in enumerate(accepted)])
     panels = tuple(
-        TemplatePanel(key=draft.key, title=draft.title[:200], query=queries_by_key[draft.key], layout=boxes[draft.key])
-        for draft in accepted
+        TemplatePanel(key=draft.key, title=draft.title[:200], query=queries_by_key[draft.key], layout=layouts[index])
+        for index, draft in enumerate(accepted)
     )
-    used = {
-        name
-        for draft in accepted
-        for clause in draft.query.clauses
-        for item in clause.filters
-        for name in referenced_names(item.value)
-    }
-    kept_variables = tuple(variable for variable in valid_variables if variable.name in used)
+    definitions = _variable_definitions(valid_variables, accepted, queries_by_key)
+    kept_variables = tuple(variable for variable in valid_variables if variable.name in definitions)
     return _Converted(
         panels=panels,
         accepted=tuple(accepted),

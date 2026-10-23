@@ -2585,6 +2585,22 @@ class SignalReportCheck(UUIDModel):
         return self.status not in self.OPEN_STATUSES
 
 
+class SignalReportMonitoringAttempt(UUIDModel):
+    # Attempt evidence belongs to the report's environment, not its canonical project.
+    objects = EnvironmentScopedManager()
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="monitoring_attempts")
+    monitoring_started_at = models.DateTimeField()
+    check_versions = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["report", "monitoring_started_at"], name="signals_attempt_period_uniq")
+        ]
+
+
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
 # Core tables backing the Signals scout:
@@ -3861,6 +3877,11 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
     # The newest input timestamp the stored summary includes. The next update reads only later rows.
     input_watermark = models.DateTimeField(null=True, blank=True)
     next_eligible_at = models.DateTimeField(null=True, blank=True)
+    # The number of the latest successful update, and of its `UserActivitySummaryVersion` row. 0 before the first.
+    # `db_default` lets a pod on the earlier release insert a row without this column during a deploy.
+    version = models.PositiveIntegerField(default=0, db_default=0)
+    # Skips for too few units since the last good update. The skip backoff doubles with each one.
+    consecutive_skips = models.PositiveSmallIntegerField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -3870,3 +3891,94 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "user"], name="signals_activity_summary_team_user"),
         ]
+
+
+class UserActivitySummaryVersion(TeamScopedRootMixin, UUIDModel):
+    """One successful update of a `UserActivitySummary`, kept so that versions can be compared.
+
+    Append-only. `update_activity_summary` writes one row per successful update and keeps only the
+    latest `max_versions` rows per summary. It does not store the rendered input.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # Deleting the summary row (opt-out, user or team deletion) deletes its history.
+    # The unique constraint leads with this column, so the key needs no index of its own.
+    summary_row = models.ForeignKey(
+        UserActivitySummary, on_delete=models.CASCADE, related_name="versions", db_index=False
+    )
+    version = models.PositiveIntegerField()
+
+    summary = models.JSONField()
+    summary_text = models.TextField()
+    generated_at = models.DateTimeField()
+    model = models.CharField(max_length=100)
+    prompt_version = models.PositiveSmallIntegerField()
+    render_version = models.PositiveSmallIntegerField()
+    input_watermark = models.DateTimeField()
+    inputs_used = models.JSONField(default=dict, blank=True)
+    tokens_in = models.IntegerField(null=True, blank=True)
+    tokens_out = models.IntegerField(null=True, blank=True)
+    cost_usd = models.FloatField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["summary_row", "version"], name="signals_activity_summary_version_unique"),
+        ]
+
+
+class UserActivitySummaryQueueState(TeamScopedRootMixin, UUIDModel):
+    """The queue state of one (team, user) pair of the scheduled activity summary tick.
+
+    The cursors of `activity_summary/queue.py` add new input rows to `pending_units`. The tick picks
+    the due pairs in one ordered query and resets the state from the stored summary after an update.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+
+    # New input rows since the last good update. An estimate: the update applies the real filters.
+    pending_units = models.IntegerField(default=0)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    # The pair is due when this is empty or past. A copy of `UserActivitySummary.next_eligible_at`.
+    due_at = models.DateTimeField(null=True, blank=True)
+    # A copy of `UserActivitySummary.generated_at`, so the queue order needs no join.
+    summarized_at = models.DateTimeField(null=True, blank=True)
+    # Copies of the stored summary's versions, so the queue finds stale summaries with no join.
+    prompt_version = models.PositiveSmallIntegerField(null=True, blank=True)
+    render_version = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="signals_activity_queue_team_user"),
+        ]
+        indexes = [
+            # Covers the pairs with pending units, which are the only pairs `select_pairs` reads.
+            models.Index(
+                models.ExpressionWrapper(models.Q(summarized_at__isnull=False), output_field=models.BooleanField()),
+                models.F("pending_units").desc(),
+                models.F("summarized_at").asc(),
+                name="signals_activity_queue_order",
+                condition=models.Q(pending_units__gt=0),
+            ),
+        ]
+
+
+class UserActivitySummaryQueueCursor(models.Model):
+    """The read position of one input source of the activity summary queue, over all teams."""
+
+    source = models.CharField(max_length=40, primary_key=True)
+    position = models.DateTimeField()
+    updated_at = models.DateTimeField(auto_now=True)

@@ -6,6 +6,7 @@ import type { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
 
 import type { PinnedAccountPropertyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import {
+    buildPinnedPropertyOptions,
     configuratorKeysToPinnedProperties,
     pinnedPropertyToConfiguratorKey,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsAccountScene/accountSidebarConfigLogic'
@@ -212,22 +213,13 @@ export const defaultPinnedAccountPropertiesLogic = kea<defaultPinnedAccountPrope
         propertyOptions: [
             (s) => [s.customPropertyDefinitions, s.relationshipDefinitions],
             (
-                customProperties: import('products/customer_analytics/frontend/generated/api.schemas').CustomPropertyDefinitionApi[],
-                relationships: import('products/customer_analytics/frontend/generated/api.schemas').AccountRelationshipDefinitionApi[]
-            ): AccountPropertyOption[] => [
-                ...customProperties
-                    .filter(({ target_type }) => target_type === 'account')
-                    .map((definition) => ({
-                        key: pinnedPropertyToConfiguratorKey({ kind: 'custom_property', id: definition.id }),
-                        label: definition.name,
-                        kind: 'custom' as const,
-                    })),
-                ...relationships.map((definition) => ({
-                    key: pinnedPropertyToConfiguratorKey({ kind: 'relationship', id: definition.id }),
-                    label: definition.name,
-                    kind: 'relationship' as const,
-                })),
-            ],
+                customProperties: CustomPropertyDefinitionApi[],
+                relationships: AccountRelationshipDefinitionApi[]
+            ): AccountPropertyOption[] =>
+                buildPinnedPropertyOptions({
+                    customProperties: customProperties.filter(({ target_type }) => target_type === 'account'),
+                    relationships,
+                }),
         ],
         resolvedPinnedPropertyKeys: [
             (s) => [s.defaultPinnedProperties, s.propertyOptions],
