@@ -2204,7 +2204,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         } as DashboardType
                     }
                 },
-                duplicateTile: async ({ tile }) => {
+                duplicateTile: async ({ tile }): Promise<DashboardType> => {
                     try {
                         const newTile = { ...tile } as Partial<DashboardTile>
                         if (newTile.text) {
