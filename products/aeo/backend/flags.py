@@ -15,8 +15,7 @@ def aeo_flag_enabled(flag: str, team: Team) -> bool:
 
     No person is behind a scheduled run, so the team UUID keeps the flag call
     well-formed. The organization group and its id property let a flag target
-    teams through the organization, and are evaluated locally rather than through
-    a remote lookup that can fail closed.
+    teams through the organization.
     """
     organization_id = str(team.organization_id)
     return feature_enabled_or_false(

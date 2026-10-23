@@ -336,6 +336,14 @@ GEMINI_UNCITED_UNRESOLVED = _gemini_response(
             0,
         ),
         (
+            "missing_uri_uses_domain",
+            _gemini_response([("", "PostHog - Product analytics", "posthog.com")], [[0]]),
+            ["https://posthog.com"],
+            ["https://posthog.com"],
+            0,
+            0,
+        ),
+        (
             "redirect_title_is_not_a_source",
             _gemini_response([(GEMINI_REDIRECT, "posthog.com")], [[0]]),
             [],

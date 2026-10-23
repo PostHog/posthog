@@ -1,8 +1,11 @@
 import datetime as dt
 
 import pytest
+from unittest.mock import patch
 
 from django.utils import timezone
+
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -74,3 +77,14 @@ def test_run_records_checks_and_rotates_without_a_team_scope(team: Team, setting
     assert checks.filter(cited=True).count() == 4
     assert {c.prompt_topic for c in checks} == {"t0", "t1"}
     assert len({c.prompt_id for c in checks}) == 4
+
+
+def test_run_propagates_a_soft_time_limit_raised_during_the_write(team: Team, settings) -> None:
+    settings.AEO_TARGET_DOMAINS = ["posthog.com"]
+    upsert_prompts(team, [PromptCandidate(text="q?", source="imported", topic="t")])
+
+    with (
+        patch.object(AEOCitationCheck.objects, "bulk_create", side_effect=SoftTimeLimitExceeded()),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        run_citation_checks(team, engines=[_StubEngine()], limit=1)

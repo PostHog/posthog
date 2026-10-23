@@ -20,7 +20,6 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
-import httpx
 import requests
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
@@ -273,14 +272,14 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
 
 
 def _gemini_chunk_url(web: genai_types.GroundingChunkWeb) -> str | None:
-    """None means the chunk is a grounding redirect that names no source domain."""
+    """None means the chunk has no uri or a grounding redirect, and names no source domain."""
     uri = web.uri or ""
     try:
         host = (urlparse(uri).hostname or "").lower()
     except ValueError:
         host = ""
-    if host != GEMINI_GROUNDING_REDIRECT_HOST:
-        return uri or None
+    if uri and host != GEMINI_GROUNDING_REDIRECT_HOST:
+        return uri
     # is_target_url matches on host, so a redirect uri never counts as a citation of the
     # source. Record the source domain from the chunk instead of following the redirect.
     # The title is the page's own text, so a third-party page titled like a target
@@ -320,17 +319,15 @@ def parse_gemini_grounding(response: genai_types.GenerateContentResponse) -> Par
                 cited_indices.add(index)
                 if url := chunk_urls[index]:
                     cited.append(url)
-    unresolved_indices = [
-        index for index, (chunk, url) in enumerate(zip(chunks, chunk_urls)) if chunk.web is not None and url is None
-    ]
+    unresolved = {index for index, chunk in enumerate(chunks) if chunk.web is not None and chunk_urls[index] is None}
 
     return ParsedAnswer(
         answer_text=answer_text,
         cited_urls=_dedupe_urls(cited),
         retrieved_urls=_dedupe_urls([url for url in chunk_urls if url]),
         search_queries=list(metadata.web_search_queries or []),
-        unresolved_chunks=len(unresolved_indices),
-        unresolved_cited_chunks=sum(1 for index in unresolved_indices if index in cited_indices),
+        unresolved_chunks=len(unresolved),
+        unresolved_cited_chunks=len(unresolved & cited_indices),
     )
 
 
@@ -452,10 +449,8 @@ def _request_error(e: requests.RequestException) -> str:
     return f"{type(e).__name__}:{detail or ' ' + str(e)[:200]}"
 
 
-def _gemini_request_error(e: genai_errors.APIError | httpx.HTTPError) -> str:
-    if isinstance(e, genai_errors.APIError):
-        return f"{type(e).__name__}: status={e.code} body={(e.message or '')[:200]}"
-    return f"{type(e).__name__}: {str(e)[:200]}"
+def _gemini_request_error(e: genai_errors.APIError) -> str:
+    return f"{type(e).__name__}: status={e.code} body={(e.message or '')[:200]}"
 
 
 class ClaudeWebSearchEngine:
@@ -581,7 +576,7 @@ class GeminiGroundedEngine:
         try:
             with client:
                 response = client.models.generate_content(model=self.model, contents=prompt, config=config)
-        except (genai_errors.APIError, httpx.HTTPError) as e:
+        except genai_errors.APIError as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_gemini_request_error(e))
         except SoftTimeLimitExceeded:
             # Celery raises this inside whatever call is in flight. Swallowing it as a failed
@@ -654,17 +649,13 @@ class ExaAnswerEngine:
         )
 
 
-def _gemini_engine_enabled(team: Team) -> bool:
-    return aeo_flag_enabled(AEO_GEMINI_ENGINE_FLAG, team)
-
-
 def available_engines(team: Team) -> list[CitationEngine]:
     """Engines the current configuration supports for a scheduled run of this team."""
     engines: list[CitationEngine] = []
     if resolve_ai_gateway_config() is not None:
         engines.append(ClaudeWebSearchEngine())
         engines.append(OpenAIWebSearchEngine())
-        if _gemini_engine_enabled(team):
+        if aeo_flag_enabled(AEO_GEMINI_ENGINE_FLAG, team):
             engines.append(GeminiGroundedEngine())
     if settings.EXA_API_KEY:
         engines.append(ExaAnswerEngine())

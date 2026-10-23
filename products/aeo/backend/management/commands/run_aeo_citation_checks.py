@@ -18,11 +18,8 @@ ENGINES_BY_NAME = {
     "claude": ClaudeWebSearchEngine,
     "openai": OpenAIWebSearchEngine,
     "exa": ExaAnswerEngine,
-    # Scheduled runs include it only behind the aeo-engine-gemini flag; a manual
-    # run can pick it explicitly, but records rows only with --allow-ungated-gemini.
     "gemini": GeminiGroundedEngine,
 }
-GEMINI_ENGINE_NAME = "gemini"
 
 
 class Command(BaseCommand):
@@ -56,7 +53,7 @@ class Command(BaseCommand):
         for name in engine_names:
             if name not in ENGINES_BY_NAME:
                 raise CommandError(f"Unknown engine '{name}'. Choose from {sorted(ENGINES_BY_NAME)}")
-        if GEMINI_ENGINE_NAME in engine_names and not options["dry_run"] and not options["allow_ungated_gemini"]:
+        if "gemini" in engine_names and not options["dry_run"] and not options["allow_ungated_gemini"]:
             raise CommandError(
                 "A run that includes gemini records checks only with --allow-ungated-gemini. "
                 "Pass --dry-run to run it without recording."

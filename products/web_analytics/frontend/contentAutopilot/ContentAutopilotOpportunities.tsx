@@ -27,6 +27,7 @@ const ENGINE_LABELS: Record<string, string> = {
     'claude-web-search': 'Claude',
     'openai-web-search': 'ChatGPT',
     'exa-answer': 'Exa',
+    'gemini-google-search': 'Gemini',
 }
 
 const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element | null> = {
