@@ -59,9 +59,6 @@ const mcpAppsCssVariables: Record<string, string> = {
 export function McpThemeDecorator(Story: StoryFn, context: StoryContext): ReactElement {
     return (
         <div
-            // Opts the subtree into Quill's tokens, which components read directly as `var(--card)` and the like.
-            data-quill
-            data-mcp-storybook
             style={
                 {
                     ...mcpAppsCssVariables,
