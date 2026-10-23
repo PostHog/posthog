@@ -1,13 +1,13 @@
 import './Navigation.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
-import { retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
@@ -30,20 +30,14 @@ import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
 
 // The Today layout renders only behind the today-rail-nav flag, and its quill UI would otherwise load on every logged-in page.
-const TodayContextPanelFloating = lazy(() =>
-    retryImport(() =>
-        import('~/layout/today/TodayContextPanelFloating').then((m) => ({ default: m.TodayContextPanelFloating }))
-    )
+const TodayContextPanelFloating = lazyWithRetry(() =>
+    import('~/layout/today/TodayContextPanelFloating').then((m) => ({ default: m.TodayContextPanelFloating }))
 )
-const TodayShell = lazy(() =>
-    retryImport(() => import('~/layout/today/TodayShell').then((m) => ({ default: m.TodayShell })))
+const TodayShell = lazyWithRetry(() => import('~/layout/today/TodayShell').then((m) => ({ default: m.TodayShell })))
+const TodaySidePanel = lazyWithRetry(() =>
+    import('~/layout/today/TodaySidePanel').then((m) => ({ default: m.TodaySidePanel }))
 )
-const TodaySidePanel = lazy(() =>
-    retryImport(() => import('~/layout/today/TodaySidePanel').then((m) => ({ default: m.TodaySidePanel })))
-)
-const TodayTopBar = lazy(() =>
-    retryImport(() => import('~/layout/today/TodayTopBar').then((m) => ({ default: m.TodayTopBar })))
-)
+const TodayTopBar = lazyWithRetry(() => import('~/layout/today/TodayTopBar').then((m) => ({ default: m.TodayTopBar })))
 
 export function Navigation({
     children,
