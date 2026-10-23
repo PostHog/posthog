@@ -137,6 +137,7 @@ class TestSendEmailAttachments(SimpleTestCase):
             ("content_type_not_a_type", [attachment(content_type="calendar")]),
             ("content_id_with_brackets", [attachment(content_id="<logo>")]),
             ("content_id_too_long", [attachment(content_id="a" * 129)]),
+            ("unknown_key", [attachment(contentType="text/calendar")]),
         ]
     )
     def test_refuses_an_attachment_it_cannot_send(self, _name: str, attachments: list[dict[str, Any]]) -> None:

@@ -7,6 +7,8 @@ from typing import Any
 
 from rest_framework import serializers
 
+from products.messaging.backend.presentation.views.send_email_fields import RefusesUnknownFieldsSerializer
+
 MAX_ATTACHMENTS = 10
 MAX_ATTACHMENTS_BYTES = 512 * 1024
 MAX_FILENAME_LENGTH = 255
@@ -28,7 +30,7 @@ BLOCKED_EXTENSIONS = frozenset(
 )
 
 
-class EmailAttachmentSerializer(serializers.Serializer):
+class EmailAttachmentSerializer(RefusesUnknownFieldsSerializer):
     filename = serializers.CharField(
         max_length=MAX_FILENAME_LENGTH,
         help_text="File name the recipient sees, such as `invite.ics`. No paths, and no file types mailbox "
