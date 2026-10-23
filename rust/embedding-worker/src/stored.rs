@@ -32,7 +32,8 @@ pub async fn handle_stored_request(
     request: EmbeddingRequest,
 ) -> Result<Json<StoredEmbeddingResponse>, StatusCode> {
     let team_id = request.team_id;
-    let labels = RequestLabels::from(&request).and([("from", "api_stored")]);
+    // Labelled like `/generate/ad_hoc`: the request's free-form fields would let any caller mint new metric series.
+    let labels = RequestLabels::default().and([("from", "api_stored")]);
 
     let request = match apply_ai_opt_in(&context, request, team_id).await {
         Ok(Some(request)) => request,
@@ -70,7 +71,7 @@ pub async fn handle_stored_request(
 
     let mut results = Vec::with_capacity(request.models.len());
     for model in &request.models {
-        let (model, embedding) = handle_single(context.clone(), *model, &request, "api_stored")
+        let (model, embedding) = handle_single(context.clone(), *model, &request, labels.clone())
             .await
             .map_err(|e| {
                 error!("Stored embedding request for team {team_id} failed: {e:?}");
