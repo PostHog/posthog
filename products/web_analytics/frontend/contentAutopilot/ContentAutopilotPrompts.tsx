@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     LemonBanner,
+    LemonButton,
     LemonCard,
     LemonSelect,
     LemonSkeleton,
@@ -36,10 +37,12 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         promptsPage,
         promptsTopic,
         promptTopics,
+        promptTopicsError,
+        promptTopicsLoading,
         promptEngines,
         promptActiveUpdating,
     } = useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, setPromptsPage, setPromptsTopic, setPromptActive } =
+    const { loadAeoPrompts, loadAeoPromptTopics, setPromptsPage, setPromptsTopic, setPromptActive } =
         useActions(contentAutopilotPromptsLogic)
 
     if (promptsError === 'forbidden') {
@@ -81,6 +84,20 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     ]}
                     data-attr="content-autopilot-prompts-topic-filter"
                 />
+                {promptTopicsError ? (
+                    <span className="flex items-center gap-1 text-danger text-sm">
+                        Couldn't load topics.
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={loadAeoPromptTopics}
+                            loading={promptTopicsLoading}
+                            data-attr="content-autopilot-prompts-topics-retry"
+                        >
+                            Try again
+                        </LemonButton>
+                    </span>
+                ) : null}
             </div>
 
             {promptsError === 'failed' ? (

@@ -74,4 +74,6 @@ tools:
         param_overrides:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
+            active:
+                required: true
         feature_flag: aeo-citation-tracking

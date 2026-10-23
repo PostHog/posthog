@@ -10,6 +10,6 @@
             "type": "string"
         }
     },
-    "required": ["id"],
+    "required": ["id", "active"],
     "type": "object"
 }
