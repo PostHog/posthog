@@ -4847,23 +4847,28 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("enabled_columns", ["id", "name"]),
-            ("row_filters", [{"column": "id", "operator": ">", "value": 10}]),
+            ("enabled_columns", ["id", "name"], "enabled_columns"),
+            ("row_filters", [{"column": "id", "operator": ">", "value": 10}], "row_filters"),
+            # Column names only: the log must never carry a masked value or digest.
+            ("masked_columns", ["name"], "masked columns"),
         ]
     )
-    def test_selection_change_is_written_to_the_activity_log(self, field: str, value: Any):
+    def test_selection_change_is_written_to_the_activity_log(self, field: str, value: Any, logged_field: str):
         schema = self._create()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={field: value}
-        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={field: value}
+            )
         assert response.status_code == 200, response.json()
 
         log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
         assert log.user == self.user
         assert log.detail is not None
-        assert [c for c in log.detail["changes"] if c["field"] == field] == [
-            {"type": "ExternalDataSchema", "field": field, "action": "created", "before": None, "after": value}
+        assert [c for c in log.detail["changes"] if c["field"] == logged_field] == [
+            {"type": "ExternalDataSchema", "field": logged_field, "action": "created", "before": None, "after": value}
         ]
 
     def test_null_clears_row_filters(self):
@@ -5109,6 +5114,20 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert schema.masked_columns == requested
         assert schema.sync_type_config.get("reset_pipeline") is (True if resyncs else None)
         assert mock_trigger.call_count == (1 if resyncs else 0)
+
+    def test_a_newly_masked_column_is_hidden_from_queries_until_the_rebuild_loads(self) -> None:
+        # A rebuild that extracts no rows never republishes the table, so the old plaintext would stay queryable.
+        string_column = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}
+        table = DataWarehouseTable.objects.create(
+            team=self.team, columns={"id": string_column, "password": string_column, "email": string_column}
+        )
+        schema = self._create(table=table)
+        with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
+            response = self._patch(schema, {"masked_columns": ["Password"]})
+
+        assert response.status_code == 200, response.json()
+        table.refresh_from_db()
+        assert set(table.columns) == {"id", "email"}
 
     def test_a_patch_without_the_field_keeps_the_masks(self) -> None:
         schema = self._create(masked_columns=["password"])

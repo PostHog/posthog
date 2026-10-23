@@ -1646,6 +1646,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 instance.table.columns = projected_columns
                 instance.table.save(update_fields=["columns"])
 
+        # Synced rows keep a newly masked column in plaintext until the rebuild replaces them, and a
+        # rebuild that extracts no rows never does. Hide the column from queries now. The next sync
+        # that loads rows registers it again, with the masked values.
+        if masked_columns_changed and instance.table is not None and not source.is_direct_query:
+            newly_masked = {fold_column_name(column) for column in validated_data["masked_columns"] or []} - {
+                fold_column_name(column) for column in instance.masked_columns or []
+            }
+            current_columns = instance.table.columns or {}
+            visible_columns = {
+                name: column for name, column in current_columns.items() if fold_column_name(name) not in newly_masked
+            }
+            if visible_columns != current_columns:
+                instance.table.columns = visible_columns
+                instance.table.save(update_fields=["columns"])
+
         # CDC publication management: add/remove table when toggling should_sync
         # A reset handed to capture paused the schedule, and capture only finishes a reset for a CDC table,
         # so a table leaving CDC drops the pending reset and resumes its schedule itself.
