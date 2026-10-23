@@ -246,6 +246,37 @@ describe('watchFeedLogic', () => {
         expect(logic.values.feedHasMore).toBe(false)
     })
 
+    it('drops a next page that fails after the filters changed', async () => {
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o1', 'embedding_pick')], has_more: true, as_of: 'T0' },
+        ])
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+
+        let failPage: () => void = () => {}
+        // The next page (it carries an offset) stays pending until the test fails it; a fresh load answers at once.
+        feedSpy.mockImplementation(({ request }) =>
+            new URL(request.url).searchParams.has('offset')
+                ? new Promise((resolve) => {
+                      failPage = () => resolve([500, { detail: 'nope' }])
+                  })
+                : [200, { results: [item('o2', 'recent')], has_more: true, as_of: 'T1' }]
+        )
+        logic.actions.loadMoreFeed()
+        // Waiting for every listener would wait on the held page too, so wait for the new load alone.
+        await expectLogic(logic, () => logic.actions.setScannerTypeFilter('monitor')).toDispatchActions([
+            'loadFeedSuccess',
+        ])
+
+        failPage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.feedMoreFailed).toBe(false)
+        expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o2'])
+        expect(logic.values.feedHasMore).toBe(true)
+    })
+
     it('flags a failed load and clears the flag on retry', async () => {
         feedSpy.mockImplementation(() => [500, { detail: 'nope' }])
         logic.mount()
