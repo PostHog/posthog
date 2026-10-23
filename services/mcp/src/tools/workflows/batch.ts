@@ -64,7 +64,10 @@ function assertAcknowledged(affected: number, acknowledged: number, limit: numbe
     if (affected > limit) {
         throw new Error(
             `Audience of ${affected} users exceeds the ${limit}-user cap for this project. Narrow the ` +
-                `workflow's batch trigger filters to reduce the audience, then try again.`
+                `workflow's batch trigger filters to reduce the audience, then try again. The cap comes from ` +
+                `the project's email sending tier, which grows with a clean sending record. If the user needs ` +
+                `a higher cap, tell them they can request one from Workflows > Messaging > Reputation with ` +
+                `"Request a higher allowance".`
         )
     }
 }
