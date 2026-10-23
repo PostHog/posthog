@@ -31,6 +31,14 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 
+# Column aliases for the harness identity properties, one per role in
+# `mcp_harness.HARNESS_INPUT_PROPERTIES`. Deriving them from that map keeps the grouping
+# key in step with every property the token reads.
+_INPUT_COLUMNS: dict[str, str] = {role: f"harness_{role}" for role in mcp_harness.HARNESS_INPUT_PROPERTIES}
+_INPUT_COLUMN_LIST = ", ".join(_INPUT_COLUMNS.values())
+_INPUT_COLUMN_SELECTS = ", ".join(f"{{{role}}} AS {alias}" for role, alias in _INPUT_COLUMNS.items())
+
+
 class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQueryResponse]):
     """MCP tool-call activity grouped by the resolved client harness.
 
@@ -39,6 +47,12 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
     UI. The harness label is resolved server-side by `mcp_harness` (the single
     source of truth) — the inner query resolves the token once, the outer buckets
     it, so the bucketing comparisons run against a single column.
+
+    The token is a pure function of a few identity properties that take few distinct
+    values per project, so rows are grouped by those properties first and the token
+    is resolved once per group instead of once per event. Sessions are carried as
+    `uniqExact` states and merged per harness, so a session that reaches one harness
+    through several identity values still counts once.
     """
 
     query: MCPHarnessBreakdownQuery
@@ -81,62 +95,85 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # The harness label and token are HogQL fragments from mcp_harness; parse them
         # to AST and inject as placeholders (like {where}) so nothing is string-interpolated.
+        # The input column names come from the module constant below, never from the request.
+        placeholders: dict[str, ast.Expr] = {
+            "label": parse_expr(mcp_harness.harness_label_sql("h")),
+            "token": parse_expr(mcp_harness.harness_token_from_inputs_sql(_INPUT_COLUMNS)),
+            "conversation_id": parse_expr(CONVERSATION_ID_SQL),
+            **{role: parse_expr(prop) for role, prop in mcp_harness.HARNESS_INPUT_PROPERTIES.items()},
+        }
         if self.query.toolName:
             return parse_select(
-                """
+                f"""
                 SELECT
-                    {label} AS harness,
-                    countIf(is_tool) AS total_calls,
-                    countIf(is_tool AND is_error) AS errors,
-                    round(countIf(is_tool AND is_error) * 100.0 / countIf(is_tool), 1) AS error_rate_pct,
-                    countDistinctIf(session_id, session_id != '' AND is_tool) AS sessions,
-                    countDistinctIf(session_id, session_id != '') AS harness_sessions
+                    {{label}} AS harness,
+                    sum(tool_calls) AS total_calls,
+                    sum(tool_errors) AS errors,
+                    round(sum(tool_errors) * 100.0 / sum(tool_calls), 1) AS error_rate_pct,
+                    uniqExactMerge(tool_sessions) AS sessions,
+                    uniqExactMerge(all_sessions) AS harness_sessions
                 FROM (
-                    SELECT
-                        {token} AS h,
-                        {conversation_id} AS session_id,
-                        toBool(properties.$mcp_is_error) AS is_error,
-                        {is_tool} AS is_tool
-                    FROM events
-                    WHERE {where}
+                    SELECT {{token}} AS h, tool_calls, tool_errors, tool_sessions, all_sessions
+                    FROM (
+                        SELECT
+                            {_INPUT_COLUMN_LIST},
+                            countIf(is_tool) AS tool_calls,
+                            countIf(is_tool AND is_error) AS tool_errors,
+                            uniqExactState(if(session_id != '' AND is_tool, session_id, NULL)) AS tool_sessions,
+                            uniqExactState(if(session_id != '', session_id, NULL)) AS all_sessions
+                        FROM (
+                            SELECT
+                                {_INPUT_COLUMN_SELECTS},
+                                {{conversation_id}} AS session_id,
+                                toBool(properties.$mcp_is_error) AS is_error,
+                                {{is_tool}} AS is_tool
+                            FROM events
+                            WHERE {{where}}
+                        )
+                        GROUP BY {_INPUT_COLUMN_LIST}
+                    )
                 )
                 GROUP BY harness
-                HAVING countIf(is_tool) > 0
+                HAVING sum(tool_calls) > 0
                 ORDER BY total_calls DESC
                 """,
                 placeholders={
-                    "label": parse_expr(mcp_harness.harness_label_sql("h")),
-                    "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
+                    **placeholders,
                     "is_tool": effective_tool_expr(self.query.toolName),
-                    "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                     "where": self._where_scoped_to_source(),
                 },
             )
         return parse_select(
-            """
+            f"""
             SELECT
-                {label} AS harness,
-                count() AS total_calls,
-                countIf(is_error) AS errors,
-                round(countIf(is_error) * 100.0 / count(), 1) AS error_rate_pct,
-                countDistinctIf(session_id, session_id != '') AS sessions
+                {{label}} AS harness,
+                sum(calls) AS total_calls,
+                sum(error_calls) AS errors,
+                round(sum(error_calls) * 100.0 / sum(calls), 1) AS error_rate_pct,
+                uniqExactMerge(sessions_state) AS sessions
             FROM (
-                SELECT
-                    {token} AS h,
-                    {conversation_id} AS session_id,
-                    toBool(properties.$mcp_is_error) AS is_error
-                FROM events
-                WHERE {where}
+                SELECT {{token}} AS h, calls, error_calls, sessions_state
+                FROM (
+                    SELECT
+                        {_INPUT_COLUMN_LIST},
+                        count() AS calls,
+                        countIf(is_error) AS error_calls,
+                        uniqExactState(if(session_id != '', session_id, NULL)) AS sessions_state
+                    FROM (
+                        SELECT
+                            {_INPUT_COLUMN_SELECTS},
+                            {{conversation_id}} AS session_id,
+                            toBool(properties.$mcp_is_error) AS is_error
+                        FROM events
+                        WHERE {{where}}
+                    )
+                    GROUP BY {_INPUT_COLUMN_LIST}
+                )
             )
             GROUP BY harness
             ORDER BY total_calls DESC
             """,
-            placeholders={
-                "label": parse_expr(mcp_harness.harness_label_sql("h")),
-                "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
-                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
-                "where": self._where(),
-            },
+            placeholders={**placeholders, "where": self._where()},
         )
 
     def _calculate(self) -> MCPHarnessBreakdownQueryResponse:
