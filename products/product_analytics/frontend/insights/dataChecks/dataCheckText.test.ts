@@ -47,6 +47,12 @@ describe('dataCheckText', () => {
             'Filtered out',
         ],
         [
+            'internal users on an insight that filters them out, with team emails the filter misses',
+            { key: 'internal_users', method: 'counted', missed_by_filter: 40, distinct_emails: 32 },
+            true,
+            'Filtered out, except 32 users',
+        ],
+        [
             'a finding from a sample',
             { level: 'problem', events: 4000, share: 0.4, scaled: true },
             false,
@@ -84,7 +90,11 @@ describe('dataCheckText', () => {
                     count: 14,
                     noun: 'user',
                     examples: ['sam@example.com', 'qa@example.com'],
-                    fallback: "Your team's emails",
+                    fallback: 'Some users',
+                    predicate: "have emails that match your team, but none of your filter's rules remove them.",
+                    explanation:
+                        "An email matches your team when it's on the same domain as someone in your organization, " +
+                        'or looks like a test account, such as test@ or name+qa@.',
                 },
             },
         ],
@@ -121,6 +131,8 @@ describe('dataCheckText', () => {
                     noun: 'bot',
                     examples: ['Googlebot', 'Ahrefs'],
                     fallback: 'Bot events',
+                    predicate: "aren't caught by your internal and test users filter.",
+                    explanation: null,
                 },
             },
         ],

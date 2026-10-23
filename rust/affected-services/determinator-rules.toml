@@ -71,6 +71,7 @@ globs = [
     "../bin/download-mmdb",
     "../.github/workflows/ci-rust.yml",
     "../.github/actions/setup-protoc/**",
+    "../.github/actions/setup-rust/**",
     "../.github/actions/setup-sccache/**",
     "../.github/actions/setup-sqlx-cli/**",
     "../.github/actions/rust-compute-affected/**",
@@ -82,6 +83,12 @@ mark-changed = "all"
 # Must come AFTER all specific rules for files outside the workspace.
 [[path-rule]]
 globs = ["../**"]
+mark-changed = []
+
+# An unmatched workspace-root file marks every crate, and the default rules
+# do not match AGENTS.md.
+[[path-rule]]
+globs = ["AGENTS.md"]
 mark-changed = []
 
 # Migration directories are not cargo crates. Tell the determinator to

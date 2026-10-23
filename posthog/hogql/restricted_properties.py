@@ -10,7 +10,11 @@ from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEve
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
-from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import (
+    MCPIntentAssignmentsTable,
+    MCPIntentCallsHourlyTable,
+    RawMCPIntentAssignmentsTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
@@ -48,6 +52,7 @@ _FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
 
 _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column in AI_PROPERTY_TO_COLUMN.items()}
 
+
 # The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
 # sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
 _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
@@ -75,9 +80,17 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
         return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     if isinstance(table, FlagEvaluationsTable):
         return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
-    if isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
+    if isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable | MCPIntentCallsHourlyTable):
         return _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
     return None
+
+
+def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
+    """Whether a read of this stored column masks to NULL because the property it copies is restricted."""
+    source_property = mirrored_property_for_column(table_type, column_name, context)
+    return source_property is not None and source_property in restricted_property_keys_for_table_type(
+        table_type, context
+    )
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
@@ -124,7 +137,12 @@ def restricted_property_keys_for_table_type(
         group_type_index = table.group_index
     elif isinstance(
         table,
-        EventsTable | FlagEvaluationsTable | AiEventsTable | MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable,
+        EventsTable
+        | FlagEvaluationsTable
+        | AiEventsTable
+        | MCPIntentAssignmentsTable
+        | RawMCPIntentAssignmentsTable
+        | MCPIntentCallsHourlyTable,
     ):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
@@ -159,18 +177,23 @@ def restricted_property_keys_for_table_type(
     return restricted_keys
 
 
-def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
-    """Whether a read of this stored column masks to NULL because the property it copies is restricted."""
-    source_property = mirrored_property_for_column(table_type, column_name, context)
-    return source_property is not None and source_property in restricted_property_keys_for_table_type(
-        table_type, context
-    )
+def key_read_overlaps_restriction(first_key: str, restricted_keys: Iterable[str]) -> bool:
+    """Whether JSONDropKeys can change what a read of the top-level key `first_key` returns.
+
+    JSONDropKeys matches object keys one dot-separated segment at a time. A restricted `a` also drops the flat key
+    `a.b`, and a restricted `a.b` also filters inside the value of `a`. Any other key reads the same value from the
+    stored blob as from the masked one.
+    """
+    segments = first_key.split(".")
+    for restricted_key in restricted_keys:
+        restricted_segments = restricted_key.split(".")
+        shared = min(len(segments), len(restricted_segments))
+        if segments[:shared] == restricted_segments[:shared]:
+            return True
+    return False
 
 
 def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
     if not context.restricted_properties or not context.uses_new_events_schema():
         return False
-    return any(
-        property_name == key or property_name.startswith(key + ".") or key.startswith(property_name + ".")
-        for key in restricted_property_keys_for_table_type(table_type, context)
-    )
+    return key_read_overlaps_restriction(property_name, restricted_property_keys_for_table_type(table_type, context))

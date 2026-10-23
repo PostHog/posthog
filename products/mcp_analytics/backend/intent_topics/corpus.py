@@ -4,11 +4,14 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.workload import Workload
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.hogql_queries.base import CONVERSATION_ID_SQL, EFFECTIVE_TOOL_SQL
@@ -76,7 +79,7 @@ def fetch_distinct_intents(
                 "offset": ast.Constant(value=len(intents)),
             },
         )
-        rows = execute_hogql_query(query=query, team=team).results or []
+        rows = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE).results or []
         intents.extend(
             DistinctIntent(
                 hash=row[0],
@@ -127,7 +130,7 @@ def fetch_seen_hashes(team: Team, hashes: Sequence[str], *, now: datetime) -> se
                 "limit": ast.Constant(value=len(chunk)),
             },
         )
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
         seen.update(row[0] for row in response.results)
     return seen
 
@@ -185,7 +188,17 @@ def fetch_hourly_calls(
                 "offset": ast.Constant(value=len(rows)),
             },
         )
-        page = execute_hogql_query(query=query, team=team).results or []
+        # Hour keys must be UTC: the daily rebuild groups them into days, and project-local hours break
+        # at fractional offsets such as +05:30.
+        page = (
+            execute_hogql_query(
+                query=query,
+                team=team,
+                workload=Workload.OFFLINE,
+                modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+            ).results
+            or []
+        )
         rows.extend(
             HourlyCalls(hour=row[0], hash=row[1], tool=row[2] or "", calls=int(row[3]), conversations=tuple(row[4]))
             for row in page

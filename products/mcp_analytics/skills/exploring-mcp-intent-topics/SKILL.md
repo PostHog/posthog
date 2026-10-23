@@ -28,8 +28,8 @@ intent. Calls without an intent are not in any topic.
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | "What do agents use this server for?"                      | `posthog:query-mcp-intent-topics` without `toolName`                                  |
 | "How is tool X used?" / "what for?"                        | `posthog:query-mcp-tool-intent-profile` — read `results` (top topics) and `focus`     |
-| "What is the average use of tool X over the past 5 days?"  | `posthog:query-mcp-tool-intent-profile` with `dateRange` = last 5 days; the sparkline |
-|                                                            | on each topic is calls per day, so the average is its sum over 5                      |
+| "What is the average use of tool X over the past 5 days?"  | `posthog:query-mcp-tool-daily-stats` with an explicit 5-day `dateRange`: average the  |
+|                                                            | daily calls. Topic sparklines cover only the top topics and skip calls without one    |
 | "How has use of tool X changed over the past 3 months?"    | `posthog:query-mcp-intent-topics` with `toolName` and `dateRange` = last 90 days;     |
 |                                                            | `trend_pp` compares with the 90 days before. For a finer story, call it per month     |
 | "Where is tool X drifting?"                                | `posthog:query-mcp-tool-intent-profile` — `drift.new`, `growing`, `shrinking`, `gone` |

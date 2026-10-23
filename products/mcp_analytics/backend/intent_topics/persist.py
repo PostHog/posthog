@@ -12,7 +12,7 @@ import numpy as np
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.intent_topics.assignment_sql import PcaBasis, TopicVector
-from products.mcp_analytics.backend.intent_topics.clustering import FitOutput
+from products.mcp_analytics.backend.intent_topics.clustering import FitOutput, project_2d
 from products.mcp_analytics.backend.intent_topics.constants import TOPIC_ARCHIVE_AFTER_DAYS
 from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel, fallback_label
 from products.mcp_analytics.backend.intent_topics.topic_registry import ExistingTopic, MatchResult
@@ -28,7 +28,13 @@ class FitPersistResult:
     archived: list[str] = field(default_factory=list)
 
 
+def project_team(team: Team) -> Team:
+    """The team that owns topics and runs: an environment shares its project's registry."""
+    return team.parent_team or team
+
+
 def existing_topics(team: Team) -> list[ExistingTopic]:
+    team = project_team(team)
     return [
         ExistingTopic(id=str(topic.pk), centroid=topic.decoded_centroid())
         for topic in MCPIntentTopic.active.filter(team=team).order_by("first_seen_at")
@@ -36,6 +42,7 @@ def existing_topics(team: Team) -> list[ExistingTopic]:
 
 
 def active_topic_vectors(team: Team) -> list[TopicVector]:
+    team = project_team(team)
     return [
         TopicVector(
             topic_id=str(topic.pk),
@@ -50,7 +57,7 @@ def start_run(
     team: Team, *, kind: str, run_id: str, window_start: datetime, window_end: datetime
 ) -> MCPIntentClusteringRun:
     return MCPIntentClusteringRun.objects.create(
-        team=team, kind=kind, run_id=run_id, window_start=window_start, window_end=window_end
+        team=project_team(team), kind=kind, run_id=run_id, window_start=window_start, window_end=window_end
     )
 
 
@@ -63,10 +70,25 @@ def finish_run(run: MCPIntentClusteringRun, *, status: str, error_message: str =
     run.save()
 
 
+def latest_refit_started_at(team: Team) -> datetime | None:
+    return (
+        MCPIntentClusteringRun.objects.filter(
+            team=project_team(team),
+            kind=MCPIntentClusteringRun.Kind.REFIT,
+            status=MCPIntentClusteringRun.Status.SUCCEEDED,
+        )
+        .order_by("-started_at")
+        .values_list("started_at", flat=True)
+        .first()
+    )
+
+
 def latest_pca_basis(team: Team) -> PcaBasis | None:
     run = (
         MCPIntentClusteringRun.objects.filter(
-            team=team, kind=MCPIntentClusteringRun.Kind.REFIT, status=MCPIntentClusteringRun.Status.SUCCEEDED
+            team=project_team(team),
+            kind=MCPIntentClusteringRun.Kind.REFIT,
+            status=MCPIntentClusteringRun.Status.SUCCEEDED,
         )
         .order_by("-started_at")
         .first()
@@ -101,6 +123,7 @@ def apply_fit(
     Topics no cluster matched are archived once they have been unmatched for ``TOPIC_ARCHIVE_AFTER_DAYS``.
     The PCA basis is stored on the run so the nightly assignment can project new intents.
     """
+    team = project_team(team)
     # One transaction: a partial registry next to the previous basis would mislabel the nightly assignment.
     with transaction.atomic():
         topic_ids: dict[int, str] = {}
@@ -109,7 +132,6 @@ def apply_fit(
         for cluster_idx, topic_id in match.reused.items():
             topic = MCPIntentTopic.objects.get(team=team, pk=topic_id)
             _write_cluster(topic, fit, cluster_idx, run.run_id)
-            topic.last_seen_at = now
             topic.save()
             topic_ids[cluster_idx] = topic_id
 
@@ -121,12 +143,22 @@ def apply_fit(
             topic_ids[cluster_idx] = str(topic.pk)
             created.append(str(topic.pk))
 
+        # last_seen_at is auto_now, so save() writes the wall clock; a replayed refit must record its own time.
+        MCPIntentTopic.objects.filter(team=team, pk__in=list(topic_ids.values())).update(last_seen_at=now)
+
         archived: list[str] = []
         cutoff = now - timedelta(days=TOPIC_ARCHIVE_AFTER_DAYS)
         for topic in MCPIntentTopic.active.filter(team=team, pk__in=match.unmatched_topics, last_seen_at__lt=cutoff):
             topic.status = MCPIntentTopic.Status.ARCHIVED
             topic.save(update_fields=["status"])
             archived.append(str(topic.pk))
+
+        # Unmatched topics that stay active keep their centroid, but their map position must use the new basis.
+        for topic in MCPIntentTopic.active.filter(team=team, pk__in=match.unmatched_topics):
+            position = project_2d(topic.decoded_centroid()[None, :], fit.pca_mean, fit.pca_components)[0]
+            MCPIntentTopic.objects.filter(pk=topic.pk).update(
+                centroid_x=float(position[0]), centroid_y=float(position[1])
+            )
 
         run.params = {
             **run.params,
@@ -150,10 +182,11 @@ def _write_cluster(topic: MCPIntentTopic, fit: FitOutput, cluster_idx: int, run_
 
 
 def update_topic_labels(team: Team, labels: dict[str, TopicLabel]) -> None:
+    team = project_team(team)
     for topic_id, topic_label in labels.items():
-        MCPIntentTopic.objects.filter(team=team, pk=topic_id).update(
-            label=topic_label.label, summary=topic_label.summary
-        )
+        # An empty summary means the labeler gave no answer for this topic, so the stored summary stays.
+        fields = {"label": topic_label.label, **({"summary": topic_label.summary} if topic_label.summary else {})}
+        MCPIntentTopic.objects.filter(team=team, pk=topic_id).update(**fields)
 
 
 def run_params(run: MCPIntentClusteringRun) -> dict[str, Any]:

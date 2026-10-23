@@ -141,10 +141,10 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         raw_star = execute_hogql_query(
             query="SELECT * FROM posthog.raw_mcp_intent_assignments ORDER BY topic_id", team=self.team, user=self.user
         )
-        assert [
-            (row["topic_id"], row["intent_hash"], row["intent_text"])
-            for row in (dict(zip(raw_star.columns or [], values)) for values in raw_star.results)
-        ] == [("topic-0", None, None), ("topic-1", None, None), ("topic-2", None, None)]
+        # A background merge can drop the older topic-0 row of the same intent, so only the masking is checked.
+        raw_rows = [dict(zip(raw_star.columns or [], values)) for values in raw_star.results]
+        assert {(row["intent_hash"], row["intent_text"]) for row in raw_rows} == {(None, None)}
+        assert {"topic-1", "topic-2"} <= {row["topic_id"] for row in raw_rows}
         assert run(f"SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_hash = '{hash_a}'") == [(0,)]
         assert run(
             "SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_text = 'list feature flags'"
@@ -154,7 +154,10 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        assert run(f"SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_hash = '{hash_a}'") == [(2,)]
+        [(admin_hash_matches,)] = run(
+            f"SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_hash = '{hash_a}'"
+        )
+        assert admin_hash_matches >= 1
         assert run(
             "SELECT intent_hash, topic_id, intent_text FROM posthog.mcp_intent_assignments ORDER BY intent_hash"
         ) == [

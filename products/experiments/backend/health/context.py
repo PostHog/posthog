@@ -8,7 +8,13 @@ from django.utils import timezone
 
 import pydantic
 
-from posthog.schema import EventPropertyFilter, ExperimentEventExposureConfig, MultipleVariantHandling, PropertyOperator
+from posthog.schema import (
+    ActionsNode,
+    EventPropertyFilter,
+    ExperimentEventExposureConfig,
+    MultipleVariantHandling,
+    PropertyOperator,
+)
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -19,74 +25,29 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
+    has_activation_config,
     normalize_to_exposure_criteria,
 )
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    ConditionsChange,
+    FlagVariant,
+    ReleaseCondition,
+    SplitChange,
+    parse_percentage,
+    parse_variants,
+)
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.filters import condition_aggregation, pinned_variant, reachable_conditions
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode, has_active_flags
 
-
-@frozen
-class FlagVariant:
-    key: str | None
-    rollout_percentage: float | None
-
-
-Split = tuple[FlagVariant, ...]
-
-
-@frozen
-class SplitChange:
-    changed_at: datetime
-    before: Split
-    after: Split
-
-
-class BucketingSetting(StrEnum):
-    # The flag settings besides the split that are inputs of the variant draw, in the order the findings name them.
-    KEY = "key"
-    AGGREGATION = "aggregation"
-    BUCKETING_IDENTIFIER = "bucketing_identifier"
-    EXPERIENCE_CONTINUITY = "experience_continuity"
-
-
-@frozen
-class BucketingChange:
-    changed_at: datetime
-    setting: BucketingSetting
-    # The key as a string, the aggregation as a group type index or None for persons, the identifier as
-    # "distinct_id" or "device_id", the continuity as a bool.
-    before: str | int | bool | None
-    after: str | int | bool | None
-
-
-@frozen
-class ReleaseCondition:
-    # The group type and property filters of the condition, as a signature that is equal for two conditions
-    # that match the same people under the flag-level aggregation of their save. The rollout is not part of it.
-    criteria: str
-    # The group type index that the condition matches, None for persons, and the keys of its property filters.
-    # The flag page's history pairs two conditions that share them as one condition edited.
-    aggregation: int | None
-    property_keys: frozenset[str]
-    rollout: float
-    variant: str | None
-
-
-@frozen
-class ConditionsChange:
-    changed_at: datetime
-    before: tuple[ReleaseCondition, ...]
-    after: tuple[ReleaseCondition, ...]
-
-
-# A change of the flag after launch that can move exposed people. A new kind needs its class here, an
-# `ExperimentHealthFlagChangeKind`, its read and its set-back question in `exposure_gate.py`, its row in
-# `inputs_payload.py`, and its check.
+# A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
+# (`facade/edits.py`), its member in this union, an `ExperimentHealthFlagChangeKind`, its read and its set-back
+# question in `exposure_gate.py`, its row in `inputs_payload.py`, and its check.
 FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
@@ -123,6 +84,12 @@ class FlagHistory:
     # Whether anyone was exposed while an override was set and removed again, or removed and set back. A user
     # exposed only outside that window got the same variant throughout. None when unknown.
     exposed_during_overrides: Mapping[ChangeWindow, bool | None]
+    # Whether the experiment counts groups rather than persons, by the rule the exposure query uses.
+    counts_groups: bool
+    # The persons or groups exposed between launch and the last counted change of a kind, up to
+    # MIN_EXPOSED_UNITS_TO_WARN. Asked only for a kind with a counted change, so a kind that was not asked is absent.
+    # None when unknown.
+    exposed_units_before_last: Mapping[ExperimentHealthFlagChangeKind, int | None]
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)
@@ -147,6 +114,8 @@ class FlagHistoryNotCheckedReason(StrEnum):
 
 MAX_FLAG_SAVES = 100
 MAX_RELEASE_CONDITIONS = 100
+# A few early exposures, usually the creator's own test, can't move a result, so a change before this many is info.
+MIN_EXPOSED_UNITS_TO_WARN = 5
 
 
 @frozen
@@ -266,7 +235,13 @@ class ExposureEvents:
     # The flag key that the exposure query requires in `$feature_flag`, because the flag call events are not specific
     # to one flag. None when the criteria count a custom event or an action, and when the experiment has no flag.
     required_flag_key: str | None
+    # The event property that holds the variant: `$feature_flag_response` on the flag call events, `$feature/<flag key>`
+    # on a custom event or the events of an action.
+    variant_property: str
     flag_key_filters: tuple[FlagKeyFilter, ...]
+    # The event, or the action's name, that has to follow a user's flag call before the user counts. None without an
+    # activation, which the exposure query reads only next to the flag call events.
+    activation: str | None = None
 
 
 @frozen
@@ -282,6 +257,11 @@ class HealthContext:
     # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
     # record the calls of this organization's flags.
     flag_called: bool | None
+    # Whether PostHog has recorded a call of the flag between launch and the end, or until now while the experiment
+    # runs. A flag that served an earlier experiment can carry only calls from before launch, so `flag_called` doesn't
+    # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
+    # end, or when PostHog can't record the calls of this organization's flags.
+    flag_called_during_run: bool | None
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -379,31 +359,9 @@ def _release_group(group: object) -> FlagReleaseGroup:
         return FlagReleaseGroup(rollout_percentage=None, property_count=None)
     properties = group.get("properties")
     return FlagReleaseGroup(
-        rollout_percentage=_percentage(group.get("rollout_percentage")),
+        rollout_percentage=parse_percentage(group.get("rollout_percentage")),
         property_count=len(properties) if isinstance(properties, list) else None,
     )
-
-
-def _variant(variant: object) -> FlagVariant:
-    if not isinstance(variant, dict):
-        return FlagVariant(key=None, rollout_percentage=None)
-    key = variant.get("key")
-    return FlagVariant(
-        key=key if isinstance(key, str) else None,
-        rollout_percentage=_percentage(variant.get("rollout_percentage")),
-    )
-
-
-def parse_variants(variants: object) -> Split:
-    return tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
-
-
-def _percentage(value: object) -> float | None:
-    # The page compares with `=== 0` and `=== 100`, so only a JSON number can match. A string or a
-    # boolean must not, and Python's `False == 0` would let a boolean through.
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value)
 
 
 def _load_flag_state(experiment: Experiment) -> FlagState | None:
@@ -429,16 +387,32 @@ def _flag_called(experiment: Experiment) -> bool | None:
         return None
     if experiment.feature_flag.last_called_at is not None:
         return True
+    return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _flag_called_during_run(experiment: Experiment, flag_called: bool | None) -> bool | None:
+    start_date = experiment.start_date
+    if start_date is None or flag_called is None:
+        return None
+    if flag_called is False:
+        return False
+    last_called_at = experiment.feature_flag.last_called_at
+    if last_called_at is not None and last_called_at >= start_date:
+        # `last_called_at` holds only the latest call, so a call after the end hides whether any came during the run.
+        end_date = experiment.end_date
+        return True if end_date is None or last_called_at <= end_date else None
+    return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # The task that sets `last_called_at` reads `$feature_flag_called` from the events table, unless it is set to
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
     # for the teams in its allowlist, which this side can't read. Their flags keep no `last_called_at` however often
     # they are called.
-    if settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
+    return settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
         get_organization_flag_evaluations_mode(experiment.team.organization_id)
         == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-    ):
-        return None
-    return False
+    )
 
 
 def _metric_events(experiment: Experiment, links: list[ExperimentToSavedMetric]) -> tuple[MetricEvents, ...]:
@@ -463,21 +437,33 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
         criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     except pydantic.ValidationError:
         return None
-    flag_key = experiment.feature_flag.key if experiment.feature_flag_id else None
-    event, _ = get_exposure_event_and_property(flag_key or "", criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT)
+    # A deleted flag carries a tombstone in its key, and the exposure query reads the key without it.
+    flag_key = experiment.feature_flag.key_without_tombstone() if experiment.feature_flag_id else None
+    event, variant_property = get_exposure_event_and_property(
+        flag_key or "", criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
+    )
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     config = criteria.exposure_config if criteria else None
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
+    activation = criteria.activation_config if criteria and has_activation_config(criteria) else None
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,
         required_flag_key=flag_key if reads_flag_calls else None,
+        variant_property=variant_property,
         flag_key_filters=tuple(
             # The exposure query reads a filter without an operator as `exact`, as `property_to_expr` does.
             FlagKeyFilter(operator=prop.operator or PropertyOperator.EXACT, values=_filter_values(prop.value))
             for prop in properties
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
+        activation=_activation_name(activation) if activation else None,
     )
+
+
+def _activation_name(activation: ExperimentEventExposureConfig | ActionsNode) -> str:
+    if isinstance(activation, ExperimentEventExposureConfig):
+        return activation.event
+    return activation.name or f"action {activation.id}"
 
 
 def _filter_values(value: list[str | float | bool] | str | float | bool | None) -> tuple[str | float | bool, ...]:
@@ -566,6 +552,7 @@ def load_health_context(
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
         flag_called=flag_called,
+        flag_called_during_run=_flag_called_during_run(experiment, flag_called),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),

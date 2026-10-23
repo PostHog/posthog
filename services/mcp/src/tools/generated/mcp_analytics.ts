@@ -479,6 +479,10 @@ const MCPMissingCapabilitiesQuery = z.object({
     search: z.string().describe('Case-insensitive substring match over the report text.').optional(),
 })
 
+const QueryMcpIntentMapSchema = MCPIntentMapQuery.extend({
+    limit: MCPIntentMapQuery.shape.limit.default(50).optional(),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
@@ -545,7 +549,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     }),
     'query-mcp-intent-map': createQueryWrapper({
         name: 'query-mcp-intent-map',
-        schema: MCPIntentMapQuery,
+        schema: QueryMcpIntentMapSchema,
         kind: 'MCPIntentMapQuery',
         responseFields: ['topics', 'total_points'],
     }),
