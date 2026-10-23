@@ -23,6 +23,7 @@ from pydantic import (
     BaseModel,
     Field,
     ValidationError as PydanticValidationError,
+    field_validator,
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
@@ -85,7 +86,12 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import (
+    BEHAVIORAL_VALUE_ALIASES,
+    STRING_PREFIX_SUFFIX_OPERATORS,
+    VALIDATE_BEHAVIORAL_PROP_TYPES,
+    Property,
+)
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -394,6 +400,9 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
+_BEHAVIORAL_VALUES = sorted(behavioral_type.value for behavioral_type in VALIDATE_BEHAVIORAL_PROP_TYPES)
+
+
 class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
@@ -413,6 +422,13 @@ class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
     explicit_datetime_to: str | None = None
+
+    @field_validator("value")
+    @classmethod
+    def _known_behavioral_value(cls, value: str) -> str:
+        if value not in VALIDATE_BEHAVIORAL_PROP_TYPES and value not in BEHAVIORAL_VALUE_ALIASES:
+            raise ValueError(f"Invalid behavioral value '{value}'. Use one of: {', '.join(_BEHAVIORAL_VALUES)}.")
+        return value
 
 
 class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
@@ -1751,10 +1767,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         for err in exc.errors():
             # custom ValueError raised by model_validator
             if err["type"] == "value_error":
-                msg = err["msg"]
+                msg = err["msg"].removeprefix("Value error, ")
                 idx = msg.find("Missing required keys")
-                if idx != -1:
-                    return msg[idx:]  # strip the "Value error, " prefix
+                return msg[idx:] if idx != -1 else msg
 
             # generic missing-field case
             if err["type"] == "missing":
