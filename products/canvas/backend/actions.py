@@ -12,6 +12,7 @@ Executors import their product facades lazily so this module stays cheap on
 the source-validation import path (the builder imports it for verb names).
 """
 
+import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -99,6 +100,89 @@ class WorkflowIdsPayloadSerializer(serializers.Serializer):
         max_length=20,
         help_text="The workflows to change, all in this project.",
     )
+
+
+class _PercentageField(serializers.FloatField):
+    """A JSON number from 0 to 100. Whole numbers stay ints, because some SDKs read rollout percentages as int."""
+
+    def to_internal_value(self, data: Any) -> int | float:
+        if isinstance(data, bool) or not isinstance(data, int | float) or not math.isfinite(data):
+            self.fail("invalid")
+        value = super().to_internal_value(data)
+        return int(value) if value.is_integer() else value
+
+
+class FeatureFlagRolloutPayloadSerializer(serializers.Serializer):
+    """Payload for the feature_flags.update_rollout verb."""
+
+    flag_id = serializers.IntegerField(
+        required=False, min_value=1, help_text="Id of the flag in this project. Send this or flag_key."
+    )
+    flag_key = serializers.CharField(
+        required=False, max_length=400, help_text="Key of the flag in this project. Send this or flag_id."
+    )
+    condition_index = serializers.IntegerField(
+        min_value=0, help_text="Zero-based position of the release condition in the flag's filters.groups."
+    )
+    rollout_percentage = _PercentageField(
+        min_value=0, max_value=100, help_text="Percentage of the users matching that condition who get the flag."
+    )
+    version = serializers.IntegerField(
+        min_value=0,
+        allow_null=True,
+        help_text="The flag's version from your last read. The change is refused if the flag changed since.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("flag_id") is None and not attrs.get("flag_key"):
+            raise serializers.ValidationError("Send flag_id or flag_key.")
+        return attrs
+
+
+def _update_feature_flag_rollout(
+    team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]
+) -> dict[str, Any]:
+    from rest_framework import status as http_status  # noqa: PLC0415
+    from rest_framework.response import Response  # noqa: PLC0415
+
+    from products.feature_flags.backend.facade import api as flags_facade  # noqa: PLC0415 — load on execute
+
+    def deny(detail: str, status_code: int, **extra: Any) -> CanvasActionDenied:
+        return CanvasActionDenied(Response({"detail": detail, **extra}, status=status_code))
+
+    try:
+        result = flags_facade.set_condition_rollout(
+            team_id=team_id,
+            user_id=user_id,
+            flag_id=payload.get("flag_id"),
+            flag_key=payload.get("flag_key"),
+            condition_index=payload["condition_index"],
+            rollout_percentage=payload["rollout_percentage"],
+            version=payload["version"],
+        )
+    except flags_facade.FlagNotFound as error:
+        raise deny(str(error), http_status.HTTP_404_NOT_FOUND)
+    except flags_facade.FlagAccessDenied as error:
+        raise deny(str(error), http_status.HTTP_403_FORBIDDEN)
+    except flags_facade.FlagVersionConflict as error:
+        raise deny(str(error), http_status.HTTP_409_CONFLICT, code="version_conflict")
+    except flags_facade.FlagChangeNeedsApproval as error:
+        raise deny(
+            str(error),
+            http_status.HTTP_409_CONFLICT,
+            code="approval_required",
+            change_request_id=error.change_request_id,
+        )
+    except flags_facade.FlagRolloutRejected as error:
+        raise deny(str(error), http_status.HTTP_400_BAD_REQUEST)
+    return {
+        "flag_id": result.flag_id,
+        "flag_key": result.flag_key,
+        "version": result.version,
+        "condition_index": result.condition_index,
+        "rollout_percentage": result.rollout_percentage,
+        "changed": result.changed,
+    }
 
 
 def _set_workflows_enabled(team_id: int, user_id: int, payload: dict[str, Any], *, enabled: bool) -> dict[str, Any]:
@@ -232,6 +316,30 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
                 "graphs and listed under Data management → Annotations. Pass `date_marker` (ISO "
                 "timestamp) when the moment is not now — e.g. when an incident started, not when "
                 "it was written down. `content` is capped at 1024 characters."
+            ),
+        ),
+        CanvasAction(
+            verb="feature_flags.update_rollout",
+            summary="Set the rollout percentage of one release condition on a feature flag.",
+            destructive=True,
+            payload_serializer=FeatureFlagRolloutPayloadSerializer,
+            execute=_update_feature_flag_rollout,
+            required_scopes=("feature_flag:write",),
+            usage=(
+                "Payload `{flag_id | flag_key, condition_index, rollout_percentage, version}` → result "
+                "`{flag_id, flag_key, version, condition_index, rollout_percentage, changed}`. Sets "
+                "`rollout_percentage` (0 to 100) on the release condition at `condition_index` in the flag's "
+                "`filters.groups`, the same change as editing that condition's rollout on the flag page. "
+                "Property filters, other conditions, variants and payloads stay as they are. It runs as the "
+                "viewer, who must be able to edit the flag, and it shows in the flag's history under their "
+                "name. Send the `version` from your last read of the flag (null for a flag that has none). If "
+                "anyone changed the flag since, the call fails with 409 and `code: version_conflict` and "
+                "nothing is written: read the flag again and show the viewer its current state. A 409 with "
+                "`code: approval_required` means an approval policy filed a change request and the flag is "
+                "unchanged. Use the returned `version` for the next change. `changed` is false when the "
+                "condition already had that percentage. Destructive: this changes who gets a feature, and "
+                "the host asks the viewer to confirm. Say which flag, which condition and the new "
+                'percentage in the copy, such as "Roll out new-onboarding to 25% of the staff condition?"'
             ),
         ),
         CanvasAction(

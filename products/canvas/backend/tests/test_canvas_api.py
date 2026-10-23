@@ -36,6 +36,7 @@ from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSer
 from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
@@ -2393,6 +2394,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("cloud_canvas_scope_only", "tasks.create_and_run", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_canvas_scope_only", "workflows.pause", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_scope_held", "workflows.pause", ["canvas:write", "hog_flow:write"], status.HTTP_200_OK),
+            ("flag_canvas_scope_only", "feature_flags.update_rollout", ["canvas:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_scoped_keys_need_the_verbs_target_scope(self, _name, verb, scopes, expected_status):
@@ -2518,6 +2520,122 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == "draft"
+
+    def _rollout_flag(self, team=None, key: str = "rollout-board") -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=team or self.team,
+            created_by=self.user,
+            key=key,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"properties": [], "rollout_percentage": 5},
+                ],
+            },
+        )
+
+    @parameterized.expand([("by_id", "flag_id"), ("by_key", "flag_key")])
+    def test_flag_rollout_changes_one_condition_as_the_viewer(self, _name, lookup):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.update_rollout",))
+        flag = self._rollout_flag()
+        target = {"flag_id": flag.id} if lookup == "flag_id" else {"flag_key": flag.key}
+
+        response = self._invoke(
+            canvas_id,
+            "feature_flags.update_rollout",
+            {**target, "condition_index": 1, "rollout_percentage": 25, "version": flag.version},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["result"] == {
+            "flag_id": flag.id,
+            "flag_key": flag.key,
+            "version": 2,
+            "condition_index": 1,
+            "rollout_percentage": 25,
+            "changed": True,
+        }
+        flag.refresh_from_db()
+        groups = flag.filters["groups"]
+        assert [group["rollout_percentage"] for group in groups] == [100, 25]
+        assert groups[0]["properties"][0]["value"] == "@example.com"
+        assert flag.last_modified_by_id == self.user.id
+        assert ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.id), activity="updated").exists()
+
+    @parameterized.expand(
+        [
+            ("index_out_of_range", {"condition_index": 2}, status.HTTP_400_BAD_REQUEST),
+            ("negative_index", {"condition_index": -1}, status.HTTP_400_BAD_REQUEST),
+            ("percentage_above_100", {"rollout_percentage": 101}, status.HTTP_400_BAD_REQUEST),
+            ("negative_percentage", {"rollout_percentage": -5}, status.HTTP_400_BAD_REQUEST),
+            ("percentage_as_string", {"rollout_percentage": "50"}, status.HTTP_400_BAD_REQUEST),
+            ("percentage_as_bool", {"rollout_percentage": True}, status.HTTP_400_BAD_REQUEST),
+            ("no_flag_named", {"flag_id": None}, status.HTTP_400_BAD_REQUEST),
+            ("stale_version", {"version": 0}, status.HTTP_409_CONFLICT),
+            ("unknown_key", {"flag_id": None, "flag_key": "missing"}, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_flag_rollout_rejects_without_writing(self, _name, overrides, expected_status):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.update_rollout",))
+        flag = self._rollout_flag()
+        payload = {"flag_id": flag.id, "condition_index": 1, "rollout_percentage": 25, "version": flag.version}
+        payload.update(overrides)
+        payload = {key: value for key, value in payload.items() if value is not None}
+
+        response = self._invoke(canvas_id, "feature_flags.update_rollout", payload)
+
+        assert response.status_code == expected_status, response.json()
+        flag.refresh_from_db()
+        assert flag.version == 1
+        assert [group["rollout_percentage"] for group in flag.filters["groups"]] == [100, 5]
+
+    def test_flag_rollout_cannot_reach_another_projects_flag(self):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.update_rollout",))
+        other_team = self.organization.teams.create(name="other")
+        foreign = self._rollout_flag(team=other_team)
+
+        for target in ({"flag_id": foreign.id}, {"flag_key": foreign.key}):
+            response = self._invoke(
+                canvas_id,
+                "feature_flags.update_rollout",
+                {**target, "condition_index": 1, "rollout_percentage": 50, "version": foreign.version},
+            )
+            assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+        foreign.refresh_from_db()
+        assert [group["rollout_percentage"] for group in foreign.filters["groups"]] == [100, 5]
+
+    def test_flag_rollout_needs_editor_access_to_the_flag(self):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.update_rollout",))
+        flag = self._rollout_flag()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="feature_flag",
+            resource_id=str(flag.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level="viewer",
+        )
+        cache.clear()
+
+        response = self._invoke(
+            canvas_id,
+            "feature_flags.update_rollout",
+            {"flag_id": flag.id, "condition_index": 1, "rollout_percentage": 25, "version": flag.version},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        flag.refresh_from_db()
+        assert [group["rollout_percentage"] for group in flag.filters["groups"]] == [100, 5]
 
     def test_registry_lists_every_verb_with_authoring_docs(self):
         # Agents build against this endpoint instead of a skill file, so a verb

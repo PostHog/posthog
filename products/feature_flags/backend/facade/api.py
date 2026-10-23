@@ -12,7 +12,8 @@ the same boundary.
 
 Writes do not enforce access control — that lives at the viewset layer. A caller
 acting on behalf of an end user must pre-check ``user_can_edit_flag`` before writing an
-existing flag, and ``user_can_create_flags`` before creating one.
+existing flag, and ``user_can_create_flags`` before creating one. ``set_condition_rollout`` is
+the exception: it takes the acting user's id and runs the editor check itself.
 
 Approval-gate ordering constraint for callers: a gated write can raise ``ApprovalRequired``
 (surfacing as a 409 + change_request_id), which conflicts with ``transaction.atomic`` — the
@@ -30,22 +31,31 @@ caller cannot surface a 409/change request), so ``ApprovalRequired`` is never ra
 from datetime import datetime
 from typing import Any, Literal
 
+from django.db import transaction
+
 import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
+from posthog.dataclasses import frozen
+from posthog.exceptions import Conflict
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
+    flag_version_conflict_message,
     validate_stored_cohort_references as _validate_stored_cohort_references,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.filters import set_feature_enrollment
+from products.feature_flags.backend.facade.filters import (
+    set_feature_enrollment,
+    set_release_condition_rollout as _set_release_condition_rollout,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
@@ -386,6 +396,150 @@ def user_can_create_flags(*, team: Team, user: User) -> bool:
     access to that product substitutes for flag access. Unlike ``user_can_edit_flag`` this takes
     a real ``User``, so a caller holding an unknown principal narrows it before asking."""
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
+
+
+class FlagNotFound(Exception):
+    """No flag with that id or key exists in the project, or it is deleted."""
+
+
+class FlagAccessDenied(Exception):
+    """The acting user cannot edit the flag."""
+
+
+class FlagVersionConflict(Exception):
+    """The flag changed after the version the caller read. Nothing was written."""
+
+
+class FlagRolloutRejected(Exception):
+    """The rollout change does not apply to this flag (no such condition, or an unsupported config format)."""
+
+
+class FlagChangeNeedsApproval(Exception):
+    """An approval policy gates the change. A change request was filed and the flag is left untouched."""
+
+    def __init__(self, message: str, *, change_request_id: str) -> None:
+        super().__init__(message)
+        self.change_request_id = change_request_id
+
+
+@frozen
+class ConditionRolloutResult:
+    flag_id: int
+    flag_key: str
+    version: int
+    condition_index: int
+    rollout_percentage: int | float
+    changed: bool
+
+
+class _RolloutServiceRequest(ServiceRequest):
+    """The request shim for a rollout write from service code.
+
+    ``strict_version_precondition`` makes ``FeatureFlagSerializer`` refuse the write under its row
+    lock when ``version`` is not current, the same as the flag API's rollout actions. A
+    release-condition index only names the condition the caller read, so any change since that
+    version must refuse the write.
+    """
+
+    strict_version_precondition = True
+    skip_opportunistic_filter_cleanup = True
+
+    def __init__(self, user: User, *, version: int) -> None:
+        super().__init__(user, method="PATCH")
+        self.data = {"version": version}
+
+
+def set_condition_rollout(
+    *,
+    team_id: int,
+    user_id: int,
+    flag_id: int | None,
+    flag_key: str | None,
+    condition_index: int,
+    rollout_percentage: int | float,
+    version: int | None,
+) -> ConditionRolloutResult:
+    """Set ``rollout_percentage`` on one release condition of a flag, as ``user_id``.
+
+    This is the service-code counterpart of the flag API's ``set_release_condition_rollout``
+    action. It checks the same editor access as the flag API, then writes through
+    ``update_flag``, so validation, versioning, activity logging and cache updates apply. Only
+    ``filters.groups[condition_index].rollout_percentage`` changes.
+
+    ``version`` is the flag version the caller read. ``None`` means a flag written before
+    versioning and reads as 0. Pass the flag by ``flag_id`` or ``flag_key``; the id wins when
+    both are set. Raises ``FlagNotFound``, ``FlagAccessDenied``, ``FlagVersionConflict``,
+    ``FlagRolloutRejected`` or ``FlagChangeNeedsApproval``.
+    """
+    if condition_index < 0:
+        raise FlagRolloutRejected("The release condition index must be 0 or more.")
+    if not 0 <= rollout_percentage <= 100:
+        raise FlagRolloutRejected("The rollout percentage must be between 0 and 100.")
+
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    flags = FeatureFlag.objects.filter(team_id=team.id)
+    flag = flags.filter(id=flag_id).first() if flag_id is not None else flags.filter(key=flag_key).first()
+    if flag is None:
+        raise FlagNotFound(f"Feature flag {flag_id if flag_id is not None else flag_key} is not in this project.")
+    if not user_can_edit_flag(flag, team=team, user=user):
+        raise FlagAccessDenied(f"You cannot edit feature flag {flag.key}.")
+    if detect_config_format(flag.filters).kind != "v1":
+        raise FlagRolloutRejected("This flag uses a configuration format that rollout changes cannot modify yet.")
+
+    expected_version = version or 0
+    # A fast path ahead of the approval gate, so a stale caller never files a change request
+    # for a write the serializer would then refuse under its row lock.
+    if (flag.version or 0) != expected_version:
+        raise FlagVersionConflict(flag_version_conflict_message(expected_version, flag.version or 0))
+
+    with transaction.atomic():
+        # Decide against the locked row, so an edit landing after the read above cannot make
+        # the change look already applied.
+        locked = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=flag.pk)
+        if locked.deleted:
+            raise FlagNotFound(f"Feature flag {locked.key} is not in this project.")
+        if (locked.version or 0) != expected_version:
+            raise FlagVersionConflict(flag_version_conflict_message(expected_version, locked.version or 0))
+        current_filters = locked.get_filters()
+        try:
+            new_filters = _set_release_condition_rollout(current_filters, condition_index, rollout_percentage)
+        except IndexError:
+            condition_count = len(current_filters.get("groups") or [])
+            if condition_count:
+                raise FlagRolloutRejected(
+                    f"Feature flag {locked.key} has no release condition at index {condition_index}. It has "
+                    f"{condition_count}, so the valid indexes are 0 through {condition_count - 1}."
+                )
+            raise FlagRolloutRejected(f"Feature flag {locked.key} has no release conditions.")
+
+    saved = locked
+    changed = new_filters != current_filters
+    # The write runs outside the transaction above: the approval gate files a change request
+    # and then raises, and a rollback would discard that request. The serializer takes the row
+    # lock again and repeats the version check.
+    if changed:
+        try:
+            saved = update_flag(
+                locked,
+                {"filters": new_filters},
+                team=team,
+                user=user,
+                request=_RolloutServiceRequest(user, version=expected_version),
+            )
+        except Conflict as error:
+            raise FlagVersionConflict(str(error.detail)) from error
+        except ApprovalRequired as error:
+            raise FlagChangeNeedsApproval(error.message, change_request_id=str(error.change_request.id)) from error
+
+    return ConditionRolloutResult(
+        flag_id=saved.id,
+        flag_key=saved.key,
+        version=saved.version or 0,
+        condition_index=condition_index,
+        rollout_percentage=rollout_percentage,
+        changed=changed,
+    )
 
 
 def flag_disable_requires_approval(team: Team) -> bool:
