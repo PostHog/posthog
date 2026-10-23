@@ -31,7 +31,7 @@ type MetricsTableFilterOp = NonNullable<MetricsTableFilter['op']>
 
 const AGGREGATION_OPTIONS: LemonSelectOptions<MetricsTableAggregation> = [
     { value: 'rate', label: 'Rate per second (counter)' },
-    { value: 'increase', label: 'Increase (counter)' },
+    { value: 'increase', label: 'Total increase (counter)' },
     { value: 'histogram_quantile', label: 'Percentile (histogram)' },
     { value: 'avg', label: 'Average' },
     { value: 'sum', label: 'Sum' },
