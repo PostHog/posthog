@@ -16,10 +16,17 @@ from collections.abc import Callable, Iterable
 
 import pandas as pd
 
+from posthog import settings
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import Extras
-from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.backend.ranking.features import (
+    REPORT_SOURCES_COLUMNS,
+    REPORT_SOURCES_EXTRA,
+    SIGNAL_INSERTED_AT_COLUMN,
+    Extras,
+)
+from products.signals.dags.inbox_ranking.common import partition_object_key, read_parquet_if_exists, snapshot_bounds
+from products.signals.dags.inbox_ranking.dataset.dag import SIGNAL_EMBEDDINGS_TABLE
 
 # Reads the dt=D object of one side input. Returns None when the object was never written.
 LoadFrame = Callable[[object, str, str, str], pd.DataFrame | None]
@@ -82,3 +89,37 @@ def load_side_inputs(client, bucket: str, prefix: str, partition_key: str, keys:
         if frame is not None:
             loaded[key] = _known_by(frame, loader, snapshot_end)
     return loaded
+
+
+# A report groups signals that can arrive before it is born, so the sources read starts this many
+# days before the training lookback.
+REPORT_SOURCES_MARGIN_DAYS = 30
+
+
+def load_report_sources(client, bucket: str, prefix: str, partition_key: str) -> pd.DataFrame | None:
+    """The metadata columns of every `inbox_signal_embeddings` emission from the start of the
+    training lookback, less `REPORT_SOURCES_MARGIN_DAYS`, to dt=D. The log holds only each day's
+    inserts, so the frame is the union of the days. The vector column is never read. A missing
+    earlier day is left out, but a missing dt=D returns None, because that day's sources are unknown."""
+    end = datetime.date.fromisoformat(partition_key)
+    days = settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS + REPORT_SOURCES_MARGIN_DAYS
+    frames: list[pd.DataFrame] = []
+    for offset in range(days + 1):
+        day = (end - datetime.timedelta(days=offset)).isoformat()
+        table = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, SIGNAL_EMBEDDINGS_TABLE, day),
+            columns=list(REPORT_SOURCES_COLUMNS),
+        )
+        if table is None:
+            if offset == 0:
+                return None
+            continue
+        frames.append(table.to_pandas())
+    return pd.concat(frames, ignore_index=True)
+
+
+register_side_input(
+    SideInputLoader(key=REPORT_SOURCES_EXTRA, as_of_column=SIGNAL_INSERTED_AT_COLUMN, load=load_report_sources)
+)
