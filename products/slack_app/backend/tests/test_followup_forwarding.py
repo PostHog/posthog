@@ -1228,8 +1228,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @parameterized.expand(
         [
             ("allow", ThreadJoinMode.ALLOW, None, True, False, True),
-            # A creator who never picked a mode is asked once per thread.
-            ("unset", None, None, False, True, True),
+            # A creator who never picked a mode lets anyone join.
+            ("unset", None, None, True, False, True),
             ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True, True),
             ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False, True),
             ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True, True),
@@ -1348,6 +1348,40 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state["codex_model_access"] == "own-subscription"
         assert new_run.state["codex_subscription_user_id"] == self.user.id
         assert new_run.state["slack_actor_user_id"] == bob.id
+
+    @parameterized.expand(
+        [
+            # A creator who never picked a mode is asked once per thread when the run bills to their plan.
+            ("unset", None, False, True),
+            ("allow", ThreadJoinMode.ALLOW, True, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.post_thread_join_prompt")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_a_run_on_the_creators_own_plan_asks_before_others_join_by_default(
+        self, _name, mode, delivered, prompted, mock_slack_cls, mock_resolve, mock_signal, mock_prompt
+    ):
+        self.task_run.state = {"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id}
+        self.task_run.save(update_fields=["state"])
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", thread_join_mode=mode)
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_cls.return_value = MagicMock()
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        with patch(
+            "products.slack_app.backend.logic.thread_join.is_slack_app_multiplayer_approvals_enabled",
+            return_value=True,
+        ):
+            forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679")
+
+        assert mock_signal.called is delivered
+        assert mock_prompt.called is prompted
+        if prompted:
+            assert mock_prompt.call_args.kwargs["opens_thread"] is True
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
