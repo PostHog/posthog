@@ -177,7 +177,7 @@ export interface modelsUsageLogicActions {
         dateFrom: string | null,
         dateTo: string | null
     ) => {
-        dateFrom: string | null
+        dateFrom: string
         dateTo: string | null
     }
     setJobsPage: (page: number) => {
