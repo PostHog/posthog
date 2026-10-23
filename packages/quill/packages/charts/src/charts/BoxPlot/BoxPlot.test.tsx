@@ -80,6 +80,20 @@ describe('BoxPlot', () => {
         expect(maxTick).toBeLessThan(1000)
     })
 
+    it.each([
+        { name: 'above the upper whisker', override: { mean: 700, whiskerMax: 100 }, expectTick: 700 },
+        { name: 'below the lower whisker', override: { mean: -50, whiskerMin: 10 }, expectTick: -50 },
+    ])('keeps a mean $name inside the y-axis', ({ override, expectTick }) => {
+        const series: BoxPlotSeries[] = [{ key: 'a', label: 'A', data: [datum(override)] }]
+        const { chart } = renderHogChart(<BoxPlot series={series} labels={['Mon']} theme={THEME} />)
+        const nums = chart
+            .yTicks()
+            .map((t) => parseFloat(t.replace(/[^\d.-]/g, '')))
+            .filter((n) => Number.isFinite(n))
+        expect(Math.max(...nums)).toBeGreaterThanOrEqual(Math.max(expectTick, 0))
+        expect(Math.min(...nums)).toBeLessThanOrEqual(Math.min(expectTick, 0))
+    })
+
     it('allocates left margin wide enough for the whisker-derived y ticks (not just medians)', () => {
         // Regression: clipping of the y-tick column. `useChartMargins` reads
         // `seriesValueRange(adaptedSeries)` to size the left margin, so the adapted series'

@@ -182,6 +182,11 @@ function BoxPlotInner<Meta = unknown>({
                 if (Number.isFinite(whiskerMax)) {
                     maxs.push(whiskerMax)
                 }
+                // A skewed bucket can put the mean outside its whiskers.
+                if (Number.isFinite(datum.mean)) {
+                    mins.push(datum.mean)
+                    maxs.push(datum.mean)
+                }
             }
             if (mins.length > 0) {
                 out.push({ key: `${s.key}__min`, label: s.label, data: mins })

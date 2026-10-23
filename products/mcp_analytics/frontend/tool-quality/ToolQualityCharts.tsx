@@ -40,6 +40,11 @@ export function maskIncompleteLatencyBox(
     return boxes.map((box, i) => (i === boxes.length - 1 ? null : box))
 }
 
+// A log axis cannot show 0%, so it would draw a full outage as a partial one.
+export function successRateScale(view: ChartViews['successRate'], rates: number[]): ChartViews['successRate'] {
+    return rates.includes(0) ? 'linear' : view
+}
+
 function buildConfig(
     timezone: string,
     interval: TimeInterval,
@@ -71,7 +76,7 @@ function ChartViewToggle<C extends ChartViewChange>({
 }: {
     chart: C['chart']
     view: C['view']
-    options: { value: C['view']; label: string }[]
+    options: { value: C['view']; label: string; disabledReason?: string }[]
     onChange: (change: C) => void
 }): JSX.Element {
     return (
@@ -85,11 +90,13 @@ function ChartViewToggle<C extends ChartViewChange>({
             }}
             aria-label={CHART_VIEW_ARIA_LABELS[chart]}
         >
-            {options.map(({ value, label }) => (
+            {options.map(({ value, label, disabledReason }) => (
                 <ToggleGroupItem
                     key={value}
                     value={value}
                     size="sm"
+                    disabled={!!disabledReason}
+                    title={disabledReason}
                     data-attr={`mcp-tool-quality-${chart}-chart-view-${value}`}
                 >
                     {label}
@@ -165,6 +172,8 @@ export function ToolQualityCharts({
     )
 
     const showErrorRate = views.calls === 'percentage'
+    const successScale = successRateScale(views.successRate, data.successRate)
+    const logScaleBlocked = successRateScale('log', data.successRate) === 'linear'
     const callsSeries = useMemo<Series[]>(
         () =>
             showErrorRate
@@ -224,8 +233,8 @@ export function ToolQualityCharts({
         [timezone, interval]
     )
     const successRateConfig = useChartConfig(
-        () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage, scale: views.successRate }),
-        [timezone, interval, views.successRate]
+        () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage, scale: successScale }),
+        [timezone, interval, successScale]
     )
     const latencyConfig = useChartConfig(
         () => buildConfig(timezone, interval, { tickFormatter: formatMsAsSeconds }),
@@ -272,10 +281,16 @@ export function ToolQualityCharts({
                 action={
                     <ChartViewToggle
                         chart="successRate"
-                        view={views.successRate}
+                        view={successScale}
                         options={[
                             { value: 'linear', label: 'Linear' },
-                            { value: 'log', label: 'Log' },
+                            {
+                                value: 'log',
+                                label: 'Log',
+                                disabledReason: logScaleBlocked
+                                    ? 'A log scale cannot show a day with 0% success'
+                                    : undefined,
+                            },
                         ]}
                         onChange={onViewChange}
                     />
