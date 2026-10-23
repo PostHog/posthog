@@ -351,6 +351,63 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reviewer-exclusions-list:
+        operation: signals_reviewer_exclusions_list
+        enabled: true
+        title: List your reviewer exclusions
+        description: >
+            List the authenticated user's standing instructions that keep them off automatic reviewer selection, active
+            and revoked. Each instruction covers every repository, one repository, or one path in a repository. Only
+            the user's own instructions come back.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-get:
+        operation: signals_reviewer_exclusions_retrieve
+        enabled: true
+        title: Get one of your reviewer exclusions
+        description: >
+            Get one of the authenticated user's standing reviewer exclusions by id. Another member's instruction returns
+            404.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-create:
+        operation: signals_reviewer_exclusions_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Stay off automatic reviewer selection in an area
+        description: >
+            Save a standing instruction that keeps the authenticated user off automatic reviewer selection in an area,
+            for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add
+            `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first.
+            `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the
+            report removal succeeded but the instruction is not saved: send the same request again. The instruction
+            does not change other existing reports.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-update:
+        operation: signals_reviewer_exclusions_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Change one of your reviewer exclusions
+        description: >
+            Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps
+            the earlier version in the history. A revoked instruction cannot change: create a new one instead.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-revoke:
+        operation: signals_reviewer_exclusions_revoke_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Revoke one of your reviewer exclusions
+        description: >
+            Revoke one of the authenticated user's reviewer exclusions, so automatic reviewer selection can pick them in
+            that area again. Revoking does not add the user to any report and does not change old reports.
+        feature_flag: signals-reviewer-exclusions-mcp
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
