@@ -39,6 +39,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportGithubComment,
+    SignalScoutRun,
 )
 from products.signals.backend.recurrence import latest_recurrence_report
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP
@@ -114,6 +115,8 @@ class MergedSource:
 class MergeResult:
     survivor_id: str
     sources: tuple[MergedSource, ...]
+    # The skill of the scout run that asked for the merge, None for every other caller.
+    scout_skill_name: str | None = None
 
 
 def was_merged_away(report: SignalReport) -> bool:
@@ -339,6 +342,24 @@ def _survivor_note(sources: list[SignalReport], reason: str | None) -> str:
     return f"{body}\n\nTitles and summaries are not combined by a merge."
 
 
+def _acting_scout_skill_name(team_id: int, attribution: ArtefactAttribution) -> str | None:
+    """The scout whose run asked for the merge, so its merges can be told apart from other tasks'.
+
+    A task attribution reads the same for a scout, a research run and an implementation run. A task
+    can hold several runs (a retried dispatch), and they all share the skill.
+    """
+    if attribution.task_id is None:
+        return None
+    skill_name = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(task_run__task_id=attribution.task_id)
+        .order_by("-created_at")
+        .values_list("skill_name", flat=True)
+        .first()
+    )
+    return skill_name or None
+
+
 def _requested_source_ids(source_ids: list[str], *, survivor_id: str) -> list[str]:
     """The sources to merge, de-duplicated and in request order, or a `ReportMergeError`."""
     if not source_ids:
@@ -390,6 +411,7 @@ def merge_reports(
     reason about a half-merged pair.
     """
     ordered_ids = _requested_source_ids(source_ids, survivor_id=str(survivor.id))
+    scout_skill_name = _acting_scout_skill_name(team.id, attribution)
 
     with transaction.atomic():
         # Locked in id order, survivor included, so overlapping merges queue instead of deadlocking.
@@ -423,7 +445,7 @@ def merge_reports(
         SignalReportArtefact.add_log(
             team_id=team.id,
             report_id=str(survivor.id),
-            content=NoteArtefact(note=_survivor_note(sources, reason)),
+            content=NoteArtefact(note=_survivor_note(sources, reason), author=scout_skill_name),
             attribution=attribution,
         )
 
@@ -440,8 +462,9 @@ def merge_reports(
         team_id=team.id,
         survivor_report_id=str(survivor.id),
         source_report_ids=[item.report_id for item in merged],
+        scout_skill_name=scout_skill_name,
     )
-    return MergeResult(survivor_id=str(survivor.id), sources=tuple(merged))
+    return MergeResult(survivor_id=str(survivor.id), sources=tuple(merged), scout_skill_name=scout_skill_name)
 
 
 def _schedule_signal_move(*, team_id: int, survivor_id: str, source_ids: list[str]) -> None:
