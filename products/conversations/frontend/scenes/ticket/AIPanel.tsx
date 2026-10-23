@@ -213,7 +213,10 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
                         hasData && aiTriage ? (
                             <AITriageDetails aiTriage={aiTriage} />
                         ) : (
-                            <div className="text-muted-alt text-xs">AI has not processed this ticket yet.</div>
+                            <div className="text-muted-alt text-xs">
+                                AI drafts for tickets a customer starts, a minute or two after their last message. It
+                                skips tickets your team has already replied to.
+                            </div>
                         ),
                 },
             ]}
