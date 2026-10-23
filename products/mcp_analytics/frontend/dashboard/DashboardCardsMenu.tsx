@@ -5,11 +5,11 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 
-import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
+import { McpDashboardCardId } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
 
 export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: McpDashboardCardId[] }): JSX.Element {
-    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
+    const { availableCards, hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { toggleCard, showAllCards } = useActions(mcpDashboardCardsLogic)
 
     return (
@@ -17,7 +17,7 @@ export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: Mcp
             closeOnClickInside={false}
             items={[
                 {
-                    items: MCP_DASHBOARD_CARDS.map(({ id, label }) => ({
+                    items: availableCards.map(({ id, label }) => ({
                         label,
                         onClick: () => toggleCard(id),
                         icon: isCardVisible(id) ? <IconCheck /> : <IconBlank />,

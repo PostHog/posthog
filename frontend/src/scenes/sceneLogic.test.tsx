@@ -517,6 +517,27 @@ describe('sceneLogic', () => {
         }
     })
 
+    it.each([
+        [Scene.MCPAnalytics, 'mcpAnalyticsDashboard'],
+        [Scene.MCPAnalyticsToolDetail, 'mcpAnalyticsTool'],
+        [Scene.MCPAnalyticsIntentMap, 'mcpAnalyticsIntentMap'],
+    ])('denies %s without MCP analytics access', async (scene, sceneKey) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.McpAnalytics]: AccessControlLevel.None,
+                },
+            } as AppContext
+            logic.actions.setScene(scene, sceneKey, { params: {}, searchParams: {}, hashParams: {} })
+            await expectLogic(logic).toMatchValues({ activeSceneId: Scene.ErrorAccessDenied })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
     it('does not blanket deny the combined alerts scene without insight access', async () => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {

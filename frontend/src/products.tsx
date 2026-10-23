@@ -270,6 +270,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+    '/mcp-analytics/intents': ['MCPAnalyticsIntentMap', 'mcpAnalyticsIntentMap'],
     '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     '/mcp-registry': ['MCPRegistry', 'mcpRegistry'],
@@ -1065,6 +1066,12 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
+    MCPAnalyticsIntentMap: {
+        projectBased: true,
+        name: 'Intent map',
+        layout: 'app-container',
+        iconType: 'mcp_analytics',
+    },
     MCPRegistry: {
         name: 'MCP registry',
         projectBased: true,
@@ -1763,6 +1770,18 @@ export const productUrls = {
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+    mcpAnalyticsIntentMap: (params?: {
+        tool?: string
+        topic?: string
+        dateFrom?: string | null
+        dateTo?: string | null
+    }): string =>
+        combineUrl('/mcp-analytics/intents', {
+            ...(params?.tool ? { tool: params.tool } : {}),
+            ...(params?.topic ? { topic: params.topic } : {}),
+            ...(params?.dateFrom ? { date_from: params.dateFrom } : {}),
+            ...(params?.dateTo ? { date_to: params.dateTo } : {}),
+        }).url,
     mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     mcpRegistry: (): string => '/mcp-registry',
@@ -2918,7 +2937,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
-        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
+        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail', 'MCPAnalyticsIntentMap'],
     },
     {
         path: 'MCP servers',
