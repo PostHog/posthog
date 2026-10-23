@@ -4,7 +4,6 @@ from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_EMAIL_STATUS,
     KAFKA_COLUMNS_WITH_PARTITION,
     kafka_engine,
-    kafka_num_consumers,
     ttl_period,
 )
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
@@ -84,7 +83,7 @@ ENGINE = {
         )
     }
 SETTINGS kafka_skip_broken_messages = 100,
-         kafka_num_consumers = {kafka_num_consumers(1)},
+         kafka_num_consumers = 1,
          kafka_thread_per_consumer = 1,
          kafka_poll_timeout_ms = 10000,
          kafka_max_block_size = 100000
