@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]):
+    codebase_detection = detect(env=("^BAMBOOHR_", "^BAMBOO_HR_"), pypi=("pybamboohr",), composer=("bamboohr/api",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://documentation.bamboohr.com"
@@ -51,7 +54,7 @@ class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]
             name=ExternalDataSourceType.BAMBOOHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="BambooHR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your BambooHR company subdomain and API key to pull your HR data into the PostHog Data warehouse.
 
 You can generate an API key from your BambooHR account under **Account Settings → API Keys** (requires admin permissions).

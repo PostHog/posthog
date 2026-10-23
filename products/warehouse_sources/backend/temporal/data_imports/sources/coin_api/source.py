@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
+    codebase_detection = detect(env=("^(COIN_API|COINAPI)_",), pypi=("coinapi-rest-v1",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.coinapi.io/market-data/rest-api"
 
@@ -46,7 +49,7 @@ class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
             name=ExternalDataSourceType.COINAPI,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinAPI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your CoinAPI key to pull cryptocurrency market data into the PostHog Data warehouse.
 
 Create a key in the [CoinAPI customer portal](https://customer.coinapi.io/). CoinAPI uses a credit/quota-based (pay-as-you-go) model with a daily credit limit, so large time-series tables can consume significant credits.

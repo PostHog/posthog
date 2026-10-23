@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     build_dependent_resource,
 )
@@ -29,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.jira.settings import (
+    DEFAULT_PAGE_SIZE,
     JIRA_ENDPOINTS,
     JiraEndpointConfig,
 )
@@ -48,6 +52,8 @@ JQL_FLOOR_DATETIME = "1970-01-01 00:00"
 # ``/worklog/updated`` returns worklogs updated strictly after ``since``. Re-read a minute so a worklog
 # that shares the watermark's timestamp is not skipped; merge dedupes the overlap.
 WORKLOG_SINCE_OVERLAP = timedelta(minutes=1)
+
+SEARCH_JQL_PATH = "/rest/api/3/search/jql"
 
 SPRINT_FIELD_SCHEMA = "com.pyxis.greenhopper.jira:gh-sprint"
 SPRINT_ISSUES_JQL = f'sprint is not EMPTY AND created >= "{JQL_FLOOR_DATETIME}" ORDER BY created ASC'
@@ -191,6 +197,37 @@ def _find_sprint_field(fields: list[Any]) -> Optional[str]:
     for field in fields:
         if isinstance(field, dict) and (field.get("schema") or {}).get("custom") == SPRINT_FIELD_SCHEMA:
             return field.get("id")
+    return None
+
+
+def _changelog_rows(
+    issue_changelogs: list[dict[str, Any]], created_floor_millis: Optional[int]
+) -> list[dict[str, Any]]:
+    return [
+        {**history, "issue_id": issue_changelog.get("issueId")}
+        for issue_changelog in issue_changelogs
+        for history in issue_changelog.get("changeHistories") or []
+        if created_floor_millis is None or _created_at_or_after(history, created_floor_millis)
+    ]
+
+
+def _created_at_or_after(history: dict[str, Any], floor_millis: int) -> bool:
+    try:
+        return _to_epoch_millis(history["created"]) >= floor_millis
+    except (KeyError, TypeError, ValueError):
+        return True
+
+
+def _comment_rows(issue: dict[str, Any], comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**comment, "issue_id": issue["id"], "issue_key": issue.get("key")} for comment in comments]
+
+
+def _resume_token_state(
+    resumable_source_manager: ResumableSourceManager[JiraResumeConfig], jql: str
+) -> Optional[dict[str, Any]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume and resume.next_page_token and resume.jql == jql:
+        return {"cursor": resume.next_page_token}
     return None
 
 
@@ -344,16 +381,171 @@ def _sprint_issues_source(
     )
 
 
-def _sprints_source(subdomain: str, email: str, api_token: str, team_id: int, job_id: str) -> SourceResponse:
-    config = JIRA_ENDPOINTS["sprints"]
+def _issue_changelogs_source(
+    subdomain: str,
+    email: str,
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[JiraResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    config = JIRA_ENDPOINTS["issue_changelogs"]
+    # A new changelog entry moves the issue's ``updated``, so issues updated since the watermark carry
+    # every changelog entry created since it.
+    jql = _build_issues_jql("updated", db_incremental_field_last_value)
+    initial_paginator_state = _resume_token_state(resumable_source_manager, jql)
+    # Bulkfetch returns the whole history of each issue. Changelog entries never change, so an
+    # incremental run keeps only the ones inside the JQL lookback window.
+    created_floor_millis = (
+        _to_epoch_millis(db_incremental_field_last_value) - int(INCREMENTAL_LOOKBACK.total_seconds() * 1000)
+        if db_incremental_field_last_value
+        else None
+    )
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        client = _rest_client(subdomain, email, api_token)
+        next_page: dict[str, Any] = {}
+
+        def stage_next_page(state: Optional[dict[str, Any]], has_next: bool) -> None:
+            next_page["cursor"] = state.get("cursor") if state and has_next else None
+
+        def stage_more_changelogs(_state: Optional[dict[str, Any]], has_next: bool) -> None:
+            next_page["more_changelogs"] = has_next
+
+        def checkpoint() -> None:
+            if next_page.get("cursor") is not None:
+                resumable_source_manager.save_state(JiraResumeConfig(next_page_token=next_page["cursor"], jql=jql))
+
+        for issues in client.paginate(
+            SEARCH_JQL_PATH,
+            params={"jql": jql, "maxResults": config.page_size, "fields": "id"},
+            paginator=JiraTokenPaginator(),
+            data_selector="issues",
+            initial_paginator_state=initial_paginator_state,
+            page_state_hook=stage_next_page,
+        ):
+            issue_ids = [str(issue["id"]) for issue in issues if issue.get("id") is not None]
+            if not issue_ids:
+                checkpoint()
+                resumable_source_manager.safe_point()
+                continue
+
+            for issue_changelogs in client.paginate(
+                config.path,
+                method="post",
+                json={"issueIdsOrKeys": issue_ids, "maxResults": config.page_size},
+                paginator=JSONResponseCursorPaginator(
+                    cursor_path="nextPageToken", cursor_param="nextPageToken", param_location="json"
+                ),
+                data_selector="issueChangeLogs",
+                page_state_hook=stage_more_changelogs,
+            ):
+                rows = _changelog_rows(issue_changelogs, created_floor_millis)
+                # The next issue page is only safe to resume from once this page's last changelogs are in hand.
+                if not next_page["more_changelogs"]:
+                    checkpoint()
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+
+    return SourceResponse(
+        name="issue_changelogs",
+        items=items,
+        primary_keys=config.primary_key,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
+def _issue_comments_source(
+    subdomain: str,
+    email: str,
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[JiraResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    config = JIRA_ENDPOINTS["issue_comments"]
+    # Adding or editing a comment moves the issue's ``updated``, whichever comment field is the cursor.
+    jql = _build_issues_jql("updated", db_incremental_field_last_value)
+    initial_paginator_state = _resume_token_state(resumable_source_manager, jql)
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        client = _rest_client(subdomain, email, api_token)
+        # An issue deleted after the search answers 404, which reads as an issue with no comments.
+        skip_deleted_issue = create_response_hooks(
+            [{"status_code": 404, "action": "ignore"}], resource_name="issue_comments"
+        )
+        next_page: dict[str, Any] = {}
+
+        def stage_next_page(state: Optional[dict[str, Any]], has_next: bool) -> None:
+            next_page["cursor"] = state.get("cursor") if state and has_next else None
+
+        for issues in client.paginate(
+            config.path,
+            params={"jql": jql, "maxResults": config.page_size, "fields": "comment"},
+            paginator=JiraTokenPaginator(),
+            data_selector=config.data_key,
+            initial_paginator_state=initial_paginator_state,
+            page_state_hook=stage_next_page,
+        ):
+            rows: list[dict[str, Any]] = []
+            for issue in issues:
+                embedded = (issue.get("fields") or {}).get("comment") or {}
+                comments = embedded.get("comments") or []
+                if (embedded.get("total") or 0) <= len(comments):
+                    rows.extend(_comment_rows(issue, comments))
+                    continue
+
+                # The search embeds a capped list, so read the whole list for this issue.
+                for page in client.paginate(
+                    f"/rest/api/3/issue/{issue['id']}/comment",
+                    params={"orderBy": "created"},
+                    paginator=JiraOffsetPaginator(
+                        limit=DEFAULT_PAGE_SIZE, offset_param="startAt", limit_param="maxResults", total_path="total"
+                    ),
+                    data_selector="comments",
+                    hooks=skip_deleted_issue,
+                ):
+                    rows.extend(_comment_rows(issue, page))
+                    # Hand rows on after each request so a worker shutdown can stop between them.
+                    if rows:
+                        yield rows
+                        rows = []
+                    else:
+                        resumable_source_manager.safe_point()
+
+            if next_page.get("cursor") is not None:
+                resumable_source_manager.save_state(JiraResumeConfig(next_page_token=next_page["cursor"], jql=jql))
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+    return SourceResponse(
+        name="issue_comments",
+        items=items,
+        primary_keys=config.primary_key,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
+def _fanout_resource(endpoint: str, subdomain: str, email: str, api_token: str, team_id: int, job_id: str) -> Resource:
+    config = JIRA_ENDPOINTS[endpoint]
     assert config.fanout is not None
     parent_config = JIRA_ENDPOINTS[config.fanout.parent_name]
 
-    resource = cast(
+    return cast(
         Resource,
         build_dependent_resource(
             endpoint_configs=JIRA_ENDPOINTS,
-            child_endpoint="sprints",
+            child_endpoint=endpoint,
             fanout=config.fanout,
             client_config=_client_config(subdomain, email, api_token),
             path_format_values={},
@@ -368,6 +560,24 @@ def _sprints_source(subdomain: str, email: str, api_token: str, team_id: int, jo
             page_size_param=None,
         ),
     )
+
+
+def _fanout_source(
+    endpoint: str, subdomain: str, email: str, api_token: str, team_id: int, job_id: str
+) -> SourceResponse:
+    resource = _fanout_resource(endpoint, subdomain, email, api_token, team_id, job_id)
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=JIRA_ENDPOINTS[endpoint].primary_key,
+        partition_count=1,
+        partition_size=1,
+    )
+
+
+def _sprints_source(subdomain: str, email: str, api_token: str, team_id: int, job_id: str) -> SourceResponse:
+    config = JIRA_ENDPOINTS["sprints"]
+    resource = _fanout_resource("sprints", subdomain, email, api_token, team_id, job_id)
 
     seen: set[Any] = set()
 
@@ -428,6 +638,24 @@ def jira_source(
         return _sprint_issues_source(subdomain, email, api_token, logger, resumable_source_manager)
     if endpoint == "sprints":
         return _sprints_source(subdomain, email, api_token, team_id, job_id)
+    if endpoint in ("group_members", "versions"):
+        return _fanout_source(endpoint, subdomain, email, api_token, team_id, job_id)
+    if endpoint == "issue_changelogs":
+        return _issue_changelogs_source(
+            subdomain,
+            email,
+            api_token,
+            resumable_source_manager,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+    if endpoint == "issue_comments":
+        return _issue_comments_source(
+            subdomain,
+            email,
+            api_token,
+            resumable_source_manager,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     initial_paginator_state: Optional[dict[str, Any]] = None

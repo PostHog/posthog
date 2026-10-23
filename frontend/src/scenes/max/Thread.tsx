@@ -65,6 +65,7 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 
+import { RecordingsWidget } from 'products/posthog_ai/frontend/api/dataWidgets'
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     getThinkingMessageFromResponse,
@@ -79,7 +80,6 @@ import {
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
-    RecordingsWidget,
     ThreadView,
     TurnTrailerActions,
     type TurnTrailer,
@@ -91,7 +91,6 @@ import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogA
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
-import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
@@ -832,13 +831,6 @@ const Message = React.memo(function Message({
                     }
                     return null // We currently skip other types of messages
                 })()}
-                {isFinal &&
-                    isLastInGroup &&
-                    message.status === 'completed' &&
-                    message.id &&
-                    !message.id.startsWith('temp-') && (
-                        <MaxWebAnalyticsNudge message={message} messageId={message.id} />
-                    )}
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">

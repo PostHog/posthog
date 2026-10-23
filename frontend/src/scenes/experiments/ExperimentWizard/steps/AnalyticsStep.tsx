@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ExposureCriteriaPanel } from '../../ExperimentForm/ExposureCriteriaPanel'
 import { MetricsPanel } from '../../ExperimentForm/MetricsPanel'
 import { experimentWizardLogic } from '../experimentWizardLogic'
@@ -11,6 +13,7 @@ import { ReplayVisionScannerOption } from './ReplayVisionScannerOption'
 export function AnalyticsStep(): JSX.Element {
     const { experiment, sharedMetrics } = useValues(experimentWizardLogic)
     const { setExperiment, setExposureCriteria, setSharedMetrics } = useActions(experimentWizardLogic)
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     return (
         <div className="space-y-6">
@@ -85,7 +88,7 @@ export function AnalyticsStep(): JSX.Element {
                 </div>
             </div>
 
-            <ReplayVisionScannerOption />
+            {experimentScanners && <ReplayVisionScannerOption />}
         </div>
     )
 }

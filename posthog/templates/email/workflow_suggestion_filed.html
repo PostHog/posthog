@@ -1,0 +1,26 @@
+{% extends "email/base.html" %}
+{% block heading %}PostHog suggested a change to your workflow{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        PostHog suggested a change to <b>{{ workflow_name }}</b> in project <b>{{ team_name }}</b>.
+    </p>
+    <p><b>{{ suggestion_title }}</b></p>
+    <p>{{ suggestion_rationale }}</p>
+    <p>Nothing changes until someone approves the suggestion and publishes the workflow.</p>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri suggestion_path %}">Review suggestion</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri suggestion_path %}">{% absolute_uri suggestion_path %}</a>
+        </p>
+    </div>
+{% endblock %}
+{% block footer %}
+    You get this email because suggestions are on for this workflow. You can turn these emails off in your
+    <a href="{% absolute_uri '/settings/user-notifications' %}"
+       target="_blank"><b>notification settings</b></a>.
+{% endblock %}

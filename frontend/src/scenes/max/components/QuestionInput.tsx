@@ -10,7 +10,6 @@ import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconU
 import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
@@ -19,15 +18,12 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'
-import { handsFreeLogic } from '../handsFreeLogic'
 import { MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, messageLength } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { FillInHint } from './FillInHint'
-import { HandsFreeButton } from './HandsFreeButton'
-import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 
 /**
@@ -153,7 +149,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted, isPhaiSandboxFlagOn } = useValues(maxGlobalLogic)
-    const { question, panelId: maxPanelId, fillInHint, typingSuggestion } = useValues(maxLogic)
+    const { question, fillInHint, typingSuggestion } = useValues(maxLogic)
     const { setQuestion, setFillInHint, cancelSuggestionTyping, attachFilesToNewChat } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
@@ -182,12 +178,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         updateQueuedMessage,
         releaseSandboxPrewarm,
     } = useActions(maxThreadLogic)
-    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ panelId: maxPanelId }))
-    // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
-    // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
-    // Keep the legacy items-start layout when the flag is off so existing screenshots
-    // (and the layout users without hands-free see) don't change.
-    const handsFreeFlagEnabled = useFeatureFlag('MAX_HANDS_FREE')
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
@@ -368,272 +358,245 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             !streamingActive && '[--input-ring-color:var(--color-ai)]'
                         )}
                     >
-                        {handsFreeActive ? (
-                            <HandsFreeSurface panelId={maxPanelId} />
-                        ) : (
-                            <SlashCommandAutocomplete
-                                visible={showAutocomplete}
-                                onClose={() => {
-                                    setShowAutocomplete(false)
-                                    setAutocompleteDismissed(true)
-                                }}
-                            >
-                                <div className="relative w-full">
-                                    {!inputValue && (
-                                        <div
-                                            id="textarea-hint"
-                                            className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
-                                        >
-                                            {conversation && isSharedThread ? (
-                                                `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-                                            ) : threadLoading ? (
-                                                'Thinking…'
-                                            ) : isThreadVisible ? (
-                                                placeholder || (
-                                                    <>
-                                                        Ask follow-up{' '}
-                                                        <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                            or / for commands
-                                                        </span>
-                                                    </>
-                                                )
-                                            ) : (
+                        <SlashCommandAutocomplete
+                            visible={showAutocomplete}
+                            onClose={() => {
+                                setShowAutocomplete(false)
+                                setAutocompleteDismissed(true)
+                            }}
+                        >
+                            <div className="relative w-full">
+                                {!inputValue && (
+                                    <div
+                                        id="textarea-hint"
+                                        className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
+                                    >
+                                        {conversation && isSharedThread ? (
+                                            `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                        ) : threadLoading ? (
+                                            'Thinking…'
+                                        ) : isThreadVisible ? (
+                                            placeholder || (
                                                 <>
-                                                    Ask a question{' '}
+                                                    Ask follow-up{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                         or / for commands
                                                     </span>
                                                 </>
-                                            )}
-                                        </div>
-                                    )}
-                                    {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
-                                    {showFillInHint && (
-                                        <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
-                                            <FillInHint text={inputValue} hint={fillInHint} />
-                                        </div>
-                                    )}
-                                    <LemonTextArea
-                                        aria-describedby={!inputValue ? 'textarea-hint' : undefined}
-                                        id="question-input"
-                                        data-attr="max-chat-input"
-                                        ref={textAreaRef}
-                                        value={isSharedThread ? '' : inputValue}
-                                        onChange={handleQuestionChange}
-                                        onBlur={(e) => {
-                                            debouncedSetQuestion.flush()
-                                            // Release any sandbox pre-warm when the user leaves the
-                                            // input without sending. No-op on LangGraph / unwarmed
-                                            // conversations.
-                                            //
-                                            // But clicking the send button blurs the textarea *before*
-                                            // its onClick fires the send — releasing here would cancel
-                                            // the very warm Run the send is about to consume. When focus
-                                            // moves to the send button, skip the release and let the send
-                                            // path consume the warm (it does so without a DELETE).
-                                            const next = e.relatedTarget as HTMLElement | null
-                                            if (next?.closest('[data-attr="max-send-message"]')) {
+                                            )
+                                        ) : (
+                                            <>
+                                                Ask a question{' '}
+                                                <span className="text-tertiary opacity-80 contrast-more:opacity-100">
+                                                    or / for commands
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                                {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
+                                {showFillInHint && (
+                                    <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
+                                        <FillInHint text={inputValue} hint={fillInHint} />
+                                    </div>
+                                )}
+                                <LemonTextArea
+                                    aria-describedby={!inputValue ? 'textarea-hint' : undefined}
+                                    id="question-input"
+                                    data-attr="max-chat-input"
+                                    ref={textAreaRef}
+                                    value={isSharedThread ? '' : inputValue}
+                                    onChange={handleQuestionChange}
+                                    onBlur={(e) => {
+                                        debouncedSetQuestion.flush()
+                                        // Release any sandbox pre-warm when the user leaves the
+                                        // input without sending. No-op on LangGraph / unwarmed
+                                        // conversations.
+                                        //
+                                        // But clicking the send button blurs the textarea *before*
+                                        // its onClick fires the send — releasing here would cancel
+                                        // the very warm Run the send is about to consume. When focus
+                                        // moves to the send button, skip the release and let the send
+                                        // path consume the warm (it does so without a DELETE).
+                                        const next = e.relatedTarget as HTMLElement | null
+                                        if (next?.closest('[data-attr="max-send-message"]')) {
+                                            return
+                                        }
+                                        releaseSandboxPrewarm()
+                                    }}
+                                    onPressEnter={() => {
+                                        if (
+                                            hasQuestion &&
+                                            !submissionDisabledReason &&
+                                            (!threadLoading || queueingEnabled)
+                                        ) {
+                                            onSubmit?.()
+                                            submit(inputValue)
+                                        }
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if (
+                                            event.key === 'ArrowUp' &&
+                                            !inputValue.trim() &&
+                                            queuedMessages.length > 0 &&
+                                            !editingQueueId
+                                        ) {
+                                            const target = event.currentTarget
+                                            const atStart = target.selectionStart === 0 && target.selectionEnd === 0
+                                            const isSingleLine = target.value.split('\n').length <= 1
+                                            if (!atStart || !isSingleLine) {
                                                 return
                                             }
-                                            releaseSandboxPrewarm()
-                                        }}
-                                        onPressEnter={() => {
-                                            if (
-                                                hasQuestion &&
-                                                !submissionDisabledReason &&
-                                                (!threadLoading || queueingEnabled)
-                                            ) {
-                                                onSubmit?.()
-                                                submit(inputValue)
+                                            const nextMessageId = queuedMessages[0]?.id
+                                            if (!nextMessageId) {
+                                                return
                                             }
-                                        }}
-                                        onKeyDown={(event) => {
-                                            if (
-                                                event.key === 'ArrowUp' &&
-                                                !inputValue.trim() &&
-                                                queuedMessages.length > 0 &&
-                                                !editingQueueId
-                                            ) {
-                                                const target = event.currentTarget
-                                                const atStart = target.selectionStart === 0 && target.selectionEnd === 0
-                                                const isSingleLine = target.value.split('\n').length <= 1
-                                                if (!atStart || !isSingleLine) {
-                                                    return
-                                                }
-                                                const nextMessageId = queuedMessages[0]?.id
-                                                if (!nextMessageId) {
-                                                    return
-                                                }
-                                                event.preventDefault()
-                                                setEditingQueueId(nextMessageId)
-                                            }
-                                        }}
-                                        disabled={inputDisabled}
-                                        minRows={1}
-                                        maxRows={10}
-                                        className={cn(
-                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
-                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
-                                            // Hide the native caret so only the enlarged fill-in caret shows.
-                                            showFillInHint && 'caret-transparent'
-                                        )}
-                                        hideFocus
-                                    />
-                                </div>
-                            </SlashCommandAutocomplete>
-                        )}
+                                            event.preventDefault()
+                                            setEditingQueueId(nextMessageId)
+                                        }
+                                    }}
+                                    disabled={inputDisabled}
+                                    minRows={1}
+                                    maxRows={10}
+                                    className={cn(
+                                        '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
+                                        'pr-12',
+                                        // Hide the native caret so only the enlarged fill-in caret shows.
+                                        showFillInHint && 'caret-transparent'
+                                    )}
+                                    hideFocus
+                                />
+                            </div>
+                        </SlashCommandAutocomplete>
 
-                        {!isSharedThread &&
-                            !handsFreeActive && (
-                                // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
-                                // row doesn't wrap under the absolutely-positioned mic + send pair.
-                                // Without the flag the row only has send and the legacy pr-12 is
-                                // enough — keep it so non-flagged users see the original layout.
-                                <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
-                                    {!isThreadVisible ? (
-                                        <div
-                                            className={cn(
-                                                'flex justify-between',
-                                                handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
-                                            )}
-                                        >
-                                            <div className="flex items-start gap-1 flex-1 min-w-0">
-                                                <div className="flex-1 min-w-0">
-                                                    <ContextDisplay size={contextDisplaySize} />
+                        {!isSharedThread && (
+                            <div className="pb-2 pr-12">
+                                {!isThreadVisible ? (
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex items-start gap-1 flex-1 min-w-0">
+                                            <div className="flex-1 min-w-0">
+                                                <ContextDisplay size={contextDisplaySize} />
+                                            </div>
+                                            {isPhaiSandboxFlagOn && !conversation && (
+                                                <div className="shrink-0">
+                                                    <input
+                                                        ref={attachmentInputRef}
+                                                        type="file"
+                                                        multiple
+                                                        className="hidden"
+                                                        data-attr="max-new-chat-attach-input"
+                                                        onChange={(event) => {
+                                                            const files = Array.from(event.target.files ?? [])
+                                                            event.target.value = ''
+                                                            attachFilesToNewChat(files, inputValue)
+                                                        }}
+                                                    />
+                                                    <LemonButton
+                                                        size="xxsmall"
+                                                        type="tertiary"
+                                                        className="border"
+                                                        icon={<IconUpload />}
+                                                        tooltip="Attach files in new PostHog AI. Your draft moves with you."
+                                                        onClick={() => attachmentInputRef.current?.click()}
+                                                        data-attr="max-new-chat-attach-file"
+                                                    >
+                                                        Attach
+                                                    </LemonButton>
                                                 </div>
-                                                {isPhaiSandboxFlagOn && !conversation && (
-                                                    <div className="shrink-0">
-                                                        <input
-                                                            ref={attachmentInputRef}
-                                                            type="file"
-                                                            multiple
-                                                            className="hidden"
-                                                            data-attr="max-new-chat-attach-input"
-                                                            onChange={(event) => {
-                                                                const files = Array.from(event.target.files ?? [])
-                                                                event.target.value = ''
-                                                                attachFilesToNewChat(files, inputValue)
-                                                            }}
-                                                        />
-                                                        <LemonButton
-                                                            size="xxsmall"
-                                                            type="tertiary"
-                                                            className="border"
-                                                            icon={<IconUpload />}
-                                                            tooltip="Attach files in new PostHog AI. Your draft moves with you."
-                                                            onClick={() => attachmentInputRef.current?.click()}
-                                                            data-attr="max-new-chat-attach-file"
-                                                        >
-                                                            Attach
-                                                        </LemonButton>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div
-                                                className={cn(
-                                                    'flex mr-1',
-                                                    handsFreeFlagEnabled
-                                                        ? 'items-end gap-1'
-                                                        : 'items-start gap-1 h-full mt-1'
-                                                )}
-                                            >
-                                                {topActions}
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <ContextDisplay size={contextDisplaySize} />
-                                    )}
-                                    {promptLength !== null && (
-                                        <div
-                                            className={cn(
-                                                'text-xs text-right pr-1 pt-1',
-                                                isOverLengthLimit ? 'text-error' : 'text-secondary'
                                             )}
-                                        >
-                                            {promptLength.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
                                         </div>
-                                    )}
-                                </div>
-                            )}
+
+                                        <div className="flex mr-1 items-start gap-1 h-full mt-1">{topActions}</div>
+                                    </div>
+                                ) : (
+                                    <ContextDisplay size={contextDisplaySize} />
+                                )}
+                                {promptLength !== null && (
+                                    <div
+                                        className={cn(
+                                            'text-xs text-right pr-1 pt-1',
+                                            isOverLengthLimit ? 'text-error' : 'text-secondary'
+                                        )}
+                                    >
+                                        {promptLength.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </label>
                     <div
                         className={cn(
                             'absolute flex items-center',
-                            handsFreeFlagEnabled && 'gap-1',
                             isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        <HandsFreeButton panelId={maxPanelId} />
-                        {!handsFreeActive && (
-                            <AIConsentPopoverWrapper
-                                placement="bottom-end"
-                                showArrow
-                                ignoreDismissal
-                                onApprove={() => submit(pendingPrompt || inputValue)}
-                                onDismiss={() => completeThreadGeneration()}
-                                middleware={[
-                                    offset((state) => ({
-                                        mainAxis: state.placement.includes('top') ? 30 : 1,
-                                    })),
-                                ]}
-                                hidden={!threadLoading && !pendingPrompt}
-                            >
-                                <LemonButton
-                                    data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
-                                    type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
-                                    onClick={() => {
-                                        if (threadLoading) {
-                                            if (isQueueingSubmission) {
-                                                if (submissionDisabledReason) {
-                                                    textAreaRef?.current?.focus()
-                                                    return
-                                                }
-                                                submit(inputValue)
+                        <AIConsentPopoverWrapper
+                            placement="bottom-end"
+                            showArrow
+                            ignoreDismissal
+                            onApprove={() => submit(pendingPrompt || inputValue)}
+                            onDismiss={() => completeThreadGeneration()}
+                            middleware={[
+                                offset((state) => ({
+                                    mainAxis: state.placement.includes('top') ? 30 : 1,
+                                })),
+                            ]}
+                            hidden={!threadLoading && !pendingPrompt}
+                        >
+                            <LemonButton
+                                data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
+                                type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
+                                onClick={() => {
+                                    if (threadLoading) {
+                                        if (isQueueingSubmission) {
+                                            if (submissionDisabledReason) {
+                                                textAreaRef?.current?.focus()
                                                 return
                                             }
-                                            stopGeneration()
+                                            submit(inputValue)
                                             return
                                         }
-                                        if (submissionDisabledReason) {
-                                            textAreaRef?.current?.focus()
-                                            return
-                                        }
-                                        submit(inputValue)
-                                    }}
-                                    tooltip={
-                                        // If there's a disabled reason tooltip shown below, don't show a tooltip here
-                                        // Else, show the tooltip based on the button state
-                                        disabledReason ? undefined : showStopButton ? (
-                                            <>
-                                                Let's bail <KeyboardShortcut enter />
-                                            </>
-                                        ) : isQueueingSubmission ? (
-                                            <>
-                                                Queue message <KeyboardShortcut enter />
-                                            </>
-                                        ) : (
-                                            <>
-                                                Let's go! <KeyboardShortcut enter />
-                                            </>
-                                        )
+                                        stopGeneration()
+                                        return
                                     }
-                                    loading={threadLoading && !dataProcessingAccepted}
-                                    disabledReason={disabledReason}
-                                    className={disabledReason ? 'opacity-[0.5]' : ''}
-                                    size="small"
-                                    icon={
-                                        showStopButton ? (
-                                            <IconStopFilled />
-                                        ) : (
-                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === inputValue.split(' ', 1)[0])
-                                                ?.icon || <IconArrowRight />
-                                        )
+                                    if (submissionDisabledReason) {
+                                        textAreaRef?.current?.focus()
+                                        return
                                     }
-                                />
-                            </AIConsentPopoverWrapper>
-                        )}
+                                    submit(inputValue)
+                                }}
+                                tooltip={
+                                    // If there's a disabled reason tooltip shown below, don't show a tooltip here
+                                    // Else, show the tooltip based on the button state
+                                    disabledReason ? undefined : showStopButton ? (
+                                        <>
+                                            Let's bail <KeyboardShortcut enter />
+                                        </>
+                                    ) : isQueueingSubmission ? (
+                                        <>
+                                            Queue message <KeyboardShortcut enter />
+                                        </>
+                                    ) : (
+                                        <>
+                                            Let's go! <KeyboardShortcut enter />
+                                        </>
+                                    )
+                                }
+                                loading={threadLoading && !dataProcessingAccepted}
+                                disabledReason={disabledReason}
+                                className={disabledReason ? 'opacity-[0.5]' : ''}
+                                size="small"
+                                icon={
+                                    showStopButton ? (
+                                        <IconStopFilled />
+                                    ) : (
+                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === inputValue.split(' ', 1)[0])
+                                            ?.icon || <IconArrowRight />
+                                    )
+                                }
+                            />
+                        </AIConsentPopoverWrapper>
                     </div>
                 </div>
                 {/* Info banner for conversations created during impersonation (marked as internal) */}

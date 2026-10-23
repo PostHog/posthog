@@ -28,6 +28,7 @@ class CDCErrorCategory(enum.StrEnum):
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     QUOTA_EXCEEDED = "quota_exceeded"
+    POOLER_TENANT_NOT_FOUND = "pooler_tenant_not_found"
     SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
@@ -115,6 +116,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "change data capture.",
         False,
     ),
+    CDCErrorCategory.POOLER_TENANT_NOT_FOUND: (
+        "Your connection pooler couldn't find your database project or user. Check that the project "
+        "is active and the pooler username is correct, then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (
         "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
         "Check that the SSH host and port point to a reachable SSH server (not the database port), "
@@ -138,7 +144,8 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (
-        "The replication slot is currently in use by another connection. PostHog will retry shortly.",
+        "Another connection held your replication slot, so this run couldn't read changes. If this keeps "
+        "happening, check that no other tool or PostHog source reads from that slot.",
         True,
     ),
     CDCErrorCategory.PERMISSION_DENIED: (

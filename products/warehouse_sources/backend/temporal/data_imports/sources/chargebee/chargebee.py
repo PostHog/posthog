@@ -75,6 +75,40 @@ def get_resource(
             },
             "table_format": "delta",
         },
+        # Disputes only filter on `created_at`, which would miss status changes on existing disputes.
+        "Disputes": {
+            "name": "Disputes",
+            "table_name": "disputes",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "list[*].dispute",
+                "path": "/v2/disputes",
+                "params": {
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
+        "Einvoices": {
+            "name": "Einvoices",
+            "table_name": "einvoices",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].einvoice",
+                "path": "/v2/einvoices",
+                "params": {
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "sort_by[asc]": "updated_at",
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
         # Note: it is possible to filter by event type, but for now we're
         # fetching all events
         "Events": {
@@ -190,6 +224,25 @@ def get_resource(
                     "limit": 100,
                     # by default, API does not return deleted resources
                     "include_deleted": "true",
+                },
+            },
+            "table_format": "delta",
+        },
+        "PaymentSchedules": {
+            "name": "PaymentSchedules",
+            "table_name": "payment_schedules",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "list[*].payment_schedule",
+                "path": "/v2/payment_schedules",
+                "params": {
+                    "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "limit": 100,
                 },
             },
             "table_format": "delta",

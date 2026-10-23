@@ -27,7 +27,7 @@ export const PlayerFrame = (): JSX.Element => {
         useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame, playerFrameDocumentLoadFailed } = useActions(sessionRecordingPlayerLogic)
 
-    // A frame loads again only when its src changes, so each retry adds a query string the server ignores.
+    // Each retry adds a query string the server ignores, so the browser fetches the shell again.
     const frameSrc = playerFrameLoadRetries ? `${PLAYER_FRAME_SRC}?retry=${playerFrameLoadRetries}` : PLAYER_FRAME_SRC
 
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -150,6 +150,9 @@ export const PlayerFrame = (): JSX.Element => {
     return (
         <div ref={containerRef} className={clsx('PlayerFrame ph-no-capture', isIOS() && 'PlayerFrame--ios')}>
             <iframe
+                // A frame can stay on about:blank with its navigation never committed, and a new src on that
+                // element does not always start a new navigation. A new element does.
+                key={frameSrc}
                 ref={iframeRef}
                 className="PlayerFrame__document"
                 src={frameSrc}

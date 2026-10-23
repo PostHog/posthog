@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TeamworkSource(ResumableSource[TeamworkSourceConfig, TeamworkResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://apidocs.teamwork.com"
@@ -54,7 +57,7 @@ class TeamworkSource(ResumableSource[TeamworkSourceConfig, TeamworkResumeConfig]
             name=ExternalDataSourceType.TEAMWORK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Teamwork",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Teamwork.com site and API key to pull your Teamwork projects data into the PostHog Data warehouse.
 
 Find your API key under **Profile → Edit my details → API & Mobile** in Teamwork. The key inherits your own permissions, so it can only sync data you can see.""",

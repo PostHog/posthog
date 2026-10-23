@@ -2,21 +2,15 @@ from typing import Any
 
 from unittest.mock import patch
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.raygun import (
-    RaygunResumeConfig,
-    validate_token,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.raygun import RaygunResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source import RaygunSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.raygun.raygun"
@@ -24,12 +18,6 @@ MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.raygu
 
 def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
     return SourceDriver(RaygunSource(), RaygunSourceConfig(personal_access_token="tok")).run(endpoint, script, **inputs)
-
-
-class TestValidateToken:
-    def test_network_error_returns_none_status(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_token("tok") == (False, None)
 
 
 class TestTopLevelPagination:

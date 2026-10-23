@@ -1560,6 +1560,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     return
                 }
                 clonedSource.schemas[schemaIndex].table = undefined
+                clonedSource.schemas[schemaIndex].should_sync = false
                 clonedSource.schemas[schemaIndex].status = undefined
                 clonedSource.schemas[schemaIndex].last_synced_at = undefined
                 actions.loadSourceSuccess(clonedSource)

@@ -647,6 +647,7 @@ mod tests {
                 dependency_stages: vec![],
                 flags_with_missing_deps: vec![],
                 transitive_deps: Default::default(),
+                ..Default::default()
             },
             cohorts: None,
         };

@@ -33,14 +33,11 @@ export function ProjectRuleCell({ className }: { className?: string }): JSX.Elem
     return (
         <div className={`flex min-w-0 flex-col gap-2 px-4 py-3 ${className ?? ''}`}>
             <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-semibold">Project settings</span>
-                <span className="text-xs text-secondary">
-                    Every repository without an exception starts here. Starts at opt-in only, so connecting GitHub never
-                    starts reviews everywhere.
-                </span>
+                <span className="text-sm font-semibold">Who gets reviewed</span>
+                <span className="text-xs text-secondary">Repository exceptions override this default.</span>
             </div>
             <RuleControls
-                label="Project settings"
+                label="Who gets reviewed"
                 flashFor={projectSettings?.flash_for ?? 'off'}
                 people={projectSettings?.people ?? []}
                 canEdit={canEdit}
@@ -50,11 +47,8 @@ export function ProjectRuleCell({ className }: { className?: string }): JSX.Elem
                 onRemovePerson={removeProjectPerson}
                 dataAttr="review-hog-project-flash-for"
             />
-            <span className="text-xs text-secondary">
-                People opt in under My pull requests, with their default or a choice for one repository.
-            </span>
             <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-secondary">Bot PRs, all repositories:</span>
+                <span className="text-xs text-secondary">Bot pull requests</span>
                 <LemonSelect<ReviewProjectSettingsBotPullRequestsEnumApi>
                     size="small"
                     aria-label="Bot pull requests"

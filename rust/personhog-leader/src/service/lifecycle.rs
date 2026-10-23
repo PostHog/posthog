@@ -440,6 +440,19 @@ impl PersonHogLeaderService {
         )
     }
 
+    /// A member off the routed partition is a final answer, not a routing bounce:
+    /// the caller regroups and retries each member alone.
+    #[allow(clippy::result_large_err)]
+    fn validate_batch_member(
+        &self,
+        partition: u32,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<(), Status> {
+        self.validate_partition(partition, team_id, person_id)
+            .map_err(|status| Status::invalid_argument(status.message()))
+    }
+
     pub(super) async fn fence_persons_rpc(
         &self,
         request: Request<FencePersonsRequest>,
@@ -453,11 +466,13 @@ impl PersonHogLeaderService {
             )));
         }
         let team_id = req.team_id;
+        // Ownership first: an unserved partition is a routing bounce, not a bad batch.
+        self.validate_ownership(partition)?;
         // The caller grouped its batch by partition and routed it by one
         // member, so every member must hash to the routed partition; a
         // stale partition count refuses the whole batch before any fence.
         for person_id in &req.person_ids {
-            self.validate_partition(partition, team_id, *person_id)?;
+            self.validate_batch_member(partition, team_id, *person_id)?;
         }
         self.check_authority(partition)?;
         let op_id = Uuid::parse_str(&req.op_id)
@@ -466,7 +481,6 @@ impl PersonHogLeaderService {
         if op_type == LifecycleOpType::Unspecified {
             return Err(Status::invalid_argument("op_type must be specified"));
         }
-        self.validate_ownership(partition)?;
         let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {partition} is fenced for handoff; writes are rejected"
@@ -573,15 +587,15 @@ impl PersonHogLeaderService {
             )));
         }
         let team_id = req.team_id;
+        self.validate_ownership(partition)?;
         // Same strict routing check as a batched fence: every member hashes
         // to the routed partition or the whole batch is refused untouched.
         for person in &req.persons {
-            self.validate_partition(partition, team_id, person.person_id)?;
+            self.validate_batch_member(partition, team_id, person.person_id)?;
         }
         // The aborted arm would otherwise ack under a lapsed lease; the
         // committed arm's produce and durable-fact acks need no cover.
         self.check_authority(partition)?;
-        self.validate_ownership(partition)?;
         let op_id = Uuid::parse_str(&req.op_id)
             .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
         histogram!("personhog_leader_release_batch_size").record(req.persons.len() as f64);

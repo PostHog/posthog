@@ -398,8 +398,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "dns_analytics_report": {
-        "description": "Authoritative DNS query counts for a zone, grouped by query type and response code.",
-        "docs_url": "https://developers.cloudflare.com/api/resources/dns/subresources/analytics/",
+        "description": "Authoritative DNS query counts for a zone over the 6 hours before the sync, grouped by query type and response code.",
+        "docs_url": "https://developers.cloudflare.com/analytics/graphql-api/",
         "columns": {
             "queryType": "The DNS record type that was queried (e.g. A, AAAA, MX).",
             "responseCode": "The DNS response code Cloudflare returned (e.g. NOERROR, NXDOMAIN).",

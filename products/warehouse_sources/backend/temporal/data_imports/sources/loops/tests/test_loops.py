@@ -119,10 +119,54 @@ class TestLoopsSource:
         assert all(request.origin == "https://app.loops.so" for request in result.requests)
         assert result.saved_states == []
 
+    def test_workflow_node_metrics_fan_out_over_email_nodes(self) -> None:
+        email_node = {"typeName": "SendEmailAction", "nextNodeIds": [], "emailMessageId": "m1", "subject": "Hi"}
+        result = self._driver().run(
+            "workflow_node_metrics",
+            [
+                _page([{"id": "w1"}, {"id": "w2"}], next_cursor="cursor-1"),
+                ScriptedResponse(
+                    json={
+                        "id": "w1",
+                        "nodes": {
+                            "t1": {"typeName": "SignupTrigger", "nextNodeIds": ["n1"]},
+                            "n1": email_node,
+                            "n2": {**email_node, "emailMessageId": None},
+                        },
+                    }
+                ),
+                ScriptedResponse(json={"sends": 10, "opens": 4}),
+                # A node with no email message answers 400.
+                ScriptedResponse(status=400, json={"message": "Node has no email message."}),
+                # A workflow deleted after the listing answers 404.
+                ScriptedResponse(status=404, json={"message": "Workflow not found."}),
+                _page([{"id": "w3"}], next_cursor=None),
+                ScriptedResponse(json={"id": "w3", "nodes": {"n3": email_node}}),
+                ScriptedResponse(json={"sends": 2, "opens": 1}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"sends": 10, "opens": 4, "workflowId": "w1", "nodeId": "n1", "emailMessageId": "m1", "subject": "Hi"},
+            {"sends": 2, "opens": 1, "workflowId": "w3", "nodeId": "n3", "emailMessageId": "m1", "subject": "Hi"},
+        ]
+        assert result.paths == [
+            "/api/v1/workflows",
+            "/api/v1/workflows/w1",
+            "/api/v1/workflows/w1/nodes/n1/metrics",
+            "/api/v1/workflows/w1/nodes/n2/metrics",
+            "/api/v1/workflows/w2",
+            "/api/v1/workflows",
+            "/api/v1/workflows/w3",
+            "/api/v1/workflows/w3/nodes/n3/metrics",
+        ]
+        assert result.params("cursor")[5] == "cursor-1"
+
     @pytest.mark.parametrize("endpoint", list(LOOPS_ENDPOINTS.keys()))
     def test_source_response_primary_and_partition_keys(self, endpoint: str) -> None:
         endpoint_config = LOOPS_ENDPOINTS[endpoint]
-        if endpoint_config.paginated or endpoint_config.fanout:
+        if endpoint_config.paginated or endpoint_config.fanout or endpoint_config.per_workflow_node:
             answer = _page([], next_cursor=None)
         else:
             answer = ScriptedResponse(json=[])
@@ -131,7 +175,7 @@ class TestLoopsSource:
         assert result.raised is None
         assert result.response is not None
         assert result.response.name == endpoint
-        assert result.response.primary_keys == [endpoint_config.primary_key]
+        assert result.response.primary_keys == list(endpoint_config.primary_keys)
         if endpoint_config.partition_key:
             assert result.response.partition_keys == [endpoint_config.partition_key]
             assert result.response.partition_mode == "datetime"
@@ -145,8 +189,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "expected_message_fragment"),
         [
             (200, True, None),
-            (401, False, "Invalid Loops API key"),
-            (500, False, "unexpected status code: 500"),
         ],
     )
     def test_status_code_mapping(

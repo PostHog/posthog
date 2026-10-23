@@ -267,13 +267,13 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
                 if (canSendBroadcast) {
                     actions.startNewBroadcast()
                 } else {
-                    router.actions.push(onboardingWizardUrl(path))
+                    router.actions.push(onboardingWizardUrl(path, { entry: 'path_choice' }))
                 }
             } else if (path === 'messaging' && values.isComplete) {
                 // A finished messaging setup has nothing left to guide, so it goes straight to the journeys.
                 actions.browseTemplates('messaging')
             } else {
-                router.actions.push(onboardingWizardUrl(path))
+                router.actions.push(onboardingWizardUrl(path, { entry: 'path_choice' }))
             }
         },
         hideGuide: () => {

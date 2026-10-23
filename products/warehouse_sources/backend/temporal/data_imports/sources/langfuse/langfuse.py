@@ -10,11 +10,14 @@ from urllib.parse import quote, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -186,9 +189,12 @@ def _from_filter_value(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> str | None:
-    """The formatted lower-bound filter value for this run, or None for a full / first sync."""
+    """The formatted lower-bound filter value for this run.
+
+    A full or first sync gets the endpoint's required bound, which is None for most endpoints.
+    """
     if not (should_use_incremental_field and db_incremental_field_last_value and config.incremental_filter_param):
-        return None
+        return config.required_from_value
 
     field = incremental_field or config.default_incremental_field
     if field != config.default_incremental_field:
@@ -405,7 +411,7 @@ def get_rows(
     # MAX_RETRY_AFTER_SECONDS) is the only retry layer.
     session = make_tracked_session(retry=Retry(total=0))
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((LangfuseRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=_retry_wait,

@@ -107,9 +107,10 @@ class TestMedusaTransport:
         assert endpoint["incremental"]["start_param"] == "updated_at[$gte]"
         assert endpoint["incremental"]["cursor_path"] == "updated_at"
 
-    def test_incremental_rejected_for_endpoint_without_timestamp_filters(self) -> None:
+    @pytest.mark.parametrize("endpoint", ["PriceLists", "InventoryItems"])
+    def test_incremental_rejected_for_endpoint_without_timestamp_filters(self, endpoint: str) -> None:
         with pytest.raises(ValueError, match="does not support incremental"):
-            get_resource(MEDUSA_ENDPOINTS["PriceLists"], should_use_incremental_field=True)
+            get_resource(MEDUSA_ENDPOINTS[endpoint], should_use_incremental_field=True)
 
     def test_incremental_rejected_for_unadvertised_cursor_field(self) -> None:
         with pytest.raises(ValueError, match="no incremental field 'created_at'"):

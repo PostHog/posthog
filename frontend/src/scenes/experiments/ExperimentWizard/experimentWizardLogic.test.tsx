@@ -858,6 +858,7 @@ describe('experimentWizardLogic', () => {
 
             logic = experimentWizardLogic()
             logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
         })
 
         afterEach(() => {
@@ -881,17 +882,21 @@ describe('experimentWizardLogic', () => {
         }
 
         const setArm = (arm: 'control' | 'test'): void => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD], {
-                [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
-            })
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD, FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER],
+                {
+                    [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
+                    [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true,
+                }
+            )
         }
 
         // `control` keeps the checkbox, `test` shows the card with a toggle
         const turnOn = async (arm: 'control' | 'test'): Promise<void> => {
             await userEvent.click(
                 arm === 'test'
-                    ? screen.getByLabelText('Watch participant behavior with Replay Vision')
-                    : screen.getByText('Watch participant behavior with Replay Vision')
+                    ? screen.getByLabelText('Compare what users do in each variant')
+                    : screen.getByText('Compare what users do in each variant')
             )
         }
 
@@ -936,12 +941,23 @@ describe('experimentWizardLogic', () => {
 
             renderAnalyticsStep()
 
-            expect(screen.getByLabelText('Watch participant behavior with Replay Vision')).toHaveAttribute(
-                'role',
-                'switch'
-            )
+            expect(screen.getByLabelText('Compare what users do in each variant')).toHaveAttribute('role', 'switch')
             expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
             expect(screen.getByText('Learn more about Replay Vision')).toBeInTheDocument()
         })
+
+        it.each(['control' as const, 'test' as const])(
+            'offers no scanner without the experiment-scanner flag in %s',
+            (arm) => {
+                ;(global as any).__consentAccepted = true
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD], {
+                    [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
+                })
+
+                renderAnalyticsStep()
+
+                expect(screen.queryByText(/Each scanned session costs/)).not.toBeInTheDocument()
+            }
+        )
     })
 })

@@ -31,6 +31,7 @@ _RECALCULATION_ACTIVITY_TYPES = {
     "discover_experiment_metrics",
     "calculate_experiment_metric_for_recalculation",
     "update_recalculation_progress",
+    "record_metric_out_of_time_failure",
 }
 
 EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS = (
@@ -207,8 +208,12 @@ class ExperimentsRecalculationMetricsInterceptor(Interceptor):
 
     # Required by `is_task_queue_supported` in `posthog/temporal/common/interceptor.py` — without this attribute
     # the interceptor is filtered out of every worker and the metrics never emit. The recalc workflow + activities
-    # are registered on this queue in `posthog/management/commands/start_temporal_worker.py`.
-    task_queue = settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE
+    # run on the first queue, and the metric calculation activity also runs on the second. Both registrations are in
+    # `posthog/management/commands/start_temporal_worker.py`.
+    task_queue = (
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+    )
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _ActivityInboundInterceptor(super().intercept_activity(next))

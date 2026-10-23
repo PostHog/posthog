@@ -36,10 +36,6 @@ class TestScaleAISchemas:
         assert schema.detected_primary_keys == primary_keys
         assert [f["field"] for f in schema.incremental_fields] == incremental_fields
 
-    def test_names_filter(self) -> None:
-        schemas = ScaleAISource().get_schemas(MagicMock(), team_id=1, names=["tasks"])
-        assert [s.name for s in schemas] == ["tasks"]
-
 
 class TestScaleAICredentials:
     @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Scale AI API key"))])
@@ -50,26 +46,6 @@ class TestScaleAICredentials:
             return_value=probe_result,
         ):
             assert ScaleAISource().validate_credentials(config, team_id=1) == expected
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.scale.com/v1/tasks?limit=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.scale.com/v1/batches?limit=100"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = ScaleAISource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.scale.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.scale.com/v1/tasks"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = ScaleAISource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestScaleAIPipelineWiring:

@@ -28,6 +28,7 @@ import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
+import { noteOobDomain } from './oob-domains'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -199,6 +200,10 @@ function validateUrl(url: string): URL {
  * We must check these before passing the URL to undici.
  */
 function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
+    // Above the early return on purpose: every caller passes `!isProdEnv()`, so a check below it
+    // would never run in a test and would reach production unexercised.
+    noteOobDomain(hostname, 'node_request', fetchAttribution.getStore())
+
     if (allowUnsafe) {
         return
     }

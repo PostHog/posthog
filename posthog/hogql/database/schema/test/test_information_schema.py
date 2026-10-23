@@ -82,7 +82,7 @@ class TestDeniedTableMatcher(SimpleTestCase):
         assert references_denied_table(references, set(denied)) is expected
 
 
-class TestInformationSchemaPushdown(APIBaseTest):
+class TestInformationSchemaPushdown(SimpleTestCase):
     @parameterized.expand(
         [
             ("eq", _eq("table_name", "events"), {"events"}),
@@ -409,21 +409,31 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert results[0][1] == "expression"
         assert results[0][0] == expected_type
 
-    def test_columns_lists_event_columns_with_types(self):
+    @parameterized.expand(
+        [
+            (
+                "events",
+                {"uuid": "UUID", "timestamp": "DateTime", "properties": "JSON", "event": "String"},
+                "event",
+                False,
+            ),
+            ("system.inbox_reports", {"already_addressed": "Integer"}, "already_addressed", True),
+        ]
+    )
+    def test_columns_list_types_and_nullability(self, table_name, expected_types, column_name, nullable):
         response = execute_hogql_query(
-            """
+            f"""
             SELECT column_name, data_type, is_nullable, is_array, field_kind
             FROM system.information_schema.columns
-            WHERE table_name = 'events'
+            WHERE table_name = '{table_name}'
             """,
             team=self.team,
+            user=self.user,
         )
         columns = {row[0]: (row[1], row[2], row[3], row[4]) for row in response.results or []}
-        assert columns["uuid"][0] == "UUID"
-        assert columns["timestamp"][0] == "DateTime"
-        assert columns["properties"][0] == "JSON"
-        # `event` is a non-nullable string column
-        assert columns["event"][0] == "String"
+        for name, expected_type in expected_types.items():
+            assert columns[name][0] == expected_type
+        assert bool(columns[column_name][1]) is nullable
 
     def test_columns_surface_seeded_descriptions(self):
         response = execute_hogql_query(

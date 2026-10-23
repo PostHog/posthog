@@ -7,6 +7,7 @@ from unittest import mock
 
 from django.apps import apps
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -253,7 +254,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             content="Canvas created",
             payload={
                 "canvas_name": "Research canvas",
-                "canvas_url": f"https://app.posthog.com/code/canvas/channel/{canvas_id}",
+                "canvas_url": f"https://app.posthog.com/project/{self.team.id}/code/canvas/channel/{canvas_id}",
             },
         )
         root = Comment.objects.create(
@@ -2524,7 +2525,7 @@ class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
         assert person.id == str(self.user.id)
 
 
-class TestCommentHelperFunctions(APIBaseTest):
+class TestCommentHelperFunctions(SimpleTestCase):
     @parameterized.expand(
         [
             ("with_slug", "Notebook", "123", "/notebook/abc", "/notebook/abc#panel=discussion"),
@@ -2539,7 +2540,7 @@ class TestCommentHelperFunctions(APIBaseTest):
             ("without_slug_insight", "Insight", "456", "", "/insights/456#panel=discussion"),
             ("without_slug_dashboard", "Dashboard", "789", "", "/dashboard/789#panel=discussion"),
             ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
-            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature_flags/10#panel=discussion"),
+            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature-flags/10#panel=discussion"),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
             # item_id is client-supplied free text — mrkdwn/URL control chars must be encoded.
             (

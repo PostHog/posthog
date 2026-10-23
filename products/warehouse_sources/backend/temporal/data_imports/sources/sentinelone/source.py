@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SentineloneSource(ResumableSource[SentineloneSourceConfig, SentinelOneResumeConfig]):
+    codebase_detection = detect(env=("^SENTINELONE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -53,7 +56,7 @@ class SentineloneSource(ResumableSource[SentineloneSourceConfig, SentinelOneResu
             name=ExternalDataSourceType.SENTINELONE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="SentinelOne",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SentinelOne management console URL and an API token to pull your SentinelOne data into the PostHog Data warehouse.
 
 You can generate an API token in your management console under **My User > Actions > API Token Operations**. The token inherits your user's role and scope (account, site, or group), which determines which records sync.

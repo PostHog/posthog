@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -64,6 +66,13 @@ class ChatwootSource(
     ResumableSource[ChatwootSourceConfig, ChatwootResumeConfig],
     WebhookSource[ChatwootSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^CHATWOOT_",),
+        script_hosts=("app.chatwoot.com",),
+        npm=("@chatwoot/react-native-widget",),
+        pub=("chatwoot_sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -83,7 +92,7 @@ class ChatwootSource(
             name=ExternalDataSourceType.CHATWOOT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Chatwoot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync conversations, messages, contacts, agents, and more from Chatwoot into the PostHog Data warehouse.
 
 Copy your API access token from **Profile settings → Access token** in Chatwoot. Use an administrator's token: agent tokens only see their assigned inboxes, and only administrators can manage webhooks.
