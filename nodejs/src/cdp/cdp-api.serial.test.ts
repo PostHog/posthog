@@ -2275,7 +2275,7 @@ describe('CDP API', () => {
                             [hogFlow.id],
                             'pauseHogFlow'
                         )
-                        ;(api['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
+                        api['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
                     },
                 ],
                 [
