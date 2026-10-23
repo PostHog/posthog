@@ -93,6 +93,19 @@ The inbox telemetry of every region lands in the US dogfood project, so the `ope
 - A report deleted in this region keeps its Postgres row with the `deleted` status, so it is not exported. Only a report whose row is gone, for example after its team was deleted, looks remote. Such a row exposes a report id and timestamps, and it never matches a report vector in the other region.
 - The grant has no delete, and no lifecycle rule covers the prefix, so the daily objects accumulate. Each one holds a report id and a few timestamps per row.
 
+### Mirror region project vectors
+
+`inbox_mirror_project_vectors` (`mirror/dag.py`) builds the project vectors of the mirror region (EU) in that region.
+The report vectors of a region exist only in its own ClickHouse, so the training region cannot build them.
+
+- It registers on EU only (`is_inbox_ranking_mirror_registered()`), in its own daily job `inbox_ranking_mirror_job` at 05:30 UTC, after the training region's dataset run.
+- The schedule skips its ticks until `INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED` is set. A run by hand works without it.
+- The report vectors come from `report_embeddings_table`, the same function the `inbox_report_embeddings` snapshot uses, for the teams in this region's `training_consent_team_ids()`.
+- The engagement moments come from the dt=D engagement export at `serving_engagement_key`, in this region's object store. When dt=D is missing, it uses the newest export up to `ENGAGEMENT_EXPORT_MAX_AGE_DAYS` older and logs a warning. When none is in that window, or the export has another schema version, the asset fails.
+- It calls `project_vectors()` in memory with `as_of` at the end of dt=D, and writes no dataset object.
+- The output is `serving_project_vectors_key(prefix, dt)` in this region's object store, stamped with the row count, the snapshot date, `PROJECT_VECTORS_SCHEMA_VERSION` and the export date it read.
+- The output metadata carries the rows, the teams, the teams with enough history for each kind, the export date and its age.
+
 ### Partition semantics
 
 - Partition `dt=D` snapshots the eligible report inventory (promoted before `D+1 00:00 UTC`, or referenced by any label event before it). Every label aggregate is bounded `event_time < D+1 00:00 UTC`.
