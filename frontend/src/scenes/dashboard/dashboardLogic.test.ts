@@ -1064,6 +1064,54 @@ describe('dashboardLogic', () => {
                 expect(logic.values.waitingTileRefresh).toBeNull()
             })
 
+            it('drops a group load that a filter change supersedes while every group is closed', async () => {
+                groupTiles({ target: { collapsed: true }, other: { collapsed: true } })
+                await mountDashboard()
+                let finishOldLoad: () => void = () => {}
+                refreshInsight.mockImplementationOnce(
+                    (...args) =>
+                        new Promise((resolve, reject) => {
+                            args[5]?.signal?.addEventListener('abort', () =>
+                                reject(new DOMException('Aborted', 'AbortError'))
+                            )
+                            finishOldLoad = () => resolve({ ...args[1], result: ['old filters'] })
+                        })
+                )
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                logic.actions.toggleTileGroup('target')
+
+                logic.actions.setDates('-7d', null)
+                finishOldLoad()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.insightTiles[0].insight?.result).not.toEqual(['old filters'])
+                expect(logic.values.waitingTileRefresh).toMatchObject({
+                    tileIds: expect.arrayContaining([dashboards[5].tiles[0].id]),
+                    settings: { filters: { date_from: '-7d' } },
+                })
+                await toggle()
+                expect(loads(target).map((call) => call[6]?.date_from)).toEqual([undefined, '-7d'])
+            })
+
+            it('loads an open group again after an update refresh aborts its forced load', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles[0].insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                dashboards[5].tiles[1].insight!.cache_target_age = now().subtract(1, 'hour').toISOString()
+                await mountDashboard()
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+                refreshInsight.mockImplementationOnce((...args) => hangUntilAborted(args[5]?.signal))
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+
+                await expectLogic(logic, () =>
+                    logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                ).toFinishAllListeners()
+
+                expect(loads(target).map((call) => call[4])).toEqual(['force_blocking', 'force_blocking'])
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
             it.each([
                 { group: 'closed', collapsed: true, counts: false },
                 { group: 'open', collapsed: false, counts: true },
