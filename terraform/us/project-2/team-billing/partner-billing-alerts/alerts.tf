@@ -8,7 +8,8 @@
 #
 # Billing reports these problems with capture_message or capture_exception.
 # It sets partner_billing_alert and alert_kind on each event, and payer_id,
-# organization_id, organization_ids, customer_count, reason or mismatch when
+# payer_ids, organization_id, organization_ids, customer_count,
+# oldest_link_started_at, with_stripe_customer_count, reason or mismatch when
 # it knows them.
 #
 # For more information, see:
@@ -25,7 +26,7 @@ locals {
 
   # Slack rejects a section over 3,000 characters, so the exception text is cut short.
   message   = "substring(${format(local.escape, "event.properties.$exception_values[1]")}, 1, 2700)"
-  details   = "substring(${format(local.escape, "f'Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}{event.properties.customer_count != null ? f' | Customers: {event.properties.customer_count}' : ''}{notEmpty(event.properties.organization_ids) ? concat(' | Organizations: ', substring(arrayStringConcat(event.properties.organization_ids, ', '), 1, 2500)) : ''}'")}, 1, 3000)"
+  details   = "substring(${format(local.escape, "f'Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{event.properties.payer_id == null and notEmpty(event.properties.payer_ids) ? concat(' | Payers: ', arrayStringConcat(event.properties.payer_ids, ', ')) : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}{event.properties.customer_count != null ? f' | Customers: {event.properties.customer_count}' : ''}{notEmpty(event.properties.oldest_link_started_at) ? f' | Waiting since: {event.properties.oldest_link_started_at}' : ''}{(event.properties.with_stripe_customer_count ?? 0) > 0 ? f' | With Stripe customer: {event.properties.with_stripe_customer_count}' : ''}{notEmpty(event.properties.organization_ids) ? concat(' | Organizations: ', substring(arrayStringConcat(event.properties.organization_ids, ', '), 1, 2500)) : ''}'")}, 1, 3000)"
   issue_url = "{project.url}/error_tracking/{encodeURLComponent(toString(event.properties.$exception_issue_id ?? ''))}"
 }
 
