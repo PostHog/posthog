@@ -127,34 +127,39 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-For a `TrendsQuery`, when `posthog:explain-chart` is available, show the findings
-with it instead of the markdown report: it draws the chart with each moment highlighted
-and lets the user step through them. Map the report onto it:
+Show the findings as a walkthrough when the session can display one, and as a written report otherwise.
+
+### The walkthrough
+
+Use it for a `TrendsQuery` when the `posthog:render-ui` tool is available and its `tool_name`
+list includes `explain-chart`. It draws the chart with each moment highlighted and lets the
+user step through them. Map the investigation onto it:
 
 - **Anomaly** → one chapter per moment, with `start` and `end` copied exactly from the
-  chart's `days`. A chapter whose dates match no point shows without a highlight, and only a
-  direct call reports it back, so check the dates before rendering. The app works out each
-  chapter's numbers from the chart, so leave them out of `summary`.
+  chart's `days`. The app works out each chapter's numbers from the chart, so leave them out
+  of `summary`.
 - **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
 - **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
-  for a commit or a deploy.
+  for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
+  walkthrough draws it as a chart, while any other query only becomes a link.
 - A **headline** of one sentence with no numbers sums up the whole chart.
   Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the walkthrough highlights it.
   Do the same in each `cause`.
 
-In Claude Desktop, claude.ai and Cowork, show it through `render-ui` with `tool_name`
-`explain-chart` and the chapters as `tool_input`: those hosts display the app only that
-way. Elsewhere call `posthog:explain-chart` directly.
+Call `posthog:explain-chart` first. It reports any chapter whose dates match no point on the
+chart, so fix those dates and call it again. Then call `posthog:render-ui` with `tool_name`
+`explain-chart` and the same input as `tool_input`.
 
 Then reply in at most three short sentences: which chapter to look at first, one caveat
 about the data if the walkthrough cannot show it, and one offer from below. The walkthrough
 already holds the chart, the chapters, their causes and their evidence, so the reply has no
-bullet points, no description of the chart and no list of the moments. If a direct call says
-a chapter's dates matched no point, fix the dates and call it again.
+bullet points, no description of the chart and no list of the moments.
 
-Otherwise, use the format below. Offer to save key charts via `posthog:insight-create`. If a
-cause is found and no annotation marks it, offer `posthog:annotation-create`. See
-[common-causes.md](./references/common-causes.md) for the cause taxonomy.
+### The written report
+
+Without the walkthrough, use the format below. Offer to save key charts via `posthog:insight-create`.
+If a cause is found and no annotation marks it, offer `posthog:annotation-create`.
+See [common-causes.md](./references/common-causes.md) for the cause taxonomy.
 
 ```markdown
 # Investigation: <metric>
