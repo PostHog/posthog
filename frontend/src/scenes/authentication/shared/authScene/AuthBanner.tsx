@@ -3,20 +3,24 @@ import { type ReactNode } from 'react'
 
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
+
 export type AuthBannerVariant = 'note' | 'warning' | 'danger' | 'success'
 
-// Every variant keeps the dashed note's shape, so stacked banners read as part of the auth card. The
-// scene remaps `text-warning` to the primary text color, so the warning accent reads `--warning`.
+// Every variant shares the note's surface, so banners read as part of the auth card. Only the left
+// accent and the icon carry the variant's color. The scene remaps `text-warning` to the primary text
+// color, so the accents read the global `--warning`, `--danger` and `--success` colors directly.
 const VARIANT_CLASSES: Record<AuthBannerVariant, string> = {
-    note: 'AuthScene__note text-secondary',
-    warning: 'bg-[var(--auth-scene-note-bg)] border-[var(--warning)] text-primary',
-    danger: 'bg-danger-highlight border-danger text-primary',
-    success: 'bg-success-highlight border-success text-primary',
+    note: 'border-l-[color:var(--auth-scene-note-border)] text-secondary',
+    warning: 'border-l-[color:var(--warning)] text-primary',
+    danger: 'border-l-[color:var(--danger)] text-primary',
+    success: 'border-l-[color:var(--success)] text-primary',
 }
 
 const VARIANT_ICONS: Partial<Record<AuthBannerVariant, ReactNode>> = {
     warning: <IconWarning className="text-[var(--warning)]" />,
-    success: <IconCheckCircle className="text-success" />,
+    danger: <IconErrorOutline className="text-[var(--danger)]" />,
+    success: <IconCheckCircle className="text-[var(--success)]" />,
 }
 
 export function AuthBanner({
@@ -37,7 +41,8 @@ export function AuthBanner({
         <div
             role={variant === 'danger' ? 'alert' : undefined}
             className={clsx(
-                'flex gap-2.5 items-start py-3 px-3.5 text-sm leading-relaxed text-left border border-dashed rounded',
+                'flex gap-2.5 items-start py-3 px-3.5 text-sm leading-relaxed text-left rounded',
+                'bg-[var(--auth-scene-note-bg)] border border-[color:var(--auth-scene-note-border)] border-l-[3px]',
                 VARIANT_CLASSES[variant],
                 className
             )}
