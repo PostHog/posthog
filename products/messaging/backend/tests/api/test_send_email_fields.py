@@ -62,6 +62,7 @@ class TestSendEmailFields(SimpleTestCase):
             ("tag_name_posthog_uses", {"tags": [{"name": "ph_id", "value": "a"}]}, "tags"),
             ("tag_twice", {"tags": [{"name": "plan", "value": "a"}, {"name": "plan", "value": "b"}]}, "tags"),
             ("tags_over_the_limit", {"tags": [{"name": f"tag{i}", "value": "a"} for i in range(11)]}, "tags"),
+            ("reply_to_quoted_with_a_comma", {"reply_to": ['"a,b"@example.com']}, "reply_to"),
         ]
     )
     def test_refuses_a_field_it_cannot_send(self, _name: str, fields: dict[str, Any], attr: str) -> None:
