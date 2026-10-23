@@ -115,12 +115,12 @@ export interface playerSettingsLogicActions {
 export interface playerSettingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         watchLayoutOffered: (featureFlags: FeatureFlagsSet) => boolean
-        canOverrideLayout: (user: any) => boolean
+        canOverrideLayout: (user: UserType | null) => boolean
         replayLayout: (
             featureFlags: FeatureFlagsSet,
             preferClassicReplayLayout: boolean,
-            staffLayoutOverride: any,
-            canOverrideLayout: any
+            staffLayoutOverride: ReplayLayout | null,
+            canOverrideLayout: boolean
         ) => ReplayLayout
         sidebarOpen: (userPreferenceSidebarOpen: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         isVerticallyStacked: (preferredSidebarStacking: SessionRecordingSidebarStacking) => boolean
