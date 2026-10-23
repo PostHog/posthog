@@ -15,12 +15,12 @@ from prometheus_client import REGISTRY
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.client import (
     CredentialsServiceClient,
+    _warn_half_configured,
     credentials_service_enabled,
     credentials_service_signing_keys,
 )
 from posthog.credentials_service.errors import (
     CredentialsServiceFailure,
-    CredentialsServiceMisconfiguredError,
     CredentialsServiceUnreachableError,
     SecretInRecoveryError,
     SecretMissingError,
@@ -223,7 +223,6 @@ class TestCredentialsServiceClient(SimpleTestCase):
         [
             ("missing", SecretMissingError(KEY), True),
             ("in recovery", SecretInRecoveryError(KEY), False),
-            ("half-configured", CredentialsServiceMisconfiguredError("CREDENTIALS_SERVICE_URL"), True),
             ("unreachable", CredentialsServiceUnreachableError("no answer"), False),
         ]
     )
@@ -297,41 +296,45 @@ class TestUnconfigured(SimpleTestCase):
 
 
 class TestHalfConfigured(SimpleTestCase):
-    """One variable without the other: refuse, rather than silently reading the environment."""
+    """One variable without the other reads the environment, as if neither were set, and says so."""
+
+    def setUp(self) -> None:
+        _warn_half_configured.cache_clear()
 
     @parameterized.expand(
         [
-            ("url without a signing key", "http://svc", "", "CREDENTIALS_SERVICE_JWT_SECRET"),
-            ("signing key without a url", "", "signing-key", "CREDENTIALS_SERVICE_URL"),
+            ("url without a signing key, flag on", "http://svc", "", True, "CREDENTIALS_SERVICE_JWT_SECRET"),
+            ("url without a signing key, flag off", "http://svc", "", False, "CREDENTIALS_SERVICE_JWT_SECRET"),
+            ("signing key without a url, flag on", "", "signing-key", True, "CREDENTIALS_SERVICE_URL"),
+            ("signing key without a url, flag off", "", "signing-key", False, "CREDENTIALS_SERVICE_URL"),
         ]
     )
-    def test_raises_naming_the_variable_still_needed(self, _name: str, url: str, key: str, missing: str) -> None:
+    def test_reads_the_environment_instead_of_raising(
+        self, _name: str, url: str, key: str, flag_on: bool, missing: str
+    ) -> None:
+        labels = {"reason": "half_configured"}
+        before = REGISTRY.get_sample_value("posthog_credentials_service_env_fallback_total", labels) or 0
         with (
             override_settings(CREDENTIALS_SERVICE_URL=url, CREDENTIALS_SERVICE_JWT_SECRET=key),
+            patch.dict(os.environ, {KEY: "from-env"}),
             patch(POST) as post,
-            patch(FLAG, return_value=True),
+            patch(FLAG, return_value=flag_on),
+            patch("posthog.credentials_service.client.logger") as log,
         ):
-            with pytest.raises(CredentialsServiceMisconfiguredError) as excinfo:
-                CredentialsServiceClient().get(KEY, CALLER)
-            assert missing in str(excinfo.value)
-            post.assert_not_called()
+            client = CredentialsServiceClient()
+            assert client.get(KEY, CALLER) == "from-env"
+            assert client.get(KEY, CALLER) == "from-env"
+
+        post.assert_not_called()
+        log.warning.assert_called_once()
+        assert log.warning.call_args.kwargs["missing"] == missing
+        after = REGISTRY.get_sample_value("posthog_credentials_service_env_fallback_total", labels)
+        assert after == before + 2
 
     @override_settings(CREDENTIALS_SERVICE_URL="http://svc", CREDENTIALS_SERVICE_JWT_SECRET="")
-    def test_a_mounted_environment_variable_does_not_paper_over_it(self) -> None:
-        # The failure this exists to catch. Half-configured, the fallback would have returned the
-        # value from the pod's environment and the deployment would look wired up — until someone
-        # asks for a credential that only exists in the service.
-        with patch.dict(os.environ, {KEY: "still-mounted-on-the-pod"}):
-            with pytest.raises(CredentialsServiceMisconfiguredError):
-                CredentialsServiceClient().get(KEY, CALLER)
-
-    @override_settings(CREDENTIALS_SERVICE_URL="http://svc", CREDENTIALS_SERVICE_JWT_SECRET="")
-    def test_the_flag_does_not_rescue_a_half_configured_deployment(self) -> None:
-        # Turning the flag off is how you disable the client deliberately; it is not a way to make
-        # a misconfiguration legal, or the rollout gate would hide it.
-        with patch(FLAG, return_value=False):
-            with pytest.raises(CredentialsServiceMisconfiguredError):
-                CredentialsServiceClient().get(KEY, CALLER)
+    def test_service_is_not_enabled(self) -> None:
+        with patch(FLAG, return_value=True):
+            assert credentials_service_enabled() is False
 
 
 @override_settings(**SERVICE_SETTINGS)

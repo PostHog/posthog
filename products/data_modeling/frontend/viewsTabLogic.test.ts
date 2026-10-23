@@ -12,8 +12,15 @@ import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineag
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
 
-function buildView(id: string, isMaterialized: boolean): Record<string, unknown> {
-    return { id, name: id, columns: [], is_materialized: isMaterialized, created_at: '2024-01-01T00:00:00Z' }
+function buildView(id: string, isMaterialized: boolean, status?: string): Record<string, unknown> {
+    return {
+        id,
+        name: id,
+        columns: [],
+        is_materialized: isMaterialized,
+        status,
+        created_at: '2024-01-01T00:00:00Z',
+    }
 }
 
 describe('viewsTabLogic', () => {
@@ -23,7 +30,9 @@ describe('viewsTabLogic', () => {
     beforeEach(async () => {
         runHistoryRequests = []
         const views = [
-            ...Array.from({ length: PAGE_SIZE + 1 }, (_, i) => buildView(`mat-${i}`, true)),
+            ...Array.from({ length: PAGE_SIZE + 1 }, (_, i) =>
+                buildView(`mat-${i}`, true, i === 1 ? 'Running' : i === 10 ? 'Failed' : 'Completed')
+            ),
             buildView('plain-a', false),
             buildView('plain-b', false),
         ]
@@ -63,12 +72,12 @@ describe('viewsTabLogic', () => {
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['plain-a', 'plain-b'])
     })
 
-    it('search and type filter compose', async () => {
+    it('search, status, and type filters compose', async () => {
         logic.actions.setTypeFilter('materialized')
-        logic.actions.setSearchTerm('mat-1')
+        logic.actions.setSearchTerm('mat-1 status:failed')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-1', 'mat-10'])
+        expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-10'])
     })
 
     it('keeps name matches visible while lineage data reloads', () => {

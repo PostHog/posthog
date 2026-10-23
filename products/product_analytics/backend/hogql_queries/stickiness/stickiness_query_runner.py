@@ -358,6 +358,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                     "count": count,
                     "data": data,
                     "days": val[1],
+                    "order": series_with_extra.series_order,
                     "label": "All events" if series_label is None else series_label,
                     "labels": [
                         f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'} or more"
