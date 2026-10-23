@@ -81,11 +81,15 @@ class RenderedContent:
 
 @frozen
 class SendFrom:
-    """A verified sender. `email` and `name` override the sender's own, on its verified domain."""
+    """A verified sender. `email` and `name` override the sender's own, on its verified domain.
+
+    `is_default` marks the project's default sender, chosen because the send named none.
+    """
 
     integration_id: int
     email: str | None
     name: str | None
+    is_default: bool = False
 
 
 @frozen

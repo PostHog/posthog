@@ -28,6 +28,8 @@ export const AcceptedSendSchema = z
                 integrationId: z.number().int(),
                 email: z.string().optional(),
                 name: z.string().optional(),
+                // The project's default sender, chosen because the caller named none.
+                isDefault: z.boolean().optional(),
             })
             .readonly()
             .optional(),
@@ -64,7 +66,17 @@ export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequest
 export function transactionalSendFingerprint(hogFlowId: string, request: TransactionalEmailRequest): string {
     const { to, distinct_id: distinctId, variables, send, route } = request
     const parts: unknown[] = [hogFlowId, to, distinctId, variables]
-    return IdempotencyKeys.fingerprint(send || route ? [...parts, send ?? null, route ?? null] : parts)
+    // The default sender can change before a retry, which must still replay.
+    const requested = send?.from?.isDefault ? { ...send, from: null } : send
+    return IdempotencyKeys.fingerprint(send || route ? [...parts, requested ?? null, route ?? null] : parts)
+}
+
+export const NOT_SENDABLE = {
+    error: 'transactional_email_paused',
+    code: 'transactional_email_paused',
+    detail: "The email's workflow isn't an active transactional email.",
+    why: 'PostHog sends a transactional email only while its workflow is active.',
+    fix: "Turn the email's workflow back on, then send again.",
 }
 
 export type TransactionalEmailOutcome =
