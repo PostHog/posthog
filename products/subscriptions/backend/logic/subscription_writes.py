@@ -50,7 +50,7 @@ from products.subscriptions.backend.facade.contracts import (
 )
 from products.subscriptions.backend.logic.auto_disable import validate_re_enable
 from products.subscriptions.backend.logic.subscription_query_access import (
-    blocked_access_for_subscription,
+    denied_resources_in_subscription,
     should_check_table_access,
 )
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS
@@ -542,16 +542,18 @@ class _SubscriptionWrite:
         requester: object = self.user
         if not isinstance(requester, User):
             return
-        blocked_names = blocked_access_for_subscription(
+        denied_resources = denied_resources_in_subscription(
             user=requester,
             team=self.team,
             user_access_control=self.viewer,
             subscription_id=subscription_id,
             attrs=attrs,
         )
-        if blocked_names:
-            blocked = ", ".join(f"`{name}`" for name in blocked_names)
-            raise SubscriptionRequestInvalidError(f"Can't save this subscription: you don't have access to {blocked}.")
+        if denied_resources:
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            raise SubscriptionRequestInvalidError(
+                f"Can't save this subscription: you don't have access to {denied_names}."
+            )
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
         pre_summary_enabled = self.instance.summary_enabled if self.instance else False
