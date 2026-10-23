@@ -53,6 +53,7 @@ import {
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
 import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
+import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevModeTeamUsage'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -702,6 +703,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Add recipes that normalize provider message shapes the built-in recipes don't cover. They apply when rendering traces.",
                 component: <ParserRecipesSettings />,
                 keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        group: 'Products',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode-team-usage',
+                title: 'Team usage',
+                description: 'Developer mode minting, spend, and activity per user over the last 30 days.',
+                component: <DevModeTeamUsage />,
+                staffOnly: true,
+                keywords: ['ai gateway', 'llm gateway', 'developer mode', 'phe_', 'spend', 'audit'],
             },
         ],
     },
