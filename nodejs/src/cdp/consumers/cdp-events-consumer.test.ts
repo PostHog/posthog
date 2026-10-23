@@ -775,7 +775,6 @@ describe('CdpEventsConsumer', () => {
                 },
                 ...lookupSpies.map(({ lookup, spy }) => ({
                     name: `an event whose ${lookup} lookup throws a non-retriable error`,
-                    // A lookup parked as `parse` would escape the dead-letter circuit breaker.
                     step: 'lookup',
                     // The first message in the batch makes the first lookup call, so only it fails.
                     bad: (teamId: number) => {

@@ -218,17 +218,18 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         // leaves lag, health and throughput all reading normal, so nobody notices. `filter` and
         // `inputs` never count, because one broken builtin legitimately breaks a whole batch and
         // those records are the point. `parse` never counts either. Most parse errors come from bytes
-        // that fail the same way on every read, so a stall would never clear them. A deploy that
-        // breaks the conversion to globals also parks as `parse`, so this check does not catch that
-        // deploy. A `lookup` error does not come from the bytes, so it counts with `process`.
-        const unexpected = new Set<object>([
-            ...failures
+        // that fail the same way on every read, so a stall would never clear them. An event that fails
+        // the conversion to globals also parks as `parse`. This check therefore does not catch a deploy
+        // that breaks that conversion. A `lookup` error does not come from the bytes, so it counts with `process`.
+        const unexpectedEvents = new Set(
+            failures
                 .filter((entry) => entry.failures.some((failure) => UNEXPECTED_STEPS.has(failure.step)))
-                .map((entry) => entry.globals),
-            ...messageFailures
-                .filter(({ failure }) => UNEXPECTED_STEPS.has(failure.step))
-                .map(({ message }) => message),
-        ]).size
+                .map((entry) => entry.globals)
+        )
+        const unexpectedMessages = new Set(
+            messageFailures.filter(({ failure }) => UNEXPECTED_STEPS.has(failure.step)).map(({ message }) => message)
+        )
+        const unexpected = unexpectedEvents.size + unexpectedMessages.size
         if (
             unexpected >= MIN_UNEXPECTED_TO_BREAK &&
             messages.length &&

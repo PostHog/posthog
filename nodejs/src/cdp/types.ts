@@ -300,7 +300,7 @@ export type AppMetricType = MinimalAppMetric & {
  * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
  * `parse`, `lookup` and `process` are the ones it does not: a message it cannot read, a team, hog
  * function or hog flow lookup that failed with an error that is not retriable, and anything else
- * that throws while an event is being turned into invocations. Those three park a lone
+ * that throws while the pipeline turns an event into invocations. Those three park a lone
  * unanticipated failure rather than stalling the partition it arrived on. A `lookup` or `process`
  * failure across much of a batch trips the circuit breaker in
  * `CdpDeadLetterService.produceForBatch`, which fails the batch instead.

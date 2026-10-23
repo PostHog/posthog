@@ -34,6 +34,9 @@ describe('CdpDeadLetterService', () => {
         ...overrides,
     })
 
+    const batchOf = (size: number): Message[] =>
+        Array.from({ length: size }, (_, offset) => message(`event-${offset}`, offset))
+
     const recordFailure = (service: CdpDeadLetterService, step: DeadLetterStep, source: Message): void => {
         if (step === 'parse' || step === 'lookup') {
             service.recordMessageFailure(source, { step, error: 'boom' })
@@ -181,7 +184,7 @@ describe('CdpDeadLetterService', () => {
         { name: 'throws or fails its lookups', steps: ['process', 'lookup', 'lookup'] },
     ])('fails the batch instead of parking it when most of it $name', async ({ steps }) => {
         const service = createService()
-        const messages = [10, 11, 12, 13].map((offset) => message(`event-${offset}`, offset))
+        const messages = batchOf(4)
         steps.forEach((step, index) => recordFailure(service, step, messages[index]))
 
         await expect(service.produceForBatch(messages)).rejects.toThrow('Refusing to dead-letter 3 of 4')
@@ -196,7 +199,7 @@ describe('CdpDeadLetterService', () => {
         { name: 'three lookup failures in a batch of forty', step: 'lookup', failing: 3, batchSize: 40 },
     ])('parks $name rather than breaking', async ({ step, failing, batchSize }) => {
         const service = createService()
-        const messages = Array.from({ length: batchSize }, (_, offset) => message(`event-${offset}`, offset))
+        const messages = batchOf(batchSize)
         messages.slice(0, failing).forEach((source) => recordFailure(service, step, source))
 
         await service.produceForBatch(messages)
@@ -236,7 +239,7 @@ describe('CdpDeadLetterService', () => {
         // Sized to clear the breaker on every axis: three events is the floor, and three of four
         // messages is past the ratio. Counting these would fail the batch here.
         const service = createService()
-        const messages = [10, 11, 12, 13].map((offset) => message(`event-${offset}`, offset))
+        const messages = batchOf(4)
         steps.forEach((step, index) => recordFailure(service, step, messages[index]))
 
         await service.produceForBatch(messages)

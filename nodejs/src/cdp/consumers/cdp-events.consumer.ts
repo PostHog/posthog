@@ -213,7 +213,7 @@ export class CdpEventsConsumer<
             // failed query parks every message in it. With the dead-letter topic off, nothing keeps the
             // message, so the error fails the batch. A failed query that covers enough of the batch trips
             // the dead-letter circuit breaker, which also fails the batch. One team's data can fail the
-            // query, and the partition then stalls until someone fixes that data.
+            // query. The partition then stalls until someone fixes that data.
             parkLookupError: park('lookup'),
         })
     }
