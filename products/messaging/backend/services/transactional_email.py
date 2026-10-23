@@ -18,10 +18,6 @@ from posthog.plugins.plugin_server_api import (
 from products.messaging.backend.facade.contracts import (
     EmailSendCommand,
     EmailSendOutcome,
-    IdempotencyKeyInFlight,
-    IdempotencyKeyReused,
-    InvalidIdempotencyKey,
-    InvalidRecipient,
     MarketingTemplate,
     Queued,
     Rejected,
@@ -248,8 +244,16 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
 
 
 def send_email(command: EmailSendCommand) -> EmailSendOutcome:
+    if command.idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(command.idempotency_key):
+        return Rejected(
+            code="invalid_idempotency_key",
+            detail="The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces.",
+        )
+    # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
+    if "{" in command.to or "}" in command.to:
+        return Rejected(code="invalid_recipient", detail="The recipient address can't contain { or }.")
     try:
-        hog_flow_id = _sendable_workflow_id(command)
+        hog_flow_id = _transactional_workflow_id(command.team_id, command.template_id)
     except TransactionalEmailError as e:
         return Rejected(code=e.code, detail=str(e))
     payload = {
@@ -274,12 +278,12 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
             return Rejected(code="quota_limited", detail="The project is over its email quota.")
         if response.status_code == 409:
             return Rejected(
-                code=IdempotencyKeyInFlight.code,
+                code="idempotency_key_in_flight",
                 detail="A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
             )
         if response.status_code == 422:
             return Rejected(
-                code=IdempotencyKeyReused.code,
+                code="idempotency_key_reused",
                 detail="This Idempotency-Key was already used for a different request. Use a new key for a new email.",
             )
         logger.error(
@@ -292,14 +296,3 @@ def send_email(command: EmailSendCommand) -> EmailSendOutcome:
 
     body = response.json()
     return Queued(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
-
-
-def _sendable_workflow_id(command: EmailSendCommand) -> UUID:
-    if command.idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(command.idempotency_key):
-        raise InvalidIdempotencyKey(
-            "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
-        )
-    # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
-    if "{" in command.to or "}" in command.to:
-        raise InvalidRecipient("The recipient address can't contain { or }.")
-    return _transactional_workflow_id(command.team_id, command.template_id)
