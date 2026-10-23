@@ -44,7 +44,7 @@ class WorkflowSlackTeamMemberMessageRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         default="",
-        help_text="Optional http or https link for a button below the message.",
+        help_text="Link that a button below the message opens. It must start with http:// or https://. Blank adds no button.",
     )
     button_text = serializers.CharField(
         max_length=75,

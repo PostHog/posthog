@@ -65,7 +65,8 @@ return response.body
             label: 'Button link',
             secret: false,
             required: false,
-            description: 'Optional http or https link. A button that opens it is added below the message.',
+            description:
+                'Adds a button below the message that opens this link. The link must start with http:// or https://.',
         },
         {
             key: 'button_text',
