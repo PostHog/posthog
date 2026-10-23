@@ -649,6 +649,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     pinnedRecordingsLoading: boolean
     recordings: SessionRecordingType[]
     recordingsCount: number
+    selectMode: boolean
     selectedRecordingId: SessionRecordingType['id'] | null
     selectedRecordingOutsideFilters: boolean
     selectedRecordingsIds: string[]
@@ -908,6 +909,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     setNewCollectionName: (newCollectionName: string) => {
         newCollectionName: string
     }
+    setSelectMode: (selectMode: boolean) => {
+        selectMode: boolean
+    }
     setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => {
         id: string | null
     }
@@ -1081,6 +1085,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
+        setSelectMode: (selectMode: boolean) => ({ selectMode }),
         handleBulkAddToPlaylist: (short_id: string) => ({ short_id }),
         handleBulkDeleteFromPlaylist: (short_id: string) => ({ short_id }),
         handleSelectUnselectAll: (checked: boolean, type: 'filters' | 'collection') => ({ checked, type }),
@@ -1501,10 +1506,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
+        selectMode: [
+            false,
+            {
+                setSelectMode: (_, { selectMode }) => selectMode,
+            },
+        ],
         selectedRecordingsIds: [
             [] as string[],
             {
                 setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
+                setSelectMode: (state, { selectMode }) => (selectMode ? state : []),
                 // The filtered/pinned lists reload from scratch on a filter change, so a prior selection
                 // can no longer be matched against what's on screen - drop it rather than risk deleting
                 // recordings the user can't see.

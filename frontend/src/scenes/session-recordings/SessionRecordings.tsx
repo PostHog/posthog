@@ -95,10 +95,9 @@ function Header(): JSX.Element {
                     {canOverrideLayout ? (
                         <LemonSegmentedButton
                             size="small"
-                            value={staffLayoutOverride ?? 'auto'}
-                            onChange={(value) => setStaffLayoutOverride(value === 'auto' ? null : value)}
+                            value={staffLayoutOverride ?? replayLayout}
+                            onChange={(value) => setStaffLayoutOverride(value)}
                             options={[
-                                { value: 'auto' as const, label: 'Auto', 'data-attr': 'replay-layout-override-auto' },
                                 {
                                     value: 'classic' as const,
                                     label: 'Legacy',

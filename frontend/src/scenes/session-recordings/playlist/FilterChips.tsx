@@ -4,15 +4,36 @@ import { ReactNode, useState } from 'react'
 import { IconClock, IconEye, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
-import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
-import { RecordingUniversalFilters } from '~/types'
+import { PropertyOperator, RecordingDurationFilter, RecordingUniversalFilters } from '~/types'
 
 import { filterLeaves, removeFilterLeaf } from './filterChipLeaves'
+import { defaultRecordingDurationFilter } from './sessionRecordingsPlaylistLogic'
 
 const MAX_VISIBLE_CHIPS = 4
+
+const DURATION_TYPE_LABEL: Record<RecordingDurationFilter['key'], string> = {
+    duration: '',
+    active_seconds: ' active',
+    inactive_seconds: ' inactive',
+}
+
+function compactDurationLabel(duration: RecordingDurationFilter): string {
+    const operator = duration.operator === PropertyOperator.GreaterThan ? '>' : '<'
+    const { timeValue, unit } = convertSecondsToDuration(duration.value || 0)
+    return `${operator} ${timeValue}${unit[0]}${DURATION_TYPE_LABEL[duration.key]}`
+}
+
+function isDefaultDuration(duration: RecordingDurationFilter): boolean {
+    return (
+        duration.key === defaultRecordingDurationFilter.key &&
+        duration.value === defaultRecordingDurationFilter.value &&
+        duration.operator === defaultRecordingDurationFilter.operator
+    )
+}
 
 /** The applied conditions as removable chips: each filter, each duration bound, and the hidden-watched setting. */
 export function FilterChips({
@@ -35,16 +56,21 @@ export function FilterChips({
                 onClose={() => setFilters({ filter_group: removeFilterLeaf(filters.filter_group, path) })}
             />
         )),
-        ...filters.duration.map((duration, index) => (
-            <FilterChip
-                key={`${duration.key}-${index}`}
-                icon={<IconClock />}
-                onClose={() => setFilters({ duration: filters.duration.filter((_, i) => i !== index) })}
-                dataAttr="list-filter-chip-duration"
-            >
-                {humanFriendlyDurationFilter(duration, duration.key)}
-            </FilterChip>
-        )),
+        ...filters.duration.flatMap((duration, index) =>
+            // The default bound is always in effect; a chip should mean the viewer applied something.
+            isDefaultDuration(duration)
+                ? []
+                : [
+                      <FilterChip
+                          key={`${duration.key}-${index}`}
+                          icon={<IconClock />}
+                          onClose={() => setFilters({ duration: filters.duration.filter((_, i) => i !== index) })}
+                          dataAttr="list-filter-chip-duration"
+                      >
+                          {compactDurationLabel(duration)}
+                      </FilterChip>,
+                  ]
+        ),
         ...(hideViewedRecordings
             ? [
                   <FilterChip

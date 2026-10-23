@@ -18,7 +18,8 @@ describe('replayListColumnLogic', () => {
     it.each([
         { chosen: null, picksMode: null, moments: false, expected: 'recordings' },
         { chosen: null, picksMode: 'picks', moments: false, expected: 'picks' },
-        { chosen: null, picksMode: 'picks', moments: true, expected: 'moments' },
+        { chosen: null, picksMode: 'picks', moments: true, expected: 'picks' },
+        { chosen: null, picksMode: null, moments: true, expected: 'recordings' },
         { chosen: 'recordings', picksMode: null, moments: true, expected: 'recordings' },
         { chosen: 'picks', picksMode: null, moments: false, expected: 'recordings' },
         { chosen: 'moments', picksMode: 'picks', moments: true, expected: 'moments' },

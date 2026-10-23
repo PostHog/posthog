@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
-import { IconEllipsis, IconX } from '@posthog/icons'
+import { IconEllipsis } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -15,7 +14,6 @@ import { AddToCollectionModal, BulkScanMenuItem, ConfirmDeleteRecordings } from 
 export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection'; shortId?: string }): JSX.Element {
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const {
-        setSelectedRecordingsIds,
         setIsAddToCollectionModalOpen,
         setIsDeleteSelectedRecordingsDialogOpen,
         handleBulkMarkAsViewed,
@@ -26,18 +24,6 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
     )
-    const clear = (): void => setSelectedRecordingsIds([])
-
-    useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') {
-                clear()
-            }
-        }
-        document.addEventListener('keydown', onKeyDown)
-        return () => document.removeEventListener('keydown', onKeyDown)
-    }, [clear])
-
     const moreItems: LemonMenuItem[] = [
         {
             label: 'Mark as not viewed',
@@ -88,15 +74,6 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
                     data-attr="bulk-action-menu"
                 />
             </LemonMenu>
-            <LemonButton
-                size="xsmall"
-                icon={<IconX />}
-                className="ml-auto"
-                onClick={clear}
-                tooltip="Clear selection (Esc)"
-                aria-label="Clear selection"
-                data-attr="list-bulk-clear"
-            />
             <ConfirmDeleteRecordings shortId={shortId} />
             <AddToCollectionModal shortId={shortId} />
         </div>
