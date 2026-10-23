@@ -318,11 +318,13 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         restoreItem: (item: WatchFeedItemApi, position: number) => ({ item, position }),
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         feedItems: [
             null as WatchFeedItemApi[] | null,
             {
                 loadFeed: async (_, breakpoint) => {
+                    // Counts loads from the moment one starts, so a page requested for an older load is dropped.
+                    cache.feedGeneration = (cache.feedGeneration ?? 0) + 1
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         // Reporting this as a successful empty result would read as "nothing to watch";
@@ -345,13 +347,23 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     }
                     // Counted against what the server returned, so neither a hidden card nor a deduplicated one shifts the next page.
                     const offset = values.feedServed
-                    const response = await visionScannersWatchFeedRetrieve(String(teamId), {
-                        ...feedParams(values),
-                        offset,
-                        as_of: values.feedAsOf,
-                    })
+                    const generation = cache.feedGeneration
+                    let response
+                    try {
+                        response = await visionScannersWatchFeedRetrieve(String(teamId), {
+                            ...feedParams(values),
+                            offset,
+                            as_of: values.feedAsOf,
+                        })
+                    } catch (error) {
+                        // A failure for a load the reader has since replaced must not stop paging the new one.
+                        if (cache.feedGeneration !== generation) {
+                            return values.feedItems
+                        }
+                        throw error
+                    }
                     // A filter change while this page was in flight started a new load, which owns the feed now.
-                    if (values.feedLoad?.feedLoadId !== load.feedLoadId) {
+                    if (cache.feedGeneration !== generation || values.feedLoad?.feedLoadId !== load.feedLoadId) {
                         return values.feedItems
                     }
                     const page = response.results.filter((item) => !(item.observation.id in load.positions))
