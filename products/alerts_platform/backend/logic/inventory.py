@@ -1,6 +1,6 @@
 """How many platform alerts exist and what state they are in, across every team.
 
-Counted once a tick during demand discovery, for the worker health dashboard. Every source and label
+Counted once a tick for the worker health dashboard. Every source and label
 combination is returned, zeros included, because a gauge keeps its last value until it is set again.
 """
 
@@ -15,9 +15,8 @@ from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
-# Per statement. The counts scan every configuration, unlike discovery, which reads only the due index.
-# They run inside the discovery activity, so two statements at this cap must fit well inside its
-# start-to-close timeout.
+# Per statement. The counts scan every configuration, unlike discovery, which reads only the due index,
+# so a slow scan fails fast and holds no Postgres connection the tick needs.
 INVENTORY_STATEMENT_TIMEOUT_MS = 500
 
 

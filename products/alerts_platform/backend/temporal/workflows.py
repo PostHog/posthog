@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy, SearchAttributeKey
+from temporalio.common import Priority, RetryPolicy, SearchAttributeKey
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -101,8 +101,18 @@ class AlertsPlatformInputs:
     pass
 
 
-async def _record_inventory() -> None:
-    """Dashboard telemetry, so a failed count is logged and never fails discovery."""
+@activity.defn
+async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
+    demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
+    for source, omitted in demand.omitted_by_source.items():
+        if omitted:
+            safe_record(increment_discovery_omitted, source.value, omitted)
+    return demand
+
+
+@activity.defn
+async def alerts_platform_record_inventory_activity() -> None:
+    """A failed count is logged rather than raised, so a slow count never reads as a failed workflow."""
     now = dt.datetime.now(dt.UTC)
     try:
         inventories = await database_sync_to_async_pool(count_inventory)(now)
@@ -111,16 +121,6 @@ async def _record_inventory() -> None:
         return
     for inventory in inventories:
         safe_record(record_source_inventory, inventory, now)
-
-
-@activity.defn
-async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
-    for source, omitted in demand.omitted_by_source.items():
-        if omitted:
-            safe_record(increment_discovery_omitted, source.value, omitted)
-    await _record_inventory()
-    return demand
 
 
 @activity.defn
@@ -408,6 +408,44 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
         )
 
 
+INVENTORY_PATCH = "alerts-platform-record-inventory"
+# Lowest Temporal priority, so the count never takes a slot from a tick or a dispatcher.
+INVENTORY_PRIORITY = Priority(priority_key=5)
+
+
+@workflow.defn(name="alerts-platform-record-inventory")
+class AlertsPlatformRecordInventoryWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsPlatformInputs
+
+    @workflow.run
+    async def run(self, inputs: AlertsPlatformInputs) -> None:
+        await workflow.execute_activity(
+            alerts_platform_record_inventory_activity,
+            start_to_close_timeout=dt.timedelta(seconds=20),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+async def _start_inventory(cutoff: str) -> None:
+    """Dashboard telemetry, so the tick never waits on it and a failed start never fails the tick."""
+    try:
+        await workflow.start_child_workflow(
+            AlertsPlatformRecordInventoryWorkflow.run,
+            AlertsPlatformInputs(),
+            # Keyed by cutoff, so a continued run of the same tick cannot start a second one.
+            id=f"alerts-platform-record-inventory-{cutoff}",
+            task_queue=settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
+            parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+            execution_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+            priority=INVENTORY_PRIORITY,
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+    except Exception as error:
+        workflow.logger.warning("Inventory start failed; the next tick tries again: %s", error)
+
+
 def _should_continue_as_new() -> bool:
     return workflow.info().is_continue_as_new_suggested()
 
@@ -452,6 +490,8 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
             )
             demand = discovered.batch_keys_by_source
             inputs = replace(inputs, omitted=sum(discovered.omitted_by_source.values()))
+            if workflow.patched(INVENTORY_PATCH):
+                await _start_inventory(cutoff_iso)
         else:
             demand = inputs.demand
 
@@ -540,8 +580,12 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformOrchestrateWorkflow,
     AlertsPlatformSourceDispatchWorkflow,
+    AlertsPlatformRecordInventoryWorkflow,
 ]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_platform_discover_demand_activity]
+SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [
+    alerts_platform_discover_demand_activity,
+    alerts_platform_record_inventory_activity,
+]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformEvaluateWorkflow]
 EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_probe_postgres_activity,
