@@ -181,15 +181,16 @@ Delete:
 A body that would fit any PR tells a reader nothing about this one. A reader who meets a few learns to skip them all.
 When the diff is six lines, the body has to read as the body of a six-line change.
 
-- Aim for 150 words of prose or fewer across the whole body. Headings, tables, diagrams, code blocks, `<details>` blocks and template comments do not count, so moving evidence into them is the first cut.
+- Aim for 150 words of prose or fewer across the whole body. Headings, tables, diagrams, code, images, HTML and `<details>` blocks do not count, so moving evidence into them is the first cut.
+- The template's fixed lines, such as the release status and agent context labels, use about 25 of the 150 words.
 - Give a one-file fix 3 to 6 bullets across the whole body.
 - Write one line or "None" under every heading that does not apply. That is a complete answer, not a gap.
 - Keep numbers, file paths and identifiers when you cut. Cut adjectives and second explanations.
 
-Run the counter on the body file before every `gh pr create` or `gh pr edit`:
+Run the counter on the body before every `gh pr create` or `gh pr edit`. It reads a file, or stdin when the argument is `-`:
 
 ```sh
-python3 .agents/skills/writing-pr-descriptions/scripts/count_prose_words.py pr-body.md
+uv run python .agents/skills/writing-pr-descriptions/scripts/count_prose_words.py pr-body.md
 ```
 
 When the count is over 150, move facts into a table or a diagram, then cut.
@@ -290,7 +291,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does `scripts/count_prose_words.py` print 150 or less? If not, cut. If it is still over 150, suggest a stack to the PR author.
+2. Does the size of the body track the size of the diff, and does `scripts/count_prose_words.py` print 150 or less? If not, cut. If it is still over 150, suggest a stack to the PR author.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.
