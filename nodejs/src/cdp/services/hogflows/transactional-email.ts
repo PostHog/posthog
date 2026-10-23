@@ -114,7 +114,7 @@ type SenderConfiguration = { integrationId: number; integrationIds?: number[] }
 
 /**
  * What the delivery's send checks will see, known when the send is accepted: the sender the email step
- * resolves to for this run, and the recipient. The caller's `send.from` replaces the step's sender, as it
+ * resolves to for this run, and the recipients. The caller's `send.from` replaces the step's sender, as it
  * does at delivery.
  */
 export async function transactionalSendCandidate(
@@ -129,7 +129,8 @@ export async function transactionalSendCandidate(
         teamId: hogFlow.team_id,
         workflowMetadata: emailPauseMetadata(hogFlow),
         sender: from ? await integrationManager.get(selectEmailSenderIntegrationId(invocationId, from)) : null,
-        recipients: [to],
+        // Every copy is a recipient, so suppression covers the whole send.
+        recipients: [to, ...(send?.cc ?? []), ...(send?.bcc ?? [])],
     }
 }
 
