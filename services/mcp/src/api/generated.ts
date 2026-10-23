@@ -28136,7 +28136,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       title?: string;
-      /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+      /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it. */
       collapsed?: boolean;
       /** Color of a dot before the group heading. Null or omitted shows no dot.
        *

@@ -795,6 +795,278 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.layouts.sm?.map((item) => item.w)).toEqual([6, 6, 6])
         })
+
+        describe('loading closed groups', () => {
+            let refreshInsight: jest.SpiedFunction<typeof dashboardUtils.getInsightWithRetry>
+            let fetchRunWidgetsMock: jest.SpiedFunction<typeof widgetFetchUtils.fetchRunWidgets>
+
+            const loads = (shortId: InsightShortId): Parameters<typeof dashboardUtils.getInsightWithRetry>[] =>
+                refreshInsight.mock.calls.filter((call) => call[1].short_id === shortId)
+
+            const toggle = async (): Promise<void> => {
+                await expectLogic(logic, () => logic.actions.toggleTileGroup('target')).toFinishAllListeners()
+            }
+
+            const hangUntilAborted = (signal: AbortSignal | undefined): Promise<never> =>
+                new Promise((_, reject) =>
+                    signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                )
+
+            beforeEach(() => {
+                refreshInsight = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation((_teamId, insight) => Promise.resolve(insight))
+                fetchRunWidgetsMock = jest
+                    .spyOn(widgetFetchUtils, 'fetchRunWidgets')
+                    .mockResolvedValue([
+                        { tile_id: WIDGET_TILE.id, widget_type: 'error_tracking_list', result: {}, error: null },
+                    ])
+            })
+
+            afterEach(() => {
+                refreshInsight.mockRestore()
+                fetchRunWidgetsMock.mockRestore()
+            })
+
+            it.each([
+                {
+                    name: 'a manual refresh',
+                    refresh: () => logic.actions.triggerDashboardRefresh(),
+                    mode: 'force_blocking',
+                    dateFrom: undefined,
+                },
+                // The preview has not finished, so settingsForRefresh still holds the saved filters.
+                {
+                    name: 'a filter preview',
+                    refresh: () => logic.actions.setDates('-7d', null),
+                    mode: 'blocking',
+                    dateFrom: '-7d',
+                },
+            ])('loads a closed group on open with the settings of $name', async ({ refresh, mode, dateFrom }) => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                const visible = dashboards[5].tiles[1].insight!.short_id
+                refreshInsight.mockImplementation((...args) =>
+                    args[1].short_id === visible ? hangUntilAborted(args[5]?.signal) : Promise.resolve(args[1])
+                )
+
+                refresh()
+                await expectLogic(logic).toDispatchActions(['setWaitingTileRefresh'])
+                expect(loads(target)).toHaveLength(0)
+
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['clearWaitingTileRefresh'])
+
+                const [[, , , , refreshMode, , filters]] = loads(target)
+                expect(refreshMode).toBe(mode)
+                expect(filters?.date_from).toBe(dateFrom)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it.each([
+                {
+                    name: 'its first load failed',
+                    holdBack: async (): Promise<void> => {
+                        refreshInsight.mockRejectedValueOnce(new Error('Queries are busy'))
+                        await toggle()
+                        await toggle()
+                    },
+                    expectedLoads: ['blocking', 'blocking'],
+                },
+                {
+                    name: 'the viewer cancelled a refresh',
+                    holdBack: async (): Promise<void> => {
+                        refreshInsight.mockImplementationOnce((...args) => hangUntilAborted(args[5]?.signal))
+                        logic.actions.triggerDashboardRefresh()
+                        await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                        await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                    },
+                    expectedLoads: ['force_blocking'],
+                },
+            ])('loads a closed group on open after $name', async ({ holdBack, expectedLoads }) => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                await holdBack()
+                expect(logic.values.waitingTileRefresh?.tileIds).toEqual([dashboards[5].tiles[0].id])
+
+                await toggle()
+
+                expect(loads(target).map((call) => call[4])).toEqual(expectedLoads)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it('loads a closed group that a highlight link opens', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                expect(loads(target)).toHaveLength(0)
+
+                await highlight(target)
+
+                expect(loads(target)).toHaveLength(1)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it.each([
+                { name: 'the viewer closes and opens it again', open: () => logic.actions.toggleTileGroup('target') },
+                {
+                    name: 'a highlight link opens it',
+                    open: () => router.actions.push('/dashboard/5', { highlightInsightId: target }),
+                },
+            ])('loads each tile of a group once when $name during its load', async ({ open }) => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
+                await mountDashboard()
+                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                fetchRunWidgetsMock.mockImplementation((_projectId, _dashboardId, _tileIds, options) =>
+                    hangUntilAborted(options?.signal)
+                )
+
+                open()
+                await expectLogic(logic).toDispatchActions(['refreshTileGroup', 'setWidgetRefreshStatuses'])
+                logic.actions.toggleTileGroup('target')
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['refreshTileGroup'])
+
+                expect(logic.values.collapsedTileGroupKeys).toEqual([])
+                expect(loads(target)).toHaveLength(1)
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('loads a widget in a closed group on open', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
+                await mountDashboard()
+                expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
+
+                await toggle()
+
+                expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({})
+                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
+            })
+
+            it('a filter preview does not abort the widget load of an opened group', async () => {
+                groupTiles({ target: { collapsed: true } })
+                dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
+                await mountDashboard()
+                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                let finishWidgetLoad: () => void = () => {}
+                fetchRunWidgetsMock.mockImplementationOnce(
+                    (_projectId, _dashboardId, _tileIds, options) =>
+                        new Promise((resolve, reject) => {
+                            options?.signal?.addEventListener('abort', () =>
+                                reject(new DOMException('Aborted', 'AbortError'))
+                            )
+                            finishWidgetLoad = () =>
+                                resolve([
+                                    {
+                                        tile_id: WIDGET_TILE.id,
+                                        widget_type: 'error_tracking_list',
+                                        result: {},
+                                        error: null,
+                                    },
+                                ])
+                        })
+                )
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setWidgetRefreshStatuses'])
+
+                logic.actions.setDates('-7d', null)
+                await expectLogic(logic).toDispatchActions(['abortAnyRunningQuery'])
+                finishWidgetLoad()
+                await expectLogic(logic).toDispatchActions(['setWidgetRunResults'])
+
+                expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({})
+                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('stops a widget load when the viewer cancels the refresh', async () => {
+                groupTiles({})
+                dashboards[5].tiles.push(WIDGET_TILE)
+                await mountDashboard()
+                fetchRunWidgetsMock.mockImplementationOnce((_projectId, _dashboardId, _tileIds, options) =>
+                    hangUntilAborted(options?.signal)
+                )
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                await expectLogic(logic).toDispatchActions(['setWidgetRefreshStatuses'])
+
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+
+                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.loading).toBe(false)
+            })
+
+            it('adds an opened group to the "X out of Y" count of a running refresh', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                const visible = dashboards[5].tiles[1].insight!.short_id
+                refreshInsight.mockImplementation((...args) =>
+                    args[1].short_id === visible ? hangUntilAborted(args[5]?.signal) : Promise.resolve(args[1])
+                )
+                logic.actions.triggerDashboardRefresh()
+                await expectLogic(logic).toDispatchActions(['setWaitingTileRefresh'])
+                expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 1 })
+
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['clearWaitingTileRefresh'])
+
+                expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('keeps a group waiting when the viewer cancels its load, and loads it on the next open', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                refreshInsight.mockImplementationOnce((...args) => hangUntilAborted(args[5]?.signal))
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                expect(logic.values.waitingTileRefresh?.tileIds).toEqual([dashboards[5].tiles[0].id])
+                await toggle()
+                await toggle()
+
+                expect(loads(target)).toHaveLength(2)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it.each([
+                { group: 'closed', collapsed: true, counts: false },
+                { group: 'open', collapsed: false, counts: true },
+            ])(
+                'counts a stale tile in a $group group toward refreshing the dashboard: $counts',
+                async ({ collapsed, counts }) => {
+                    const blockRefresh = !counts
+                    const forcesRefresh = counts
+                    groupTiles({ target: { collapsed } })
+                    await mountDashboard()
+                    const [staleTile, freshTile] = logic.values.insightTiles
+                    await expectLogic(logic, () => {
+                        for (const [tile, lastRefresh] of [
+                            [staleTile, now().subtract(1, 'day')],
+                            [freshTile, now()],
+                        ] as const) {
+                            dashboardsModel.actions.updateDashboardInsight(
+                                { ...tile.insight!, last_refresh: lastRefresh.toISOString() },
+                                undefined,
+                                5
+                            )
+                        }
+                        logic.actions.updateDashboardLastRefresh(now())
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.blockRefresh).toBe(blockRefresh)
+                    logic.actions.forceRefreshIfStale()
+                    await Promise.resolve()
+                    if (forcesRefresh) {
+                        await expectLogic(logic).toDispatchActions(['triggerDashboardRefresh'])
+                    } else {
+                        await expectLogic(logic).toNotHaveDispatchedActions(['triggerDashboardRefresh'])
+                    }
+                }
+            )
+        })
     })
 
     describe('tile layouts', () => {
