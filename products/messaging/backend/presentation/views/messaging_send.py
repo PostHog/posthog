@@ -126,6 +126,7 @@ class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmail
     reply_to = serializers.ListField(
         child=serializers.EmailField(),
         required=False,
+        allow_empty=False,
         max_length=10,
         help_text="Addresses replies go to. Not with `template.id`.",
     )
