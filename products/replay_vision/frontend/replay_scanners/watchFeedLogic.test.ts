@@ -209,6 +209,37 @@ describe('watchFeedLogic', () => {
         expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o3'])
     })
 
+    it('pages through one load, counting the offset from what was served', async () => {
+        useMocks({ post: { '/api/projects/:team/vision/observations/:id/feed_dismissal/': () => [204] } })
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o1', 'embedding_pick'), item('o2', 'embedding_pick')], has_more: true, as_of: 'T0' },
+        ])
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+        const firstUrl = new URL(feedSpy.mock.calls[0][0].request.url)
+        // Hiding a card shortens the list, but the next page still starts after both served cards.
+        await expectLogic(logic, () =>
+            logic.actions.dismissItem(logic.values.feedItems![0], 0, null)
+        ).toFinishAllListeners()
+
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o2', 'embedding_pick'), item('o3', 'recent')], has_more: false, as_of: 'T0' },
+        ])
+        await expectLogic(logic, () => logic.actions.loadMoreFeed())
+            .toDispatchActions(['loadMoreFeedSuccess'])
+            .toFinishAllListeners()
+
+        const pageUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
+        expect(pageUrl.searchParams.get('offset')).toBe('2')
+        expect(pageUrl.searchParams.get('as_of')).toBe('T0')
+        expect(pageUrl.searchParams.get('feed_load_id')).toBe(firstUrl.searchParams.get('feed_load_id'))
+        expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o2', 'o3'])
+        expect(logic.values.feedLoad?.positions).toEqual({ o1: 0, o2: 1, o3: 2 })
+        expect(logic.values.feedHasMore).toBe(false)
+    })
+
     it('flags a failed load and clears the flag on retry', async () => {
         feedSpy.mockImplementation(() => [500, { detail: 'nope' }])
         logic.mount()

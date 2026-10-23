@@ -48,6 +48,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_feed_impression import ReplayObservationFeedImpression
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import (
@@ -5175,6 +5176,79 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(
             items[0]["reason"], {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 0}
         )
+
+    def test_pages_do_not_shift_when_the_reader_opens_a_card_mid_scroll(self) -> None:
+        scanner = self._create_scanner(
+            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+        )
+        for i in range(6):
+            self._succeeded_observation(scanner, f"hit-{i}", 10 + i, self._friction_result())
+
+        first = self.client.get(f"{self.feed_url}?limit=3").json()
+        assert first["has_more"] is True
+        # Opening the top card would dock it below page two, and a card arriving would push everything down.
+        top_id = first["results"][0]["observation"]["id"]
+        assert self.client.post(f"{self.observations_url(str(scanner.id))}{top_id}/viewed/").status_code == 204
+        self._succeeded_observation(scanner, "late-hit", 0, self._friction_result())
+        second = self.client.get(self.feed_url, {"limit": 3, "offset": 3, "as_of": first["as_of"]}).json()
+
+        sessions = [item["observation"]["session_id"] for item in first["results"] + second["results"]]
+        assert sessions == [f"hit-{i}" for i in range(6)]
+        assert second["has_more"] is False
+
+    def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
+        scanner = self._create_scanner(name="m")
+        rows = {}
+        for index in range(10):
+            obs = self._succeeded_observation(scanner, f"s-{index}", 10 + index, self._monitor_result("no"))
+            # The top two contrasts clear the top-fifth cut; the rest are the scanner's baseline.
+            category = "failure" if index < 2 else "routine"
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": category,
+                    "contrast": 0.5 - index * 0.01,
+                    "duplicate_of": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            rows[f"s-{index}"] = obs
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = ReplayObservation.objects.create(
+            team=other_team,
+            scanner=ReplayScanner.objects.create(
+                team=other_team,
+                name="theirs",
+                scanner_type=ScannerType.MONITOR,
+                scanner_config={"prompt": "p"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            ),
+            session_id="foreign",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        load = uuid.uuid4()
+
+        def picks(feed_load_id: uuid.UUID) -> list[str]:
+            with patch(
+                "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"
+            ):
+                results = self.client.get(self.feed_url, {"feed_load_id": str(feed_load_id)}).json()["results"]
+            return [item["observation"]["session_id"] for item in results if item["reason"]["kind"] == "embedding_pick"]
+
+        assert picks(load) == ["s-0", "s-1"]
+        for _ in range(2):
+            # The same load reporting twice, as a tab hidden and shown again does, counts once.
+            resp = self.client.post(
+                f"{self.scanners_url}watch_feed_impressions/",
+                {"feed_load_id": str(load), "observation_ids": [str(rows["s-0"].id), str(foreign.id)]},
+                format="json",
+            )
+            assert resp.status_code == 204, resp.content
+        assert ReplayObservationFeedImpression.objects.for_team(self.team.id).get().shown_count == 1
+        assert not ReplayObservationFeedImpression.objects.for_team(other_team.id).exists()
+
+        assert picks(load) == ["s-0", "s-1"]
+        assert picks(uuid.uuid4()) == ["s-1", "s-0"]
 
     def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
         # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a
