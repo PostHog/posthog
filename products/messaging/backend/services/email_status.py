@@ -40,7 +40,7 @@ SELECT {latest_status}
 FROM email_status
 WHERE team_id = %(team_id)s
   AND recipient_hash IN %(recipient_hashes)s
-  AND created_at >= %(since)s
+  AND created_at >= fromUnixTimestamp64Milli(%(since_ms)s, 'UTC')
   {cursor_clause}
 GROUP BY message_id, created_at
 ORDER BY created_at DESC, message_id DESC
@@ -91,13 +91,16 @@ def list_email_statuses_by_recipient(
     params: dict[str, Any] = {
         "team_id": team_id,
         "recipient_hashes": tuple(recipient_hashes),
-        "since": since,
+        "since_ms": int(since.timestamp() * 1000),
         "limit": limit,
     }
     cursor_clause = ""
     if cursor is not None:
-        cursor_clause = "AND (created_at, message_id) < (%(cursor_created_at)s, %(cursor_message_id)s)"
-        params |= {"cursor_created_at": message_created_at(cursor), "cursor_message_id": cursor}
+        cursor_clause = (
+            "AND (created_at, message_id) < (fromUnixTimestamp64Milli(%(cursor_created_ms)s, 'UTC'), "
+            "%(cursor_message_id)s)"
+        )
+        params |= {"cursor_created_ms": _created_ms(cursor), "cursor_message_id": cursor}
     query = _STATUSES_BY_RECIPIENT_QUERY.format(latest_status=_LATEST_STATUS, cursor_clause=cursor_clause)
     return [_record(row) for row in _execute(team_id, "email_statuses_by_recipient", query, params)]
 
@@ -107,10 +110,14 @@ def _execute(team_id: int, query_type: str, query: str, params: dict[str, Any]) 
         return sync_execute(query, params)
 
 
+def _created_ms(message_id: UUID) -> int:
+    # A message id is a UUIDT, whose first 48 bits are its creation time in milliseconds.
+    return int(message_id.hex[:12], 16)
+
+
 def message_created_at(message_id: UUID) -> datetime | None:
     """When PostHog accepted the email, or None for an id that no email can have."""
-    # A message id is a UUIDT, whose first 48 bits are its creation time in milliseconds.
-    created_ms = int(message_id.hex[:12], 16)
+    created_ms = _created_ms(message_id)
     # Another UUID can decode to a time past what datetime holds. No email was created after now.
     if created_ms > (datetime.now(UTC) + CREATED_AT_MARGIN).timestamp() * 1000:
         return None

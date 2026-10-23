@@ -142,11 +142,17 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         return self._client(scopes or ["hog_flow:read"]).get(f"/api/projects/{self.team.id}/messaging/emails/", query)
 
     def test_lists_a_recipients_emails_newest_first_a_page_at_a_time(self, _flag):
-        first_at = datetime.now(UTC) - timedelta(hours=3)
-        first, second, third = (self._sent_at(first_at + timedelta(hours=hour)) for hour in range(3))
+        first_at = (datetime.now(UTC) - timedelta(hours=3)).replace(microsecond=0)
+        first, third = self._sent_at(first_at), self._sent_at(first_at + timedelta(hours=2))
+        second_at = first_at + timedelta(hours=1, milliseconds=100)
+        second, second_in_the_same_second = (
+            self._sent_at(second_at),
+            self._sent_at(second_at + timedelta(milliseconds=500)),
+        )
         self._record(first, "queued", first_at)
         self._record(first, "sent", first_at + timedelta(seconds=2))
-        self._record(second, "bounced", first_at + timedelta(hours=1), reason="hard")
+        self._record(second, "bounced", second_at, reason="hard")
+        self._record(second_in_the_same_second, "delivered", second_at + timedelta(seconds=1))
         self._record(third, "queued", first_at + timedelta(hours=2))
         self._record(self._sent_at(first_at), "sent", first_at, recipient_hash=SOMEONE_ELSE_HASH)
         other_team = Team.objects.create(organization=self.organization)
@@ -159,11 +165,14 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         assert first_page.status_code == status.HTTP_200_OK, first_page.json()
         assert [(email["id"], email["status"], email.get("reason")) for email in first_page.json()["results"]] == [
             (str(third), "queued", None),
-            (str(second), "bounced", "hard"),
+            (str(second_in_the_same_second), "delivered", None),
         ]
         assert "jane" not in first_page.json()["next_cursor"].lower()
         next_page = self._list({"to": "jane.doe@example.com", "limit": 2, "cursor": first_page.json()["next_cursor"]})
-        assert [(email["id"], email["status"]) for email in next_page.json()["results"]] == [(str(first), "sent")]
+        assert [(email["id"], email["status"], email.get("reason")) for email in next_page.json()["results"]] == [
+            (str(second), "bounced", "hard"),
+            (str(first), "sent", None),
+        ]
         assert next_page.json()["next_cursor"] is None
 
     @parameterized.expand(
