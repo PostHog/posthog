@@ -85,7 +85,8 @@ class MCPIntentEmbeddingCache(UUIDModel, TeamScopedRootMixin):
     in Postgres, so a typed Postgres array buys us nothing.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # The unique constraint and the (team, created_at) index both lead with team_id.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_index=False)
     content_hash = models.CharField(max_length=64)
     model = models.CharField(max_length=64)
     embedding = models.BinaryField()
