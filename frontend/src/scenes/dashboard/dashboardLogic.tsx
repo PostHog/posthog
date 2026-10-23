@@ -2028,7 +2028,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return preserveTiles ? values.dashboard : null
                 },
-                saveEditModeChanges: async ({ scope }, breakpoint) => {
+                saveEditModeChanges: async ({ scope }) => {
                     let markApplied = (): void => {}
                     const applied = new Promise<void>((resolve) => {
                         markApplied = resolve
@@ -2090,8 +2090,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 if (!hasChanges) {
                                     return currentDashboard
                                 }
-
-                                breakpoint()
 
                                 const payload =
                                     scope === 'colors'
@@ -3769,6 +3767,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.tileGroupSections, s.canEditDashboard],
             (tileGroupSections: DashboardSection[], canEditDashboard: boolean): Record<number, TileGroupMoveOptions> =>
                 canEditDashboard ? getTileGroupMoveOptions(tileGroupSections) : {},
+            { resultEqualityCheck: objectsEqual },
         ],
         refreshMetrics: [
             (s) => [s.refreshStatus, s.refreshTilesTotal],
@@ -4139,20 +4138,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     layouts: sm ? ({ sm } as DashboardTile['layouts']) : {},
                     group_key: move.groupKey,
                 }
+                const savedBefore = values.savedTilePlacements[tileId] ?? { layouts: undefined, group_key: null }
                 actions.setTileProperty(tileId, placement)
+                const currentPlacement = (): TilePlacement | null => {
+                    const tile = values.tiles.find((candidate) => candidate.id === tileId)
+                    return tile ? tilePlacement(tile) : null
+                }
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tileId, ...placement }],
                     })
                     actions.tilePlacementsSaved({ [tileId]: placement })
+                    // A discard while the request was out put the tile back where it was saved before this move.
+                    if (!values.layoutEditMode && equal(currentPlacement(), savedBefore)) {
+                        actions.setTileProperty(tileId, placement)
+                    }
                     capture(move)
                     lemonToast.success(move.message)
                 } catch {
                     lemonToast.error('Could not move the tile, so it is back where it was. Try again.')
-                    const tile = values.tiles.find((candidate) => candidate.id === tileId)
                     // A move of this tile in edit mode is newer than this one, so it stays.
-                    if (tile && equal(tilePlacement(tile), placement)) {
+                    if (equal(currentPlacement(), placement)) {
                         actions.setTileProperty(
                             tileId,
                             values.savedTilePlacements[tileId] ?? { layouts: undefined, group_key: null }

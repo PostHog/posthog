@@ -3,7 +3,7 @@ import type { Layout, LayoutItem } from 'react-grid-layout'
 
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getDropCell } from './dashboardTileSections'
+import { getDropCell, isTileGroupSectionKey } from './dashboardTileSections'
 
 /** Drop zone after the last group, for taking a tile out of its group. */
 export const TAKE_OUT_DROP_ZONE_KEY = 'take-out-of-group'
@@ -37,7 +37,8 @@ function sectionKeyUnderPointer(event: Event, dashboardRoot: Element): string | 
     }
     const elements = document
         .elementsFromPoint(clientX, clientY)
-        .filter((element) => !element.closest('.react-draggable-dragging'))
+        // The source grid's placeholder follows the pointer out of its band, so it must not count as that band.
+        .filter((element) => !element.closest('.react-draggable-dragging, .react-grid-placeholder'))
     for (const element of elements) {
         const section = element.closest('[data-dashboard-section]')
         if (section) {
@@ -46,6 +47,15 @@ function sectionKeyUnderPointer(event: Event, dashboardRoot: Element): string | 
         }
     }
     return elements.some((element) => dashboardRoot.contains(element)) ? undefined : null
+}
+
+/** Like `sectionKeyUnderPointer`, but a tile with no group to leave treats the drop zone as outside the dashboard. */
+function dropKeyUnderPointer(
+    event: Event,
+    { dashboardRoot, sourceKey }: { dashboardRoot: Element; sourceKey: string }
+): string | null | undefined {
+    const key = sectionKeyUnderPointer(event, dashboardRoot)
+    return key === TAKE_OUT_DROP_ZONE_KEY && !isTileGroupSectionKey(sourceKey) ? null : key
 }
 
 /** Finds the band and grid cell under a dragged tile, so the logic can move the tile there on drop. */
@@ -100,7 +110,7 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
         if (!current) {
             return
         }
-        const keyUnderPointer = sectionKeyUnderPointer(event, current.dashboardRoot)
+        const keyUnderPointer = dropKeyUnderPointer(event, current)
         if (keyUnderPointer !== undefined) {
             current.keyUnderPointer = keyUnderPointer
             setDropTargetKey(keyUnderPointer === current.sourceKey ? null : keyUnderPointer)
@@ -115,7 +125,7 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
                 return
             }
             // Autoscroll moves bands under a still pointer, so read the band at the drop point.
-            const keyAtDrop = sectionKeyUnderPointer(event, current.dashboardRoot)
+            const keyAtDrop = dropKeyUnderPointer(event, current)
             const dropKey = keyAtDrop === undefined ? current.keyUnderPointer : keyAtDrop
             // The source grid reports its own layout right after drag stop, with the tile still in it.
             // Each change below waits for that report, so the report does not overwrite it.

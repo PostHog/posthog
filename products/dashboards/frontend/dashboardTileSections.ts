@@ -27,6 +27,12 @@ export function getTileGroupLabel(group: DashboardTileGroupApi, tileCount: numbe
     return group.title || pluralize(tileCount, 'tile')
 }
 
+const TILE_GROUP_SECTION_KEY_PREFIX = 'group-'
+
+export function isTileGroupSectionKey(sectionKey: string): boolean {
+    return sectionKey.startsWith(TILE_GROUP_SECTION_KEY_PREFIX)
+}
+
 function tilesInLayoutOrder(tiles: DashboardTile[], layout: Layout | undefined): DashboardTile[] {
     const positions = new Map((layout ?? []).map((item) => [item.i, item]))
     const position = (tile: DashboardTile): [number, number] => {
@@ -64,7 +70,7 @@ export function getDashboardSections({
             const group = groups && Object.hasOwn(groups, groupKey) ? groups[groupKey] : {}
             const section: DashboardSection = {
                 kind: 'group',
-                key: `group-${groupKey}`,
+                key: `${TILE_GROUP_SECTION_KEY_PREFIX}${groupKey}`,
                 groupKey,
                 group,
                 tiles: [tile],

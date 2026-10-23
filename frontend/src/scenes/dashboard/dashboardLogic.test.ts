@@ -675,6 +675,41 @@ describe('dashboardLogic', () => {
                 })
             })
 
+            it('shows a view-mode move that saves after a discard put the tile back', async () => {
+                const plansTile = tileIds[0]
+                logic.actions.moveTileToSection(plansTile, 'group-ops', null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                enterEditMode()
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                expect(groupOf(plansTile)).toBe('plans')
+
+                await settleSaves()
+
+                expect({ group: groupOf(plansTile), unsaved: logic.values.hasUnsavedLayoutChanges }).toEqual({
+                    group: 'ops',
+                    unsaved: false,
+                })
+            })
+
+            it('runs a layout save queued behind a newer one without an error', async () => {
+                const [, opsTile, looseTile] = tileIds
+                const errorToast = jest.spyOn(lemonToast, 'error')
+                logic.actions.moveTileToSection(opsTile, null, null, 'menu')
+                await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                enterEditMode()
+                logic.actions.moveTileToSection(looseTile, 'group-plans', { x: 0, y: 0 }, 'drag')
+
+                logic.actions.saveEditModeChanges('layout')
+                logic.actions.saveEditModeChanges('layout')
+                pendingSaves[0].resolve()
+                await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                await settleSaves()
+
+                expect(errorToast).not.toHaveBeenCalled()
+                expect(pendingSaves.map((save) => save.tileIds)).toEqual([[opsTile], [looseTile]])
+                expect(groupOf(looseTile)).toBe('plans')
+            })
+
             it.each([
                 { finish: 'save', saveFails: false, expectedGroup: 'plans', unsaved: false },
                 { finish: 'save', saveFails: true, expectedGroup: 'plans', unsaved: true },
