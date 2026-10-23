@@ -56,7 +56,7 @@ export function SuggestedReviewerPerson({
     const sourceLabel = getReviewerSourceLabel(reviewer)
 
     return (
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-2 rounded px-1.5 py-1.5 hover:bg-fill-highlight">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2 rounded px-1.5 py-1.5 hover:bg-fill-highlight">
             <Tooltip
                 title={
                     reviewer.user
@@ -81,18 +81,20 @@ export function SuggestedReviewerPerson({
                     {sourceLabel}
                 </LemonTag>
             )}
-            <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
-            <LemonButton
-                type="tertiary"
-                size="xsmall"
-                icon={<IconX />}
-                disabledReason={
-                    reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
-                    (disabled ? 'Updating…' : undefined)
-                }
-                onClick={onRemove}
-                tooltip={`Remove ${displayName}`}
-            />
+            <div className="flex items-center gap-2">
+                <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    icon={<IconX />}
+                    disabledReason={
+                        reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
+                        (disabled ? 'Updating…' : undefined)
+                    }
+                    onClick={onRemove}
+                    tooltip={`Remove ${displayName}`}
+                />
+            </div>
         </div>
     )
 }

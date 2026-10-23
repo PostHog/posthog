@@ -59,7 +59,7 @@ export function SuggestedReviewerReasonGroup({
                     return (
                         <div
                             key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
-                            className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded py-0.5 pr-0.5 hover:bg-fill-highlight"
+                            className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded py-0.5 pr-0.5 hover:bg-fill-highlight"
                         >
                             <Tooltip
                                 title={
@@ -78,18 +78,20 @@ export function SuggestedReviewerReasonGroup({
                                     />
                                 </span>
                             </Tooltip>
-                            <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                icon={<IconX />}
-                                disabledReason={
-                                    reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
-                                    (disabled ? 'Updating…' : undefined)
-                                }
-                                onClick={() => onRemove(reviewer)}
-                                tooltip={`Remove ${displayName}`}
-                            />
+                            <div className="flex items-center gap-2">
+                                <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconX />}
+                                    disabledReason={
+                                        reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
+                                        (disabled ? 'Updating…' : undefined)
+                                    }
+                                    onClick={() => onRemove(reviewer)}
+                                    tooltip={`Remove ${displayName}`}
+                                />
+                            </div>
                         </div>
                     )
                 })}
