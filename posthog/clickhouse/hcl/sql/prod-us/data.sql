@@ -1320,6 +1320,19 @@ CREATE TABLE posthog.sharded_log_entries (
   _timestamp DateTime,
   _offset UInt64
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/reshard/{shard}/posthog.sharded_log_entries', '{replica}', _timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_mcp_intent_assignments (
+  team_id Int64,
+  intent_hash String,
+  run_id String,
+  topic_id Nullable(String),
+  distance Float32,
+  x Float32,
+  y Float32,
+  is_outlier UInt8,
+  intent_text String,
+  calls_in_run UInt32,
+  timestamp DateTime64(3, 'UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_assignments', '{replica}', timestamp) ORDER BY (team_id, intent_hash) PARTITION BY toYYYYMM(timestamp) TTL toDateTime(timestamp) + toIntervalMonth(3) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_performance_events (
   uuid UUID,
   session_id String,
@@ -2008,6 +2021,19 @@ CREATE TABLE posthog.writable_ingestion_warnings (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_ingestion_warnings', rand());
+CREATE TABLE posthog.writable_mcp_intent_assignments (
+  team_id Int64,
+  intent_hash String,
+  run_id String,
+  topic_id Nullable(String),
+  distance Float32,
+  x Float32,
+  y Float32,
+  is_outlier UInt8,
+  intent_text String,
+  calls_in_run UInt32,
+  timestamp DateTime64(3, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_assignments', cityHash64(intent_hash));
 CREATE TABLE posthog.writable_posthog_document_embeddings (
   team_id Int64,
   product LowCardinality(String),
@@ -2935,6 +2961,19 @@ CREATE TABLE posthog.distinct_id_usage (
   minute DateTime,
   event_count UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_distinct_id_usage', sipHash64(distinct_id));
+CREATE TABLE posthog.distributed_mcp_intent_assignments (
+  team_id Int64,
+  intent_hash String,
+  run_id String,
+  topic_id Nullable(String),
+  distance Float32,
+  x Float32,
+  y Float32,
+  is_outlier UInt8,
+  intent_text String,
+  calls_in_run UInt32,
+  timestamp DateTime64(3, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_assignments', cityHash64(intent_hash));
 CREATE TABLE posthog.distributed_person (
   id UUID,
   created_at DateTime,

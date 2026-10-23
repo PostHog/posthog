@@ -5,6 +5,7 @@ from uuid import UUID
 from .enums import SubmissionKind
 
 MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG = "mcp-analytics-intent-routing"
+MCP_ANALYTICS_INTENT_TOPICS_FEATURE_FLAG = "mcp-analytics-intent-topics"
 
 
 class IntentGenerationUnavailable(RuntimeError):
