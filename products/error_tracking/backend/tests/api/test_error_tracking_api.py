@@ -621,10 +621,12 @@ class TestErrorTracking(APIBaseTest):
             ("regenerate_started", "post", "/regenerate", True, True, "generating"),
             ("regenerate_fresh", "post", "/regenerate", True, False, "ready"),
             ("regenerate_blocked", "post", "/regenerate", False, False, "unavailable"),
+            ("read_stale_queue_down", "get", "", True, ConnectionError("broker down"), "ready"),
+            ("read_none_queue_down", "get", "", False, ConnectionError("broker down"), "unavailable"),
         ]
     )
     def test_issue_summary_status(
-        self, _name: str, method: str, suffix: str, stored: bool, started: bool, expected_status: str
+        self, _name: str, method: str, suffix: str, stored: bool, started: bool | Exception, expected_status: str
     ) -> None:
         issue = self.create_issue()
         summary = contracts.ErrorTrackingIssueSummary(
@@ -639,7 +641,11 @@ class TestErrorTracking(APIBaseTest):
         )
         with (
             patch.object(summaries_facade, "get_issue_summary", return_value=summary if stored else None),
-            patch.object(summaries_facade, "start_issue_summary_generation", return_value=started) as start,
+            patch.object(
+                summaries_facade,
+                "start_issue_summary_generation",
+                **({"side_effect": started} if isinstance(started, Exception) else {"return_value": started}),
+            ) as start,
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{suffix}"
@@ -662,14 +668,25 @@ class TestErrorTracking(APIBaseTest):
         )
         assert response.json() == {"status": expected_status, "summary": expected_summary}
 
-    @parameterized.expand([("get", ""), ("post", "/regenerate")])
-    def test_issue_summary_is_scoped_to_team(self, method: str, suffix: str) -> None:
-        other_team = Team.objects.create(organization=self.organization)
-        other_issue = ErrorTrackingIssue.objects.create(team=other_team)
+    @parameterized.expand(
+        [
+            ("other_team_get", "get", "", True),
+            ("other_team_post", "post", "/regenerate", True),
+            ("malformed_id_get", "get", "", False),
+            ("malformed_id_post", "post", "/regenerate", False),
+        ]
+    )
+    def test_issue_summary_is_scoped_to_team(self, _name: str, method: str, suffix: str, other_team: bool) -> None:
+        if other_team:
+            issue_id = str(
+                ErrorTrackingIssue.objects.create(team=Team.objects.create(organization=self.organization)).id
+            )
+        else:
+            issue_id = "not-a-uuid"
 
         with patch.object(summaries_facade, "start_issue_summary_generation") as start:
             response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/error_tracking/issues/{other_issue.id}/summary{suffix}"
+                f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary{suffix}"
             )
 
         assert response.status_code == 404

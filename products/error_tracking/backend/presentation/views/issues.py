@@ -303,7 +303,12 @@ def issue_summary_response(team_id: int, issue_id: UUID, *, regenerate: bool) ->
     summary = summaries_facade.get_issue_summary(team_id, issue_id)
     # Starting is a no-op while a stored summary is younger than the regenerate interval,
     # so a read of a stale summary also refreshes it in the background.
-    started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
+    try:
+        started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
+    except Exception as e:
+        # A read must not fail when the task queue is down, so a stored summary still shows.
+        posthoganalytics.capture_exception(e, properties={"team_id": team_id, "issue_id": str(issue_id)})
+        started = False
     if started and (regenerate or summary is None):
         summary_status = IssueSummaryStatus.GENERATING
     elif summary is not None:
@@ -603,7 +608,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return self._summary_response(pk, regenerate=True)
 
     def _summary_response(self, pk: object, *, regenerate: bool) -> Response:
-        issue_id = UUID(str(pk))
+        try:
+            issue_id = UUID(str(pk))
+        except ValueError:
+            raise NotFound("Issue not found")
         # Without this, another team's issue id would queue a generation task under this team.
         if not facade_api.issue_exists_by_id(self.team_id, issue_id):
             raise NotFound("Issue not found")
