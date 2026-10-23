@@ -60,7 +60,7 @@ MAX_ANSWER_TOKENS = 4096
 # otherwise read as "not cited".
 OPENAI_MAX_OUTPUT_TOKENS = 12000
 
-GEMINI_AI_PRODUCT = "aeo"
+AEO_AI_PRODUCT = "aeo"
 # The Gemini API grounding chunk carries this redirect host as its uri and the
 # source domain in its `domain` field.
 GEMINI_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -487,7 +487,7 @@ class ClaudeWebSearchEngine:
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
             "anthropic-version": "2023-06-01",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+            **(ai_gateway_headers(ai_product=AEO_AI_PRODUCT, trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
             body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/messages", headers, payload)
@@ -529,7 +529,7 @@ class OpenAIWebSearchEngine:
         }
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
+            **(ai_gateway_headers(ai_product=AEO_AI_PRODUCT, trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
             body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/responses", headers, payload)
@@ -562,7 +562,7 @@ class GeminiGroundedEngine:
         # The client carries the trace and property headers, so each check builds its own
         # and closes its connection pool when the check ends.
         client = build_gemini_client(
-            ai_product=GEMINI_AI_PRODUCT,
+            ai_product=AEO_AI_PRODUCT,
             trace_id=trace_id,
             properties=custom_properties,
             timeout_ms=GEMINI_TIMEOUT_MS,

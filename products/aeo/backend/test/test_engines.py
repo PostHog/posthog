@@ -220,7 +220,8 @@ def test_anthropic_truncated_error(_name: str, body: dict, cited: list, expected
 def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected_error: str | None) -> None:
     captured: dict = {}
 
-    def fake_post(_session, _url, _headers, payload, **_kwargs):
+    def fake_post(_session, _url, headers, payload, **_kwargs):
+        captured["headers"] = headers
         captured["payload"] = payload
         return body
 
@@ -229,11 +230,12 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
             "products.aeo.backend.engines.resolve_ai_gateway_config",
             return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
         ),
-        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
         check = OpenAIWebSearchEngine().run("best web analytics tool", trace_id="t1", custom_properties={})
 
+    assert captured["headers"]["X-PostHog-Product"] == "aeo"
+    assert captured["headers"]["X-PostHog-Trace-Id"] == "t1"
     assert check.error == expected_error
     assert captured["payload"]["max_output_tokens"] == OPENAI_MAX_OUTPUT_TOKENS
     if expected_error is None:
@@ -243,7 +245,8 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
 def test_claude_engine_calls_web_search_directly() -> None:
     captured: dict = {}
 
-    def fake_post(_session, _url, _headers, payload, **_kwargs):
+    def fake_post(_session, _url, headers, payload, **_kwargs):
+        captured["headers"] = headers
         captured["payload"] = payload
         return ANTHROPIC_BODY
 
@@ -252,13 +255,14 @@ def test_claude_engine_calls_web_search_directly() -> None:
             "products.aeo.backend.engines.resolve_ai_gateway_config",
             return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
         ),
-        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
         check = ClaudeWebSearchEngine().run("best session replay tool", trace_id="t1", custom_properties={})
 
     [tool] = captured["payload"]["tools"]
     assert tool["allowed_callers"] == ["direct"]
+    assert captured["headers"]["X-PostHog-Product"] == "aeo"
+    assert captured["headers"]["X-PostHog-Trace-Id"] == "t1"
     assert check.error is None
     assert check.cited_urls == ["https://posthog.com/session-replay", "https://example.com/reviews"]
 
@@ -515,6 +519,7 @@ def test_gemini_engine_run(_name: str, outcome: object, expected_error: str | No
             "best product analytics", trace_id="t1", custom_properties={"aeo_run_id": "r1"}
         )
 
+    assert build.call_args.kwargs["ai_product"] == "aeo"
     assert build.call_args.kwargs["trace_id"] == "t1"
     assert build.call_args.kwargs["properties"] == {"aeo_run_id": "r1"}
     assert fake_client.captured["contents"] == "best product analytics"
