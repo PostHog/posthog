@@ -45,6 +45,8 @@ export interface BuildToolResultOptions {
      */
     includeUiResponseMeta?: boolean
     includeRenderNote?: boolean
+    /** Serve the online-evaluations hint after trace queries (see `isEvalsHintEnabled`). */
+    evalsHintEnabled?: boolean | undefined
 }
 
 /**
@@ -161,6 +163,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         mcpClientName,
         includeUiResponseMeta,
         includeRenderNote,
+        evalsHintEnabled,
     } = opts
 
     const isStringResult = typeof handlerResult === 'string'
@@ -238,7 +241,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     let discoveryHint: DiscoveryHint | undefined
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
-        discoveryHint = getDiscoveryHint({ toolName, handlerResult })
+        discoveryHint = getDiscoveryHint({ toolName, handlerResult, evalsHintEnabled })
         if (discoveryHint) {
             footers.push(discoveryHint.text)
         }

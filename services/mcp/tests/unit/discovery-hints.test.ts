@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildToolResultPayload, markExecPayload, toolResultAnalyticsProperties } from '@/lib/build-tool-result'
-import { getDiscoveryHint, isEmptyToolResult } from '@/lib/discovery-hints'
+import { getDiscoveryHint, isEmptyToolResult, isEvalsHintEnabled } from '@/lib/discovery-hints'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 describe('isEmptyToolResult', () => {
@@ -75,15 +75,28 @@ describe('getDiscoveryHint', () => {
         expect(hint?.kind).not.toBe('empty_state')
     })
 
-    it.each(['query-llm-traces-list', 'query-llm-trace'])(
-        'points %s at online evaluations when it has results',
-        (toolName) => {
-            const hint = getDiscoveryHint({ toolName, handlerResult: { results: [{ id: 'trace-1' }] } })
+    it.each([
+        ['query-llm-traces-list', true],
+        ['query-llm-trace', true],
+        ['query-llm-traces-list', false],
+        ['query-llm-trace', false],
+    ])('serves the online evaluations hint after %s only when enabled (%s)', (toolName, evalsHintEnabled) => {
+        const hint = getDiscoveryHint({ toolName, handlerResult: { results: [{ id: 'trace-1' }] }, evalsHintEnabled })
 
-            expect(hint?.kind).toBe('related_capability')
-            expect(hint?.text).toContain('creating-online-evaluations')
-        }
-    )
+        expect(hint?.text?.includes('creating-online-evaluations') ?? false).toBe(evalsHintEnabled)
+    })
+
+    it.each([
+        ['mcp', [], true],
+        ['mcp', ['internal_run:read'], true],
+        ['mcp', ['signal_scout_internal:write', 'internal_run:read'], false],
+        ['control', [], false],
+        ['email', [], false],
+        [true, [], false],
+        [undefined, [], false],
+    ])('enables the evals hint for flag %s with scopes %j: %s', (flagValue, scopes, expected) => {
+        expect(isEvalsHintEnabled(flagValue, scopes)).toBe(expected)
+    })
 
     it('cross-sells subscriptions and dashboards after insight creation', () => {
         const hint = getDiscoveryHint({ toolName: 'insight-create', handlerResult: { id: 1, short_id: 'abc' } })

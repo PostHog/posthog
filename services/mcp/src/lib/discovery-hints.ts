@@ -20,6 +20,8 @@
  * tools where the adjacent capability is a genuine next step, not marketing.
  */
 
+import { MCP_SCOPE_PRESET, resolveScopePreset } from '@/lib/scope-preset'
+
 /**
  * Fired when the tool result is empty (see `isEmptyToolResult`). Wording rule:
  * lead with the not-instrumented-yet explanation and its skill, then give the
@@ -43,8 +45,20 @@ const EMPTY_STATE_HINTS: Record<string, string> = {
         'No LLM cost data found. If AI observability is not capturing `$ai_generation` events yet, load the `instrument-llm-analytics` skill to wire it up. Otherwise widen the date range.',
 }
 
+// Channel experiment: only orgs in the `mcp` variant get the evaluations hint, so the
+// other arms stay clean comparisons.
+export const AIO_EVALS_HINT_FLAG = 'aio-evals-adoption-channel-test'
+
 const ONLINE_EVALUATIONS_HINT =
     'Related: online evaluations can score new traces like these automatically (pass/fail, scores, labels, or sentiment). If the project has none yet (`llma-evaluation-list`), load the `creating-online-evaluations` skill to propose one.'
+
+const ONLINE_EVALUATIONS_HINT_TOOLS = new Set(['query-llm-traces-list', 'query-llm-trace'])
+
+/** Automated callers (scouts, pipeline runs) are outside the experiment audience. */
+export function isEvalsHintEnabled(flagValue: unknown, apiKeyScopes: readonly string[] | undefined): boolean {
+    const preset = resolveScopePreset(apiKeyScopes)
+    return flagValue === 'mcp' && (preset === MCP_SCOPE_PRESET.USER || preset === MCP_SCOPE_PRESET.SANDBOX)
+}
 
 /** Fired when the tool result is non-empty: the adjacent capability to reach for next. */
 const RELATED_CAPABILITY_HINTS: Record<string, string> = {
@@ -54,8 +68,6 @@ const RELATED_CAPABILITY_HINTS: Record<string, string> = {
         'Related: a check like this can run continuously as a log alert — load the `authoring-log-alerts` skill to author a low-noise one.',
     'get-llm-total-costs-for-project':
         'Related: to explain who or what drives this spend, load the `analyzing-expensive-users` skill.',
-    'query-llm-traces-list': ONLINE_EVALUATIONS_HINT,
-    'query-llm-trace': ONLINE_EVALUATIONS_HINT,
     'insight-create':
         'Related: this insight can go on a dashboard (`building-a-dashboard` skill) or be delivered to email/Slack on a schedule (`managing-subscriptions` skill).',
 }
@@ -90,6 +102,8 @@ interface DiscoveryHintInput {
     toolName: string
     /** Raw handler return value, before serialization. */
     handlerResult: unknown
+    /** Resolved by `isEvalsHintEnabled` from the request's flags and token scopes. */
+    evalsHintEnabled?: boolean | undefined
 }
 
 export type DiscoveryHintKind = 'empty_state' | 'related_capability'
@@ -104,10 +118,17 @@ export interface DiscoveryHint {
  * none is registered. At most one hint fires per call: the empty-state hint
  * when the result is empty, the related-capability hint otherwise.
  */
-export function getDiscoveryHint({ toolName, handlerResult }: DiscoveryHintInput): DiscoveryHint | undefined {
+export function getDiscoveryHint({
+    toolName,
+    handlerResult,
+    evalsHintEnabled,
+}: DiscoveryHintInput): DiscoveryHint | undefined {
     if (isEmptyToolResult(handlerResult, toolName)) {
         const text = EMPTY_STATE_HINTS[toolName]
         return text ? { kind: 'empty_state', text } : undefined
+    }
+    if (ONLINE_EVALUATIONS_HINT_TOOLS.has(toolName)) {
+        return evalsHintEnabled ? { kind: 'related_capability', text: ONLINE_EVALUATIONS_HINT } : undefined
     }
     const text = RELATED_CAPABILITY_HINTS[toolName]
     return text ? { kind: 'related_capability', text } : undefined
