@@ -87,6 +87,18 @@ describe('UnrecordedContentPlugin', () => {
         expect(build(tagName, attributes, events)).toBe(expected)
     })
 
+    it('ignores a mutation that has no adds or attributes array', () => {
+        const element = document.createElement('iframe')
+        const bare = { type: 3, timestamp: 2000, data: { source: 0, isAttachIframe: true } } as unknown as eventWithTime
+        const plugin = UnrecordedContentPlugin([bare])
+        plugin.onBuild?.(element, {
+            id: NODE_ID,
+            replayer: replayerWith('iframe', { rr_src: 'https://embed.example.com/' }, element),
+        })
+        plugin.handler?.(bare, false, { replayer: replayerWith('iframe', {}, element) })
+        expect(element.getAttribute(UNRECORDED_ATTRIBUTE)).toBe('embed')
+    })
+
     it('drops the video poster so the label shows', () => {
         const element = document.createElement('video')
         element.setAttribute('poster', 'https://cdn.example.com/poster.jpg')

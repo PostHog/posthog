@@ -70,12 +70,13 @@ export function scanRecordedContent(events: eventWithTime[]): RecordedContent {
         if (data.source === IncrementalSource.CanvasMutation) {
             drawnCanvasIds.add(data.id)
         } else if (data.source === IncrementalSource.Mutation) {
-            if (data.isAttachIframe) {
+            // Some recordings hold mutations that leave out the `adds` or `attributes` array.
+            if (data.isAttachIframe && Array.isArray(data.adds)) {
                 for (const add of data.adds) {
                     attachedIframeIds.add(add.parentId)
                 }
             }
-            for (const change of data.attributes) {
+            for (const change of Array.isArray(data.attributes) ? data.attributes : []) {
                 if (typeof change.attributes?.rr_dataURL === 'string') {
                     drawnCanvasIds.add(change.id)
                 }
@@ -128,7 +129,11 @@ export function UnrecordedContentPlugin(events: eventWithTime[]): ReplayPlugin {
         },
         // An iframe can get its cross-origin `src` after it was built, as a recorded attribute change.
         handler: (event, _isSync, { replayer }) => {
-            if (event.type !== EventType.IncrementalSnapshot || event.data.source !== IncrementalSource.Mutation) {
+            if (
+                event.type !== EventType.IncrementalSnapshot ||
+                event.data.source !== IncrementalSource.Mutation ||
+                !Array.isArray(event.data.attributes)
+            ) {
                 return
             }
             for (const change of event.data.attributes) {
