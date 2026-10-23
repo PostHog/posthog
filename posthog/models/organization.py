@@ -751,7 +751,8 @@ def sync_active_state_to_billing_on_change(sender, instance: Organization, creat
 BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS = 5
 
 
-def _start_billing_active_sync_workflow(organization_id: str) -> None:
+async def start_billing_active_sync_workflow(organization_id: str) -> None:
+    """Start or signal the per-organization billing sync. Raises if Temporal does not accept it."""
     # Imports deferred to keep the Temporal stack off the model import path.
     import asyncio
 
@@ -764,23 +765,26 @@ def _start_billing_active_sync_workflow(organization_id: str) -> None:
     )
     from posthog.temporal.common.client import async_connect
 
-    async def _connect_and_start() -> None:
-        client = await asyncio.wait_for(async_connect(), timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS)
-        await asyncio.wait_for(
-            client.start_workflow(
-                SyncOrganizationActiveStateWorkflow.run,
-                SyncOrganizationActiveStateInputs(organization_id=organization_id),
-                id=f"billing-org-active-sync-{organization_id}",
-                task_queue=settings.BILLING_TASK_QUEUE,
-                # A running sync gets the signal and syncs again, so two POSTs for one org never race.
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                start_signal=RESYNC_SIGNAL,
-            ),
-            timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS,
-        )
+    client = await asyncio.wait_for(async_connect(), timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS)
+    await asyncio.wait_for(
+        client.start_workflow(
+            SyncOrganizationActiveStateWorkflow.run,
+            SyncOrganizationActiveStateInputs(organization_id=organization_id),
+            id=f"billing-org-active-sync-{organization_id}",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            # A running sync gets the signal and syncs again, so two POSTs for one org never race.
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            start_signal=RESYNC_SIGNAL,
+        ),
+        timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS,
+    )
+
+
+def _start_billing_active_sync_workflow(organization_id: str) -> None:
+    import asyncio
 
     try:
-        asyncio.run(_connect_and_start())
+        asyncio.run(start_billing_active_sync_workflow(organization_id))
     except Exception:
         # The nightly reconciliation realigns billing; never fail the org save.
         logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)

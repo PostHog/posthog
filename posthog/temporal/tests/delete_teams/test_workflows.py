@@ -75,6 +75,10 @@ def _recording_activities(
     async def delete_organization_record_activity(inputs: OrganizationRecordInputs) -> None:
         calls.append("delete_organization_record_activity")
 
+    @activity.defn(name="deactivate_deleted_organization_in_billing_activity")
+    async def deactivate_deleted_organization_in_billing_activity(inputs: OrganizationRecordInputs) -> None:
+        calls.append("deactivate_deleted_organization_in_billing_activity")
+
     @activity.defn(name="send_project_deleted_email_activity")
     async def send_project_deleted_email_activity(inputs: ProjectEmailInputs) -> None:
         calls.append("send_project_deleted_email_activity")
@@ -89,6 +93,7 @@ def _recording_activities(
         check_project_pending_deletion_activity,
         delete_project_record_activity,
         delete_organization_record_activity,
+        deactivate_deleted_organization_in_billing_activity,
         send_project_deleted_email_activity,
         send_organization_deleted_email_activity,
     ]
@@ -179,6 +184,7 @@ async def test_organization_workflow_deletes_record_then_emails():
         "deprovision_managed_warehouse_activity",
         *CORE_ACTIVITY_ORDER,
         "delete_organization_record_activity",
+        "deactivate_deleted_organization_in_billing_activity",
         "send_organization_deleted_email_activity",
     ]
 
@@ -290,6 +296,49 @@ async def test_warehouse_deprovision_failure_blocks_org_record_deletion():
 
     assert len(attempts) > 1  # durably retried until the test-only execution timeout
     assert calls == []  # nothing else ran — the pointer-destroying cascade never started
+
+
+async def test_billing_deactivation_failure_does_not_block_org_deletion():
+    attempts: list[str] = []
+    calls: list[str] = []
+
+    @activity.defn(name="deactivate_deleted_organization_in_billing_activity")
+    async def failing_billing_deactivation(inputs: OrganizationRecordInputs) -> None:
+        attempts.append("attempt")
+        raise RuntimeError("billing service unavailable")
+
+    activities = [
+        *_recording_activities(calls, exclude=frozenset({"deactivate_deleted_organization_in_billing_activity"})),
+        failing_billing_deactivation,
+    ]
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=WORKFLOWS,
+            activities=activities,
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteOrganizationWorkflow.run,
+                DeleteOrganizationWorkflowInputs(
+                    team_ids=[],
+                    organization_id="11111111-1111-1111-1111-111111111111",
+                    user_id=7,
+                    organization_name="org",
+                    project_names=[],
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+    assert len(attempts) == 5  # exhausted SIDE_EFFECT_RETRY_POLICY, then swallowed
+    assert calls == [
+        "deprovision_managed_warehouse_activity",
+        "delete_organization_record_activity",
+        "send_organization_deleted_email_activity",
+    ]
 
 
 async def test_recording_deletion_failure_does_not_block_workflow():

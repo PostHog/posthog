@@ -1,5 +1,6 @@
 from posthog.temporal.delete_teams.activities import (
     check_project_pending_deletion_activity,
+    deactivate_deleted_organization_in_billing_activity,
     delete_batch_exports_activity,
     delete_cohort_members_activity,
     delete_data_modeling_schedules_activity,
@@ -45,6 +46,7 @@ ACTIVITIES = [
     check_project_pending_deletion_activity,
     delete_project_record_activity,
     delete_organization_record_activity,
+    deactivate_deleted_organization_in_billing_activity,
     send_project_deleted_email_activity,
     send_organization_deleted_email_activity,
 ]
