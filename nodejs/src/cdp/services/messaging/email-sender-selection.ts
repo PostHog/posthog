@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 
-type EmailSenderConfiguration = {
+export type EmailSenderConfiguration = {
     integrationId: number
     integrationIds?: number[]
 }

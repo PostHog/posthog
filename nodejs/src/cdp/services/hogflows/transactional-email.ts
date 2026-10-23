@@ -6,7 +6,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { PolicyCode, SendCandidate } from '../messaging/email-send-policy'
-import { selectEmailSenderIntegrationId } from '../messaging/email-sender-selection'
+import { EmailSenderConfiguration, selectEmailSenderIntegrationId } from '../messaging/email-sender-selection'
 import { emailPauseMetadata } from './hogflow-functions.service'
 
 export const AcceptedSendSchema = z
@@ -72,8 +72,6 @@ export const transactionalEmailRequestsTotal = new Counter({
     labelNames: ['outcome'],
 })
 
-type SenderConfiguration = { integrationId: number; integrationIds?: number[] }
-
 /**
  * What the delivery's send checks will see, known when the send is accepted: the sender the email step
  * resolves to for this run, and the recipient. The caller's `send.from` replaces the step's sender, as it
@@ -95,7 +93,7 @@ export async function transactionalSendCandidate(
     }
 }
 
-function emailStepSender(hogFlow: HogFlow): SenderConfiguration | null {
+function emailStepSender(hogFlow: HogFlow): EmailSenderConfiguration | null {
     const step = hogFlow.actions.find((action) => action.type === 'function_email')
     const from = step?.type === 'function_email' ? step.config.inputs?.email?.value?.from : undefined
     return typeof from?.integrationId === 'number' ? from : null
