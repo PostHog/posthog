@@ -1061,6 +1061,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         instance: ExternalDataSchema,
         validated_data: dict[str, Any],
         original_sync_type_config: dict[str, Any],
+        mutate_locked_config: Callable[[dict[str, Any]], None] | None = None,
     ) -> ExternalDataSchema:
         """Persist the update onto a freshly-locked row, writing only the fields this request changed.
 
@@ -1085,6 +1086,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             merged.update(changed)
             for key in removed:
                 merged.pop(key, None)
+            if mutate_locked_config is not None:
+                mutate_locked_config(merged)
             validated_data["sync_type_config"] = merged
             # Apply to the locked row rather than the request's copy. The copy still holds whatever
             # the other writer replaced, and activity logging diffs the stored row against the
@@ -1597,6 +1600,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Rows already synced hold the old values, and the column changes type between the source
         # type and text, so a mask change rebuilds the table. CDC takes a new snapshot further down.
+        stage_locked_config: Callable[[dict[str, Any]], None] | None = None
         if masked_columns_changed:
             will_sync = should_sync if should_sync is not None else instance.should_sync
             if not is_cdc:
@@ -1606,7 +1610,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     trigger_refresh = True
             elif will_sync:
                 # Staged in this save, so capture still finishes the reset if the hand-over after it fails.
-                stage_handed_over_reset(instance.sync_type_config)
+                # Staged on the locked row, which may hold a reset that repair set to wait for a slot.
+                stage_locked_config = stage_handed_over_reset
             else:
                 # Capture does not read a table that does not sync, so the new snapshot is staged in this
                 # save. A self-managed publication takes no snapshot of its own when the table is turned on.
@@ -1670,7 +1675,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
-        updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+        updated_instance = self._save_merging_sync_type_config(
+            instance, validated_data, original_sync_type_config, stage_locked_config
+        )
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
 
@@ -1679,6 +1686,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # one table. Cancel it; the user decides when to sync again.
         # A mask change cancels it too, as the resync button does, so the masking rebuild starts now
         # instead of waiting for the next schedule tick.
+        import_cancelled = False
         if api_version_changed or (masked_columns_changed and not is_cdc):
             running_job = (
                 ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
@@ -1698,6 +1706,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         )
 
                 self._run_temporal_side_effect(cancel_running_import)
+                import_cancelled = True
 
         if source.supports_scheduled_sync and (
             should_sync is not None
@@ -1761,7 +1770,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:
-            self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
+            self._run_temporal_side_effect(
+                lambda: trigger_external_data_workflow(updated_instance, buffer_one=import_cancelled)
+            )
 
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)

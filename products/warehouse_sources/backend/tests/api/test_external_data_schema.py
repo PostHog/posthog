@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
+    ExternalDataSchemaSerializer,
     masked_columns_error,
     schema_display_status,
 )
@@ -5107,7 +5108,7 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         self, _name: str, stored: list[str] | None, requested: list[str], resyncs: bool
     ) -> None:
         schema = self._create(masked_columns=stored)
-        # A running sync would make the schedule skip the trigger, so the rebuild would wait a whole interval.
+        # The schedule skips a trigger while a sync runs, so the rebuild would wait a whole interval.
         ExternalDataJob.objects.create(
             team=self.team,
             pipeline=schema.source,
@@ -5125,7 +5126,7 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         schema.refresh_from_db()
         assert schema.masked_columns == requested
         assert schema.sync_type_config.get("reset_pipeline") is (True if resyncs else None)
-        assert mock_trigger.call_count == (1 if resyncs else 0)
+        assert mock_trigger.call_args_list == ([mock.call(mock.ANY, buffer_one=True)] if resyncs else [])
         assert mock_cancel.call_args_list == ([mock.call("running-workflow-id")] if resyncs else [])
 
     def test_a_patch_without_the_field_keeps_the_masks(self) -> None:
@@ -5172,6 +5173,35 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
             assert schema.sync_type_config["cdc_mode"] == "snapshot"
             assert schema.sync_type_config["reset_pipeline"] is True
             assert schema.initial_sync_complete is False
+
+    def test_a_cdc_mask_reset_keeps_a_reset_that_waits_for_a_slot(self) -> None:
+        schema = self._create(sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True)
+        original_save = ExternalDataSchemaSerializer._save_merging_sync_type_config
+
+        def repair_stages_a_reset_first(serializer: ExternalDataSchemaSerializer, *args: Any) -> ExternalDataSchema:
+            update_sync_type_config_keys(
+                schema.id,
+                schema.team_id,
+                updates={"cdc_reset_pending": {"trigger": True, "awaiting_slot": True, "generation": 3}},
+            )
+            return original_save(serializer, *args)
+
+        with (
+            mock.patch.object(
+                ExternalDataSchemaSerializer,
+                "_save_merging_sync_type_config",
+                autospec=True,
+                side_effect=repair_stages_a_reset_first,
+            ),
+            mock.patch(f"{self.VIEWS}.source_type_supports_cdc", return_value=False),
+            mock.patch(f"{self.VIEWS}.sync_cdc_extraction_schedule"),
+            mock.patch(f"{self.VIEWS}.hand_reset_to_capture"),
+        ):
+            response = self._patch(schema, {"masked_columns": ["password"]})
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_reset_pending"] == {"trigger": True, "awaiting_slot": True, "generation": 4}
 
     def test_rejected_when_the_masking_key_is_public(self) -> None:
         schema = self._create()
