@@ -168,6 +168,10 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         indexes = [
             models.Index(fields=["team_id", "created_at"], name="aeo_check_team_created_idx"),
             models.Index(fields=["team_id", "engine"], name="aeo_check_team_engine_idx"),
+            models.Index(
+                fields=["team_id", "prompt_id", "engine", "-created_at"],
+                name="aeo_check_latest_engine_idx",
+            ),
         ]
 
     def __str__(self) -> str:

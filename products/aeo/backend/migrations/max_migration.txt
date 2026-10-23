@@ -1,1 +1,1 @@
-0005_team_config_and_brand_detection
+0006_citation_check_latest_index
