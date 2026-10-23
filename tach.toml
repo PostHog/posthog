@@ -979,6 +979,9 @@ depends_on = [
     "products.exports",
     # Mention workflows check billing quota limits before they start a task.
     "ee",
+    # Feature tips skip MCP tools and Slack subscriptions that the reader already uses.
+    "products.mcp_store",
+    "products.subscriptions",
 ]
 layer = "modules"
 
@@ -1814,6 +1817,20 @@ from = [
 ]
 
 [[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ai_gateway",
+]
+
+[[modules]]
 path = "products.uptime_monitoring"
 depends_on = ["posthog"]
 layer = "modules"
@@ -1825,4 +1842,17 @@ expose = [
 ]
 from = [
     "products.uptime_monitoring",
+]
+
+[[modules]]
+path = "products.authorization"
+depends_on = []
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.authorization",
 ]

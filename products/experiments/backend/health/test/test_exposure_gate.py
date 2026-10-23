@@ -20,14 +20,10 @@ from posthog.test.persons import create_person
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
     MIN_EXPOSED_UNITS_TO_WARN,
-    BucketingChange,
-    BucketingSetting,
     ChangeWindow,
-    ConditionsChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
-    SplitChange,
 )
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
@@ -38,6 +34,7 @@ from products.experiments.backend.health.exposure_gate import (
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting, ConditionsChange, SplitChange
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FLAG_KEY = "split-gate"

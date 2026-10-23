@@ -1098,6 +1098,7 @@ Disable scroll shadows: `<ScrollArea scrollShadows={false}>`
 ### Pagination
 
 Presentational, stateless parts — you own the page state. `getPaginationRange(pageCount, pageIndex)` returns 0-based page indices and `'ellipsis'` tokens (first/last + a sibling window) for large counts.
+Numbered buttons keep the compact single-digit width and expand for longer page numbers.
 
 ```tsx
 const range = getPaginationRange(pageCount, pageIndex)

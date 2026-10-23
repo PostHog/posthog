@@ -91,7 +91,9 @@ class TestRenderAIEmailHtml:
         assert "<h2>" in html
 
     def test_renders_basic_markdown(self) -> None:
-        html = render_ai_email_html("**bold** and *italic*")
+        html = render_ai_email_html("- **bold** and *italic*")
+        assert "<ul>" in html
+        assert "<li>" in html
         assert "<strong>bold</strong>" in html
         assert "<em>italic</em>" in html
 

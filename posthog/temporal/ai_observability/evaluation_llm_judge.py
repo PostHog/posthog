@@ -30,11 +30,16 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
+    GenerationNotFoundError,
     extract_event_io,
     extract_event_tools,
     hydrate_event_reference,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
+from posthog.temporal.ai_observability.evaluation_types import (
+    EvaluationActivityResult,
+    build_generation_not_found_result,
+    build_skipped_evaluation_result,
+)
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -84,7 +89,11 @@ from products.ai_observability.backend.models.evaluation_configs import (
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    EVENT_TEXT_MAX_CHARS,
+    sanitize_surrogates,
+    truncate_by_line_sampling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -498,7 +507,10 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
 def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = hydrate_event_reference(inputs.event_data)
+    try:
+        event_data = hydrate_event_reference(inputs.event_data)
+    except GenerationNotFoundError:
+        return build_generation_not_found_result(evaluation)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -553,7 +565,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     # Keep the full answer being graded outside the sampled context.
     context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
-    user_prompt = f"Input: {context}{output_section}"
+    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
 
     return call_llm_judge(
         evaluation=evaluation,

@@ -75,6 +75,16 @@ class AEOConfig:
 
 
 @frozen
+class PromptEngineCheck:
+    """The most recent check of one prompt against one answer engine."""
+
+    engine: str
+    cited: bool
+    check_failed: bool
+    checked_at: dt.datetime
+
+
+@frozen
 class Prompt:
     id: str
     prompt: str
@@ -86,6 +96,13 @@ class Prompt:
     external_visibility: float | None
     created_at: dt.datetime
     updated_at: dt.datetime | None
+    latest_checks: tuple[PromptEngineCheck, ...]
+
+
+@frozen
+class PromptTopic:
+    topic: str
+    prompts: int
 
 
 @frozen

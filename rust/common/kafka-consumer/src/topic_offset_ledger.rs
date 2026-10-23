@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use metrics::counter;
@@ -9,8 +8,8 @@ use crate::charge::Charge;
 use crate::partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger, TakenFrontier};
 use crate::types::Offset;
 
-/// Charges and settlements dropped because their partition was reassigned
-/// while they were in flight.
+/// Charges and settlements dropped because their stamp predates the
+/// partition's current generation: a reassignment or a violation reset.
 const STALE_SLICES: &str = "kafka_consumer_ledger_stale_slices_total";
 /// Contract violations in the ledger's accounting; must stay at zero.
 const ERRORS: &str = "kafka_consumer_ledger_errors_total";
@@ -36,8 +35,9 @@ impl TopicPartition {
 /// Why a charge or settlement did not land on its partition's ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rejection {
-    /// The work predates the partition's current assignment. Kafka
-    /// redelivers its offsets under the current one, so nothing is lost.
+    /// The work's stamp predates the partition's current generation: the
+    /// partition was reassigned, or its ledger was reset after a violation.
+    /// After a reassignment Kafka redelivers the offsets, so nothing is lost.
     Stale { stamp: u64, generation: u64 },
     /// The work violated the ledger's contract. The partition's window is
     /// unknown after this, so its ledger was reset to a new generation: work
@@ -64,11 +64,6 @@ pub enum Rejection {
 #[derive(Default)]
 pub struct TopicOffsetLedger {
     partitions: Mutex<HashMap<TopicPartition, PartitionOffsetLedger>>,
-    /// Version of the per-partition generation map: moves whenever any
-    /// partition's generation does. A caller stamping work outside the lock
-    /// reads this per message and only re-reads the partition's generation
-    /// when it moved.
-    generations_version: AtomicU64,
 }
 
 impl TopicOffsetLedger {
@@ -85,13 +80,6 @@ impl TopicOffsetLedger {
             .get(topic_partition)
             .map(PartitionOffsetLedger::generation)
             .unwrap_or_default()
-    }
-
-    /// Version of the per-partition generation map. Cheaper than
-    /// `generation` and moves whenever any generation does, so a caller
-    /// compares it per message and consults `generation` only on a change.
-    pub fn generations_version(&self) -> u64 {
-        self.generations_version.load(Ordering::Relaxed)
     }
 
     /// Record one slice of delivered offsets on the partition's ledger,
@@ -118,7 +106,6 @@ impl TopicOffsetLedger {
                     Err(error) => {
                         let held = ledger.held();
                         *ledger = PartitionOffsetLedger::new(generation + 1);
-                        self.generations_version.fetch_add(1, Ordering::Relaxed);
                         Err(Rejection::Violation {
                             error,
                             stamp,
@@ -164,7 +151,6 @@ impl TopicOffsetLedger {
                             Err(error) => {
                                 let held = ledger.held();
                                 *ledger = PartitionOffsetLedger::new(generation + 1);
-                                self.generations_version.fetch_add(1, Ordering::Relaxed);
                                 Err(Rejection::Violation {
                                     error,
                                     stamp,
@@ -218,7 +204,6 @@ impl TopicOffsetLedger {
         topic_partitions: impl IntoIterator<Item = (&'a str, i32)>,
     ) {
         let mut partitions = self.partitions.lock().unwrap();
-        let mut forgotten = 0;
         for (topic, partition) in topic_partitions {
             let key = TopicPartition::new(topic, partition);
             let generation = partitions
@@ -226,10 +211,7 @@ impl TopicOffsetLedger {
                 .map(PartitionOffsetLedger::generation)
                 .unwrap_or_default();
             partitions.insert(key, PartitionOffsetLedger::new(generation + 1));
-            forgotten += 1;
         }
-        self.generations_version
-            .fetch_add(forgotten, Ordering::Relaxed);
     }
 }
 
@@ -265,7 +247,6 @@ fn count_rejection(stage: &'static str, rejection: Rejection) {
     }
 }
 
-/// One partition's label values, built once per emission.
 fn labels(topic_partition: &TopicPartition) -> (Arc<str>, Arc<str>) {
     (
         Arc::from(topic_partition.topic.as_str()),
@@ -315,19 +296,15 @@ mod tests {
         let ledger = TopicOffsetLedger::new();
         let p0 = tp("events", 0);
         charge(&ledger, &p0, 0, &[10]);
-        assert_eq!(ledger.generations_version(), 0);
 
         ledger.forget_partitions([("events", 0)]);
 
         assert_eq!(ledger.held(&p0).offsets, 0);
         assert_eq!(ledger.generation(&p0), 1);
-        assert_eq!(ledger.generations_version(), 1);
     }
 
     #[test]
     fn forgetting_an_unseen_partition_still_opens_a_generation() {
-        // A slice buffered before the revoke carries stamp 0; without a new
-        // generation it would found the new assignment's ledger with stale offsets.
         let ledger = TopicOffsetLedger::new();
         let p0 = tp("events", 0);
         ledger.forget_partitions([("events", 0)]);
@@ -362,8 +339,6 @@ mod tests {
         assert!(ledger.take_frontier(&p0).is_none());
         assert_eq!(ledger.held(&p0).offsets, 2);
 
-        // The late completion arrives with the next batch and the held
-        // offsets drain.
         let frontier = ledger
             .settle(&p0, 0, [Offset(10)])
             .expect("live ledger settles");
@@ -453,8 +428,7 @@ mod tests {
         let p0 = tp("events", 0);
         charge(&ledger, &p0, 0, &[10]);
 
-        // The partition is revoked and reassigned to this consumer while the
-        // batch is still in flight; the redelivery recharges the same offset.
+        // Revoke and reassign while the batch is in flight.
         ledger.forget_partitions([("events", 0)]);
         charge(&ledger, &p0, 1, &[10]);
 
@@ -471,7 +445,6 @@ mod tests {
             "the redelivered offset stays uncompleted"
         );
 
-        // The redelivery's own completion settles the new assignment's ledger.
         ledger
             .settle(&p0, 1, [Offset(10)])
             .expect("current-generation batch settles");
@@ -487,7 +460,6 @@ mod tests {
         charge(&ledger, &p0, 0, &[10]);
         charge(&ledger, &p1, 0, &[20]);
 
-        // Only partition 0 is revoked and reassigned.
         ledger.forget_partitions([("events", 0)]);
         charge(&ledger, &p0, 1, &[10]);
         assert_eq!(
@@ -526,10 +498,7 @@ mod tests {
         let p1 = tp("events", 1);
         charge(&ledger, &p1, 0, &[20]);
 
-        // Another partition's reassignment moves the generations version;
-        // this partition's generation and ledger are untouched.
         ledger.forget_partitions([("events", 0)]);
-        assert_eq!(ledger.generations_version(), 1);
         charge(&ledger, &p1, 0, &[21]);
         assert_eq!(ledger.held(&p1).offsets, 2);
 
@@ -546,8 +515,7 @@ mod tests {
         let p0 = tp("events", 0);
         charge(&ledger, &p0, 0, &[10]);
 
-        // The partition leaves for another consumer and returns later; both
-        // callbacks forget it, and the in-flight batch settles in between.
+        // The revoke and the later assign both forget the partition.
         ledger.forget_partitions([("events", 0)]);
         ledger.forget_partitions([("events", 0)]);
         assert_eq!(ledger.generation(&p0), 2);
@@ -607,8 +575,6 @@ mod tests {
         let p0 = tp("events", 0);
         charge(&ledger, &p0, 0, &[10, 11]);
 
-        // A duplicate delivery under the same generation is a contract
-        // violation, not a rebalance: the ledger cannot trust its window.
         assert_eq!(
             ledger.charge(&p0, 0, [(Offset(11), Charge::ZERO)]),
             Err(Rejection::Violation {
@@ -626,10 +592,7 @@ mod tests {
         );
         assert_eq!(ledger.held(&p0).offsets, 0, "the window is discarded");
         assert_eq!(ledger.generation(&p0), 1);
-        assert_eq!(ledger.generations_version(), 1);
 
-        // In-flight work from before the reset drops as stale; the next
-        // delivery under the new generation founds a fresh ledger.
         assert_eq!(
             ledger.settle(&p0, 0, [Offset(10)]),
             Err(Rejection::Stale {
