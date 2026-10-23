@@ -47,6 +47,8 @@ DEVICE_FANOUTS: dict[str, DependentEndpointConfig] = {
         include_from_parent=[],
         parent_params={"fields": "id"},
         child_params={"fields": FIELDS[name]},
+        # A device deleted after the device list was read has no children left to sync.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
     )
     for name in ("device_datasources", "device_datasource_instances")
 }

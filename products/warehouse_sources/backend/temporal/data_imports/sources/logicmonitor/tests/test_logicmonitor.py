@@ -140,6 +140,22 @@ def test_device_fanout_pages_each_device_and_resumes(table: str, child_path: str
     assert result.completed_state is None
 
 
+@pytest.mark.parametrize("table", ["device_datasources", "device_datasource_instances"])
+def test_device_fanout_skips_device_deleted_mid_sync(table: str) -> None:
+    result = driver().run(
+        table,
+        [
+            ScriptedResponse(json={"items": [{"id": 7}, {"id": 9}], "total": 2}),
+            ScriptedResponse(status=404, json={"errorCode": 1404, "errorMessage": "fake not found"}),
+            ScriptedResponse(json={"items": [{"id": 1, "deviceId": 9}], "total": 1}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [(row["deviceId"], row["id"]) for row in result.rows] == [(9, 1)]
+    assert len(result.requests) == 3
+
+
 @pytest.mark.parametrize("status", [401, 403, 404])
 def test_error_mapping(status: int) -> None:
     answer = ScriptedResponse(status=status, json={"errorCode": status, "errorMessage": "fake error"})
