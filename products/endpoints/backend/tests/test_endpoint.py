@@ -117,6 +117,20 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "test_query")
 
+    def test_create_hogql_endpoint_extracts_columns_from_scoped_system_table(self):
+        query = {**self.sample_hogql_query, "query": "SELECT key FROM system.feature_flags"}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {"name": "flag_keys", "query": query},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        version = Endpoint.objects.get(name="flag_keys", team=self.team).get_version()
+        assert version is not None
+        self.assertEqual(version.columns, [{"name": "key", "type": "string"}])
+
     def test_cannot_create_endpoint_with_invalid_sql(self):
         """Test creating an endpoint with invalid HogQL fails."""
         data = {

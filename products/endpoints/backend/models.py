@@ -294,7 +294,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             columns: list[dict] = []
             exc: Exception | None = None
             try:
-                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id, user=self.created_by)
             except Exception as e:
                 exc = e
             # Save before capture_exception (which can hang serializing large AST objects)
@@ -344,8 +344,11 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return can_materialize_query(self.query, self.team)
 
     @staticmethod
-    def extract_columns(query: dict, team_id: int) -> list[dict]:
-        """Extract SELECT column names and types by describing the query against ClickHouse."""
+    def extract_columns(query: dict, team_id: int, user: User | None = None) -> list[dict]:
+        """Extract SELECT column names and types by describing the query against ClickHouse.
+
+        Pass the acting user: without one, every access-controlled ``system.*`` table resolves as denied.
+        """
         if query.get("kind") != "HogQLQuery":
             return []
         hogql_string = query.get("query", "")
@@ -362,7 +365,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         # Bypass warehouse access control: DESCRIBE exposes only column names/types, never rows, and
         # `columns` is a shared cache that must be the same for every reader.
         executor = HogQLQueryExecutor(
-            query=cleaned, team=team, limit_context=None, bypass_warehouse_access_control=True
+            query=cleaned, team=team, user=user, limit_context=None, bypass_warehouse_access_control=True
         )
         clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
@@ -476,7 +479,7 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
 
         # Create new version, inheriting settings from previous version
         try:
-            columns: list[dict] | None = EndpointVersion.extract_columns(query, team_id=self.team_id)
+            columns: list[dict] | None = EndpointVersion.extract_columns(query, team_id=self.team_id, user=user)
         except Exception:
             columns = None
         version = EndpointVersion.objects.create(

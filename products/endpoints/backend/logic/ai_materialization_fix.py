@@ -37,6 +37,7 @@ from products.endpoints.backend.models import EndpointVersion, can_materialize_q
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -226,6 +227,7 @@ def _validate_suggestion(
     suggested_query: str,
     *,
     team_id: int,
+    user: "User | None" = None,
     original_columns: list[dict] | None,
 ) -> str | None:
     """Run the real materialization checks over a suggestion. Returns an error message, or None.
@@ -253,7 +255,9 @@ def _validate_suggestion(
 
     if original_columns:
         try:
-            suggested_columns = EndpointVersion.extract_columns({**original_query, "query": suggested_query}, team_id)
+            suggested_columns = EndpointVersion.extract_columns(
+                {**original_query, "query": suggested_query}, team_id, user=user
+            )
         except Exception as e:
             return f"The rewritten query failed to compile: {_collapse_untrusted(str(e))[:500]}"
         if suggested_columns != original_columns:
@@ -285,6 +289,7 @@ def suggest_materialization_fix(
     *,
     team_id: int,
     query: dict[str, Any],
+    user: "User | None" = None,
     original_columns: list[dict] | None = None,
     max_attempts: int = MAX_FIX_ATTEMPTS,
     client: OpenAI | None = None,
@@ -363,7 +368,9 @@ def suggest_materialization_fix(
             prior_suggestion = None
             continue
 
-        error = _validate_suggestion(query, suggested_query, team_id=team_id, original_columns=original_columns)
+        error = _validate_suggestion(
+            query, suggested_query, team_id=team_id, user=user, original_columns=original_columns
+        )
         if error is None:
             return MaterializationFixResult(
                 status=MaterializationFixStatus.OK,
