@@ -4,7 +4,12 @@ import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
-import { DEFAULT_CHART_VIEWS, type DailyToolStat, buildDailyChartData } from '../mcpAnalyticsToolQualityLogic'
+import {
+    DEFAULT_CHART_VIEWS,
+    type DailyToolStat,
+    buildDailyChartData,
+    maskIncompleteLatencyBox,
+} from '../mcpAnalyticsToolQualityLogic'
 import { ToolQualityCharts } from './ToolQualityCharts'
 
 const LABELS = [
@@ -78,6 +83,8 @@ export const SettledWindow: Story = {
             interval="day"
             incompleteTail={false}
             views={DEFAULT_CHART_VIEWS}
+            successRateLogBlocked={false}
+            latencyBoxes={DAILY.latencyBoxes}
             onViewChange={() => {}}
         />
     )),
@@ -93,6 +100,8 @@ export const InProgressBucket: Story = {
             interval="day"
             incompleteTail
             views={DEFAULT_CHART_VIEWS}
+            successRateLogBlocked={false}
+            latencyBoxes={maskIncompleteLatencyBox(DAILY_PARTIAL_TAIL.latencyBoxes, true)}
             onViewChange={() => {}}
         />
     )),
@@ -108,6 +117,8 @@ export const AlternateViews: Story = {
             interval="day"
             incompleteTail={false}
             views={{ calls: 'percentage', successRate: 'log', latency: 'boxPlot' }}
+            successRateLogBlocked={false}
+            latencyBoxes={DAILY.latencyBoxes}
             onViewChange={() => {}}
         />
     )),
@@ -124,6 +135,8 @@ export const ToggleWrapsBelowTitle: Story = {
                 interval="day"
                 incompleteTail={false}
                 views={DEFAULT_CHART_VIEWS}
+                successRateLogBlocked={false}
+                latencyBoxes={DAILY.latencyBoxes}
                 onViewChange={() => {}}
             />
         ),

@@ -28,23 +28,6 @@ function formatCompactPercentage(value: number): string {
     return formatPercentage(value, { compact: true })
 }
 
-// BoxPlotDatum has no partial style like the line series' `stroke.partial`, so a still-collecting
-// bucket is dropped outright rather than drawn as a settled box.
-export function maskIncompleteLatencyBox(
-    boxes: (BoxPlotDatum | null)[],
-    incompleteTail: boolean
-): (BoxPlotDatum | null)[] {
-    if (!incompleteTail) {
-        return boxes
-    }
-    return boxes.map((box, i) => (i === boxes.length - 1 ? null : box))
-}
-
-// A log axis cannot show 0%, so it would draw a full outage as a partial one.
-export function successRateScale(view: ChartViews['successRate'], rates: number[]): ChartViews['successRate'] {
-    return rates.includes(0) ? 'linear' : view
-}
-
 function buildConfig(
     timezone: string,
     interval: TimeInterval,
@@ -148,6 +131,8 @@ export function ToolQualityCharts({
     interval,
     incompleteTail,
     views,
+    successRateLogBlocked,
+    latencyBoxes,
     onViewChange,
 }: {
     data: DailyChartData
@@ -160,6 +145,8 @@ export function ToolQualityCharts({
     // than optional: an omitted prop silently renders the partial bucket as settled data.
     incompleteTail: boolean
     views: ChartViews
+    successRateLogBlocked: boolean
+    latencyBoxes: (BoxPlotDatum | null)[]
     onViewChange: (change: ChartViewChange) => void
 }): JSX.Element {
     const isEmpty = data.labels.length === 0
@@ -172,8 +159,6 @@ export function ToolQualityCharts({
     )
 
     const showErrorRate = views.calls === 'percentage'
-    const successScale = successRateScale(views.successRate, data.successRate)
-    const logScaleBlocked = successRateScale('log', data.successRate) === 'linear'
     const callsSeries = useMemo<Series[]>(
         () =>
             showErrorRate
@@ -218,10 +203,6 @@ export function ToolQualityCharts({
         ],
         [data, theme, partialStroke]
     )
-    const latencyBoxes = useMemo(
-        () => maskIncompleteLatencyBox(data.latencyBoxes, incompleteTail),
-        [data.latencyBoxes, incompleteTail]
-    )
     const latencyBoxSeries = useMemo<BoxPlotSeries[]>(
         () => [{ key: 'latency', label: 'Latency', color: theme.colors[0], data: latencyBoxes }],
         [latencyBoxes, theme]
@@ -233,8 +214,8 @@ export function ToolQualityCharts({
         [timezone, interval]
     )
     const successRateConfig = useChartConfig(
-        () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage, scale: successScale }),
-        [timezone, interval, successScale]
+        () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage, scale: views.successRate }),
+        [timezone, interval, views.successRate]
     )
     const latencyConfig = useChartConfig(
         () => buildConfig(timezone, interval, { tickFormatter: formatMsAsSeconds }),
@@ -283,13 +264,13 @@ export function ToolQualityCharts({
                     action={
                         <ChartViewToggle
                             chart="successRate"
-                            view={successScale}
+                            view={views.successRate}
                             options={[
                                 { value: 'linear', label: 'Linear' },
                                 {
                                     value: 'log',
                                     label: 'Log',
-                                    disabledReason: logScaleBlocked
+                                    disabledReason: successRateLogBlocked
                                         ? 'A log scale cannot show a day with 0% success'
                                         : undefined,
                                 },

@@ -13,7 +13,9 @@ import {
     DEFAULT_CHART_VIEWS,
     type DailyToolStat,
     buildDailyChartData,
+    maskIncompleteLatencyBox,
     mcpAnalyticsToolQualityLogic,
+    resolveChartViews,
 } from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
@@ -129,6 +131,52 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             [Infinity, '—'],
         ])('formats %s ms as %s', (input, expected) => {
             expect(formatMsAsSeconds(input)).toBe(expected)
+        })
+    })
+
+    describe('maskIncompleteLatencyBox', () => {
+        const box = (day: string): ReturnType<typeof maskIncompleteLatencyBox>[number] => ({
+            day,
+            min: 10,
+            p25: 20,
+            median: 30,
+            mean: 35,
+            p75: 40,
+            max: 50,
+            whiskerMax: 45,
+        })
+
+        it.each([
+            { name: 'drops the last bucket when it is still in progress', incompleteTail: true, last: true },
+            { name: 'leaves every bucket alone when the tail is complete', incompleteTail: false, last: false },
+        ])('$name', ({ incompleteTail, last }) => {
+            const boxes = [box('2026-06-05'), box('2026-06-06')]
+            expect(maskIncompleteLatencyBox(boxes, incompleteTail)).toEqual([
+                box('2026-06-05'),
+                last ? null : box('2026-06-06'),
+            ])
+        })
+    })
+
+    describe('resolveChartViews', () => {
+        it.each([
+            { name: 'keeps linear', view: 'linear' as const, rates: [100, 90], expected: 'linear' },
+            {
+                name: 'uses log when every rate is above zero',
+                view: 'log' as const,
+                rates: [100, 0.5],
+                expected: 'log',
+            },
+            { name: 'ignores gaps', view: 'log' as const, rates: [100, NaN], expected: 'log' },
+            {
+                name: 'falls back to linear when a bucket is at zero',
+                view: 'log' as const,
+                rates: [100, 0],
+                expected: 'linear',
+            },
+        ])('$name', ({ view, rates, expected }) => {
+            const views = { ...DEFAULT_CHART_VIEWS, successRate: view }
+            expect(resolveChartViews(views, rates)).toEqual({ ...views, successRate: expected })
         })
     })
 
