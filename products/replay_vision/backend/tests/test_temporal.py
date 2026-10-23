@@ -17,9 +17,10 @@ from django.test import override_settings
 from django.utils import timezone
 
 import httpx
+import numpy as np
 import aiohttp
 import psycopg.errors
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from google.genai import types
 from google.genai.errors import APIError
 from parameterized import parameterized
@@ -3391,6 +3392,59 @@ async def test_embed_observation_raises_propagates_failure() -> None:
     ):
         with pytest.raises(RuntimeError, match="kafka down"):
             await embed_observation_activity(inputs)
+
+
+_EMBED = "products.replay_vision.backend.temporal.activities.embed_observation"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEmbedObservationWatchRank:
+    @parameterized.expand(
+        [
+            ("duplicate_points_at_the_group_root", None, "root-id"),
+            ("ranking_failure_leaves_no_rank", RuntimeError("clickhouse down"), None),
+        ]
+    )
+    def test_embedding_arm_stores_once_and_ranks(
+        self, _name: str, nearest_error: Exception | None, expected_duplicate_of: str | None
+    ) -> None:
+        scanner = _make_scanner()
+        neighbour = _make_observation(scanner, session_id="sess-earlier", watch_rank={"duplicate_of": "root-id"})
+        observation = _make_observation(scanner, session_id="sess-new")
+        anchors = {
+            "failure": np.array([[1.0, 0.0, 0.0]]),
+            "struggle": np.array([[0.0, 1.0, 0.0]]),
+            "revenue": np.array([[0.0, -1.0, 0.0]]),
+            "routine": np.array([[0.0, 0.0, 1.0]]),
+        }
+        nearest = MagicMock(side_effect=nearest_error, return_value=(str(neighbour.id), 0.05))
+        inputs = EmbedObservationInputs(
+            team_id=scanner.team_id,
+            session_id="sess-new",
+            observation_id=observation.id,
+            scanner_id=scanner.id,
+            model_output=MonitorOutput(verdict="no", reasoning="the payment form errored", confidence=0.9),
+        )
+        with (
+            patch(f"{_EMBED}.watch_feed_ranker_variant", return_value="embedding"),
+            patch(
+                f"{_EMBED}.async_generate_and_store_embedding",
+                AsyncMock(return_value={"text-embedding-3-large-3072": [1.0, 0.1, 0.0]}),
+            ) as store,
+            patch(f"{_EMBED}.anchor_vectors", AsyncMock(return_value=anchors)),
+            patch(f"{_EMBED}.nearest_earlier_observation", nearest),
+            patch(f"{_EMBED}.emit_embedding_request") as emit,
+        ):
+            async_to_sync(embed_observation_activity)(inputs)
+
+        emit.assert_not_called()
+        store.assert_awaited_once()
+        observation.refresh_from_db()
+        if expected_duplicate_of is None:
+            assert observation.watch_rank is None
+        else:
+            assert observation.watch_rank["category"] == "failure"
+            assert observation.watch_rank["duplicate_of"] == expected_duplicate_of
 
 
 @pytest.mark.asyncio

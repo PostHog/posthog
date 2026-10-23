@@ -8,25 +8,33 @@ logs and swallows them — the observation is already marked succeeded.
 
 The structured result (monitor `verdict`, scorer `score`, classifier `tags`) is stamped into `metadata` so
 search can filter by exact outcome inside the same ClickHouse ranking query, with no second-pass lookup.
+
+Teams on the embedding arm of the What to watch ranker store through the worker's synchronous endpoint
+instead, which returns the vector, and the activity ranks the observation from it (see `watch_rank`).
 """
 
 from typing import Any
 from uuid import UUID
 
+from django.utils import timezone
+
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.api.embedding_worker import emit_embedding_request
+from posthog.api.embedding_worker import async_generate_and_store_embedding, emit_embedding_request
 from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
+from posthog.models.team import Team
 
 from products.replay_vision.backend.embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
+from products.replay_vision.backend.jev_watch_feed import ranker_mode, watch_feed_ranker_variant
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.observation_formatting import flatten_markdown
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import KAFKA_DELIVERY_TIMEOUT_S
@@ -35,6 +43,14 @@ from products.replay_vision.backend.temporal.scanners.classifier import Classifi
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.types import AnyScannerOutput, EmbedObservationInputs
+from products.replay_vision.backend.watch_rank import (
+    DUPLICATE_MAX_DISTANCE,
+    WatchRank,
+    anchor_vectors,
+    classify,
+    duplicate_root,
+    nearest_earlier_observation,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -106,6 +122,70 @@ async def _emit_embeddings(
     await sync_to_async(emit_all, thread_sensitive=False)()
 
 
+async def _rank(*, team: Team, scanner_id: UUID, observation_id: UUID, vector: list[float]) -> None:
+    category, contrast = classify(vector, await anchor_vectors(team))
+    nearest = await sync_to_async(nearest_earlier_observation, thread_sensitive=False)(
+        team_id=team.id,
+        scanner_id=str(scanner_id),
+        observation_id=str(observation_id),
+        vector=vector,
+        now=timezone.now(),
+    )
+    duplicate_of: str | None = None
+    if nearest is not None and nearest[1] <= DUPLICATE_MAX_DISTANCE:
+        neighbour_rank = await (
+            ReplayObservation.objects.filter(team_id=team.id, id=nearest[0])
+            .values_list("watch_rank", flat=True)
+            .afirst()
+        )
+        duplicate_of = duplicate_root(nearest[0], neighbour_rank)
+    rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
+    await ReplayObservation.objects.filter(team_id=team.id, id=observation_id).aupdate(watch_rank=rank.to_json())
+
+
+async def _store_and_rank(
+    *, team: Team, scanner_id: UUID, observation_id: UUID, metadata: dict[str, Any], renderings: list[tuple[str, str]]
+) -> None:
+    """Store each rendering through the synchronous endpoint, then rank the observation from the first vector."""
+    vector: list[float] | None = None
+    for rendering, content in renderings:
+        if not content.strip():
+            continue
+        vectors = await async_generate_and_store_embedding(
+            content,
+            team_id=team.id,
+            product=EMBEDDING_PRODUCT,
+            document_type=EMBEDDING_DOCUMENT_TYPE,
+            rendering=rendering,
+            document_id=str(observation_id),
+            models=[OBSERVATION_EMBEDDING_MODEL.value],
+            metadata=metadata,
+        )
+        vector = vector or vectors.get(OBSERVATION_EMBEDDING_MODEL.value)
+    if vector is None:
+        return
+    # The embedding is stored by now, so a ranking failure must not fail the activity: a retry
+    # would embed and store the text again.
+    try:
+        await _rank(team=team, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
+    except Exception:
+        logger.exception("replay_vision.embed_observation.rank_failed", observation_id=str(observation_id))
+
+
+async def _watch_rank_team(team_id: int) -> Team | None:
+    """The team when it ranks observations for the What to watch feed, else None.
+
+    Fails soft to None: ranking is optional, and the plain Kafka path still stores the embedding.
+    """
+    try:
+        team = await Team.objects.aget(id=team_id)
+        variant = await sync_to_async(watch_feed_ranker_variant, thread_sensitive=False)(team.id, team.uuid)
+    except Exception:
+        logger.warning("replay_vision.embed_observation.rank_arm_unknown", team_id=team_id, exc_info=True)
+        return None
+    return team if ranker_mode(variant) == "embedding" else None
+
+
 @activity.defn
 @track_activity(side_effect="embed")
 async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
@@ -117,6 +197,15 @@ async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
         "scanner_id": str(inputs.scanner_id),
         **_result_metadata(inputs.model_output),
     }
+    if team := await _watch_rank_team(inputs.team_id):
+        await _store_and_rank(
+            team=team,
+            scanner_id=inputs.scanner_id,
+            observation_id=inputs.observation_id,
+            metadata=metadata,
+            renderings=_renderings_for(inputs.model_output),
+        )
+        return
     await _emit_embeddings(
         team_id=inputs.team_id,
         session_id=inputs.session_id,

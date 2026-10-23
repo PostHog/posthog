@@ -56,7 +56,7 @@ from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFe
 logger = structlog.get_logger(__name__)
 
 WATCH_FEED_RANKER_FLAG = "vision-watch-feed-ranker"
-RankerMode = Literal["weighted-score", "jev-shadow", "jev"]
+RankerMode = Literal["weighted-score", "jev-shadow", "jev", "embedding"]
 # The JevK5 build PostHog hosts on the AI gateway, which is the only backend the ml_inference
 # facade reaches. The vendor (typesafe.ai) is not approved for customer data, and observation prose
 # is customer data, so never point this at a vendor model id.
@@ -268,9 +268,8 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
 
     Keyed on the project's uuid: both regions evaluate this one flag, and team ids repeat between
     them. A region without the decision service has no sweep to fill the cache, so its teams take
-    no part rather than land on an empty `jev` feed. Any flag failure also reads as None."""
-    if not decision_api.decisions_available_here():
-        return None
+    no part in the Jev arms rather than land on an empty `jev` feed. The embedding arm needs no
+    decision service. Any flag failure also reads as None."""
     value = get_feature_flag_or_none(
         WATCH_FEED_RANKER_FLAG,
         # Only a person-property condition reads the distinct id; a project-aggregated flag buckets
@@ -280,11 +279,17 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
         group_properties={"project": {"id": team_id, "uuid": str(team_uuid)}},
         send_feature_flag_events=False,
     )
-    return value if isinstance(value, str) else None
+    if not isinstance(value, str):
+        return None
+    if value in ("jev", "jev-shadow") and not decision_api.decisions_available_here():
+        return None
+    return value
 
 
 def ranker_mode(variant: str | None) -> RankerMode:
-    """The ranker a flag variant selects. Any variant but the two Jev arms is the default arm."""
+    """The ranker a flag variant selects. Any variant but the Jev and embedding arms is the default arm."""
+    if variant == "embedding":
+        return "embedding"
     if variant == "jev-shadow":
         return "jev-shadow"
     if variant == "jev":

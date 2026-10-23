@@ -17,6 +17,7 @@ import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type {
     JevWatchReasonEnumApi,
     ReplayObservationApi,
+    WatchFeedCategoryEnumApi,
     WatchFeedItemApi,
     WatchFeedReasonApi,
 } from '../../generated/api.schemas'
@@ -48,6 +49,12 @@ const MAX_SHOWN_HEADLINES = 3
 
 const joinWithAnd = (parts: string[]): string =>
     parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}` : parts[0]
+
+const WATCH_CATEGORY_COPY: Record<WatchFeedCategoryEnumApi, string> = {
+    failure: 'Something failed in this session.',
+    struggle: 'The user struggled in this session.',
+    revenue: 'This session touches billing or a plan limit.',
+}
 
 /** What the reason kind says about the session. Never the scan's notability sentence: the row's title
  * already leads with it. */
@@ -133,6 +140,16 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             return 'The session shows signs of friction, like errors, retries, or dead ends.'
         case 'jev_watchable':
             return 'The decision model judged this session worth watching.'
+        case 'embedding_pick': {
+            const category = reason.watch_category
+                ? WATCH_CATEGORY_COPY[reason.watch_category]
+                : 'This session stands out for this scanner.'
+            const similar = reason.similar_count ?? 0
+            if (similar === 0) {
+                return category
+            }
+            return `${category} ${similar} other session${similar === 1 ? ' from this scanner looks' : 's from this scanner look'} similar.`
+        }
         case 'unviewed_recent':
             return 'New since you last looked.'
         case 'recent':

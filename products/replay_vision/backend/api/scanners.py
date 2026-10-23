@@ -188,6 +188,7 @@ from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOU
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
 from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
+from products.replay_vision.backend.watch_rank import rank_watch_feed_by_embedding
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -1644,6 +1645,18 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 WATCH_FEED_BYPASS_CHUNK = 200
 
 
+class WatchFeedRanker(models.TextChoices):
+    WEIGHTED_SCORE = "weighted-score"
+    JEV = "jev"
+    EMBEDDING = "embedding"
+
+
+class WatchFeedCategory(models.TextChoices):
+    FAILURE = "failure"
+    STRUGGLE = "struggle"
+    REVENUE = "revenue"
+
+
 class WatchFeedReason(models.TextChoices):
     SIGNAL_EMITTED = "signal_emitted"
     UNUSUAL_VERDICT = "unusual_verdict"
@@ -1654,6 +1667,7 @@ class WatchFeedReason(models.TextChoices):
     NOVEL_SUMMARY = "novel_summary"
     FRICTION = "friction"
     JEV_WATCHABLE = "jev_watchable"
+    EMBEDDING_PICK = "embedding_pick"
     UNVIEWED_RECENT = "unviewed_recent"
     RECENT = "recent"
 
@@ -1762,6 +1776,8 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "session worth watching), `friction` (the scan describes errors, retries, or dead ends), "
             "`jev_watchable` (the decision model judged the session worth watching; teams on the "
             "Jev ranker experiment only), "
+            "`embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in "
+            "its scanner's top fifth; teams on the embedding ranker only), "
             "`unviewed_recent` (new to you), `recent` (nothing special, newest available)."
         ),
     )
@@ -1834,6 +1850,19 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.",
     )
+    watch_category = serializers.ChoiceField(
+        choices=WatchFeedCategory.choices,
+        required=False,
+        help_text="What the session reads like, for `embedding_pick`.",
+    )
+    similar_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Other sessions from the same scanner in the window that describe nearly the same thing, for "
+            "`embedding_pick`. The feed shows one session per group."
+        ),
+    )
 
 
 class WatchFeedItemSerializer(serializers.Serializer):
@@ -1856,9 +1885,10 @@ class WatchFeedResponseSerializer(serializers.Serializer):
         ),
     )
     ranker = serializers.ChoiceField(
-        choices=["weighted-score", "jev"],
+        choices=WatchFeedRanker.choices,
         help_text=(
             "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, "
+            "`embedding` on the rank the scan wrote from the observation's embedding, "
             "`weighted-score` on the deterministic blend. The arm is decided server-side per team, so "
             "clients read it from here rather than evaluating the flag themselves."
         ),
@@ -1867,7 +1897,7 @@ class WatchFeedResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, "
-            "`jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from "
+            "`jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from "
             "control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, "
             "which is the exposure the experiment counts."
         ),
@@ -2611,7 +2641,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ),
             )
             .filter(scanner_recency_rank__lte=WATCH_FEED_PER_SCANNER_CAP)
-            .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
+            .values("id", "scanner_id", "created_at", "scanner_result", "watch_rank", "feed_viewed")
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
         # The flag selects one of two independent rankers; nothing is blended between them. Shadow
@@ -2620,8 +2650,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # ranker that ordered it, so the shadow arm reads as weighted-score to the client, and the
         # flag variant separately, which the client reports as the experiment's exposure.
         variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
-        ranker = "jev" if ranker_mode(variant) == "jev" else "weighted-score"
-        if ranker == "jev":
+        mode = ranker_mode(variant)
+        ranker = mode if mode in ("jev", "embedding") else "weighted-score"
+        if ranker == "embedding":
+            ranked = rank_watch_feed_by_embedding(candidate_rows)[: params["limit"]]
+        elif ranker == "jev":
             ranks = load_watch_ranks(self.team_id, allowed_ids)
             probabilities = ranks.probabilities
             jev_rows = list(candidate_rows)
