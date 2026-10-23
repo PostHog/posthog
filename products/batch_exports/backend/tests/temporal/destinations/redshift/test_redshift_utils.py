@@ -15,7 +15,7 @@ import botocore.exceptions
 
 from posthog.models.integration import AWSRedshiftRoleBasedIntegration, Integration, IntegrationError
 
-from products.batch_exports.backend.service import AWSCredentials, BatchExportModel
+from products.batch_exports.backend.service import AWSCredentials, BatchExportEventsModel
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
     InsufficientS3PermissionsError,
@@ -43,7 +43,7 @@ def test_events_table_schemas_match_staged_person_id(has_person_id: bool, proper
         columns.append("person_id")
     schema = pa.schema([(name, pa.string()) for name in columns])
 
-    table_schemas = _get_table_schemas(BatchExportModel(name="events", schema=None), schema, properties_data_type)
+    table_schemas = _get_table_schemas(BatchExportEventsModel(), schema, properties_data_type)
 
     for fields in (table_schemas.table_schema, table_schemas.stage_table_schema):
         assert {name for name, _ in fields} == set(columns)

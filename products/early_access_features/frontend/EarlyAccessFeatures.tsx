@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -56,6 +59,7 @@ export function EarlyAccessFeatures(): JSX.Element {
         waitlistResponsesCountFailed,
     } = useValues(earlyAccessFeaturesLogic)
     const { setSearchTerm, updateFeatureAssignee } = useActions(earlyAccessFeaturesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Creating an early access feature requires editor access to the resource.
     const accessControlDisabledReason = getAccessControlDisabledReason(
@@ -79,16 +83,32 @@ export function EarlyAccessFeatures(): JSX.Element {
                         interaction="click"
                         scope={Scene.EarlyAccessFeatures}
                     >
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            to={urls.earlyAccessFeature('new')}
-                            tooltip="New feature"
-                            data-attr="create-feature"
-                            disabledReason={accessControlDisabledReason ?? undefined}
-                        >
-                            New feature
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                render={
+                                    <LinkPrimitive
+                                        to={accessControlDisabledReason ? undefined : urls.earlyAccessFeature('new')}
+                                    />
+                                }
+                                tooltip="New feature"
+                                data-attr="create-feature"
+                                disabledReason={accessControlDisabledReason}
+                            >
+                                New feature
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                to={urls.earlyAccessFeature('new')}
+                                tooltip="New feature"
+                                data-attr="create-feature"
+                                disabledReason={accessControlDisabledReason ?? undefined}
+                            >
+                                New feature
+                            </LemonButton>
+                        )}
                     </Shortcut>
                 }
             />

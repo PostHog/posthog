@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -15,13 +17,7 @@ import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/ap
 
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
-import {
-    BROADCASTS_PAGE_SIZE,
-    BroadcastsStatusFilter,
-    broadcastsLogic,
-    getBroadcastStatus,
-    isEligibleWorkflow,
-} from './broadcastsLogic'
+import { BROADCASTS_PAGE_SIZE, BroadcastsStatusFilter, broadcastsLogic, getBroadcastStatus } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 
 const METRIC_COLUMNS: { title: string; metricName: string }[] = [
@@ -33,13 +29,23 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 ]
 
 export function BroadcastsTable(): JSX.Element {
-    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters, filtersPending, loadFailed } =
-        useValues(broadcastsLogic)
+    const {
+        broadcasts,
+        broadcastsLoading,
+        hasLoadedBroadcasts,
+        rowDetailsById,
+        filters,
+        filtersPending,
+        loadFailed,
+        tags: allTags,
+        savingTagsFor,
+    } = useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
-    const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
+    const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast, saveBroadcastTags } =
+        useActions(broadcastsLogic)
     const { page } = filters
-    const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
+    const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy || filters.tags.length > 0
 
     const columns: LemonTableColumns<HogFlowMinimalApi> = [
         {
@@ -58,16 +64,8 @@ export function BroadcastsTable(): JSX.Element {
                             to={urls.broadcast(item.id)}
                             title={item.name || 'Untitled broadcast'}
                             description={item.description}
+                            truncateDescription
                         />
-                    )}
-                    {isEligibleWorkflow(item) && (
-                        <LemonTag
-                            type="muted"
-                            data-attr="broadcast-workflow-tag"
-                            title="A workflow with a batch trigger and one email, shown here as a broadcast."
-                        >
-                            Workflow
-                        </LemonTag>
                     )}
                 </div>
             ),
@@ -77,6 +75,34 @@ export function BroadcastsTable(): JSX.Element {
             width: 0,
             render: (_, item) => {
                 return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
+            },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: 220,
+            render: function Render(_, item) {
+                const shown = {
+                    tags: [...(item.tags ?? [])],
+                    onTagClick: (tag: string) => {
+                        if (!filters.tags.includes(tag)) {
+                            setFilters({ tags: [...filters.tags, tag] })
+                        }
+                    },
+                    wrap: true,
+                    maxVisibleTags: 2,
+                    'data-attr': 'broadcast-tags',
+                }
+                return manageDisabledReason(item.user_access_level) ? (
+                    <ObjectTags {...shown} staticOnly />
+                ) : (
+                    <ObjectTags
+                        {...shown}
+                        onChange={(tags) => saveBroadcastTags(item.id, tags)}
+                        saving={savingTagsFor === item.id}
+                        tagsAvailable={allTags}
+                    />
+                )
             },
         },
         ...METRIC_COLUMNS.map(({ title, metricName }) => ({
@@ -191,6 +217,14 @@ export function BroadcastsTable(): JSX.Element {
                     <MemberSelect
                         value={filters.createdBy}
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                    />
+                    <b className="ml-1">Tags</b>
+                    <TagSelect
+                        size="small"
+                        defaultLabel="Any tags"
+                        value={filters.tags}
+                        onChange={(tags) => setFilters({ tags })}
+                        listDataAttr="broadcasts-tags-filter-list"
                     />
                 </div>
             </div>

@@ -181,15 +181,11 @@ describe('featureFlagUsageQueries', () => {
     })
 
     it.each(flagEvaluationsBuilders)(
-        '%s puts JSON-null and missing responses in one bucket with the events-mode label',
+        '%s labels the NULL response bucket with the events-mode label',
         (_name, build) => {
-            // The raw column holds 'null' for one case and '' for the other, so grouping on it shows two
-            // series with their own labels where the events mode shows one.
             const { query } = build(personFlagOptions)
 
-            expect(query.source.query).toContain(
-                `if(response IN ('', 'null'), '${BREAKDOWN_NULL_DISPLAY}', response) AS`
-            )
+            expect(query.source.query).toContain(`ifNull(response, '${BREAKDOWN_NULL_DISPLAY}') AS`)
         }
     )
 

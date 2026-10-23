@@ -59,7 +59,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_tiproxy_unavailable,
     _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
+    _is_transient_vitess_no_endpoints,
     _is_transient_vitess_reparent,
+    _pinned_addresses,
     _reconnect_pinned,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
@@ -1032,6 +1034,33 @@ class TestKeysetReadPath:
 
         assert source.supports_resume is False
 
+    @pytest.mark.parametrize(
+        "incremental,has_manager,expected_ascending,expected_resume",
+        [
+            pytest.param(True, False, True, False, id="incremental_streaming"),
+            pytest.param(True, True, True, False, id="incremental_streaming_with_manager"),
+            pytest.param(False, False, False, False, id="full_refresh_streaming"),
+            pytest.param(False, True, False, True, id="full_refresh_keyset"),
+        ],
+    )
+    def test_only_the_incremental_streaming_read_claims_ascending_order(
+        self, keyset_mocks, incremental: bool, has_manager: bool, expected_ascending: bool, expected_resume: bool
+    ):
+        inputs = _make_inputs(
+            should_use_incremental_field=incremental,
+            incremental_field="id" if incremental else None,
+            incremental_field_type=IncrementalFieldType.Integer if incremental else None,
+        )
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), inputs, resumable_source_manager=self._fake_manager() if has_manager else None
+        )
+
+        assert (source.sort_mode, source.supports_resume) == (
+            "asc" if expected_ascending else None,
+            expected_resume,
+        )
+
 
 class TestBuildPipelineSourceLocation:
     def test_uses_schema_metadata_when_schema_is_blank(self, build_pipeline_mocks):
@@ -1626,6 +1655,39 @@ class TestIsTransientVitessDialTimeout:
 
     def test_does_not_match_non_operational_error(self):
         assert not _is_transient_vitess_dial_timeout(ValueError("dial tcp 10.0.0.1: connection timed out"))
+
+
+class TestIsTransientVitessNoEndpoints:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The shape a Vitess/PlanetScale vtgate surfaces when it has zero serving tablet
+            # endpoints for the target — the attempt count and reqid both vary, the stable signal
+            # is the "vtgate connection error: no endpoints" phrase.
+            "unavailable: vtgate connection error: no endpoints, after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+            "unavailable: vtgate connection error: no endpoints",
+        ],
+    )
+    def test_matches_no_endpoints(self, message):
+        assert _is_transient_vitess_no_endpoints(pymysql.err.OperationalError(1105, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # A different 1105 payload must not be absorbed by this predicate.
+            (1105, "unknown: target: keyspace.-.primary: code = Unavailable"),
+            (2003, "Can't connect to MySQL server on 'db.example.com' (timed out)"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_vitess_no_endpoints(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_vitess_no_endpoints(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_vitess_no_endpoints(ValueError("vtgate connection error: no endpoints"))
 
 
 class TestIsTransientTooManyConnections:
@@ -2230,6 +2292,7 @@ class TestBuildQueryForceIndex:
             db_incremental_field_last_value="2025-01-01",
         )
         assert "FORCE INDEX" not in query
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_added_when_provided(self):
         query, _ = _build_query(
@@ -2244,6 +2307,7 @@ class TestBuildQueryForceIndex:
         assert "FORCE INDEX (`idx_created_at`)" in query
         # Hint goes between the table and the WHERE clause
         assert query.index("FORCE INDEX") < query.index("WHERE")
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_applied_for_non_incremental_query_too(self):
         # Full refresh mode — the hint still attaches so callers can force a
@@ -2959,6 +3023,24 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "OperationalError: (1105, 'unavailable: vtgate connection error: no endpoints, "
+            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A')",
+            "vtgate connection error: no endpoints",
+        ],
+    )
+    def test_vitess_no_endpoints_is_classified_retryable(self, source, error_msg):
+        # Both `_connect_with_transient_retry` and `_retry_on_transient_tablet_unavailable`
+        # already retry this in-process (see `_is_transient_vitess_no_endpoints` in mysql.py);
+        # once exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering Vitess/PlanetScale failover.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Vitess no-endpoints error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "(1105, 'unknown: target: v2.-.replica: vttablet: rpc error: code = Canceled "
             "desc = grpc: the client connection is closing')",
             "grpc: the client connection is closing",
@@ -3335,3 +3417,22 @@ class TestConnectCertificateVerification:
         else:
             connection._request_authentication()
             delegate.assert_called_once()
+
+
+class TestOOBDomainDetection:
+    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+        mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
+        mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+        mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
+        mocker.patch(f"{mysql_module}.host_lookup_is_skipped", return_value=False)
+        mocker.patch(
+            f"{mysql_module}.resolve_psycopg_hostaddr_with_timeout",
+            side_effect=AssertionError("resolved before the detection log"),
+        )
+        log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
+
+        with pytest.raises(AssertionError):
+            _pinned_addresses("abc.oast.live", 3306, 5, 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" in stages

@@ -176,6 +176,11 @@ class TestSafeExposeChError:
         [
             ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
             ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+            (
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'my-data/file.csv')",
+                "s3:GetObject",
+            ),
         ],
     )
     def test_native_s3_access_denials_name_the_iam_action_to_check(
@@ -341,6 +346,75 @@ class TestGetCountEngineChoice:
             assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
 
 
+class TestChdbEngineChoiceByFormat:
+    def _table(self, table_format: str, has_credential: bool) -> DataWarehouseTable:
+        return DataWarehouseTable(
+            name="t",
+            format=table_format,
+            team=Team(id=1),
+            url_pattern="https://bucket.example.com/t/",
+            credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
+        )
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, False, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+            (DataWarehouseTable.TableFormat.CSVWithNames, True, True),
+            (DataWarehouseTable.TableFormat.JSON, True, True),
+        ],
+    )
+    def test_get_columns_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="id,String\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[("id", "String")]
+            ) as mock_sync_execute,
+        ):
+            columns = self._table(table_format, has_credential).get_columns()
+
+        assert columns["id"]["clickhouse"] == "String"
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            # A count of a DeltaS3Wrapper table reads its parquet files through s3(), not deltaLake().
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+        ],
+    )
+    def test_get_count_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="7\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(7,)]
+            ) as mock_sync_execute,
+        ):
+            count = self._table(table_format, has_credential).get_count()
+
+        assert count == 7
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
         # Real subprocess: chdb import alone exceeds the timeout, so this exercises the
@@ -349,10 +423,13 @@ class TestRunChdbQuery:
         with pytest.raises(RuntimeError, match="timed out"):
             run_chdb_query("SELECT sleep(2)", timeout=0.5)
 
-    def test_child_process_does_not_inherit_a_preloaded_allocator(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_child_process_runs_with_hardened_environment_and_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LD_PRELOAD", "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2")
         monkeypatch.setenv("MALLOC_CONF", "background_thread:false")
         monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "false")
+        monkeypatch.setenv("HTTPS_PROXY", "http://web-1:x@egress-proxy.example:4750/")
+        monkeypatch.delenv("https_proxy", raising=False)
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="1\n", stderr="")
         with patch(
             "products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed
@@ -363,6 +440,9 @@ class TestRunChdbQuery:
         assert "LD_PRELOAD" not in child_env
         assert "MALLOC_CONF" not in child_env
         assert child_env["AWS_REGION"] == "us-east-1"
+        assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
+        assert child_env["https_proxy"] == "http://web-1:x@egress-proxy.example:4750/"
+        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SELECT 1"
 
     @pytest.mark.parametrize(
         "stderr",
@@ -373,6 +453,8 @@ class TestRunChdbQuery:
             # wording, so a ClickHouse rephrasing has to fail the test rather than pass silently.
             "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
             "The table has 23 columns, which is different from 24 columns in the file. (NOT_IMPLEMENTED)",
+            "Code: 579. DB::Exception: Too many redirects while trying to access "
+            "https://s3.amazonaws.com/bucket/table/. (TOO_MANY_REDIRECTS)",
         ],
     )
     def test_suppressed_chdb_error_classification_survives_subprocess_boundary(self, stderr: str) -> None:

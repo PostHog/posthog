@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import (
     COURIER_BASE_URL,
-    COURIER_PAGE_SIZE,
     ENDPOINTS_CONFIG,
     FANOUT_ENDPOINT_CONFIGS,
     CourierEndpointConfig,
@@ -126,7 +125,7 @@ def _encode_parent_field(source_field: str, target_field: str) -> Callable[[dict
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     config = ENDPOINTS_CONFIG[name]
 
-    params: dict[str, Any] = {"limit": COURIER_PAGE_SIZE}
+    params: dict[str, Any] = {"limit": config.page_size} if config.paginated else {}
     if should_use_incremental_field and config.incremental_param and config.incremental_fields:
         params[config.incremental_param] = {
             "type": "incremental",

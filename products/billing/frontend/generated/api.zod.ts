@@ -9,25 +9,20 @@
  */
 import * as zod from 'zod'
 
-export const billingActivateCreateBodyPlanMax = 100
-
 export const BillingActivateCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingActivateCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
+    products: zod.string().optional().describe('Product and plan keys to activate.'),
+    intent_product: zod.string().optional().describe('Product that prompted the subscription upgrade.'),
+    custom_limits_usd: zod.string().optional().describe('JSON-encoded custom product limits to apply on activation.'),
 })
-
-export const billingActivateAuthorizeCreateBodyPlanMax = 100
 
 export const BillingActivateAuthorizeCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingActivateAuthorizeCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
 })
 
-export const billingActivateAuthorizeStatusCreateBodyPlanMax = 100
-
 export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingActivateAuthorizeStatusCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
+    payment_intent_id: zod.string().nullish().describe('Stripe payment intent created for this organization.'),
 })
 
 export const billingCouponsClaimCreateBodyPlanMax = 100
@@ -90,14 +85,7 @@ export const billingAlertsCreateBodyNameMax = 160
 
 export const billingAlertsCreateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsCreateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
-export const billingAlertsCreateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsCreateBodyBaselineWindowDaysMax = 90
-
-export const billingAlertsCreateBodyEvaluationDelayHoursMin = 0
-export const billingAlertsCreateBodyEvaluationDelayHoursMax = 72
-
-export const billingAlertsCreateBodyCooldownHoursMin = 0
-export const billingAlertsCreateBodyCooldownHoursMax = 720
 
 export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 100
 
@@ -129,28 +117,12 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .stringFormat('decimal', billingAlertsCreateBodyThresholdValueRegExp)
         .nullish()
         .describe('Absolute value or absolute increase that triggers absolute threshold alerts.'),
-    minimum_value: zod
-        .stringFormat('decimal', billingAlertsCreateBodyMinimumValueRegExp)
-        .optional()
-        .describe('Minimum current value before the alert can fire.'),
     baseline_window_days: zod
         .number()
         .min(1)
         .max(billingAlertsCreateBodyBaselineWindowDaysMax)
         .optional()
         .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
-    evaluation_delay_hours: zod
-        .number()
-        .min(billingAlertsCreateBodyEvaluationDelayHoursMin)
-        .max(billingAlertsCreateBodyEvaluationDelayHoursMax)
-        .optional()
-        .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
-    cooldown_hours: zod
-        .number()
-        .min(billingAlertsCreateBodyCooldownHoursMin)
-        .max(billingAlertsCreateBodyCooldownHoursMax)
-        .optional()
-        .describe('Minimum hours between repeated firing notifications.'),
     snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -194,14 +166,7 @@ export const billingAlertsUpdateBodyNameMax = 160
 
 export const billingAlertsUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
-export const billingAlertsUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsUpdateBodyBaselineWindowDaysMax = 90
-
-export const billingAlertsUpdateBodyEvaluationDelayHoursMin = 0
-export const billingAlertsUpdateBodyEvaluationDelayHoursMax = 72
-
-export const billingAlertsUpdateBodyCooldownHoursMin = 0
-export const billingAlertsUpdateBodyCooldownHoursMax = 720
 
 export const billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax = 100
 
@@ -233,28 +198,12 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .stringFormat('decimal', billingAlertsUpdateBodyThresholdValueRegExp)
         .nullish()
         .describe('Absolute value or absolute increase that triggers absolute threshold alerts.'),
-    minimum_value: zod
-        .stringFormat('decimal', billingAlertsUpdateBodyMinimumValueRegExp)
-        .optional()
-        .describe('Minimum current value before the alert can fire.'),
     baseline_window_days: zod
         .number()
         .min(1)
         .max(billingAlertsUpdateBodyBaselineWindowDaysMax)
         .optional()
         .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
-    evaluation_delay_hours: zod
-        .number()
-        .min(billingAlertsUpdateBodyEvaluationDelayHoursMin)
-        .max(billingAlertsUpdateBodyEvaluationDelayHoursMax)
-        .optional()
-        .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
-    cooldown_hours: zod
-        .number()
-        .min(billingAlertsUpdateBodyCooldownHoursMin)
-        .max(billingAlertsUpdateBodyCooldownHoursMax)
-        .optional()
-        .describe('Minimum hours between repeated firing notifications.'),
     snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -298,14 +247,7 @@ export const billingAlertsPartialUpdateBodyNameMax = 160
 
 export const billingAlertsPartialUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsPartialUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
-export const billingAlertsPartialUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsPartialUpdateBodyBaselineWindowDaysMax = 90
-
-export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMin = 0
-export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMax = 72
-
-export const billingAlertsPartialUpdateBodyCooldownHoursMin = 0
-export const billingAlertsPartialUpdateBodyCooldownHoursMax = 720
 
 export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 100
 
@@ -341,28 +283,12 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .stringFormat('decimal', billingAlertsPartialUpdateBodyThresholdValueRegExp)
         .nullish()
         .describe('Absolute value or absolute increase that triggers absolute threshold alerts.'),
-    minimum_value: zod
-        .stringFormat('decimal', billingAlertsPartialUpdateBodyMinimumValueRegExp)
-        .optional()
-        .describe('Minimum current value before the alert can fire.'),
     baseline_window_days: zod
         .number()
         .min(1)
         .max(billingAlertsPartialUpdateBodyBaselineWindowDaysMax)
         .optional()
         .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
-    evaluation_delay_hours: zod
-        .number()
-        .min(billingAlertsPartialUpdateBodyEvaluationDelayHoursMin)
-        .max(billingAlertsPartialUpdateBodyEvaluationDelayHoursMax)
-        .optional()
-        .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
-    cooldown_hours: zod
-        .number()
-        .min(billingAlertsPartialUpdateBodyCooldownHoursMin)
-        .max(billingAlertsPartialUpdateBodyCooldownHoursMax)
-        .optional()
-        .describe('Minimum hours between repeated firing notifications.'),
     snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()

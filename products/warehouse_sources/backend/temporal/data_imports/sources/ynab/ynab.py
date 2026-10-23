@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 from requests.exceptions import HTTPError
@@ -29,6 +30,20 @@ PERMISSION_ERROR = "Your YNAB token cannot access this resource. Check its permi
 @frozen
 class YnabResumeConfig:
     completed: list[str]
+
+
+def _plan_months(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    if not plan.get("first_month") or not plan.get("last_month"):
+        return []
+    month = date.fromisoformat(plan["first_month"]).replace(day=1)
+    last_month = date.fromisoformat(plan["last_month"]).replace(day=1)
+    months: list[dict[str, Any]] = []
+    while month <= last_month:
+        months.append({"id": plan["id"], "month": month.isoformat()})
+        month = (
+            month.replace(year=month.year + 1, month=1) if month.month == 12 else month.replace(month=month.month + 1)
+        )
+    return months
 
 
 def validate_credentials(api_key: str, api_version: str, schema_name: str | None) -> tuple[bool, str | None]:
@@ -89,6 +104,12 @@ def ynab_source(
                 # Wildcard selectors have no matches when every category group is empty.
                 "data_selector_required": endpoint != "categories",
             },
+            child_params_extra=(
+                {"month": {"type": "resolve", "resource": "plans", "field": "month"}}
+                if endpoint_config.per_month
+                else None
+            ),
+            parent_data_map=_plan_months if endpoint_config.per_month else None,
             resume_hook=save_checkpoint,
             initial_paginator_state={"completed": resume.completed} if resume else None,
         )

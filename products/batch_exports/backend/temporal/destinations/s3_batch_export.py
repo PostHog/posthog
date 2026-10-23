@@ -26,6 +26,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.models.integration import (
     AWSS3Integration,
@@ -43,8 +45,9 @@ from products.batch_exports.backend.service import (
     AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
+    BatchExportModelInput,
     S3BatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -442,14 +445,17 @@ async def get_credentials_using_user_aws_role(
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
     """
-    if not settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN:
+    external_role_arn = await asyncio.to_thread(
+        get_or_settings, "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.BATCH_EXPORTS
+    )
+    if not external_role_arn:
         raise ExternalRoleArnNotConfiguredError()
 
     for attempt in range(1, max_attempts + 1):
         try:
             async with SESSION.client("sts") as sts:
                 first_response = await sts.assume_role(
-                    RoleArn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
+                    RoleArn=external_role_arn,
                     RoleSessionName=session_name,
                     # Hard limit of 1h imposed by AWS
                     # TODO: Support refreshable credentials so we can support batch
@@ -852,7 +858,7 @@ class ConcurrentS3Consumer(Consumer):
         prefix: str,
         data_interval_start: str | None,
         data_interval_end: str | None,
-        batch_export_model: BatchExportModel | None,
+        batch_export_model: BatchExportModelInput | None,
         file_format: str,
         checksum_algorithm: str | None = None,
         kms_key_id: str | None = None,
@@ -865,7 +871,8 @@ class ConcurrentS3Consumer(Consumer):
         max_concurrent_uploads: int = 5,
         file_name_prefix: str | None = None,
     ):
-        super().__init__(model=batch_export_model.name if batch_export_model else "events")
+        model = migrate_batch_export_model(batch_export_model)
+        super().__init__(model=model.name)
 
         self.bucket = bucket
         self.region_name = region_name
@@ -874,7 +881,7 @@ class ConcurrentS3Consumer(Consumer):
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
         self.file_name_prefix = file_name_prefix
-        self.batch_export_model = batch_export_model
+        self.batch_export_model = model
 
         self.checksum_algorithm = checksum_algorithm
 

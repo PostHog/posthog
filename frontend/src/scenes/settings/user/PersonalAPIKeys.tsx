@@ -11,6 +11,7 @@ import {
     LemonModal,
     LemonModalProps,
     LemonSelect,
+    LemonSelectOption,
     LemonTableColumn,
     LemonTag,
     LemonTextArea,
@@ -19,6 +20,8 @@ import {
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -28,7 +31,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
-import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { KeyExpirationOption, expiresAtForOption, isExpired, personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
 interface EditKeyModalProps {
@@ -48,6 +51,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         filteredScopeGroups,
         searchTerm,
         isDescriptionFieldVisible,
+        keys,
     } = useValues(personalAPIKeysLogic)
     const {
         setEditingKeyId,
@@ -62,6 +66,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const isNew = editingKeyId === 'new'
+    const editingKeyRecord = isNew ? undefined : keys.find((key) => key.id === editingKeyId)
 
     const submitDisabledReason = !editingKeyChanged
         ? 'No changes to save'
@@ -112,28 +117,17 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                             action={{
                                 children: 'Roll key',
                                 onClick: () => {
-                                    if (editingKeyId) {
-                                        const id = editingKeyId
-                                        LemonDialog.open({
-                                            title: 'Roll key to upgrade hashing?',
-                                            description:
-                                                'This will generate a new key. The old key will immediately stop working.',
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: 'Roll',
-                                                type: 'primary',
-                                                onClick: () => {
-                                                    // Close the edit modal first so the post-roll new key value
-                                                    // is shown via the table's standard roll confirmation flow.
-                                                    setEditingKeyId(null)
-                                                    rollKey(id)
-                                                },
+                                    if (editingKeyRecord) {
+                                        openRollKeyDialog(
+                                            editingKeyRecord,
+                                            (id, expiresAt) => {
+                                                // Close the edit modal first so the post-roll new key value
+                                                // is shown via the table's standard roll confirmation flow.
+                                                setEditingKeyId(null)
+                                                rollKey(id, expiresAt)
                                             },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'secondary',
-                                            },
-                                        })
+                                            'Roll key to upgrade hashing?'
+                                        )
                                     }
                                 },
                             }}
@@ -167,6 +161,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                             </LemonButton>
                         </div>
                     )}
+                    <KeyExpirationField currentExpiresAt={editingKeyRecord?.expires_at ?? null} />
                     <ScopeAccessSelector
                         accessType={editingKey.access_type}
                         organizations={allOrganizations}
@@ -245,6 +240,75 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
             </LemonModal>
         </Form>
     )
+}
+
+const EXPIRY_DATE_FORMAT = 'MMMM D, YYYY'
+const EXPIRY_TIME_FORMAT = 'h:mm A'
+
+const EXPIRATION_PRESETS: LemonSelectOption<KeyExpirationOption>[] = [
+    { value: 'never', label: 'Never' },
+    { value: '1', label: '1 day' },
+    { value: '7', label: '7 days' },
+    { value: '30', label: '30 days' },
+    { value: '90', label: '90 days' },
+    { value: '365', label: '1 year' },
+]
+
+function KeyExpirationField({ currentExpiresAt }: { currentExpiresAt: string | null }): JSX.Element {
+    const { editingKey } = useValues(personalAPIKeysLogic)
+
+    const options: LemonSelectOption<KeyExpirationOption>[] = currentExpiresAt
+        ? [
+              {
+                  value: 'keep',
+                  label: `${isExpired(currentExpiresAt) ? 'Expired' : 'Expires'} ${dayjs(currentExpiresAt).format(EXPIRY_DATE_FORMAT)}`,
+              },
+              ...EXPIRATION_PRESETS,
+          ]
+        : EXPIRATION_PRESETS
+
+    const expiresAt = expiresAtForOption(editingKey.expiration)
+
+    return (
+        <div className="mt-4">
+            <LemonField name="expiration" label="Expiration">
+                <LemonSelect options={options} data-attr="personal-api-key-expiration" />
+            </LemonField>
+            {expiresAt !== undefined && (
+                <p className="text-secondary text-xs mt-1 mb-0">
+                    {expiresAt ? (
+                        <>
+                            <span>The key stops working on </span>
+                            <TZLabel time={expiresAt} formatDate={EXPIRY_DATE_FORMAT} formatTime={EXPIRY_TIME_FORMAT} />
+                            <span>.</span>
+                        </>
+                    ) : (
+                        'The key keeps working until you delete it.'
+                    )}
+                </p>
+            )}
+        </div>
+    )
+}
+
+/** Asks for the rolled key's expiry, the same way GitHub does when it regenerates a token. */
+function openRollKeyDialog(
+    key: PersonalAPIKeyType,
+    onRoll: (id: PersonalAPIKeyType['id'], expiresAt: string | null | undefined) => void,
+    title: string = `Roll key "${key.label}"?`
+): void {
+    LemonDialog.openForm({
+        title,
+        description: 'This will generate a new key. The old key will immediately stop working.',
+        initialValues: { expiration: key.expires_at ? '30' : 'never' },
+        content: (
+            <LemonField name="expiration" label="New key expires">
+                <LemonSelect options={EXPIRATION_PRESETS} data-attr="personal-api-key-roll-expiration" />
+            </LemonField>
+        ),
+        primaryButtonProps: { children: 'Roll', status: 'danger' },
+        onSubmit: ({ expiration }) => onRoll(key.id, expiresAtForOption(expiration)),
+    })
 }
 
 type TagListProps = { onMoreClick?: () => void; tags: string[] }
@@ -329,7 +393,13 @@ function PersonalAPIKeysTable(): JSX.Element {
 
             let statusTag: JSX.Element | null = null
 
-            if (keyDisabled) {
+            if (isExpired(key.expires_at)) {
+                statusTag = (
+                    <Tooltip title="This key has expired and no longer works. Edit it to set a new expiry, or delete it.">
+                        <LemonTag type="danger">Expired</LemonTag>
+                    </Tooltip>
+                )
+            } else if (keyDisabled) {
                 const orgNames = restrictedOrgs.map((org: any) => org.name)
 
                 statusTag = (
@@ -419,7 +489,7 @@ function PersonalAPIKeysTable(): JSX.Element {
     }
 
     const accessColumn: LemonTableColumn<PersonalAPIKeyType, any> = {
-        title: 'Organization & project access',
+        title: 'Org & project access',
         key: 'access',
         dataIndex: 'id',
         render: function RenderAccess(_, key) {
@@ -455,6 +525,24 @@ function PersonalAPIKeysTable(): JSX.Element {
         },
     }
 
+    const expiresColumn: LemonTableColumn<PersonalAPIKeyType, any> = {
+        title: 'Expires',
+        key: 'expiresAt',
+        dataIndex: 'expires_at',
+        sorter: (a, b) => {
+            if (!a.expires_at || !b.expires_at) {
+                return Number(!a.expires_at) - Number(!b.expires_at)
+            }
+            return dayjs(a.expires_at).valueOf() - dayjs(b.expires_at).valueOf()
+        },
+        render: function RenderExpiresAt(_, key) {
+            if (!key.expires_at) {
+                return <span className="text-secondary">Never</span>
+            }
+            return <TZLabel time={key.expires_at} formatDate={EXPIRY_DATE_FORMAT} formatTime={EXPIRY_TIME_FORMAT} />
+        },
+    }
+
     return (
         <>
             {keys.some((key) => key.is_legacy_hashing) && (
@@ -467,10 +555,12 @@ function PersonalAPIKeysTable(): JSX.Element {
                 loading={keysLoading}
                 noun="personal API key"
                 onEdit={setEditingKeyId}
-                onRoll={rollKey}
+                openRollDialog={(key) => openRollKeyDialog(key, rollKey)}
                 onDelete={deleteKey}
                 showActions
-                rowClassName={(key) => (isPersonalApiKeyIdDisabled(key.id) ? 'opacity-50' : '')}
+                rowClassName={(key) =>
+                    isPersonalApiKeyIdDisabled(key.id) || isExpired(key.expires_at) ? 'opacity-50' : ''
+                }
                 deleteDescription="This action cannot be undone. Make sure to have removed the key from any live integrations first."
                 renderLabel={(key) => (
                     <div className="flex flex-col">
@@ -519,7 +609,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                     )
                 }
                 extraColumnsAfterLabel={[statusColumn]}
-                extraColumnsAfterScopes={[accessColumn]}
+                extraColumnsAfterScopes={[accessColumn, expiresColumn]}
             />
         </>
     )

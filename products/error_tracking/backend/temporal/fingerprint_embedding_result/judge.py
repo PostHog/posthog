@@ -1,7 +1,7 @@
 """LLM judge for auto-merging fingerprints whose nearest neighbour is too far for a distance-only merge.
 
 The rule: merge automatically when the embedding distance is below `auto_merge_threshold`; between
-that and `judge_max_distance`, ask Jeeves (a small classifier on the PostHog AI gateway) whether
+that and `judge_max_distance`, ask the configured decision model on the PostHog AI gateway whether
 the two error documents are the same issue and merge when its probability reaches `judge_cutoff`.
 
 Every knob comes from the `error-tracking-auto-merge-config` feature flag payload, evaluated per
@@ -15,6 +15,7 @@ compared against the previous one on live traffic.
 
 import time
 import dataclasses
+from typing import Literal
 
 import structlog
 import posthoganalytics
@@ -27,8 +28,12 @@ logger = structlog.get_logger(__name__)
 
 AUTO_MERGE_CONFIG_FLAG = "error-tracking-auto-merge-config"
 DEFAULT_AUTO_MERGE_THRESHOLD = 0.019
-JUDGE_MODEL = "posthog/hogference/jeeves-0.1"
-JUDGE_PROMPT_VERSION = "v4"
+# Only approved gateway models may receive error documents; each needs its own calibrated cutoff.
+type JudgeModel = Literal["posthog/hogference/jevk5-fp8-0.2", "posthog/hogference/jeeves-0.1"]
+JEEVES_MODEL: JudgeModel = "posthog/hogference/jeeves-0.1"
+JEVK5_MODEL: JudgeModel = "posthog/hogference/jevk5-fp8-0.2"
+JUDGE_MODEL: JudgeModel = JEEVES_MODEL
+JUDGE_PROMPT_VERSION = "v5"
 JUDGE_QUESTION_KEY = "same_issue"
 MAX_DOCUMENT_CHARS = 6000  # what the judge was evaluated with
 
@@ -38,6 +43,7 @@ class AutoMergeConfig:
     # Merge without the judge when the nearest-neighbour distance is strictly below this.
     auto_merge_threshold: float = DEFAULT_AUTO_MERGE_THRESHOLD
     judge_enabled: bool = False
+    judge_model: JudgeModel = JUDGE_MODEL
     # Ask the judge for distances in [auto_merge_threshold, judge_max_distance].
     judge_max_distance: float = 0.1
     # Merge when the judge's P(same issue) is at least this.
@@ -57,17 +63,32 @@ def _bounded(value: object, default: float, low: float, high: float) -> float:
     return float(value)
 
 
+def _judge_model(value: object) -> JudgeModel | None:
+    if value == JEEVES_MODEL:
+        return JEEVES_MODEL
+    if value == JEVK5_MODEL:
+        return JEVK5_MODEL
+    return None
+
+
 def parse_auto_merge_config(payload: object) -> AutoMergeConfig:
     """Build the config from a flag payload, keeping the default for any missing or invalid field."""
     payload = payload if isinstance(payload, dict) else {}
     raw_judge = payload.get("judge")
     judge: dict[str, object] = raw_judge if isinstance(raw_judge, dict) else {}
     defaults = AutoMergeConfig()
+    judge_model = _judge_model(judge.get("model", JUDGE_MODEL))
+    raw_cutoff = judge.get("cutoff")
+    judge_cutoff = _bounded(raw_cutoff, defaults.judge_cutoff, 0, 1)
+    explicit_cutoff_valid = _bounded(raw_cutoff, -1, 0, 1) != -1
     config = AutoMergeConfig(
         auto_merge_threshold=_bounded(payload.get("auto_merge_threshold"), defaults.auto_merge_threshold, 0, 1),
-        judge_enabled=judge.get("enabled") is True,
+        judge_enabled=judge.get("enabled") is True
+        and judge_model is not None
+        and ("model" not in judge or explicit_cutoff_valid),
+        judge_model=judge_model or JUDGE_MODEL,
         judge_max_distance=_bounded(judge.get("max_distance"), defaults.judge_max_distance, 0, 1),
-        judge_cutoff=_bounded(judge.get("cutoff"), defaults.judge_cutoff, 0, 1),
+        judge_cutoff=judge_cutoff,
         judge_shadow=judge.get("shadow") is not False,
         judge_timeout_seconds=_bounded(judge.get("timeout_seconds"), defaults.judge_timeout_seconds, 0.1, 60),
     )
@@ -114,14 +135,14 @@ frame names (1–3 character identifiers such as iu, o6, fT that change between 
 - the outer callers above the throw site, extra or missing frames at the bottom of the stack, stacks \
 truncated at a different depth (e.g. stack overflows), and frames inside framework or runtime \
 internals (React reconciler/scheduler, webpack runtime, unsymbolicated VM addresses);
-- a frame whose "file" is a page URL (/shop vs /games): it is the same inline, injected or \
+- a frame whose "file" is a page URL (/products vs /blog): it is the same inline, injected or \
 single-page-app script running on another page; compare its function names instead. When those \
 frames have no function names, they count as the same script only if the message is identical and \
 the frame shape matches; inline event handlers (onclick, ...) belong to their own page and are not shared;
 - the variable part of a templated message when the error type, template and throw site match: the \
-requested path or asset in not-found / failed-to-load errors (404 for /a vs /b, ASSET_LOAD_FAILED for \
-different assets), or a list of rejected fields from the same validator. When the variable part is \
-itself an error message, compare that inner error as its own throw site;
+requested path or asset in not-found / failed-to-load errors (404 for /a vs /b, failed-to-load \
+errors for different textures or images), or a list of rejected fields from the same validator. When \
+the variable part is itself an error message, compare that inner error as its own throw site;
 - which chunk or module failed in chunk / dynamic-import load failures (ChunkLoadError, "error loading \
 dynamically imported module"): one issue (deploy skew or network);
 - which caller hit the same failing dependency in transient transport-level failures (no HTTP \
@@ -138,19 +159,19 @@ it decide), e.g. OrderSummary.tsx vs OrderHistory.tsx, component Pricing vs Chec
 identical message: the same failure in two places needs two fixes. Named frames without a file \
 (Pricing, loadPricingPlans) are application frames, not minified names;
 - with no application frames at all, the library frame that calls into the framework stands in for \
-the application frame (react-use-websocket vs jotai calling into react-dom);
+the application frame (swr vs zustand calling into react-dom);
 - names that come from the application's own code differ: the undefined identifier (googletag vs \
 jQuery is not defined), the missing property, key or module, a nested error class in the message \
 (NetworkError vs AbortError), a different HTTP status (404 vs 401, 500 vs 503) or an HTTP status vs a \
 network error, or a different operation;
 - React minified errors (e.g. #418) with a different error code, OR different args (text vs HTML), OR \
-different route-specific files or components (billing-*.js vs reports-*.js): any one of these makes \
+different route-specific files or components (settings-*.js vs profile-*.js): any one of these makes \
 them different;
 - the error type or root message differs in meaning, not just in dynamic values.
 
 Examples (SAME): "Page not found: /config.js" vs "Page not found: /wp-json/x" with the same stack; \
-"Failed to load asset at path: /Game/Items/BP_Key" vs "/Game/BP_Key"; the same recursion frames on \
-/shop vs /games; a connection-pool-exhausted error reached from two different request handlers; a \
+"Failed to load texture: hero.png" vs "Failed to load texture: icons/logo.png"; the same recursion \
+frames on /products vs /blog; a connection-pool-exhausted error reached from two different request handlers; a \
 validation error listing different rejected fields from the same validator.
 Examples (DIFFERENT): "googletag is not defined" vs "jQuery is not defined"; "status code 404" vs \
 "Network Error"; the same TypeError thrown in component Pricing vs component Checkout.
@@ -192,12 +213,14 @@ class JudgeVerdict:
     latency_ms: float
 
 
-def ask_judge(team_id: int, document: str, candidate_document: str, timeout_seconds: float) -> JudgeVerdict:
-    """Ask Jeeves for P(same issue). Raises JudgeUnavailableError when it can't answer."""
+def ask_judge(
+    team_id: int, document: str, candidate_document: str, timeout_seconds: float, *, model: JudgeModel = JUDGE_MODEL
+) -> JudgeVerdict:
+    """Ask the judge model for P(same issue). Raises JudgeUnavailableError when it can't answer."""
     start = time.monotonic()
     try:
         client = build_system_one_client(
-            model=JUDGE_MODEL, ai_product="error_tracking", team_id=team_id, timeout=timeout_seconds
+            model=model, ai_product="error_tracking", team_id=team_id, timeout=timeout_seconds
         )
         result = client.decide(
             state=judge_state(document, candidate_document),

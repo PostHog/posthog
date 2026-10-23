@@ -9,6 +9,7 @@ import { captureException } from '../posthog'
 
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
+const NON_FATAL_CONNECT_TIMEOUT_MS = 10_000
 
 /**
  * Configuration for a Redis connection.
@@ -19,6 +20,12 @@ export interface RedisConnectionConfig {
     url: string
     options?: RedisOptions
     name?: string
+    /**
+     * Stops the process after repeated connection errors. Defaults to true. Set it to false for an
+     * optional store, so an outage of that store does not take down every route of the service.
+     * A client that cannot connect is then closed, and its caller sees the error.
+     */
+    exitOnRepeatedErrors?: boolean
 }
 
 /**
@@ -38,7 +45,7 @@ export interface RedisPoolConfig {
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
-    return createRedisClient(config.url, config.options, config.name)
+    return createRedisClient(config.url, config.options, config.name, config.exitOnRepeatedErrors ?? true)
 }
 
 export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
@@ -99,7 +106,8 @@ export function getRedisHost(url: string, options?: RedisOptions): string {
 export async function createRedisClient(
     url: string,
     options?: RedisOptions,
-    connectionName?: string
+    connectionName?: string,
+    exitOnRepeatedErrors: boolean = true
 ): Promise<Redis.Redis> {
     const redis = new Redis(url, {
         ...options,
@@ -112,8 +120,11 @@ export async function createRedisClient(
     redis
         .on('error', (error) => {
             errorCounter++
-            captureException(error)
-            if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
+            // A non-fatal client reconnects on every error, so only its first error is reported.
+            if (exitOnRepeatedErrors || errorCounter === 1) {
+                captureException(error)
+            }
+            if (exitOnRepeatedErrors && errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
                 logger.error(
                     '😡',
                     `${connectionId}Redis error encountered! host: ${redisHost} Enough of this, I quit!`,
@@ -133,6 +144,28 @@ export async function createRedisClient(
                 logger.info('✅', `${connectionId}Connected to Redis!`, redisHost)
             }
         })
-    await redis.info()
+    try {
+        if (exitOnRepeatedErrors) {
+            await redis.info()
+        } else {
+            // A command waits offline while the client reconnects, so commandTimeout never starts for it.
+            let timer: NodeJS.Timeout | undefined
+            await Promise.race([
+                redis.info(),
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(
+                        () => reject(new Error(`${connectionId}Redis did not connect`)),
+                        options?.commandTimeout ?? NON_FATAL_CONNECT_TIMEOUT_MS
+                    )
+                }),
+            ]).finally(() => clearTimeout(timer))
+        }
+    } catch (error) {
+        if (!exitOnRepeatedErrors) {
+            // Nothing holds this client, so it would otherwise reconnect forever.
+            redis.disconnect()
+        }
+        throw error
+    }
     return redis
 }

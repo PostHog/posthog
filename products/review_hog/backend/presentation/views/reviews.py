@@ -115,6 +115,11 @@ class PerspectiveStatsParamsSerializer(serializers.Serializer):
     )
 
 
+class ReviewTriggerReviewMode(models.TextChoices):
+    FULL = REVIEW_MODE_FULL, "Deep"
+    FLASH = REVIEW_MODE_FLASH, "Standard"
+
+
 class ReviewProgressSerializer(serializers.Serializer):
     review_stage = serializers.ChoiceField(
         choices=REVIEW_STAGES,
@@ -129,6 +134,13 @@ class ReviewProgressSerializer(serializers.Serializer):
     )
     total = serializers.IntegerField(
         allow_null=True, help_text="Work units the stage expects in total; null when unknown."
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        allow_null=True,
+        help_text="What the in-flight turn runs: 'full' (Deep) or 'flash' (Standard). The row's `review_mode` "
+        "describes the last completed turn, which can differ. Null until the turn records its mode, "
+        "shortly before its review sessions start.",
     )
 
 
@@ -151,11 +163,6 @@ class ReviewResolutionStatusSerializer(serializers.Serializer):
     needs_attention = serializers.IntegerField(
         help_text="Settled threads left for the author: judged worth doing but not safe to fix unattended."
     )
-
-
-class ReviewTriggerReviewMode(models.TextChoices):
-    FULL = REVIEW_MODE_FULL, "Deep"
-    FLASH = REVIEW_MODE_FLASH, "Standard"
 
 
 class ReviewTurnDesign(models.TextChoices):
@@ -643,9 +650,10 @@ class ReviewDroppedFindingSerializer(serializers.Serializer):
     )
     disposition = serializers.ChoiceField(
         choices=ReviewDropDisposition.choices,
-        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code "
-        "that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings "
-        "this way too). `dedup_prior`: repeats an earlier turn's finding. "
+        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's finding on code that "
+        "did not change since the last reviewed head. An automatic follow-up (run 2 and later) drops P2 and P3 "
+        "findings this way, a requested review drops only P3, and a first review drops none. "
+        "`dedup_prior`: repeats an earlier turn's finding. "
         "`dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same "
         "spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below "
         "the per-review finding limit.",

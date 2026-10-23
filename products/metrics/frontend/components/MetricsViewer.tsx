@@ -15,9 +15,12 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
+
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
 import { MetricsPanel } from '../panels/MetricsPanel'
+import { MetricsFacetRailLayout, MetricsFacetRailToggle } from './FacetRail/MetricsFacetRail'
 import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
@@ -94,6 +97,7 @@ export const MetricsViewer = (): JSX.Element => {
     )
     const insightEditorDisabledReason = getMetricsInsightEditorDisabledReason()
     const noQueryReason = hasQuery ? undefined : language === 'builder' ? 'Pick a metric first' : 'Write a query first'
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -114,15 +118,16 @@ export const MetricsViewer = (): JSX.Element => {
             : traceExemplars.map((exemplar) => ({
                   timeMs: dayjs(exemplar.timestamp).valueOf(),
                   tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).tz(timezone).format('D MMM HH:mm:ss')}. Click to view the trace.`,
-                  onClick: () => {
+                  onClick: (event) => {
                       exemplarDotClicked(!!exemplar.spanId)
-                      router.actions.push(
-                          traceUrl({
-                              traceId: exemplar.traceId,
-                              spanId: exemplar.spanId || null,
-                              ts: exemplar.timestamp,
-                          })
-                      )
+                      const trace = {
+                          traceId: exemplar.traceId,
+                          spanId: exemplar.spanId || null,
+                          ts: exemplar.timestamp,
+                      }
+                      if (!openTraceDialog(event, trace, { entryPoint: 'metric_exemplar' })) {
+                          router.actions.push(traceUrl(trace))
+                      }
                   },
               }))
         const spikeMarkers: MetricsExemplar[] =
@@ -141,6 +146,7 @@ export const MetricsViewer = (): JSX.Element => {
         traceExemplars,
         tracingDisabledReason,
         exemplarDotClicked,
+        openTraceDialog,
         errorSpikes,
         errorOverlaysEnabled,
         errorTrackingDisabledReason,
@@ -167,9 +173,11 @@ export const MetricsViewer = (): JSX.Element => {
     }, [anomalyFingerprint, dateFrom, dateTo, hasMetricName, timezone]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
+    // The rail writes builder filter chips, which PromQL and SQL queries do not read.
+    const facetRailEnabled = useFeatureFlag('METRICS_FACET_RAIL') && language === 'builder'
 
     return (
-        <div className="flex flex-col gap-3">
+        <MetricsFacetRailLayout enabled={facetRailEnabled}>
             <MetricsQueryControls
                 dataAttrPrefix="metrics-viewer"
                 onSwitchLanguage={
@@ -180,6 +188,7 @@ export const MetricsViewer = (): JSX.Element => {
                 heatmap={{ eligible: heatmapEligible }}
                 toolbarExtras={
                     <>
+                        {facetRailEnabled && <MetricsFacetRailToggle />}
                         <LemonSwitch
                             label="Auto-refresh"
                             checked={liveRefresh}
@@ -325,6 +334,6 @@ export const MetricsViewer = (): JSX.Element => {
                     </div>
                 )}
             </div>
-        </div>
+        </MetricsFacetRailLayout>
     )
 }

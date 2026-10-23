@@ -60,15 +60,15 @@ class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeC
             name=ExternalDataSourceType.ELEVENLABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ElevenLabs",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ElevenLabs API key to sync your ElevenLabs data into the PostHog Data warehouse.
 
 You can create an API key in your [ElevenLabs account settings](https://elevenlabs.io/app/settings/api-keys).
 
 Grant the following read permissions when creating the key:
 - **History** (text-to-speech generation history)
-- **Conversational AI** (conversations, agents, triage tickets, tools, tool executions, phone numbers, and batch calls)
-- **Voices**
+- **Conversational AI** (conversations, agents, agent deployments, triage tickets, tools, tool executions, phone numbers, and batch calls)
+- **Voices** (voices and voice collections)
 - **Models**
 - **Workspace** (members and groups)
 - **User** (subscription)

@@ -1,19 +1,27 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
+from typing import Any
+
+from posthog.dataclasses import frozen
+
+# Cohere versions its API in the URL path. Most list endpoints live only on /v1/, while batches
+# live only on /v2/, so the path version is fixed per endpoint rather than chosen by the user.
+COHERE_API_VERSION_V1 = "v1"
+COHERE_API_VERSION_V2 = "v2"
 
 
 class CoherePagination(Enum):
     # ?limit=&offset= — used by /datasets. Terminate when a page returns fewer rows than the
     # page size.
     OFFSET = "offset"
-    # ?page_size=&page_token= with a next_page_token in the body — used by /models. Terminate
-    # when the response omits the token.
+    # ?page_size=&page_token= with a next_page_token in the body — used by /models and /batches.
+    # Terminate when the response omits the token.
     PAGE_TOKEN = "page_token"
     # Single unpaginated request returning every row — used by /embed-jobs.
     NONE = "none"
 
 
-@dataclass
+@frozen
 class CohereEndpointConfig:
     name: str
     path: str
@@ -27,6 +35,8 @@ class CohereEndpointConfig:
     page_size: int = 100
     # Body key carrying the cursor for PAGE_TOKEN endpoints.
     next_token_key: str = "next_page_token"
+    api_version: str = COHERE_API_VERSION_V1
+    extra_params: dict[str, Any] = field(default_factory=dict)
 
 
 # The list endpoints a user connecting Cohere actually wants to warehouse: syncable asset and
@@ -55,6 +65,16 @@ COHERE_ENDPOINTS: dict[str, CohereEndpointConfig] = {
         data_key="embed_jobs",
         pagination=CoherePagination.NONE,
         primary_keys=["job_id"],
+    ),
+    "batches": CohereEndpointConfig(
+        name="batches",
+        path="/batches",
+        data_key="batches",
+        pagination=CoherePagination.PAGE_TOKEN,
+        api_version=COHERE_API_VERSION_V2,
+        page_size=1000,  # /batches caps page_size at 1000
+        # An explicit, stable order keeps page boundaries steady while new batches are created mid-sync.
+        extra_params={"order_by": "created_at"},
     ),
 }
 

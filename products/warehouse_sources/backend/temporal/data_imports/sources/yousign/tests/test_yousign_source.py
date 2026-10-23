@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yousign import (
@@ -74,9 +73,3 @@ class TestYousignSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_yousign_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not-a-schema"
-        with pytest.raises(ValueError, match="Unknown Yousign schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

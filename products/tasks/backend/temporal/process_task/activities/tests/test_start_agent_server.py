@@ -401,6 +401,7 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
 )
 async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, activity, boot_path) -> None:
     context = _context()
+    context.origin_product = "review_hog"
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.supports_combined_agent_server_start_and_health.return_value = False
     sandbox.read_agent_server_boot_metrics.return_value = (
@@ -437,6 +438,7 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
     )
     record_step = mocker.patch("products.tasks.backend.temporal.metrics.record_agent_server_step_ms")
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
 
     await activity(
         StartAgentServerInput(
@@ -448,13 +450,21 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         )
     )
 
+    read_labels = next(
+        call.args[0] for call in metric_meter.call_args_list if call.args[0]["step"] == "read_agent_boot_metrics"
+    )
+    assert read_labels["origin_product"] == "review_hog"
+    assert read_labels["runtime"] == "gvisor"
+    assert read_labels["boot_path"] == boot_path
+    assert read_labels["used_snapshot"] == "true"
+
     assert [record.args for record in record_step.call_args_list] == [
         ("agent_server_phase_context_fetch", 40, boot_path),
         ("agent_server_phase_repository_ready", 1200, boot_path),
         ("agent_server_phase_server_total", 1400, boot_path),
     ]
     assert all(
-        record.kwargs == {"used_snapshot": True, "origin_product": None, "runtime": "gvisor"}
+        record.kwargs == {"used_snapshot": True, "origin_product": "review_hog", "runtime": "gvisor"}
         for record in record_step.call_args_list
     )
 
@@ -487,7 +497,6 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch(
@@ -568,7 +577,6 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
-            event_ingest_keep_stream_open=False,
         ),
     )
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
@@ -819,7 +827,7 @@ def test_ensure_every_repository_is_on_disk(mocker) -> None:
     )
 
     assert [call.args[0] for call in sandbox.execute.call_args_list] == [
-        f"test -d {sandbox_repo_path('PostHog/posthog')}",
+        f"test -e {sandbox_repo_path('PostHog/posthog')}/.git",
         f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
     ]
 
@@ -837,7 +845,7 @@ def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker)
         _ensure_repository_on_disk(_context(repository="PostHog/posthog"), sandbox)
 
     assert exc_info.value.non_retryable is True
-    assert "never" in str(exc_info.value)
+    assert "no checkout" in str(exc_info.value)
 
 
 def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
@@ -862,7 +870,6 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         task_run_session_token=None,
         codex_run_token=None,
         event_ingest_url=None,
-        event_ingest_keep_stream_open=False,
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:
@@ -1177,7 +1184,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     assert result.shadow_launched is True
     shadow_result_reader.assert_not_called()
     create_event_ingest_token.assert_called_once()
-    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
+    assert create_event_ingest_token.call_args.kwargs == {
+        "sandbox_id": "sandbox-id",
+        "stream_generation": context.stream_generation,
+    }
     task_queryset.get.assert_called_once_with(id="task-id")
     get_user_mcp_configs.assert_called_once_with(
         token="oauth-token",

@@ -30,11 +30,16 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
+    GenerationNotFoundError,
     extract_event_io,
     extract_event_tools,
     hydrate_event_reference,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
+from posthog.temporal.ai_observability.evaluation_types import (
+    EvaluationActivityResult,
+    build_generation_not_found_result,
+    build_skipped_evaluation_result,
+)
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -44,6 +49,7 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
@@ -56,6 +62,7 @@ from products.ai_observability.backend.llm.decisions import (
 )
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
@@ -72,21 +79,25 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
+from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
+from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
+    BooleanOutputConfig,
     CategoricalOutputConfig,
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    EVENT_TEXT_MAX_CHARS,
+    sanitize_surrogates,
+    truncate_by_line_sampling,
+)
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
-
-# Same cap as the trace-level judge (JUDGE_TRACE_MAX_CHARS).
-JUDGE_EVENT_MAX_CHARS = 150_000
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -95,14 +106,34 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
+BACKFILL_ACTIVITY_TIMEOUT = timedelta(minutes=10)
+BACKFILL_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
+
+
+def backfill_timeout(recover_backfill: bool, live: timedelta | None) -> timedelta | None:
+    if not recover_backfill:
+        return live
+    return max(live, BACKFILL_ACTIVITY_TIMEOUT) if live else BACKFILL_ACTIVITY_TIMEOUT
+
+
+def backfill_retry_policy(recover_backfill: bool, live: RetryPolicy) -> RetryPolicy:
+    return BACKFILL_ACTIVITY_RETRY_POLICY if recover_backfill else live
+
 
 # A retry can fix these client errors, so they stay on the retry policy like a 5xx.
 # 499 is a cancellation, which Gemini already maps to the transport lane.
 _RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
 
 
-def _is_last_judge_attempt() -> bool:
-    if not temporalio.activity.in_activity():
+def _is_last_judge_attempt(backfill: bool = False) -> bool:
+    # A backfill run never treats an attempt as its last: running out of retries fails the run, and
+    # the backfill decides whether to pause or stop. Only a live run gives up for good.
+    if backfill or not temporalio.activity.in_activity():
         return False
     return temporalio.activity.info().attempt >= (LLM_JUDGE_RETRY_POLICY.maximum_attempts or 0)
 
@@ -271,10 +302,11 @@ def build_system_prompt(
 {config.instructions}"""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExecuteLLMJudgeInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -475,7 +507,10 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
 def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = hydrate_event_reference(inputs.event_data)
+    try:
+        event_data = hydrate_event_reference(inputs.event_data)
+    except GenerationNotFoundError:
+        return build_generation_not_found_result(evaluation)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -515,23 +550,29 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
 
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    sections = [f"Input: {input_data}"]
+    output_section = f"\n\nOutput: {output_data}"
+    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
+    if context_budget < 0:
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
+            skip_reason="generation_output_too_long",
+        )
+
+    sections = [input_data]
     if tools_data:
         sections.append(f"Tools available:\n{tools_data}")
-    sections.append(f"Output: {output_data}")
-    user_prompt = "\n\n".join(sections)
-    if len(user_prompt) > JUDGE_EVENT_MAX_CHARS:
-        # Line-number first so the sampler's "gaps indicate omitted content" header is truthful,
-        # then hard-truncate to guarantee the cap for low-newline payloads the sampler leaves whole.
-        user_prompt = add_line_numbers(user_prompt)
-        user_prompt, _ = reduce_by_uniform_sampling(user_prompt, JUDGE_EVENT_MAX_CHARS)
-        user_prompt = user_prompt[:JUDGE_EVENT_MAX_CHARS]
+    # Keep the full answer being graded outside the sampled context.
+    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
+    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
 
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         allows_na=allows_na,
+        backfill=inputs.backfill_id is not None,
     )
 
 
@@ -555,6 +596,7 @@ def call_llm_judge(
     system_prompt: str,
     user_prompt: str,
     allows_na: bool,
+    backfill: bool = False,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -620,12 +662,14 @@ def call_llm_judge(
             base_url = (
                 OPENROUTER_DECISIONS_BASE_URL
                 if provider == "openrouter"
+                else OPENAI_DECISIONS_BASE_URL
+                if provider == "openai"
                 else provider_key.encrypted_config.get("base_url", "")
                 if provider_key
                 else ""
             )
             if (provider == "openrouter" and not openrouter_enabled) or (
-                provider == "system_one" and not decision_evaluations_enabled(team_id, base_url=base_url)
+                provider in ("system_one", "openai") and not decision_evaluations_enabled(team_id, base_url=base_url)
             ):
                 return build_skipped_evaluation_result(
                     output_type=output_type,
@@ -691,14 +735,20 @@ def call_llm_judge(
                         "evaluate them, even if the result would be a fail. Do not invent missing facts.\n\n" + prompt
                     )
                 )
-            decision_result = DecisionClient.evaluate(
-                api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
-                base_url=base_url,
-                path="decisions" if provider == "openrouter" else "systemone",
-                model=model,
-                state=user_prompt,
-                questions=questions,
-            )
+            api_key = provider_key.encrypted_config.get("api_key", "") if provider_key else ""
+            if provider == "openai":
+                decision_result = OpenAIDecisionAdapter().evaluate(
+                    api_key=api_key, model=model, state=user_prompt, questions=questions
+                )
+            else:
+                decision_result = DecisionClient.evaluate(
+                    api_key=api_key,
+                    base_url=base_url,
+                    path="decisions" if provider == "openrouter" else "systemone",
+                    model=model,
+                    state=user_prompt,
+                    questions=questions,
+                )
             applicable = True
             if allows_na:
                 applicability_answer = decision_result.answers["applicable"]
@@ -747,13 +797,16 @@ def call_llm_judge(
                 if not isinstance(verdict_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
                 probability = verdict_answer.probability
+                configured_threshold = BooleanOutputConfig.model_validate(output_config).decision_threshold
+                # Zero is a valid cutoff.
+                threshold = configured_threshold if configured_threshold is not None else 0.5
                 parsed = (
                     BooleanWithNAEvalResult(
                         reasoning="",
-                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+                        outcome="not_applicable" if not applicable else "pass" if probability >= threshold else "fail",
                     )
                     if allows_na
-                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+                    else BooleanEvalResult(reasoning="", verdict=probability >= threshold)
                 )
             response = CompletionResponse(
                 content="",
@@ -795,12 +848,14 @@ def call_llm_judge(
         )
     except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
+        retry_delay = timedelta(seconds=e.retry_after) if e.retry_after is not None else None
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
-        error_class = ApplicationError if _is_last_judge_attempt() else NonReportableApplicationError
+        last = is_last_attempt(retry_delay) if backfill else _is_last_judge_attempt()
+        error_class = ApplicationError if last else NonReportableApplicationError
         raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
-            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+            next_retry_delay=retry_delay,
         ) from e
     except AuthenticationError:
         if is_byok:
@@ -881,7 +936,7 @@ def call_llm_judge(
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
         )
-    except UnsupportedModelError:
+    except UnsupportedModelError as e:
         # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
         if (
             provider == "openrouter"
@@ -897,7 +952,9 @@ def call_llm_judge(
         increment_user_errors("model_not_supported", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("model_not_supported", is_byok=is_byok),
-            message=f"Model '{model}' does not support chat completions. Choose a chat model.",
+            message=str(e)
+            if isinstance(e, ClaudeDeploymentOnAzureOpenAIError)
+            else f"Model '{model}' does not support chat completions. Choose a chat model.",
             allows_na=allows_na,
             output_type=output_type,
             provider=provider,
@@ -962,7 +1019,7 @@ def call_llm_judge(
         )
 
     except ProviderHostUnresolvedError as e:
-        if not _is_last_judge_attempt():
+        if not _is_last_judge_attempt(backfill):
             increment_errors("connection_error", provider=provider)
             raise TransientJudgeError(str(e)) from e
         # The host did not resolve on any attempt, so the base URL is probably wrong. A failed

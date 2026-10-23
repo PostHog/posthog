@@ -5,6 +5,7 @@ import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
  * reader, so they get different copy and a different next step.
  */
 export type WatchFeedEmptyReason =
+    | 'replay-off'
     | 'no-scanners'
     | 'quota-exhausted'
     | 'all-disabled'
@@ -16,6 +17,8 @@ export interface WatchFeedEmptyInput {
     scanners: ReplayScannerApi[]
     /** Null when the snapshot has not answered, which reads here as "no block seen". */
     quota: VisionQuotaApi | null
+    /** Null while the team has not loaded, which also reads as "no block seen". */
+    sessionRecordingOptIn: boolean | null
     hasFeedFilters: boolean
 }
 
@@ -26,8 +29,12 @@ export interface WatchFeedEmptyInput {
 export function resolveWatchFeedEmptyReason({
     scanners,
     quota,
+    sessionRecordingOptIn,
     hasFeedFilters,
 }: WatchFeedEmptyInput): WatchFeedEmptyReason {
+    if (sessionRecordingOptIn === false) {
+        return 'replay-off'
+    }
     if (scanners.length === 0) {
         // The scene gate answers this one first, so the feed sees it only when the setup probe
         // failed open. The tab still has to offer the way in.

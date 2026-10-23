@@ -4,8 +4,18 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { splitPartialDuration } from '../durations'
 
+// The executor's per-unit ceilings for a wait's timeout. A wait stays registered with the subscription
+// matcher while it parks, so it keeps a shorter cap than a delay.
 const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
     d: 30,
+    h: 24,
+    m: 60,
+    s: 60,
+}
+
+// A delay parks once and wakes once, so the executor lets it run to a year.
+export const MAX_DELAY_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
+    d: 365,
     h: 24,
     m: 60,
     s: 60,

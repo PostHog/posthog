@@ -34,7 +34,7 @@ from oauth2_provider.views import (
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauthlib.common import Request as OauthlibRequest
-from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
+from oauthlib.oauth2 import InvalidClientError, InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed, NotFound
@@ -53,6 +53,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.api.oauth.client_assertion import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
     ClientAssertionError,
     ResolvedClientAssertion,
     expected_assertion_audiences,
@@ -75,7 +76,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -252,6 +253,12 @@ def _oauth_app_event_properties(application: OAuthApplication) -> dict:
     }
 
 
+def _provisioning_signing_properties(application: OAuthApplication, *, signed: bool) -> dict:
+    if not application.is_provisioning_partner:
+        return {}
+    return {"provisioning_signing": application.provisioning_signing.request_tag(signed=signed)}
+
+
 def _token_error_code(response: HttpResponse) -> str:
     """RFC 6749 §5.2 error code from a token-endpoint failure, falling back to the status
     code when the body isn't the documented JSON shape."""
@@ -365,14 +372,7 @@ def _gateway_blocklist_block(
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
         refused = False
-    if not refused and not wizard_identity_blocked(
-        distinct_id=str(request.user.distinct_id),
-        email=request.user.email,
-        surface="oauth_authorize",
-        user_uuid=str(request.user.uuid),
-        organization_ids=[str(organization_id) for organization_id in organization_ids],
-        team_ids=scoped_team_ids or [],
-    ):
+    if not refused:
         return None
     return Response(
         {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},
@@ -553,9 +553,7 @@ class OAuthValidator(OAuth2Validator):
         exchange, in place and with no operator involved on either side. PKCE remains the
         enforced baseline for the fallback, exactly as for any public client. The
         grant-type gate in ``_credentialless_cimd_private_key_jwt_client`` keeps the
-        fallback off revocation, which shares this validator; the agentic provisioning
-        endpoints keep requiring the declared method, and partners there demonstrably
-        send assertions.
+        fallback off revocation, which shares this validator.
         """
         if getattr(request, "client_assertion", None):
             return True
@@ -572,6 +570,7 @@ class OAuthValidator(OAuth2Validator):
         living on credential-less refresh grants would keep stale scopes and config
         forever."""
         if super().authenticate_client_id(request_client_id, request, *args, **kwargs):
+            self._refuse_unsigned_provisioning_partner(request)
             return True
         app = self._credentialless_cimd_private_key_jwt_client(request)
         if app is None:
@@ -587,10 +586,9 @@ class OAuthValidator(OAuth2Validator):
         authenticates or fails, and the grant-type gate excludes requests without a token
         grant, which is how revocation stays on the declared method.
 
-        Provisioning partners are excluded. They register through CIMD and declare
-        private_key_jwt too, so they match this shape without needing it: they do send
-        assertions, and the key is the credential their registration is built on. Including
-        them would hand every partner a way to downgrade itself by sending nothing."""
+        Provisioning partners never get it. The key is the credential their registration is
+        built on, and the fallback would hand every partner a way to downgrade itself by
+        sending nothing."""
         if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
             return None
         if getattr(request, "client_assertion", None):
@@ -600,9 +598,11 @@ class OAuthValidator(OAuth2Validator):
         if getattr(request, "client_secret", None):
             return None
         app = self._load_application(getattr(request, "client_id", None) or "", request)
-        if app is not None and app.is_cimd_client and app.uses_private_key_jwt_auth:
-            return None if app.is_provisioning_partner else app
-        return None
+        if app is None or not app.is_cimd_client or not app.uses_private_key_jwt_auth:
+            return None
+        if app.is_provisioning_partner:
+            return None
+        return app
 
     def authenticate_client(self, request, *args, **kwargs):
         """Authenticate a client presenting ``private_key_jwt`` (RFC 7523).
@@ -617,7 +617,20 @@ class OAuthValidator(OAuth2Validator):
         """
         if self._authenticate_client_assertion(request):
             return True
-        return super().authenticate_client(request, *args, **kwargs)
+        if not super().authenticate_client(request, *args, **kwargs):
+            return False
+        self._refuse_unsigned_provisioning_partner(request)
+        return True
+
+    @staticmethod
+    def _refuse_unsigned_provisioning_partner(request) -> None:
+        # Only grants issue tokens. Revocation shares this validator and must keep working, so a
+        # refused partner can still kill the tokens it holds.
+        if not getattr(request, "grant_type", None):
+            return
+        client = getattr(request, "client", None)
+        if client is not None and client.requires_provisioning_signature:
+            raise InvalidClientError(description=PRIVATE_KEY_REQUIRED_MESSAGE, request=request)
 
     @staticmethod
     def _enqueue_cimd_metadata_refresh(client_id: str) -> None:
@@ -1439,7 +1452,10 @@ def authenticated_oauth_client(view, request, *, resolve_cimd: bool = False) -> 
             return None
         if is_cimd_client_id(client_id) and not validator.validate_client_id(client_id, oauth_request):
             return None
-    if not validator.authenticate_client(oauth_request):
+    try:
+        if not validator.authenticate_client(oauth_request):
+            return None
+    except InvalidClientError:
         return None
     return oauth_request.client
 
@@ -2034,6 +2050,11 @@ class OAuthTokenView(TokenView):
         }
         if access_token.application:
             properties.update(_oauth_app_event_properties(access_token.application))
+            properties.update(
+                _provisioning_signing_properties(
+                    access_token.application, signed=client_auth_method == "client_assertion"
+                )
+            )
         # `user` is nullable on an access token (client-credentials grants have no
         # resource owner), so fall back to the client id and skip person processing.
         if access_token.user is None:
@@ -2073,6 +2094,9 @@ class OAuthTokenView(TokenView):
             pass
         else:
             properties.update(_oauth_app_event_properties(application))
+            # A rejected assertion may not have verified, so only unsigned rejections are tagged.
+            if client_auth_method != "client_assertion":
+                properties.update(_provisioning_signing_properties(application, signed=False))
         posthoganalytics.capture(
             distinct_id=client_id or "unknown",
             event="oauth_token_rejected",
@@ -2365,6 +2389,7 @@ def _active_access_token_response(
     scoped_teams: list[int],
     scoped_organizations: list[str],
     application: OAuthApplication | None,
+    sandbox_task_id: uuid.UUID | None = None,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2379,6 +2404,16 @@ def _active_access_token_response(
     if application:
         data["client_id"] = application.client_id
         data["client_name"] = application.name
+    if sandbox_task_id is not None:
+        # The policy resolves API routes, which import these views.
+        from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
+
+        data["sandbox_task_id"] = str(sandbox_task_id)
+        # The MCP server hides and refuses every tool outside this list. The API enforces the
+        # same list per operation, so a client that ignores it gains nothing.
+        held_tools = resolve_scout_held_tools(sandbox_task_id=sandbox_task_id)
+        if held_tools is not None:
+            data["mcp_allowed_tools"] = sorted(held_tools)
     return JsonResponse(data)
 
 
@@ -2590,6 +2625,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 scoped_teams=access_token.scoped_teams or [],
                 scoped_organizations=access_token.scoped_organizations or [],
                 application=access_token.application,
+                sandbox_task_id=access_token.sandbox_task_id,
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has

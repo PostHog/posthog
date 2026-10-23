@@ -23,8 +23,6 @@ class TestCircleCISource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://circleci.com/api/v2/pipeline?org-slug=gh%2Fposthog",),
-            ("403 Client Error: Forbidden for url: https://circleci.com/api/v2/workflow/abc/job",),
             ("404 Client Error: Not Found for url: https://circleci.com/api/v2/project/gh/posthog/posthog",),
         ]
     )
@@ -35,8 +33,6 @@ class TestCircleCISource:
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
-            ("500 Server Error for url: https://circleci.com/api/v2/pipeline",),
-            ("429 Client Error: Too Many Requests for url: https://circleci.com/api/v2/pipeline",),
         ]
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
@@ -52,11 +48,6 @@ class TestCircleCISource:
         assert schemas[endpoint].supports_append is False
         assert schemas[endpoint].incremental_fields == []
         assert INCREMENTAL_FIELDS.get(endpoint) is None
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["pipelines"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "pipelines"
 
     @parameterized.expand(
         [

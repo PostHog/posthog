@@ -2,14 +2,14 @@ import { useValues } from 'kea'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { OnboardingProductConfiguration } from 'scenes/onboarding/legacy/OnboardingProductConfiguration'
-import { type ProductConfigOption } from 'scenes/onboarding/legacy/onboardingProductConfigurationLogic'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
+import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
+import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import {
     SessionReplaySDKDocsLinkOverrides,
     SessionReplaySDKInstructions,
-} from 'scenes/onboarding/legacy/sdks/session-replay/SessionReplaySDKInstructions'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+} from 'scenes/onboarding/sdks/session-replay/SessionReplaySDKInstructions'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

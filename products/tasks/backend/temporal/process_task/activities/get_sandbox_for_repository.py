@@ -424,13 +424,20 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         credentials = sandbox.get_connect_credentials()
 
         try:
-            persist_sandbox_connection(
-                run_id=ctx.run_id,
-                sandbox=sandbox,
-                credentials=credentials,
-                sandbox_created_at=sandbox_created_at,
-                task_runtime=ctx.task_runtime,
-            )
+            with StepTimer(
+                "persist_sandbox_connection",
+                origin_product=ctx.origin_product,
+                runtime=runtime,
+                used_snapshot=used_snapshot,
+                boot_path="classic",
+            ):
+                persist_sandbox_connection(
+                    run_id=ctx.run_id,
+                    sandbox=sandbox,
+                    credentials=credentials,
+                    sandbox_created_at=sandbox_created_at,
+                    task_runtime=ctx.task_runtime,
+                )
         except Exception:
             try:
                 sandbox.destroy()

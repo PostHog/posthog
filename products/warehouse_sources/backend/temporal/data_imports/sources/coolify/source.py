@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify import (
+    audit_events_permission,
     coolify_source,
     validate_credentials as validate_coolify_credentials,
 )
@@ -65,7 +66,7 @@ class CoolifySource(SimpleSource[CoolifySourceConfig]):
             # with 400 "Invalid token." rather than 401, so both map to the credential message.
             "400 Client Error: Bad Request for url": "Coolify rejected the API token. Check the token, or create a new one under Keys & Tokens > API tokens on your Coolify instance, then reconnect.",
             "401 Client Error: Unauthorized for url": "Coolify rejected the API token. Check the token, or create a new one under Keys & Tokens > API tokens on your Coolify instance, then reconnect.",
-            "403 Client Error: Forbidden for url": "Your API token doesn't have read permission. Create a token with read permission under Keys & Tokens > API tokens on your Coolify instance, then reconnect.",
+            "403 Client Error: Forbidden for url": "Your API token doesn't have read permission. Create a token with read permission under Keys & Tokens > API tokens on your Coolify instance, then reconnect. Audit events also need a token created by a team admin or owner.",
         }
 
     def get_schemas(
@@ -87,6 +88,15 @@ class CoolifySource(SimpleSource[CoolifySourceConfig]):
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_coolify_credentials(config.base_url, config.api_token, team_id=team_id, schema_name=schema_name)
+
+    def get_endpoint_permissions(
+        self, config: CoolifySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        # Tokens carry global abilities, so only the admin-only audit log can differ per table.
+        permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+        if "audit_events" in permissions:
+            permissions["audit_events"] = audit_events_permission(config.base_url, config.api_token, team_id)
+        return permissions
 
     def source_for_pipeline(self, config: CoolifySourceConfig, inputs: SourceInputs) -> SourceResponse:
         endpoint_config = COOLIFY_ENDPOINTS[inputs.schema_name]
@@ -119,10 +129,10 @@ class CoolifySource(SimpleSource[CoolifySourceConfig]):
             name=ExternalDataSourceType.COOLIFY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Coolify",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Coolify instance URL and an API token to pull your servers, projects, applications, databases, services, deployments, and teams into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.GA,
+            caption="""Enter your Coolify instance URL and an API token to pull your servers, projects, environments, applications, databases, services, deployments, scheduled task and backup runs, audit events, and teams into the PostHog Data warehouse.
 
-Create a token under **Keys & Tokens > API tokens** in your Coolify dashboard. A read-only token is enough, because this source never writes or deploys.
+Create a token under **Keys & Tokens > API tokens** in your Coolify dashboard. A read-only token is enough, because this source never writes or deploys. Audit events need a token created by a team admin or owner.
 
 The instance URL is where your Coolify dashboard runs, for example `https://coolify.example.com` (use `https://app.coolify.io` for Coolify Cloud).""",
             iconPath="/static/services/coolify.png",

@@ -49,7 +49,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         if self.query.source:
             self.source_query_runner = get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, user=self.user
+                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
             )
             self.modifiers = self.source_query_runner.modifiers
         else:
@@ -66,7 +66,13 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         self.strategy = self.determine_strategy()
         self.calculating = False
-        self.user = None
+
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        return [self.source_query_runner] if self.source_query_runner is not None else []
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self.strategy = self.determine_strategy()
 
     def run(
         self,
@@ -81,9 +87,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         # This runner takes the run() user verbatim, including None. A bare assignment would
         # hide the change from the base run(), leaving the shared database and access-control
         # snapshot scoped to the previous user.
-        if user is not self.user:
-            self.user = user
-            self._on_user_changed()
+        self.set_user(user)
         return super().run(
             execution_mode,
             user,
@@ -93,6 +97,18 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             cache_age_seconds,
             analytics_props=analytics_props,
         )
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        if self.source_query_runner is not None:
+            self.source_query_runner.validate_query_runner_access(user)
+        return super().validate_query_runner_access(user)
+
+    def get_cache_key_variant(self) -> str:
+        source_variant = self.source_query_runner.get_cache_key_variant() if self.source_query_runner else ""
+        return super().get_cache_key_variant() + source_variant
+
+    def query_status_labels(self) -> list[str] | None:
+        return self.source_query_runner.query_status_labels() if self.source_query_runner is not None else None
 
     @property
     def group_type_index(self) -> int | None:
@@ -119,7 +135,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             )
 
         if self.is_session_aggregation:
-            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
+            return SessionStrategy(
+                team=self.team, query=self.query, paginator=self.paginator, user=self.user, modifiers=self.modifiers
+            )
 
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
 

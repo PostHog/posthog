@@ -27,7 +27,7 @@ export const SettingLevelNames: Record<SettingLevelId, string> = {
     environment: 'Environment',
     project: 'Project',
     organization: 'Organization',
-    user: 'Account',
+    user: 'User',
 } as const
 
 export type SettingSectionId =
@@ -102,8 +102,8 @@ export type SettingSectionId =
     | 'user-profile'
     | 'user-api-keys'
     | 'user-connected-apps'
+    | 'user-ai-gateway-dev-mode'
     | 'user-customization'
-    | 'user-navigation'
     | 'user-feature-previews'
     | 'user-notifications'
     | 'user-personal-integrations'
@@ -138,6 +138,7 @@ export type SettingId =
     | 'changelog'
     | 'channel-type'
     | 'connected-apps'
+    | 'ai-gateway-dev-mode'
     | 'conversations-ai'
     | 'conversations-channels'
     | 'conversations-general'
@@ -145,7 +146,6 @@ export type SettingId =
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
     | 'core-memory'
-    | 'correlation-analysis'
     | 'csp-reporting'
     | 'custom-bot-definitions'
     | 'customer-analytics-accounts'
@@ -205,7 +205,6 @@ export type SettingId =
     | 'heatmap-screenshot-cookie'
     | 'heatmaps-capture'
     | 'hedgehog-mode'
-    | 'homepage'
     | 'human-friendly-comparison-periods'
     | 'integration-error-tracking'
     | 'integration-github'
@@ -290,12 +289,7 @@ export type SettingId =
     | 'saml-configuration'
     | 'oidc-configuration'
     | 'scim-configuration'
-    | 'session-join-mode'
     | 'session-table-version'
-    | 'sidebar-auto-suggest'
-    | 'sidebar-items'
-    | 'sidebar-layout'
-    | 'sidebar-my-tools'
     | 'snippet'
     | 'snippet-v2'
     | 'surveys-default-appearance'
@@ -326,7 +320,9 @@ export type SettingId =
     | 'web-vitals-autocapture'
     | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
+    | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
+    | 'workflows-utm-defaults'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 
@@ -363,6 +359,9 @@ export type Setting = {
      * Use it for an organization-scoped API, because a project admin can be an ordinary organization member.
      */
     organizationAdminOnly?: boolean
+
+    /** Shows the setting only to PostHog staff. The API it calls must enforce the same check. */
+    staffOnly?: boolean
 
     /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),

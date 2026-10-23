@@ -86,6 +86,25 @@ def outgoing_links(
     return _edges_from_rows(list(rows), kinds=kinds)
 
 
+def outgoing_links_by_report(
+    *, team_id: int, report_ids: Collection[str], kinds: Collection[ReportLinkKind] | None = None
+) -> dict[str, list[ReportEdge]]:
+    """`outgoing_links` for several reports in one query, keyed by source report id."""
+    source_ids = [source_id for source_id in map(_canonical_report_id, report_ids) if source_id is not None]
+    if not source_ids:
+        return {}
+    rows = (
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id__in=source_ids, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
+        .order_by("created_at", "id")
+        .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS]
+    )
+    edges_by_report: dict[str, list[ReportEdge]] = {}
+    for edge in _edges_from_rows(list(rows), kinds=kinds):
+        edges_by_report.setdefault(edge.source_id, []).append(edge)
+    return edges_by_report
+
+
 def incoming_links(
     *,
     team_id: int,

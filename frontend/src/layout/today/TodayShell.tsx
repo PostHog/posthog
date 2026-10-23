@@ -12,15 +12,13 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
-import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
-import { todayRecentsLogic } from './todayRecentsLogic'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
@@ -28,11 +26,11 @@ import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
-const TodayViewsSidebar = lazyWithRetry(() =>
-    import('./TodayViewsSidebar').then((m) => ({ default: m.TodayViewsSidebar }))
+const TodayAnalyticsSidebar = lazyWithRetry(() =>
+    import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
 )
-const TodayProductsSidebar = lazyWithRetry(() =>
-    import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
+const TodayProductsPane = lazyWithRetry(() =>
+    import('./TodayProductsPane').then((m) => ({ default: m.TodayProductsPane }))
 )
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
@@ -45,8 +43,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
-    useMountedLogic(todayRecentsLogic)
+    useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',
@@ -94,18 +91,14 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? (
-                <TodayPreviewCardProvider>
-                    <TodayHomeSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'spaces' ? (
+            {activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
-            ) : activePane === 'views' ? (
-                <TodayViewsSidebar />
+            ) : activePane === 'analytics' ? (
+                <TodayAnalyticsSidebar />
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
-                <TodayProductsSidebar />
+                <TodayProductsPane />
             )}
         </Suspense>
     )
@@ -195,7 +188,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-[var(--scene-layout-background)]"
+                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
                             aria-label={paneTitle}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}

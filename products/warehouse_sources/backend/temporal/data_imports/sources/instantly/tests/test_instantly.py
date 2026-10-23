@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -27,18 +28,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.settings import (
     ANALYTICS_HISTORY_START_DATE,
-    PROBE_CAMPAIGN_ID,
+    PROBE_PARENT_ID,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.instantly.instantly"
 
 
 class _FakeClient:
-    def __init__(self, pages_by_path: dict[str, list[list[dict]]]):
+    def __init__(self, pages_by_path: dict[str, list[Any]]):
         self.pages_by_path = pages_by_path
         self.calls: list[tuple[str, dict]] = []
+        self.json_bodies: list[dict] = []
 
-    def paginate(self, *, path, params, paginator, data_selector):
+    def paginate(self, *, path, paginator, data_selector, params=None, method="get", json=None):
+        if json is not None:
+            self.json_bodies.append(json)
+            pages = self.pages_by_path.get(path, [])
+            yield pages[len(self.json_bodies) - 1] if len(self.json_bodies) <= len(pages) else {}
+            return
         self.calls.append((path, params))
         yield from self.pages_by_path.get(path, [])
 
@@ -136,19 +143,32 @@ class TestInstantly:
         paginator.update_request(request)
         assert mock_sleep.call_count == 1
 
-    def test_emails_resource_sends_incremental_filter_only_when_enabled(self):
-        incremental = get_resource("emails", True)
-        full_refresh = get_resource("emails", False)
+    @pytest.mark.parametrize(
+        "endpoint,filter_param,cursor_path,formatted_last_value",
+        [
+            ("emails", "min_timestamp_created", "timestamp_created", "2026-01-02T03:04:05+00:00"),
+            # The audit log filter takes a date, so the watermark's day is synced again and merged.
+            ("audit_logs", "start_date", "timestamp", "2026-01-02"),
+        ],
+    )
+    def test_resource_sends_incremental_filter_only_when_enabled(
+        self, endpoint, filter_param, cursor_path, formatted_last_value
+    ):
+        incremental = get_resource(endpoint, True)
+        full_refresh = get_resource(endpoint, False)
 
-        incremental_params = _endpoint_config(incremental)["params"]
-        assert incremental_params["min_timestamp_created"]["type"] == "incremental"
-        assert incremental_params["min_timestamp_created"]["cursor_path"] == "timestamp_created"
-        # sort_order=asc keeps arrival order matching sort_mode="asc" for watermark checkpointing.
-        assert incremental_params["sort_order"] == "asc"
+        incremental_param = _endpoint_config(incremental)["params"][filter_param]
+        assert incremental_param["type"] == "incremental"
+        assert incremental_param["cursor_path"] == cursor_path
+        assert incremental_param["convert"](datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)) == formatted_last_value
         assert incremental["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-        assert "min_timestamp_created" not in _endpoint_config(full_refresh)["params"]
+        assert filter_param not in _endpoint_config(full_refresh)["params"]
         assert full_refresh["write_disposition"] == "replace"
+
+    def test_emails_resource_requests_ascending_order(self):
+        # sort_order=asc keeps arrival order matching sort_mode="asc" for watermark checkpointing.
+        assert _endpoint_config(get_resource("emails", True))["params"]["sort_order"] == "asc"
 
     def test_leads_resource_is_post_with_json_body(self):
         endpoint = _endpoint_config(get_resource("leads", False))
@@ -186,10 +206,11 @@ class TestInstantly:
         assert _format_incremental_date(value) == expected
 
     @pytest.mark.parametrize(
-        "endpoint,child_path,child_page,expected_params,expected_rows",
+        "endpoint,parent_path,child_path,child_page,expected_params,expected_rows",
         [
             (
                 "campaign_step_analytics",
+                "/api/v2/campaigns",
                 "/api/v2/campaigns/analytics/steps",
                 [{"step": "1", "variant": "0", "sent": 5}],
                 {"include_opportunities_count": "true", "campaign_id": "c-1"},
@@ -198,19 +219,36 @@ class TestInstantly:
             ),
             (
                 "subsequences",
+                "/api/v2/campaigns",
                 "/api/v2/subsequences",
                 [{"id": "s-1", "parent_campaign": "c-1"}],
                 {"limit": 100, "parent_campaign": "c-1"},
                 [{"id": "s-1", "parent_campaign": "c-1"}],
             ),
+            (
+                "inbox_placement_analytics",
+                "/api/v2/inbox-placement-tests",
+                "/api/v2/inbox-placement-analytics",
+                [{"id": "a-1", "test_id": "c-1", "is_spam": False}],
+                {"limit": 100, "test_id": "c-1"},
+                [{"id": "a-1", "test_id": "c-1", "is_spam": False}],
+            ),
+            (
+                "inbox_placement_reports",
+                "/api/v2/inbox-placement-tests",
+                "/api/v2/inbox-placement-reports",
+                [{"id": "r-1", "test_id": "c-1", "spam_assassin_score": 1.5}],
+                {"limit": 100, "test_id": "c-1"},
+                [{"id": "r-1", "test_id": "c-1", "spam_assassin_score": 1.5}],
+            ),
         ],
     )
-    def test_campaign_fanout_scopes_each_request_to_one_campaign(
-        self, endpoint, child_path, child_page, expected_params, expected_rows
+    def test_fanout_scopes_each_request_to_one_parent(
+        self, endpoint, parent_path, child_path, child_page, expected_params, expected_rows
     ):
         client = _FakeClient(
             {
-                "/api/v2/campaigns": [[{"id": "c-1"}, {"name": "no id"}]],
+                parent_path: [[{"id": "c-1"}, {"name": "no id"}]],
                 child_path: [child_page],
             }
         )
@@ -226,8 +264,40 @@ class TestInstantly:
         assert pages == [expected_rows]
         # The fan-out keeps no cursor, so the pipeline must not treat the run as resumable.
         assert response.supports_resume is False
-        # A campaign without an id is skipped rather than sent as an unscoped request.
-        assert client.calls == [("/api/v2/campaigns", {"limit": 100}), (child_path, expected_params)]
+        # A parent without an id is skipped rather than sent as an unscoped request.
+        assert client.calls == [(parent_path, {"limit": 100}), (child_path, expected_params)]
+
+    def test_account_warmup_analytics_batches_account_emails_and_flattens_stats(self):
+        accounts = [{"email": f"sender{i}@example.com"} for i in range(101)] + [{"name": "no email"}]
+        stats = {"sent": 10, "received": 9, "landed_inbox": 8, "landed_spam": 1, "health_score": 90}
+        client = _FakeClient(
+            {
+                "/api/v2/accounts": [accounts],
+                "/api/v2/accounts/warmup-analytics": [
+                    {"sender0@example.com": stats, "sender1@example.com": None},
+                    # An empty aggregate_data (no warmup history) yields no rows.
+                    {},
+                ],
+            }
+        )
+
+        with mock.patch(f"{MODULE}._make_client", return_value=client):
+            response = instantly_source(
+                api_key="key",
+                endpoint="account_warmup_analytics",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=mock.MagicMock(),
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            pages = list(items)
+
+        # The API takes at most 100 emails per request; an account without an email is not sent.
+        assert [len(body["emails"]) for body in client.json_bodies] == [100, 1]
+        assert client.json_bodies[1] == {"emails": ["sender100@example.com"]}
+        assert pages == [[{**stats, "email": "sender0@example.com"}]]
+        assert response.supports_resume is False
 
     def test_account_daily_analytics_windows_by_start_date_and_sorts_rows(self):
         rows = [
@@ -293,24 +363,45 @@ class TestInstantly:
             ("/api/v2/accounts/analytics/daily", {"start_date": "2020-04-03", "end_date": "2020-04-15"}),
         ]
 
-    def test_probe_sends_required_campaign_id_for_subsequences(self):
+    @pytest.mark.parametrize(
+        "endpoint,expected_url,expected_params",
+        [
+            (
+                "subsequences",
+                "https://api.instantly.ai/api/v2/subsequences",
+                {"limit": 1, "parent_campaign": PROBE_PARENT_ID},
+            ),
+            (
+                "inbox_placement_reports",
+                "https://api.instantly.ai/api/v2/inbox-placement-reports",
+                {"limit": 1, "test_id": PROBE_PARENT_ID},
+            ),
+            # Warmup analytics needs account emails in a POST body; /accounts checks the same scope.
+            ("account_warmup_analytics", "https://api.instantly.ai/api/v2/accounts", {"limit": 1}),
+        ],
+    )
+    def test_probe_sends_required_params(self, endpoint, expected_url, expected_params):
         session = mock.MagicMock()
 
-        _probe_endpoint(session, "subsequences")
+        _probe_endpoint(session, endpoint)
 
-        assert session.get.call_args.kwargs["params"] == {"limit": 1, "parent_campaign": PROBE_CAMPAIGN_ID}
+        session.post.assert_not_called()
+        assert session.get.call_args.args[0] == expected_url
+        assert session.get.call_args.kwargs["params"] == expected_params
 
     @pytest.mark.parametrize(
-        "endpoint,expected_primary_keys,expected_partition_mode",
+        "endpoint,expected_primary_keys,expected_partition_mode,expected_sort_mode",
         [
-            ("campaigns", ["id"], "datetime"),
-            ("accounts", ["email"], "datetime"),
-            ("campaign_analytics", ["campaign_id"], None),
+            ("campaigns", ["id"], "datetime", "asc"),
+            ("accounts", ["email"], "datetime", "asc"),
+            ("campaign_analytics", ["campaign_id"], None, "asc"),
+            # Audit log order is undocumented, so the watermark must only move when the run ends.
+            ("audit_logs", ["id"], "datetime", "desc"),
         ],
     )
     @mock.patch(f"{MODULE}.rest_api_resource")
     def test_source_response_per_endpoint(
-        self, mock_resource, endpoint, expected_primary_keys, expected_partition_mode
+        self, mock_resource, endpoint, expected_primary_keys, expected_partition_mode, expected_sort_mode
     ):
         manager = mock.MagicMock()
         manager.can_resume.return_value = False
@@ -326,6 +417,7 @@ class TestInstantly:
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.partition_mode == expected_partition_mode
+        assert response.sort_mode == expected_sort_mode
         rest_config = mock_resource.call_args.args[0]
         assert rest_config["client"]["request_timeout"] == SYNC_REQUEST_TIMEOUT_SECONDS
 

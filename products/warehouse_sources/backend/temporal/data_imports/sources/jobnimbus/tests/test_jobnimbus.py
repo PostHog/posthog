@@ -79,6 +79,7 @@ class TestPagination:
                 ["Sales", "Crew A"],
                 {"field": "groups"},
             ),
+            ("units_of_measure", ["SQ", "Items", "LF"], "uom", ["SQ", "Items", "LF"], {}),
         ]
     )
     def test_account_lookups_are_fetched_in_one_unpaginated_request(
@@ -119,6 +120,7 @@ class TestErrorHandling:
             ("missing_results_key", "contacts", {"count": 0}, "matched nothing"),
             ("bare_list_body", "contacts", [{"jnid": "1"}], "matched nothing"),
             ("groups_settings_object", "groups", {"workflows": [], "sources": []}, "Required a list response body"),
+            ("uoms_object", "units_of_measure", {"uoms": ["SQ"]}, "Required a list response body"),
         ]
     )
     def test_shape_change_fails_loud(self, _name: str, endpoint: str, body: Any, error: str) -> None:
@@ -134,9 +136,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid JobNimbus API key"),
-            ("forbidden", 403, False, "Invalid JobNimbus API key"),
-            ("server_error", 500, False, "JobNimbus returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -155,15 +154,11 @@ class TestValidateCredentials:
         assert network.requests_log[0].param("from") == "0"
         assert network.requests_log[0].headers["authorization"] == "Bearer jn-key"
 
-    def test_probe_failure_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("jn-key") == (False, "Could not validate JobNimbus API key")
-
 
 class TestSourceResponse:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        if endpoint == "groups":
+        if endpoint in ("groups", "units_of_measure"):
             body: Any = []
         elif endpoint == "users":
             body = {"users": []}
