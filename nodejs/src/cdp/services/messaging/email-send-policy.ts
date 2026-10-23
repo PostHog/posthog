@@ -3,8 +3,6 @@ import { HogFunctionType, IntegrationType } from '~/cdp/types'
 import { EmailSendingSuspensionCause, TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 
-export type SendPhase = 'admission' | 'delivery'
-
 export type PolicyCode = 'sending_suspended' | 'template_paused' | 'sender_not_verified' | 'recipient_suppressed'
 
 export type PolicyRejection = {
@@ -41,7 +39,7 @@ export class EmailSendPolicy {
         private emailSuppressionService: Pick<EmailSuppressionService, 'isSuppressed'>
     ) {}
 
-    public async check(send: SendCandidate, _phase: SendPhase): Promise<PolicyDecision> {
+    public async check(send: SendCandidate): Promise<PolicyDecision> {
         // Team-level kill switches: staff suspend all workflow email for a team whose sender reputation
         // endangers shared SES deliverability, and AWS pauses the team's SES tenant for the same underlying
         // reason. A paused tenant rejects every send, so gating here turns wasted invocations into one clear skip.
