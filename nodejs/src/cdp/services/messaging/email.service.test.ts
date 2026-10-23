@@ -1570,14 +1570,23 @@ describe('EmailService', () => {
 
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)).toEqual([
-                'X-Entity-Ref-ID',
-                'X-PostHog-Tracking-Code',
-                'Auto-Submitted',
-            ])
-            expect(sentCommand.input.Content.Simple.Headers[0]).toEqual({ Name: 'X-Entity-Ref-ID', Value: 'order-123' })
-            expect(sentCommand.input.EmailTags.map((t: { Name: string }) => t.Name)).toEqual(['ph_id', 'category'])
-            expect(sentCommand.input.EmailTags[1]).toEqual({ Name: 'category', Value: 'password_reset' })
+            const headers = sentCommand.input.Content.Simple.Headers
+            expect(headers).toHaveLength(3)
+            expect(headers).toEqual(
+                expect.arrayContaining([
+                    { Name: 'X-Entity-Ref-ID', Value: 'order-123' },
+                    expect.objectContaining({ Name: 'X-PostHog-Tracking-Code' }),
+                    { Name: 'Auto-Submitted', Value: 'auto-generated' },
+                ])
+            )
+            const tags = sentCommand.input.EmailTags
+            expect(tags).toHaveLength(2)
+            expect(tags).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ Name: 'ph_id' }),
+                    { Name: 'category', Value: 'password_reset' },
+                ])
+            )
         })
 
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
