@@ -357,6 +357,7 @@ __all__ = [
     "list_task_run_living_artifacts",
     "list_task_run_peers",
     "list_task_repositories",
+    "list_task_run_ids",
     "list_task_runs",
     "list_tasks",
     "list_workflow_last_runs",
@@ -3215,6 +3216,11 @@ def task_accessible_for_run_view(
     if task is not None and task["is_trial"]:
         tag_queries(is_scout_experiment=True)
     return task is not None and bool(task["accessible"])
+
+
+def list_task_run_ids(task_id: str | UUID, team_id: int) -> list[UUID]:
+    """Ids of every run of a task, team-scoped. Caller enforces task visibility."""
+    return list(TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True))
 
 
 def list_task_runs(
