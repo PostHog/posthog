@@ -152,5 +152,21 @@ def inbox_hidden_report_exists(team_id: int) -> Exists:
     )
 
 
+def inbox_hidden_report_exists_in_any_team() -> Exists:
+    """`inbox_hidden_report_exists` for a queryset that spans teams, such as the ranking inventory.
+
+    The authoring run must belong to the report's own team, so a scout in one team never hides a
+    report in another.
+    """
+    opted_out_configs = SignalScoutConfig.objects.unscoped().filter(output_destinations__inbox=False)
+    return Exists(
+        SignalScoutRun.objects.unscoped().filter(
+            team_id=OuterRef("team_id"),
+            scout_config_id__in=opted_out_configs.values("id"),
+            emitted_report_ids__contains=JSONArray(Cast(OuterRef("id"), output_field=CharField())),
+        )
+    )
+
+
 def report_is_hidden_from_inbox(team_id: int, report_id: str) -> bool:
     return _inbox_opted_out_runs(team_id).filter(emitted_report_ids__contains=[report_id]).exists()

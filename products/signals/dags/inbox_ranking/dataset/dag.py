@@ -96,6 +96,7 @@ from products.signals.backend.report_embeddings import (
     EMBEDDING_RENDERING_TITLE_SUMMARY,
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.scout_authorship import inbox_hidden_report_exists_in_any_team
 from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -809,9 +810,9 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     for chunk in _chunked(sorted(labeled_ids)):
         spine_teams |= {
             str(report_id): team_id
-            for report_id, team_id in SignalReport.objects.filter(
-                id__in=chunk, created_at__lt=snapshot_end
-            ).values_list("id", "team_id")
+            for report_id, team_id in SignalReport.objects.filter(id__in=chunk, created_at__lt=snapshot_end)
+            .exclude(inbox_hidden_report_exists_in_any_team())
+            .values_list("id", "team_id")
         }
     # A report whose organization has not opted in to AI training never reaches the snapshot. Its
     # label row still lands in model_data, with no state, and training skips such rows.

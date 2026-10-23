@@ -9,6 +9,7 @@ import datetime
 from django.db.models import Q
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.scout_authorship import inbox_hidden_report_exists_in_any_team
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`,
 # `create_custom_agent_ready_report` and `create_layer_reports`), which is how a report reaches the spine without a
@@ -39,7 +40,12 @@ def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
     directly-authored report until a user happened to interact with it, biasing the inventory toward
     reports that already had engagement — the wrong bias for a ranking model. A never-promoted report
     is only eligible while it is still visible, so a promotion after the cutoff (promoted_at set, not
-    null) still cannot leak in through the second branch."""
-    return Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
+    null) still cannot leak in through the second branch.
+
+    A report that a scout keeps out of the inbox was never shown there, so its silence does not
+    mean that users ignored it. If it stayed in, the model would learn false shown-and-ignored
+    examples."""
+    shown = Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
         promoted_at__isnull=True, status__in=BORN_VISIBLE_STATUSES, created_at__lt=snapshot_end
     )
+    return shown & ~Q(inbox_hidden_report_exists_in_any_team())
