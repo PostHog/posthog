@@ -2,12 +2,14 @@
 //! nothing committed: a consumer group would split the partitions between
 //! replicas and break the cross-feed join, and a restart resumes nothing.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use health::HealthHandle;
-use personhog_common::cdc_parity::{DecodeError, DistinctIdRow, MergeEvent};
+use personhog_common::cdc_parity::{DecodeError, DistinctIdRow, MergeEvent, PersonKey, PersonRow};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
@@ -26,18 +28,50 @@ const ERROR_BACKOFF: Duration = Duration::from_secs(1);
 /// librdkafka's default prefetch is 64 MiB per consumer.
 const PREFETCH_KBYTES: &str = "16384";
 
+/// Picks the persons both feeds compare. The pick depends on the key alone,
+/// so a kept person is kept on both feeds and never settles one-sided.
+#[derive(Debug, Clone, Copy)]
+pub struct PersonSample {
+    percent: u32,
+}
+
+impl PersonSample {
+    pub fn new(percent: u32) -> Self {
+        Self { percent }
+    }
+
+    fn is_partial(self) -> bool {
+        self.percent < 100
+    }
+
+    pub fn includes(self, key: &PersonKey) -> bool {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        hasher.finish() % 100 < u64::from(self.percent)
+    }
+}
+
 pub struct TopicReader {
     topic: Topic,
     name: String,
     consumer: Arc<StreamConsumer>,
     partitions: Vec<i32>,
+    person_sample: PersonSample,
 }
 
 impl TopicReader {
-    pub fn connect(feed: &FeedConfig, kind: Kind) -> Result<(Self, u32)> {
+    pub fn connect(
+        feed: &FeedConfig,
+        kind: Kind,
+        person_sample: PersonSample,
+    ) -> Result<(Self, u32)> {
         let name = match kind {
             Kind::DistinctIds => feed.distinct_id_topic.clone(),
             Kind::MergeEvents => feed.merge_events_topic.clone(),
+            Kind::Persons => feed
+                .person_topic
+                .clone()
+                .context("a person reader without a person topic")?,
         };
         let topic = Topic {
             side: feed.side,
@@ -85,6 +119,7 @@ impl TopicReader {
                 name,
                 consumer: Arc::new(consumer),
                 partitions,
+                person_sample,
             },
             count,
         ))
@@ -164,7 +199,20 @@ impl TopicReader {
             };
             messages.increment(1);
             let record = match self.decode(&message) {
-                Ok(record) => record,
+                Ok(Some(record)) => record,
+                // A row outside the sample still moves the watermark, or a
+                // small sample would hold every person verdict back.
+                Ok(None) => {
+                    let skipped = Event::Skipped {
+                        topic: self.topic,
+                        partition: message.partition(),
+                        timestamp_ms: message.timestamp().to_millis().unwrap_or_else(now_ms),
+                    };
+                    if events.send(skipped).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 Err(error) => {
                     decode_failures.increment(1);
                     if decode_failure_logged {
@@ -215,11 +263,26 @@ impl TopicReader {
         Ok(Some(self.partitions.len() as u32))
     }
 
-    fn decode(&self, message: &BorrowedMessage<'_>) -> Result<Record, DecodeError> {
+    /// `None` is a person outside the sample, read no further than its key.
+    fn decode(&self, message: &BorrowedMessage<'_>) -> Result<Option<Record>, DecodeError> {
         let payload = message.payload().unwrap_or_default();
         match self.topic.kind {
-            Kind::DistinctIds => DistinctIdRow::decode(payload).map(Record::Mapping),
-            Kind::MergeEvents => MergeEvent::decode(message.key(), payload).map(Record::Merge),
+            Kind::DistinctIds => {
+                DistinctIdRow::decode(payload).map(|row| Some(Record::Mapping(row)))
+            }
+            Kind::MergeEvents => {
+                MergeEvent::decode(message.key(), payload).map(|event| Some(Record::Merge(event)))
+            }
+            Kind::Persons => {
+                if self.person_sample.is_partial()
+                    && !self
+                        .person_sample
+                        .includes(&PersonRow::decode_key(payload)?)
+                {
+                    return Ok(None);
+                }
+                PersonRow::decode(payload).map(|row| Some(Record::Person(row)))
+            }
         }
     }
 }

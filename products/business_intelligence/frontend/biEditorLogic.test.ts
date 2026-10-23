@@ -62,6 +62,35 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
+    it.each(['sum(properties.amount)', 'sum(properties.amount) / nullIf(count(), 0)'])(
+        'saves a custom measure expression without the previous count wrapper: %s',
+        (expression) => {
+            const logic = biEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            logic.actions.setAutoUpdate(false)
+            const measure = { field: eventField, aggregation: 'count' as const, formatting: { decimalPlaces: 2 } }
+            logic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: { ...config, values: [measure, measure] },
+            })
+
+            logic.actions.setMeasureExpression(0, expression, 'custom')
+
+            expect(logic.values.config.values[0]).toEqual({
+                ...measure,
+                aggregation: 'custom',
+                customExpression: expression,
+            })
+            expect(logic.values.config.values[1]).toEqual(measure)
+            expect(buildBIQuery(logic.values.config)!.query).toContain(`${expression} AS`)
+            expect(buildBIQuery(logic.values.config)!.query).not.toContain(`count(${expression})`)
+
+            logic.actions.setMeasureExpression(0, 'properties.amount', 'sum')
+            expect(buildBIQuery(logic.values.config)!.query).toContain('sum(properties.amount) AS')
+            expect(logic.values.config.values[0].formatting).toEqual(measure.formatting)
+            logic.unmount()
+        }
+    )
     it.each(['rows', 'columns'] as const)('only adds a calculated field to %s after confirmation', async (shelf) => {
         const logic = biEditorLogic({ tabId: TAB_ID })
         logic.mount()

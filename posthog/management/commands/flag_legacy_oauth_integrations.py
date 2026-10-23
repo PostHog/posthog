@@ -1,9 +1,10 @@
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import F, Func, JSONField, Value
 
 import structlog
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, Integration, issuing_oauth_client_ids
 
 logger = structlog.get_logger(__name__)
@@ -48,7 +49,7 @@ class Command(BaseCommand):
         kind = options["kind"]
         dry_run = options["dry_run"]
 
-        current_client_id = getattr(settings, CURRENT_CLIENT_ID_SETTING[kind], "")
+        current_client_id = get_or_settings(CURRENT_CLIENT_ID_SETTING[kind], CredentialsCaller.INTEGRATIONS)
         if not current_client_id:
             raise CommandError(f"{CURRENT_CLIENT_ID_SETTING[kind]} is not set, so nothing can be compared against it")
 

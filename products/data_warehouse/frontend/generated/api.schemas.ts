@@ -2551,6 +2551,7 @@ export interface CredentialApi {
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
+ * * `CloudflareD1` - CloudflareD1
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -2816,6 +2817,7 @@ export interface CredentialApi {
  * * `ReplyIo` - ReplyIo
  * * `RetailExpress` - RetailExpress
  * * `Retently` - Retently
+ * * `Retreaver` - Retreaver
  * * `RevolutMerchant` - RevolutMerchant
  * * `RocketChat` - RocketChat
  * * `Rocketlane` - Rocketlane
@@ -3267,6 +3269,7 @@ export interface CredentialApi {
  * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
  * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
  * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsDocumentDB` - AwsDocumentDB
  * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
  * * `AwsGuardduty` - AwsGuardduty
  * * `AwsHealth` - AwsHealth
@@ -3755,6 +3758,8 @@ export interface CredentialApi {
  * * `Klar` - Klar
  * * `ConectoCRM` - ConectoCRM
  * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
+ * * `FileUpload` - FileUpload
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3958,6 +3963,7 @@ export const ExternalDataSourceTypeEnumApi = {
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
+    CloudflareD1: 'CloudflareD1',
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
@@ -4223,6 +4229,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ReplyIo: 'ReplyIo',
     RetailExpress: 'RetailExpress',
     Retently: 'Retently',
+    Retreaver: 'Retreaver',
     RevolutMerchant: 'RevolutMerchant',
     RocketChat: 'RocketChat',
     Rocketlane: 'Rocketlane',
@@ -4674,6 +4681,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsCostAndUsageReport: 'AwsCostAndUsageReport',
     AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
     AwsCostExplorer: 'AwsCostExplorer',
+    AwsDocumentDB: 'AwsDocumentDB',
     AwsGlueDataCatalog: 'AwsGlueDataCatalog',
     AwsGuardduty: 'AwsGuardduty',
     AwsHealth: 'AwsHealth',
@@ -5162,6 +5170,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Klar: 'Klar',
     ConectoCRM: 'ConectoCRM',
     CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
+    FileUpload: 'FileUpload',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5327,14 +5337,26 @@ export interface PatchedTableApi {
  * * `json` - json
  * * `parquet` - parquet
  */
-export type CreateTableFromUploadFileFormatEnumApi =
-    (typeof CreateTableFromUploadFileFormatEnumApi)[keyof typeof CreateTableFromUploadFileFormatEnumApi]
+export type UploadedFileFormatEnumApi = (typeof UploadedFileFormatEnumApi)[keyof typeof UploadedFileFormatEnumApi]
 
-export const CreateTableFromUploadFileFormatEnumApi = {
+export const UploadedFileFormatEnumApi = {
     Csv: 'csv',
     Json: 'json',
     Parquet: 'parquet',
 } as const
+
+export interface UploadedFileApi {
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: UploadedFileFormatEnumApi
+}
 
 export interface CreateTableFromUploadApi {
     /** Id returned by upload_file for the stored file. */
@@ -5346,7 +5368,7 @@ export interface CreateTableFromUploadApi {
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
-    file_format: CreateTableFromUploadFileFormatEnumApi
+    file_format: UploadedFileFormatEnumApi
     /** Name the resulting table is queried by in HogQL. */
     table_name: string
 }

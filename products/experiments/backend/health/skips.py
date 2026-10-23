@@ -13,6 +13,7 @@ class CheckSkip:
 
 
 RUNS_AFTER_LAUNCH = "Runs after launch"
+RUNS_BEFORE_LAUNCH = "Runs only before launch"
 NOT_AFTER_END = "Doesn't run after the experiment ends"
 NOT_ON_ARCHIVED = "Doesn't run on archived experiments"
 NO_FLAG = "The experiment has no feature flag"

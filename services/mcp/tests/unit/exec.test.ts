@@ -8,6 +8,7 @@ import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
@@ -1878,6 +1879,27 @@ describe('exec tool', () => {
         })
     })
 
+    describe('held tool set', () => {
+        const heldTools = new Set(['notebooks-create-markdown'])
+        const exec = createExec([makeMockTool({ name: 'notebooks-create-markdown' })], undefined, { heldTools })
+
+        // An unknown-tool reply sends the agent to `search` for another way to reach the operation.
+        it.each(['info notebooks-create', 'schema notebooks-create', 'call notebooks-create {}'])(
+            'refuses a catalog tool outside the held set as not granted on %s',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'tool_not_granted',
+                })
+            }
+        )
+
+        it('still reports a name the catalog does not have as unknown', async () => {
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toMatchObject({
+                reason: 'unknown_tool',
+            })
+        })
+    })
+
     describe('flag-gated tool redirects', () => {
         const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
 
@@ -2039,9 +2061,15 @@ describe('exec tool', () => {
                 apiToken: 'unrecognized-token',
                 recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
             },
+            {
+                apiToken: 'pha_test',
+                oauthClientId: CHATGPT_APP_OAUTH_CLIENT_ID,
+                recovery:
+                    'If the user already reconnected and approved all access, this tool is not available through the app yet.',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken)',
-            async ({ apiToken, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
+            async ({ apiToken, oauthClientId, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -2051,7 +2079,18 @@ describe('exec tool', () => {
                         missingScopes: ['endpoint:write'],
                     },
                 ]
-                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+                const exec = createExecTool(
+                    [makeMockTool()],
+                    context,
+                    'desc',
+                    'cmd',
+                    undefined,
+                    undefined,
+                    scopeGated,
+                    {
+                        oauthClientId,
+                    }
+                )
 
                 await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
                 const search = JSON.parse(

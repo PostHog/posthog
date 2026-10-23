@@ -1,3 +1,15 @@
+from products.signals.backend.activity_summary.tick import (
+    ActivitySummaryTickWorkflow,
+    capture_activity_summary_tick_activity,
+    plan_activity_summary_tick_activity,
+    update_activity_summary_pair_activity,
+)
+from products.signals.backend.anomaly_scores.tick import (
+    AnomalyScoringTickWorkflow,
+    capture_anomaly_scoring_tick_activity,
+    plan_anomaly_scoring_tick_activity,
+    score_anomaly_insight_activity,
+)
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -218,5 +230,13 @@ ACTIVITIES = [
 ]
 
 # The temporal-worker-self-driving fleet runs these, not video-export.
-SELF_DRIVING_WORKFLOWS = [InboxRankingScoringWorkflow]
-SELF_DRIVING_ACTIVITIES = [score_inbox_reports_activity]
+SELF_DRIVING_WORKFLOWS = [InboxRankingScoringWorkflow, ActivitySummaryTickWorkflow, AnomalyScoringTickWorkflow]
+SELF_DRIVING_ACTIVITIES = [
+    score_inbox_reports_activity,
+    plan_activity_summary_tick_activity,
+    update_activity_summary_pair_activity,
+    capture_activity_summary_tick_activity,
+    plan_anomaly_scoring_tick_activity,
+    score_anomaly_insight_activity,
+    capture_anomaly_scoring_tick_activity,
+]

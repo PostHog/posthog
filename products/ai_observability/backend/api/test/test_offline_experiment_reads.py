@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -112,6 +113,59 @@ class TestOfflineExperimentReads(APIBaseTest):
             self._endpoint(f"{self.experiment.id}/scorer_summaries/"),
             self._history(),
         ]
+
+    def test_author_filter_applies_to_experiments_and_history(self) -> None:
+        self.user.hedgehog_config = {
+            "version": 2,
+            "use_as_profile": True,
+            "actor_options": {"color": "red"},
+        }
+        self.user.save(update_fields=["hedgehog_config"])
+        self.experiment.created_by = self.user
+        self.experiment.save(update_fields=["created_by"])
+        service_experiment = OfflineExperiment.objects.for_team(self.team.id).create(
+            id=uuid4(),
+            team=self.team,
+            name="Service run",
+            status="completed",
+            started_at=self.experiment.started_at + timedelta(hours=1),
+            finished_at=self.experiment.started_at + timedelta(hours=1, minutes=1),
+            submission_fingerprint="d" * 64,
+        )
+        service_item = OfflineExperimentItem.objects.for_team(self.team.id).create(
+            id=uuid4(), team=self.team, experiment=service_experiment, submission_fingerprint="e" * 64
+        )
+        OfflineEvaluationResult.objects.for_team(self.team.id).create(
+            team=self.team,
+            item=service_item,
+            scorer_definition=self.definition,
+            scorer_version=self.version,
+            status="ok",
+            boolean_value=False,
+            submission_fingerprint="f" * 64,
+        )
+        for endpoint in [self._endpoint(), self._history()]:
+            with self.subTest(endpoint=endpoint):
+                response = self.client.get(endpoint, {"created_by": self.user.id, "limit": 1})
+                self.assertEqual(response.status_code, 200, response.data)
+                self.assertEqual(response.data["count"], 1)
+                self.assertIsNone(response.data["next_cursor"])
+                row = response.data["results"][0]
+                experiment = row.get("experiment", row)
+                self.assertEqual(experiment["id"], str(self.experiment.id))
+                self.assertEqual(experiment["created_by"], UserBasicSerializer(self.user).data)
+                empty = self.client.get(endpoint, {"created_by": self.user.id + 10000})
+                self.assertEqual(empty.data["count"], 0)
+                no_author = self.client.get(endpoint, {"created_by_is_null": "true", "limit": "1"})
+                self.assertEqual(no_author.status_code, 200, no_author.data)
+                self.assertEqual(no_author.data["count"], 1)
+                self.assertIsNone(no_author.data["next_cursor"])
+                row = no_author.data["results"][0]
+                self.assertEqual(row.get("experiment", row)["id"], str(service_experiment.id))
+                all_authors = self.client.get(endpoint, {"created_by_is_null": "false"})
+                self.assertEqual(all_authors.data["count"], 2)
+        response = self.client.get(self._endpoint(f"{service_experiment.id}/"))
+        self.assertIsNone(response.data["created_by"])
 
     def test_history_filters_experiment_tags_before_pagination(self) -> None:
         ResourceTags.set(self.experiment, ["quality", "production"])
@@ -291,6 +345,8 @@ class TestOfflineExperimentReads(APIBaseTest):
         definition = ScoreDefinition.objects.create(team=self.team, name="Category", kind="categorical")
         version = definition.create_new_version(config=config, created_by=self.user)
         unused_version = definition.create_new_version(config=config, created_by=self.user)
+        definition.short_name = "Category label"
+        definition.save(update_fields=["short_name"])
         items = [
             self.item,
             *OfflineExperimentItem.objects.for_team(self.team.id).bulk_create(
@@ -328,6 +384,9 @@ class TestOfflineExperimentReads(APIBaseTest):
             sorted([str(version.id), str(unused_version.id)]),
         )
         self.assertEqual([scorer["config"] for scorer in response.data["scorer_versions"]], [config, config])
+        self.assertEqual(
+            [scorer["short_name"] for scorer in response.data["scorer_versions"]], ["Category label", "Category label"]
+        )
         for item in response.data["results"]:
             self.assertEqual(len(item["results"]), 1)
             result = item["results"][0]
@@ -470,6 +529,9 @@ class TestOfflineExperimentReads(APIBaseTest):
                 "item_ids",
             ),
             (self._endpoint(), {"limit": 101}, "limit"),
+            (self._endpoint(), {"created_by": "invalid"}, "created_by"),
+            (self._history(), {"created_by": 0}, "created_by"),
+            (self._history(), {"created_by": self.user.id, "created_by_is_null": "true"}, "created_by"),
             (self._endpoint(f"{self.experiment.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/payload/"), {"limit": 1}, "limit"),

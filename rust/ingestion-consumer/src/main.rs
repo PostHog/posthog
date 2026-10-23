@@ -25,7 +25,7 @@ use ingestion_consumer::batcher::{Batcher, BatcherObserver};
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
 use ingestion_consumer::debug_recorder::{
-    BatcherLoad, DebugLoad, DebugRecorder, DebugState, RoutingDebug, WorkerStatus,
+    BatcherLoad, DebugLoad, DebugRecorder, DebugState, GovernorLoad, RoutingDebug, WorkerStatus,
 };
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
@@ -50,6 +50,9 @@ fn main() -> Result<()> {
     config
         .request_budget()
         .map_err(|err| anyhow::anyhow!("invalid request budget: {err}"))?;
+    config
+        .partition_budget()
+        .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -278,7 +281,6 @@ async fn async_main(config: Config) -> Result<()> {
 
     let mut transport = GrpcTransport::new(
         grpc_port,
-        config.ingestion_worker_concurrent_batches,
         Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
@@ -678,6 +680,14 @@ async fn build_debug_load(
             queued_bytes: batcher.queued_bytes,
             waiting_keys: batcher.waiting_keys,
             claimed_keys: batcher.claimed_keys,
+            governor: GovernorLoad {
+                adaptation: batcher.governor.adaptation.as_str(),
+                permits: batcher.governor.permits,
+                ceiling: batcher.governor.ceiling,
+                free_permits: batcher.governor.free_permits,
+                starved_messages: batcher.governor.starved_messages,
+                rtt_seconds: batcher.governor.rtt.map(|rtt| rtt.as_secs_f64()),
+            },
         },
         peer_index,
         peer_count,

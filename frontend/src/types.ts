@@ -45,6 +45,7 @@ import type {
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
+    SharingConfigurationApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -582,6 +583,7 @@ export interface PersonalAPIKeyType {
     created_at: string
     last_used_at: string | null
     last_rolled_at: string | null
+    expires_at: string | null
     team_id: number
     user_id: string
     scopes: string[]
@@ -933,6 +935,9 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    // Optional so cached team objects from before these fields shipped still typecheck.
+    email_utm_tags_enabled?: boolean
+    email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
     replay_vision_scan_rate_limit_per_day?: number | null
     replay_vision_scan_team_rate_limit_per_day?: number | null
     default_email_integration_id?: number | null
@@ -1306,6 +1311,10 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     /** @default 'in' */
     operator: PropertyOperator
     cohort_name?: string
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -2465,7 +2474,6 @@ export interface BillingType {
     free_trial_until?: Dayjs
     stripe_portal_url?: string
     external_billing_provider_invoices_url?: string
-    deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
     projected_total_amount_usd?: string
@@ -3292,19 +3300,6 @@ export interface TemplateVariableStep {
     properties?: Record<string, any>[]
     custom_name?: string
     custom_event?: boolean
-}
-
-export interface PropertiesTimelineFilterType {
-    date_from?: string | null // DateMixin
-    date_to?: string | null // DateMixin
-    interval?: IntervalType // IntervalMixin
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter // PropertyMixin
-    events?: Record<string, any>[] // EntitiesMixin
-    actions?: Record<string, any>[] // EntitiesMixin
-    aggregation_group_type_index?: number // GroupsAggregationMixin
-    display?: ChartDisplayType // DisplayDerivedMixin
-    breakdown_type?: BreakdownType | null
-    breakdown?: BreakdownKeyType
 }
 
 export interface TrendsFilterType extends FilterType {
@@ -5824,6 +5819,7 @@ export interface SharePasswordType {
 }
 
 export interface SharingConfigurationType {
+    has_relevant_access_controls?: SharingConfigurationApi['has_relevant_access_controls']
     enabled: boolean
     access_token: string
     created_at: string
@@ -6132,6 +6128,7 @@ export type PromptFlag = {
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
     DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
+    DEV_GATEWAY_TOKEN = 'DevGatewayToken',
     ACTION = 'Action',
     ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
@@ -7491,7 +7488,6 @@ export type HogFunctionConfigurationContextId =
     | 'batch-export-alerts'
     | 'billing-alerts'
     | 'replay-vision-alerts'
-    | 'data-warehouse-alerts'
     | 'replay-vision-requests'
 
 export type HogFunctionSubTemplateIdType =
@@ -7514,10 +7510,6 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-firing'
     | 'health-check-resolved'
     | 'batch-export-run-failed'
-    | 'data-warehouse-sync-failed'
-    | 'data-warehouse-sync-recovered'
-    | 'data-warehouse-sync-completed'
-    | 'data-warehouse-billing-limit-reached'
     | 'replay-vision-request-completed'
 
 export type HogFunctionConfigurationType = Omit<

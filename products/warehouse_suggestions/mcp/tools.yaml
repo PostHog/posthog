@@ -22,14 +22,29 @@ tools:
         title: Accept a warehouse suggestion
         description: >
             Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as
-            certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on
-            the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another
-            schedule. Requires human typed confirmation.
+            certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also
+            stops its refreshes and deletes its stored table, so the view is computed when read; pass
+            keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or
+            its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization`
+            says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a
+            plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about
+            `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now
+            reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the
+            view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use
+            another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by
+            incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a
+            starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key,
+            unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose
+            with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view
+            changed since the suggestion was made and its suggested keys no longer apply. Requires human typed
+            confirmation.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
                 If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute
-                cost. Reply 'confirm' to proceed.
+                cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is
+                deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes
+                stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.
             action_label: accept warehouse suggestion
     warehouse-suggestions-dismiss:
         operation: warehouse_suggestions_dismiss_create
@@ -54,21 +69,24 @@ tools:
             ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background
             included. `days_with_data` is how many days of the window PostHog has read history for, not how active this
             project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload`
-            to explain to the user why a view or table should be certified, deprecated or materialized before accepting.
+            to explain to the user why a view or table should be certified, deprecated, materialized or unmaterialized
+            before accepting.
     warehouse-suggestions-list:
         operation: warehouse_suggestions_list
         enabled: true
         list: true
         title: List warehouse suggestions
         description: >
-            Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from
-            how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision.
-            `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or
-            table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires
-            edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion.
-            If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the
-            one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and
-            bytes saved or spent per month. For a certify suggestion, use the read counts in `evidence` from
+            Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables,
+            computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting
+            for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can
+            edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate
+            suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage
+            evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why.
+            Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with
+            the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion,
+            compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take
+            (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from
             warehouse-suggestions-get.
         response:
             include:

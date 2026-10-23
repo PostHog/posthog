@@ -41,7 +41,7 @@ const warehouseSuggestionsAcceptPrepare = (): ToolBase<
             purpose: 'warehouse-suggestions-accept',
             actionLabel: 'accept warehouse suggestion',
             messageTemplate:
-                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. Reply 'confirm' to proceed.\n",
+                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
@@ -77,6 +77,21 @@ const warehouseSuggestionsAcceptExecute = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.refresh_interval_seconds !== undefined) {
             body['refresh_interval_seconds'] = params.refresh_interval_seconds
+        }
+        if (params.refresh_mode !== undefined) {
+            body['refresh_mode'] = params.refresh_mode
+        }
+        if (params.incremental_key !== undefined) {
+            body['incremental_key'] = params.incremental_key
+        }
+        if (params.unique_key !== undefined) {
+            body['unique_key'] = params.unique_key
+        }
+        if (params.lookback_seconds !== undefined) {
+            body['lookback_seconds'] = params.lookback_seconds
+        }
+        if (params.keep_materialized !== undefined) {
+            body['keep_materialized'] = params.keep_materialized
         }
         const result = await context.api.request<Schemas.WarehouseSuggestion>({
             method: 'POST',

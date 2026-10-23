@@ -12,7 +12,7 @@ from django.utils import timezone as tz
 
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from parameterized import parameterized
-from prometheus_client import REGISTRY
+from prometheus_client import REGISTRY, CollectorRegistry
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog.clickhouse.client import sync_execute
@@ -25,6 +25,7 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_WRITABLE_TABLE,
 )
 from posthog.tasks.tasks import sync_feature_flag_last_called
+from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -39,12 +40,19 @@ def mock_redis_client() -> Mock:
     return mock
 
 
+def assert_checkpoint_gauge_matches_stored_checkpoint(registry: CollectorRegistry, stored: bytes) -> None:
+    assert (
+        registry.get_sample_value("posthog_feature_flag_last_called_at_sync_checkpoint_timestamp_seconds")
+        == datetime.fromisoformat(stored.decode()).timestamp()
+    )
+
+
 # Force single-chunk behavior for existing tests so they don't need to handle multiple calls
 @override_settings(
     FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES=1440,
     FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS=24,
 )
-class TestSyncFeatureFlagLastCalled(BaseTest):
+class TestSyncFeatureFlagLastCalled(PushGatewayTaskTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
         # Clear Redis cache before each test
@@ -88,6 +96,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         # Verify checkpoint was updated in Redis
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         assert checkpoint_key in redis_mock.storage
+        assert_checkpoint_gauge_matches_stored_checkpoint(self.registry, redis_mock.storage[checkpoint_key])
 
         # Verify no flags were updated
         self.flag1.refresh_from_db()
@@ -112,6 +121,22 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         call_args = mock_sync_execute.call_args_list[0]
         params = call_args[0][1]
         assert params["last_sync_timestamp"] == checkpoint_time
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_chunk_queries_refuse_stale_replicas(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        mock_get_client.return_value = mock_redis_client()
+        mock_sync_execute.return_value = []
+
+        with self.settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="flag_evaluations"):
+            sync_feature_flag_last_called()
+
+        assert mock_sync_execute.call_args_list
+        for call in mock_sync_execute.call_args_list:
+            assert call.kwargs["settings"]["fallback_to_stale_replicas_for_distributed_queries"] == 0
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -401,6 +426,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert stored_timestamp is not None
         assert b"2024-06-15" in stored_timestamp
         assert b"2024-06-15T11:59:00" in stored_timestamp
+        assert_checkpoint_gauge_matches_stored_checkpoint(self.registry, stored_timestamp)
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -455,7 +481,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES=5,
     FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS=6,
 )
-class TestSyncFeatureFlagLastCalledChunking(BaseTest):
+class TestSyncFeatureFlagLastCalledChunking(PushGatewayTaskTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -535,6 +561,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # onwards is retried next run rather than skipped
         stored = redis_mock.storage.get(checkpoint_key)
         assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat().encode()
+        assert_checkpoint_gauge_matches_stored_checkpoint(self.registry, stored)
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -680,6 +707,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         stored = redis_mock.storage.get(checkpoint_key)
         assert stored is not None
         assert b"2024-06-15T11:59:00" in stored
+        assert_checkpoint_gauge_matches_stored_checkpoint(self.registry, stored)
 
         # Flag should remain unchanged
         self.flag1.refresh_from_db()

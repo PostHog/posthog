@@ -13,6 +13,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
@@ -24,11 +25,15 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.jwt import PosthogJwtAudience
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     CONFIG_LEGACY_OAUTH_CLIENT,
+    OAUTH_CLIENT_CREDENTIAL_KEYS,
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     Integration,
+    OauthClientCredentials,
     OauthIntegration,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
@@ -645,7 +650,7 @@ class TestOauthIntegrationModel(BaseTest):
         initial_legacy_flag,
         expected_legacy_flag,
     ):
-        fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
+        fallback_secret = "old-app-secret" if has_fallback else ""
         config = {"expires_in": 1000}
         if initial_legacy_flag:
             config[CONFIG_LEGACY_OAUTH_CLIENT] = True
@@ -655,7 +660,8 @@ class TestOauthIntegrationModel(BaseTest):
             self.settings(
                 BING_ADS_CLIENT_ID="new-app-id",
                 BING_ADS_CLIENT_SECRET="new-app-secret",
-                OAUTH_CLIENT_FALLBACKS=fallbacks,
+                BING_ADS_CLIENT_ID_FALLBACK="old-app-id",
+                BING_ADS_CLIENT_SECRET_FALLBACK=fallback_secret,
             ),
             patch("posthog.models.integration.oauth.reload_integrations_on_workers"),
             patch(
@@ -698,7 +704,8 @@ class TestOauthIntegrationModel(BaseTest):
         with self.settings(
             BING_ADS_CLIENT_ID="new-app-id",
             BING_ADS_CLIENT_SECRET="new-app-secret",
-            OAUTH_CLIENT_FALLBACKS={"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}},
+            BING_ADS_CLIENT_ID_FALLBACK="old-app-id",
+            BING_ADS_CLIENT_SECRET_FALLBACK="old-app-secret",
         ):
             OauthIntegration(integration).refresh_access_token()
 
@@ -1429,8 +1436,9 @@ class TestResendIntegrationModel(BaseTest):
         assert config.authorize_url == "https://api.resend.com/oauth/authorize"
         assert config.token_url == "https://api.resend.com/oauth/token"
         assert config.token_revoke_url == "https://api.resend.com/oauth/revoke"
-        assert config.client_id == "resend-client-id"
-        assert config.client_secret == "resend-client-secret"
+        assert OauthIntegration.client_credentials_for_kind("resend") == OauthClientCredentials(
+            client_id="resend-client-id", client_secret="resend-client-secret"
+        )
         assert config.scope == "full_access"
         assert config.pkce is True
         assert config.id_path == "resend_account_id"
@@ -1438,7 +1446,7 @@ class TestResendIntegrationModel(BaseTest):
     @override_settings(RESEND_APP_CLIENT_ID="", RESEND_APP_CLIENT_SECRET="")
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="Resend app not configured"):
-            OauthIntegration.oauth_config_for_kind("resend")
+            OauthIntegration.client_credentials_for_kind("resend")
 
     @patch("posthog.models.integration.oauth.requests.post")
     def test_integration_from_oauth_response_extracts_account_from_jwt(self, mock_post):
@@ -1553,8 +1561,9 @@ class TestPardotIntegrationModel(BaseTest):
         assert config.authorize_url == "https://login.salesforce.com/services/oauth2/authorize"
         assert config.token_url == "https://login.salesforce.com/services/oauth2/token"
         assert config.token_revoke_url == "https://login.salesforce.com/services/oauth2/revoke"
-        assert config.client_id == "salesforce-client-id"
-        assert config.client_secret == "salesforce-client-secret"
+        assert OauthIntegration.client_credentials_for_kind("pardot") == OauthClientCredentials(
+            client_id="salesforce-client-id", client_secret="salesforce-client-secret"
+        )
         assert config.pkce is True
         assert config.id_path == "instance_url"
         # Salesforce's `full` scope does not cover the Account Engagement API, so a token
@@ -1611,7 +1620,7 @@ class TestPardotIntegrationModel(BaseTest):
     @override_settings(SALESFORCE_CONSUMER_KEY="", SALESFORCE_CONSUMER_SECRET="")
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="Salesforce app not configured"):
-            OauthIntegration.oauth_config_for_kind("pardot")
+            OauthIntegration.client_credentials_for_kind("pardot")
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
@@ -1667,8 +1676,9 @@ class TestYouTubeAnalyticsIntegrationModel(SimpleTestCase):
 
         assert config.authorize_url == "https://accounts.google.com/o/oauth2/v2/auth"
         assert config.token_url == "https://oauth2.googleapis.com/token"
-        assert config.client_id == "youtube-client-id"
-        assert config.client_secret == "youtube-client-secret"
+        assert OauthIntegration.client_credentials_for_kind("youtube-analytics") == OauthClientCredentials(
+            client_id="youtube-client-id", client_secret="youtube-client-secret"
+        )
         assert config.id_path == "sub"
         assert config.name_path == "email"
         # A refresh token only comes back when consent is forced, and the sync depends on one.
@@ -1685,7 +1695,7 @@ class TestYouTubeAnalyticsIntegrationModel(SimpleTestCase):
     @override_settings(YOUTUBE_ANALYTICS_APP_CLIENT_ID="", YOUTUBE_ANALYTICS_APP_CLIENT_SECRET="")
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
-            OauthIntegration.oauth_config_for_kind("youtube-analytics")
+            OauthIntegration.client_credentials_for_kind("youtube-analytics")
 
 
 _APPLE_ADS_APP_PRIVATE_KEY = (
@@ -1725,14 +1735,15 @@ class TestAppleAdsIntegrationModel(BaseTest):
         # Apple issues no static secret: it reads `client_secret` as an ES256 assertion naming the
         # registration. Posting a literal setting value instead fails every grant at the exchange.
         config = OauthIntegration.oauth_config_for_kind("apple-ads")
+        client = OauthIntegration.client_credentials_for_kind("apple-ads")
 
         assert config.authorize_url == "https://appleid.apple.com/auth/oauth2/v2/authorize"
         assert config.token_url == "https://appleid.apple.com/auth/oauth2/token"
-        assert config.client_id == "SEARCHADS.posthog"
+        assert client.client_id == "SEARCHADS.posthog"
         assert config.scope == "searchads"
 
         claims = jwt.decode(
-            config.client_secret,
+            client.client_secret,
             _APPLE_ADS_APP_PRIVATE_KEY,
             algorithms=["ES256"],
             audience="https://appleid.apple.com",
@@ -1740,7 +1751,7 @@ class TestAppleAdsIntegrationModel(BaseTest):
         )
         assert claims["iss"] == "SEARCHADS.team"
         assert claims["sub"] == "SEARCHADS.posthog"
-        assert jwt.get_unverified_header(config.client_secret)["kid"] == "key-1"
+        assert jwt.get_unverified_header(client.client_secret)["kid"] == "key-1"
 
     @parameterized.expand(
         ["APPLE_ADS_APP_CLIENT_ID", "APPLE_ADS_APP_TEAM_ID", "APPLE_ADS_APP_KEY_ID", "APPLE_ADS_APP_PRIVATE_KEY"]
@@ -1748,7 +1759,7 @@ class TestAppleAdsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self, missing_setting: str):
         with override_settings(**{missing_setting: ""}):
             with pytest.raises(NotImplementedError, match="Apple Ads service provider app not configured"):
-                OauthIntegration.oauth_config_for_kind("apple-ads")
+                OauthIntegration.client_credentials_for_kind("apple-ads")
 
     @patch("posthog.models.integration.oauth.requests.get")
     @patch("posthog.models.integration.oauth.requests.post")
@@ -1837,3 +1848,120 @@ class TestAppleAdsIntegrationModel(BaseTest):
         ]
         assert integration.sensitive_config["access_token"] == "at_2"
         assert integration.errors == ""
+
+
+CREDENTIALS_SERVICE_SETTINGS = {
+    "CREDENTIALS_SERVICE_URL": "http://credentials-service.credentials-service.svc.cluster.local",
+    "CREDENTIALS_SERVICE_JWT_SECRET": "signing-key",
+}
+CREDENTIALS_SERVICE_FLAG = "posthog.credentials_service.client.posthoganalytics.feature_enabled"
+CREDENTIALS_SERVICE_POST = "posthog.credentials_service.client.internal_requests.post"
+# Kinds whose credentials are not a plain id/secret pair, so they resolve in their own branch.
+SPECIALLY_RESOLVED_KINDS = {"posthog", "slack", "apple-ads"}
+
+
+def _credentials_service_response(values: dict[str, str], missing: list[str] | None = None) -> MagicMock:
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "secrets": {key: {"state": "steady", "value": value, "version_id": "v1"} for key, value in values.items()},
+        "missing": missing or [],
+    }
+    return response
+
+
+def _credentials_service_claims(post: MagicMock) -> dict:
+    token = post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+    return jwt.decode(token, "signing-key", algorithms=["HS256"], audience=PosthogJwtAudience.CREDENTIALS_SERVICE.value)
+
+
+class TestOauthClientCredentialsResolution(SimpleTestCase):
+    # A kind with no credential mapping can be connected nowhere, and a mistyped key name reads as
+    # "not configured" on every deployment while the real setting sits unused.
+    @parameterized.expand([(kind,) for kind in [*OauthIntegration.supported_kinds, "salesforce-sandbox"]])
+    def test_every_oauth_kind_maps_to_real_credential_settings(self, kind: str) -> None:
+        if kind in SPECIALLY_RESOLVED_KINDS:
+            return
+        keys = OAUTH_CLIENT_CREDENTIAL_KEYS[kind]
+        assert hasattr(settings, keys.client_id)
+        assert hasattr(settings, keys.client_secret)
+
+    # The static config is cached for five minutes and read on every serializer pass through
+    # `display_name`. A credential read there would hold a secret past its rotation and call the
+    # service for every integration in a list.
+    @parameterized.expand([(kind,) for kind in OauthIntegration.supported_kinds])
+    @override_settings(**CREDENTIALS_SERVICE_SETTINGS)
+    def test_static_config_and_display_name_never_read_credentials(self, kind: str) -> None:
+        region = "US" if kind == "posthog" else None
+        integration = Integration(kind=kind, integration_id="the-id", config={"region": region})
+        with (
+            patch(CREDENTIALS_SERVICE_FLAG, return_value=True),
+            patch(CREDENTIALS_SERVICE_POST, side_effect=AssertionError("read a credential")) as post,
+        ):
+            OauthIntegration.oauth_config_for_kind(kind, region)
+            assert integration.display_name
+
+        post.assert_not_called()
+
+
+@override_settings(**CREDENTIALS_SERVICE_SETTINGS)
+class TestOauthClientCredentialsFromTheService(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(CREDENTIALS_SERVICE_FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_refresh_sends_the_credentials_the_service_holds(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
+        integration = Integration.objects.create(
+            team=self.team, kind="hubspot", config={"expires_in": 1000}, sensitive_config={"refresh_token": "RT"}
+        )
+        service_values = {"HUBSPOT_APP_CLIENT_ID": "service-id", "HUBSPOT_APP_CLIENT_SECRET": "service-secret"}
+
+        with (
+            # A stale copy still in settings must lose to the value the service holds.
+            self.settings(HUBSPOT_APP_CLIENT_ID="stale-id", HUBSPOT_APP_CLIENT_SECRET="stale-secret"),
+            patch(CREDENTIALS_SERVICE_POST, return_value=_credentials_service_response(service_values)) as service,
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert (sent["client_id"], sent["client_secret"]) == ("service-id", "service-secret")
+        claims = _credentials_service_claims(service)
+        assert claims["caller"] == "integrations"
+        assert claims["keys"] == sorted(service_values)
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "REFRESHED"
+
+    @parameterized.expand(
+        [
+            # Self-hosted edits the Slack app in instance settings, and that edit beats the env var it
+            # defaults from. Reading the env var directly with the service off would ignore the edit.
+            ("service_off", False, {}, ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"], "instance-id"),
+            ("service_missing_the_key", True, {}, ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"], "instance-id"),
+            (
+                "service_holds_the_key",
+                True,
+                {"SLACK_APP_CLIENT_ID": "service-id", "SLACK_APP_CLIENT_SECRET": "service-secret"},
+                [],
+                "service-id",
+            ),
+        ]
+    )
+    def test_slack_falls_back_to_instance_settings(
+        self, _name, service_on, service_values, service_missing, expected_client_id
+    ):
+        set_instance_setting("SLACK_APP_CLIENT_ID", "instance-id")
+        set_instance_setting("SLACK_APP_CLIENT_SECRET", "instance-secret")
+        with (
+            patch(CREDENTIALS_SERVICE_FLAG, return_value=service_on),
+            patch.dict("os.environ", {"SLACK_APP_CLIENT_ID": "env-id", "SLACK_APP_CLIENT_SECRET": "env-secret"}),
+            patch(
+                CREDENTIALS_SERVICE_POST,
+                return_value=_credentials_service_response(service_values, service_missing),
+            ),
+        ):
+            assert OauthIntegration.client_credentials_for_kind("slack").client_id == expected_client_id

@@ -16,6 +16,7 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
@@ -142,6 +143,8 @@ import type {
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
+    TraceEvaluationResultsApi,
+    TraceNodeDetailApi,
     TraceReviewApi,
     TraceReviewCreateApi,
     TranslateRequestApi,
@@ -668,6 +671,61 @@ export const aiObservabilityTracesRetrieve = async (
     options?: RequestInit
 ): Promise<TraceApi> => {
     return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesEvaluationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/evaluations/`
+}
+
+/**
+ * A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render.
+ */
+export const aiObservabilityTracesEvaluationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceEvaluationResultsApi> => {
+    return apiMutator<TraceEvaluationResultsApi>(getAiObservabilityTracesEvaluationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNodesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/`
+}
+
+/**
+ * One node of a trace: its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata.
+ */
+export const aiObservabilityTracesNodesRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDetailApi> => {
+    return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
         ...options,
         method: 'GET',
     })
