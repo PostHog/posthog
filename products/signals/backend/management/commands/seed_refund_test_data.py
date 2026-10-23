@@ -131,6 +131,7 @@ class Command(BaseCommand):
             user_id=user_id,
             repository=repository,
             create_pr=False,
+            ai_stage="implementation",
             start_workflow=False,
             signal_report_id=str(report.id),
             internal=False,

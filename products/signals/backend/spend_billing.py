@@ -30,7 +30,8 @@ def scout_spend_exempt(scout: SignalScoutRun) -> bool:
     )
 
     return scout.trial_state is not None or (
-        scout.skill_name in BILLING_EXEMPT_SCOUT_SKILLS and _scout_skill_is_canonical(scout.team_id, scout.skill_name)
+        scout.skill_name in BILLING_EXEMPT_SCOUT_SKILLS
+        and _scout_skill_is_canonical(scout.team_id, scout.skill_name, version=scout.skill_version)
     )
 
 

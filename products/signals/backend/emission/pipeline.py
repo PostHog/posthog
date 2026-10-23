@@ -32,7 +32,7 @@ from products.signals.backend.emission.steering import SourceSteering, apply_ste
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord
-from products.signals.backend.spend import complete_signal_pipeline, signal_id_for
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
@@ -681,6 +681,12 @@ async def run_signal_pipeline(
             non_retryable=True,
         )
     logger.info(f"Built {len(outputs)} signal outputs from {len(records)} records for {source_label}", **extra)
+
+    # An activity retry must not rerun filters for a signal whose pipeline already finished.
+    finished = await database_sync_to_async(finalized_signal_ids)(
+        team_id=team.id, signal_ids=[output.signal_id for output in outputs if output.signal_id]
+    )
+    outputs = [output for output in outputs if output.signal_id not in finished]
 
     organization = await database_sync_to_async(lambda: team.organization)()
     for output in outputs:

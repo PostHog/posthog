@@ -1240,12 +1240,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             db_result.report_id, input.team_id
         ):
             report_title = ""
-        await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
-            team_id=input.team_id,
-            signal_id=input.signal_id,
-            report_id=db_result.report_id,
-            billing_exempt=system_source_exempt(input.source_product),
-        )
         return AssignAndEmitSignalOutput(
             report_id=db_result.report_id,
             promoted=db_result.promoted,
@@ -1328,6 +1322,51 @@ def _augment_candidates_with_batch(
     return augmented
 
 
+@frozen
+class SignalGroupingCompletion:
+    team_id: int
+    signal_id: str
+    report_id: str | None
+    billing_exempt: bool
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def complete_signal_grouping_activity(signals: list[SignalGroupingCompletion]) -> None:
+    for signal in signals:
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=signal.team_id,
+            signal_id=signal.signal_id,
+            report_id=signal.report_id,
+            billing_exempt=signal.billing_exempt,
+        )
+
+
+async def _complete_signal_batch(batch: list[EmitSignalInputs], reports: dict[str, str]) -> None:
+    if not workflow.patched("signals-owner-spend-grouping-completion"):
+        return
+    try:
+        await workflow.execute_activity(
+            complete_signal_grouping_activity,
+            [
+                SignalGroupingCompletion(
+                    team_id=signal.team_id,
+                    signal_id=signal.signal_id,
+                    report_id=reports.get(signal.signal_id),
+                    billing_exempt=system_source_exempt(signal.source_product),
+                )
+                for signal in batch
+                if signal.signal_id
+            ],
+            start_to_close_timeout=timedelta(minutes=1),
+            schedule_to_close_timeout=timedelta(minutes=20),
+            retry_policy=RetryPolicy(initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)),
+        )
+    except temporalio.exceptions.ActivityError:
+        workflow.logger.exception("signals.spend.accounting_failed", extra={"stage": "grouping_completion"})
+
+
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
@@ -1342,6 +1381,7 @@ async def _process_signal_batch(
     within a batch.
     """
     team_id = batch[0].team_id
+    original_batch = batch
     # Purely defensive
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
@@ -1425,6 +1465,7 @@ async def _process_signal_batch(
             signal_embeddings = [signal_embeddings[i] for i in retained_indices]
             query_gen_results = [query_gen_results[i] for i in retained_indices]
             if not batch:
+                await _complete_signal_batch(original_batch, {})
                 return dropped, type_examples_result
 
         # Step 3: Embed all queries across all signals (flatten → parallel embed)
@@ -1742,6 +1783,7 @@ async def _process_signal_batch(
                 report_id=report_input.report_id,
             )
 
+    await _complete_signal_batch(original_batch, {signal_id: result.report_id for signal_id, result in emitted_signals})
     return dropped, type_examples_result
 
 

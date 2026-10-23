@@ -2590,32 +2590,33 @@ class TestProcessTaskWorkflowUnit:
         assert forward_mock.called is forwarded
 
     @pytest.mark.parametrize(
-        "origin_product, billing_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, spend_fails",
+        "origin_product, billing_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, spend_fails, cleanup_fails",
         [
-            (None, None, False, 1, None, "completed", False),
-            (None, None, False, 1, True, "completed", False),
+            (None, None, False, 1, None, "completed", False, False),
+            (None, None, False, 1, True, "completed", False, False),
             # The agent was mid-turn when the sandbox vanished, so the workflow step waiting on
             # this run has no work to continue from.
-            ("workflow", None, False, 1, False, "failed", False),
+            ("workflow", None, False, 1, False, "failed", False, False),
             # Every other origin keeps completing: the run is the snapshot its reader or its resume
             # flow picks up, and a red run in the task list would report breakage that never was.
-            (None, None, False, 1, False, "completed", False),
-            ("slack", None, False, 1, False, "completed", False),
-            ("user_created", None, False, 1, None, "completed", False),
-            ("signal_report", None, False, 1, None, "completed", False),
-            ("signal_report", "posthog_ai", False, 1, None, "completed", False),
-            ("signals_scout", None, False, 1, None, "completed", False),
-            ("signal_report", None, False, 1, None, "completed", True),
-            ("signals_scout", None, False, 1, None, "completed", True),
+            (None, None, False, 1, False, "completed", False, False),
+            ("slack", None, False, 1, False, "completed", False, False),
+            ("user_created", None, False, 1, None, "completed", False, False),
+            ("signal_report", None, False, 1, None, "completed", False, False),
+            ("signal_report", "posthog_ai", False, 1, None, "completed", False, False),
+            ("signals_scout", None, False, 1, None, "completed", False, False),
+            ("signal_report", None, False, 1, None, "completed", True, False),
+            ("signals_scout", None, False, 1, None, "completed", True, False),
+            ("signals_scout", None, False, 1, None, "completed", False, True),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
-            ("onboarding", None, False, 1, None, "failed", False),
+            ("onboarding", None, False, 1, None, "failed", False, False),
             # Unless the PR is already open: the wizard reads the terminal status, so a downgrade
             # would report a failed install over a PR the user can merge.
-            ("onboarding", None, True, 1, None, "completed", False),
+            ("onboarding", None, True, 1, None, "completed", False, False),
             # No follow-up round ever ran, so the empty PR latch is unobserved rather than evidence
             # of no PR. Downgrading here would fail a run whose PR the loop never got to look at.
-            ("onboarding", None, False, 0, None, "completed", False),
+            ("onboarding", None, False, 0, None, "completed", False, False),
         ],
     )
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(
@@ -2628,6 +2629,7 @@ class TestProcessTaskWorkflowUnit:
         end_of_turn_received,
         expected_status,
         spend_fails,
+        cleanup_fails,
         caplog,
     ):
         workflow = ProcessTaskWorkflow()
@@ -2638,7 +2640,7 @@ class TestProcessTaskWorkflowUnit:
             state={"billing_product": billing_product} if billing_product else {},
         )
         update_task_run_status_mock = AsyncMock()
-        cleanup_sandbox_mock = AsyncMock()
+        cleanup_sandbox_mock = AsyncMock(side_effect=RuntimeError("cleanup failed") if cleanup_fails else None)
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
@@ -2710,6 +2712,11 @@ class TestProcessTaskWorkflowUnit:
 
         finish_spend_mock = AsyncMock(side_effect=finish_spend)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend_mock)
+        if cleanup_fails:
+            with pytest.raises(RuntimeError, match="cleanup failed"):
+                await workflow.run(ProcessTaskInput(run_id="run-id"))
+            finish_spend_mock.assert_awaited_once()
+            return
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
         assert finish_spend_mock.await_count == (
             1 if origin_product in {"signal_report", "signals_scout"} and billing_product != "posthog_ai" else 0

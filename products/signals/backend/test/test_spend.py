@@ -767,6 +767,28 @@ class TestSignalSpend(BaseTest):
         spend.refresh_from_db()
         self.assertIsNotNone(spend.finalized_at)
 
+    @parameterized.expand([("terminal", False, False), ("next_pass", True, False), ("newer_pass", True, True)])
+    def test_summary_completion_settles_only_abandoned_pending_trigger(
+        self, _name: str, next_pass: bool, newer_pass: bool
+    ) -> None:
+        driver, pending = str(uuid4()), str(uuid4())
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE if next_pass else SignalReport.Status.POTENTIAL,
+            triggering_signal_id=str(uuid4()) if newer_pass else pending if next_pass else driver,
+            pending_triggering_signal_id=pending,
+        )
+        for signal_id in (driver, pending):
+            record_llm_spend(
+                signal_id, token_cost_microusd=100, team_id=self.team.id, signal_id=signal_id, stage="grouping"
+            )
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
+        rows = SignalSpend.objects.for_team(self.team.id)
+        assert rows.get(signal_id=driver).finalized_at is not None
+        assert (rows.get(signal_id=pending).finalized_at is None) == next_pass
+        report.refresh_from_db()
+        assert (report.pending_triggering_signal_id is not None) == next_pass
+
     def test_filtered_signal_finalizes_only_when_every_source_is_priced(self) -> None:
         driver = str(uuid4())
         record_llm_spend(

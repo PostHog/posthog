@@ -1460,21 +1460,18 @@ def _create_run_row(
     # by it. Absent when no pre-check ran.
     if precheck_query_source:
         metadata["precheck_query_source"] = precheck_query_source
-    run = SignalScoutRun.objects.for_team(team.id).create(
-        id=run_id,
-        task_run_id=task_run_id,
-        team=team,
-        scout_config=config,
-        skill_name=skill.name,
-        skill_version=skill.version,
-        metadata=metadata,
-        trial_state=initial_trial_state() if trial is not None else None,
-    )
-    try:
-        with transaction.atomic():
-            record_task_spend(team_id=team.id, run_id=str(task_run_id), scout_run_id=str(run.id), stage="scout")
-    except Exception:
-        logger.exception("signals.spend.accounting_failed", extra={"stage": "scout", "team_id": team.id})
+    with transaction.atomic():
+        run = SignalScoutRun.objects.for_team(team.id).create(
+            id=run_id,
+            task_run_id=task_run_id,
+            team=team,
+            scout_config=config,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            metadata=metadata,
+            trial_state=initial_trial_state() if trial is not None else None,
+        )
+        record_task_spend(team_id=team.id, run_id=str(task_run_id), scout_run_id=str(run.id), stage="scout")
     return run
 
 

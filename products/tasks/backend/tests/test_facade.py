@@ -13,6 +13,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
@@ -430,6 +431,18 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNone(resumed_run)
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+
+    @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT,), (Task.OriginProduct.SIGNALS_SCOUT,)])
+    def test_resume_in_cloud_cannot_reopen_automated_spend(self, origin_product: str) -> None:
+        task = self._make_task(origin_product=origin_product)
+        run = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.COMPLETED
+        )
+        with self.assertRaisesMessage(ValidationError, "Start a new run"):
+            facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.COMPLETED
+        assert run.state == {}
 
     def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(self):
         now = django_timezone.now()

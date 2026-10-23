@@ -13,6 +13,8 @@ from django.db import OperationalError, transaction
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import BaseModel, Field, JsonValue
+from temporalio.client import WorkflowFailureError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -2076,16 +2078,23 @@ class TestPollForTurnConnectionDrop:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("origin", [Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT])
-async def test_pipeline_session_waits_for_task_completion_after_signalling(origin: str) -> None:
+@pytest.mark.parametrize("closed,teardown_failed", [(False, False), (True, False), (True, True)])
+async def test_pipeline_session_waits_for_task_completion_after_signalling(
+    origin: str, closed: bool, teardown_failed: bool
+) -> None:
     completion_started = asyncio.Event()
     cost_ready = asyncio.Event()
 
     async def finish() -> None:
         completion_started.set()
         await cost_ready.wait()
+        if teardown_failed:
+            raise WorkflowFailureError(cause=RuntimeError("cleanup failed"))
 
     handle = AsyncMock()
     handle.result.side_effect = finish
+    if closed:
+        handle.signal.side_effect = RPCError("workflow closed", RPCStatusCode.NOT_FOUND, b"")
     session = MultiTurnSession(task=MagicMock(origin_product=origin), task_run=MagicMock(), _workflow_handle=handle)
     ending = asyncio.create_task(session.end())
     try:

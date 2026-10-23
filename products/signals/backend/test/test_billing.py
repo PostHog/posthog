@@ -20,7 +20,9 @@ from products.signals.backend.billing import (
     BillingExemptionError,
     FirstBillablePrRun,
     _bridges_with_pr_run,
+    annotate_first_billable_pr_run_at,
     first_billable_pr_run,
+    first_billable_pr_run_at_by_report,
     get_signals_billing_credits_by_team,
     mark_report_billing_exempt,
     system_billing_exempt_reason,
@@ -710,6 +712,14 @@ class TestSpendBasedBilling(BaseTest):
         assert (first_billable_pr_run(legacy_report.id, team_id=legacy_report.team_id) is not None) == (
             existing_work == "report"
         )
+        reports = SignalReport.objects.filter(id__in=[report.id, legacy_report.id])
+        expected_refundable = {str(legacy_report.id)} if existing_work == "report" else set()
+        assert set(first_billable_pr_run_at_by_report([report.id, legacy_report.id])) == expected_refundable
+        assert {
+            str(row.id)
+            for row in annotate_first_billable_pr_run_at(reports)
+            if row.__dict__["first_billable_pr_run_at"] is not None
+        } == expected_refundable
         # Changing the report's driver cannot change either owner's eligibility.
         SignalReport.objects.filter(id=report.id).update(triggering_signal_id=legacy_signal)
         assert self._day(10) == {self.team.id: expected}

@@ -22,7 +22,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
-from products.signals.backend.spend import complete_signal_pipeline
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
@@ -347,6 +347,9 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 @close_db_connections
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
+    if input.signal_id and input.team_id is not None:
+        if await database_sync_to_async(finalized_signal_ids)(team_id=input.team_id, signal_ids=[input.signal_id]):
+            return SafetyFilterOutput(safe=False, threat_type="", explanation="Signal already processed")
     try:
         result = await safety_filter(
             input.team_id,

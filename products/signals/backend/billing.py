@@ -83,7 +83,7 @@ SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 SIGNALS_CREDITS_PER_REPORT_WITH_PR = 15 * SIGNALS_CREDITS_PER_DOLLAR  # 1500
 
 
-def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTask]:
+def _bridges_with_pr_run(*, include_manual: bool = False, **run_created_at: datetime) -> QuerySet[SignalReportTask]:
     """Implementation bridges whose task shipped a billable PR run matching `run_created_at`.
 
     Rooted on the signals-owned `SignalReportTask` bridge and traversing to runs via the
@@ -103,7 +103,7 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     against the same `TaskRun` row.
     """
     return SignalReportTask.objects.filter(
-        task__runs__state__billing_product__isnull=True,
+        **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
         # Fail closed on team disagreement across run / task / bridge / report.
@@ -139,7 +139,7 @@ BILLING_EXEMPT_SOURCE_PRODUCTS: dict[str, str] = {
 }
 
 
-def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
+def _scout_skill_is_canonical(team_id: int, skill_name: str, *, version: int | None = None) -> bool:
     """Whether the team's row for `skill_name` is still the PostHog-shipped scout, byte for byte.
 
     `skill_name` alone doesn't attest PostHog-system origin: a team can edit a seeded scout in
@@ -147,7 +147,8 @@ def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
     permanent exemptions. `scout_skill_row_is_proven_canonical` settles it by content hash against
     the fingerprint stamped at seed time. Fails closed — no row, no hash, no match → billable.
     """
-    skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True).first()
+    skills = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False)
+    skill = (skills.filter(is_latest=True) if version is None else skills.filter(version=version)).first()
     return skill is not None and scout_skill_row_is_proven_canonical(skill)
 
 
@@ -194,6 +195,20 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
     return True
 
 
+def report_has_implementation_pr(report_id: str | uuid.UUID, *, team_id: int) -> bool:
+    return _bridges_with_pr_run(include_manual=True).filter(report_id=report_id, team_id=team_id).exists()
+
+
+def _legacy_pr_bridges(reports: QuerySet[SignalReport]) -> QuerySet[SignalReportTask]:
+    cutoffs = {
+        organization_id: cutoff
+        for organization_id in reports.order_by().values_list("team__organization_id", flat=True).distinct()
+        if (cutoff := usage_billing_cutoff(organization_id)) is not None
+    }
+    reports = reports.exclude(id__in=usage_billed_reports(cutoffs).values("id"))
+    return _bridges_with_pr_run().filter(report_id__in=reports.values("id"))
+
+
 class FirstBillablePrRun(NamedTuple):
     created_at: datetime
     pr_url: str
@@ -208,16 +223,8 @@ def first_billable_pr_run(report_id: str | uuid.UUID, *, team_id: int) -> FirstB
     uses it to refuse late exemptions. It applies the exact same fail-closed filters as the usage
     query, so the two can never disagree about whether a billable run exists.
     """
-    # This is the fixed-report refund boundary; usage-billed reports need a cost-based credit.
-    report = SignalReport.objects.select_related("team").filter(id=report_id, team_id=team_id).first()
-    if report is None:
-        return None
-    cutoff = usage_billing_cutoff(report.team.organization_id)
-    if cutoff is not None and report.created_at >= cutoff:
-        return None
     row = (
-        _bridges_with_pr_run()
-        .filter(report_id=report_id, team_id=team_id)
+        _legacy_pr_bridges(SignalReport.objects.filter(id=report_id, team_id=team_id))
         # Both columns resolve against the TaskRun join the filter established, so the earliest
         # billable run's timestamp and URL come from the same row.
         .order_by("task__runs__created_at")
@@ -259,7 +266,7 @@ def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> Query
     fail-closed filters as the usage query, so list-rendered refund eligibility can never
     disagree with what the refund action would accept."""
     earliest = (
-        _bridges_with_pr_run()
+        _legacy_pr_bridges(queryset)
         .filter(report_id=OuterRef("id"))
         .order_by("task__runs__created_at")
         .values("task__runs__created_at")[:1]
@@ -275,8 +282,7 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) ->
     Reports with no billable PR run are absent from the map, matching the annotation's NULL.
     """
     rows = (
-        _bridges_with_pr_run()
-        .filter(report_id__in=report_ids)
+        _legacy_pr_bridges(SignalReport.objects.filter(id__in=report_ids))
         .values("report_id")
         .annotate(first_run_at=Min("task__runs__created_at"))
     )

@@ -267,7 +267,7 @@ class SignalReportSummaryWorkflow:
             # Loop internally rather than spawning new workflows because summary workflows are
             # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
             if workflow.patched("signals-spend-explicit-owner"):
-                signal_id = await workflow.execute_activity(
+                signal_id = inputs.signal_id or await workflow.execute_activity(
                     report_spend_owner_activity,
                     inputs,
                     start_to_close_timeout=timedelta(minutes=1),

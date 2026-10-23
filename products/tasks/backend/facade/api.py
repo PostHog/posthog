@@ -6931,6 +6931,12 @@ def resume_task_run_in_cloud(
         if is_cloud_active:
             return "already_active", None, None
 
+        if (
+            task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}
+            and (run.state or {}).get("billing_product") != "posthog_ai"
+        ):
+            raise ValidationError("Start a new run to continue automated report or scout work.")
+
         if get_pr_authorship_mode(run.task, run.state) == PrAuthorshipMode.USER:
             pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
                 run.task,

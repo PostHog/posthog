@@ -10,6 +10,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, JsonValue, ValidationError
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.service import RPCError, RPCStatusCode
 
 from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.facade.contracts import SessionFile
@@ -474,9 +476,14 @@ class MultiTurnSession:
                 await asyncio.to_thread(record_run_failure_cause, self.task_run.id, error_type)
             await self._workflow_handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error])
             logger.info("multi_turn: ended session run=%s status=%s", self.task_run.id, status)
-        except Exception:
-            logger.warning("multi_turn: failed to signal completion run=%s", self.task_run.id, exc_info=True)
-            if self.task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}:
-                raise
+        except Exception as completion_error:
+            if not (isinstance(completion_error, RPCError) and completion_error.status == RPCStatusCode.NOT_FOUND):
+                logger.warning("multi_turn: failed to signal completion run=%s", self.task_run.id, exc_info=True)
+                if self.task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}:
+                    raise
         if self.task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}:
-            await wait_for_task_completion(self._workflow_handle)
+            try:
+                await wait_for_task_completion(self._workflow_handle)
+            except WorkflowFailureError:
+                # Teardown must not discard an agent response that the caller already received.
+                logger.exception("multi_turn: task teardown failed run=%s", self.task_run.id)

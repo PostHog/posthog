@@ -149,7 +149,7 @@ This is prompt guidance, not an enforced access control, and it does not validat
 
 ## Research spend ownership
 
-Each report-generation pass carries its triggering signal ID through safety evaluation, repository selection, research, and automatic implementation. Task runs bind to that owner when they are created; retries of the same run preserve it even if the report later gets another trigger.
+Each report-generation pass carries its triggering signal ID through safety evaluation, repository selection and research. Task runs bind to that owner when they are created; retries of the same run preserve it even if the report later gets another trigger. Implementation spend belongs to the report, with a separate row for each TaskRun.
 
 A report can remain `CANDIDATE` after a pass exits at a quota gate or defers because assigned signals are not yet readable. Completion releases that pass's trigger in the same transaction as its accounting update, including when accounting failed and the spend cannot finalize. The next signal can then reserve a new pass. Signals arriving while a pass is still waiting to start keep its existing trigger; they do not take ownership of its work.
 
@@ -403,9 +403,11 @@ Signal spend summaries sum the signal-owned kinds without locking or writing row
 
 Direct-source steering drops close their spend without entering the batch pipeline. A summary that stops at a quota gate closes its completed pass even when the report remains a candidate, while each task finalizes its own spend independently of report status. Summary accounting retries transient failures, and reaped scout runs enqueue retrying accounting after their terminal status commits.
 
+Grouping finalizes a batch only after it completes successfully; drop telemetry never changes accounting state. Failed preparation or visibility checks leave spend open for the batch retry. Emission and safety retries skip signals whose ad-hoc spend is already finalized, avoiding repeated paid filters on completed signals. Scout creation and spend registration share a transaction, and the scout's trial/skill exemption is fixed using the skill version it ran.
+
 The owner stores no request inventory or pending-work list. Owners that already have legacy receipts retain source accounting during the cutover, including any further one-shot calls for that existing owner. Their summaries include late legacy receipts and current task costs; new owners use only the cumulative row. If an older worker writes a legacy receipt for an owner already started with cumulative accounting, the owner is marked `legacy_cutover` and stays unfinalized: the two partial totals cannot safely be reconciled without per-call history. Drain older workers before enabling usage billing, and inspect any such accounting failures. Removing the compatibility table requires a later migration after old workers have drained.
 
-User-started report tasks (including a manual resume of an automated implementation) use PostHog AI billing and its credit limit. The Task keeps its report link; each new manual TaskRun records `state.billing_product = "posthog_ai"`, which selects the matching gateway product and OAuth application. These runs do not join a SignalSpend owner or trigger the flat report charge. Automated research, repository selection and implementation keep Signals accounting. Unmarked historical runs keep their existing billing treatment, and prewarmed runs created with the old credentials are not reused for new manual work.
+User-started report tasks use PostHog AI billing and its credit limit. Continuing automated work requires a new run: cloud resume rejects reopening the original automated report or scout run. The Task keeps its report link; each new manual TaskRun records `state.billing_product = "posthog_ai"`, which selects the matching gateway product and OAuth application. These runs do not join a SignalSpend owner or trigger the flat report charge. Automated research, repository selection and implementation keep Signals accounting. Unmarked historical runs keep their existing billing treatment, and prewarmed runs created with the old credentials are not reused for new manual work.
 
 ## Usage-based billing rollout
 

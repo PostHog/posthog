@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import field
 from datetime import timedelta
 from decimal import Decimal
@@ -36,13 +37,21 @@ def signal_id_for(*, team_id: int, source_product: str, source_type: str, idempo
     )
 
 
+def finalized_signal_ids(*, team_id: int, signal_ids: Sequence[str]) -> set[str]:
+    if not signal_ids:
+        return set()
+    return {
+        str(signal_id)
+        for signal_id in SignalSpend.objects.for_team(team_id)
+        .filter(kind=SignalSpend.Kind.AD_HOC, signal_id__in=signal_ids, finalized_at__isnull=False)
+        .values_list("signal_id", flat=True)
+    }
+
+
 def report_triggering_signal(
     *, team_id: int, report_id: str, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
 ) -> str | None:
-    with transaction.atomic():
-        report = (
-            SignalReport.objects.filter(team_id=team_id, id=report_id).only("triggering_signal_id", "team_id").first()
-        )
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).only("triggering_signal_id", "team_id").first()
     if report is None:
         return None
     if report.triggering_signal_id is not None:
@@ -407,6 +416,17 @@ def finish_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None
             if report:
                 apply_report_billing(spend, report)
             _save_ad_hoc_spend(spend, finalize=True)
+        if (
+            report
+            and report.triggering_signal_id == UUID(signal_id)
+            and report.pending_triggering_signal_id not in {None, report.triggering_signal_id}
+        ):
+            pending = _locked_ad_hoc_spend(team_id=team_id, signal_id=str(report.pending_triggering_signal_id))
+            if pending.finalized_at is None:
+                apply_report_billing(pending, report)
+                _save_ad_hoc_spend(pending, finalize=True)
+            report.pending_triggering_signal_id = None
+            report.save(update_fields=["pending_triggering_signal_id"])
         if report and report.status == SignalReport.Status.CANDIDATE and report.triggering_signal_id == UUID(signal_id):
             report.triggering_signal_id = None
             report.save(update_fields=["triggering_signal_id"])
@@ -454,10 +474,6 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
                     )
                     if report:
                         apply_report_billing(spend, report)
-                if spend.scout_run_id:
-                    scout = SignalScoutRun.objects.for_team(team_id).filter(id=spend.scout_run_id).first()
-                    if scout:
-                        spend.billing_exempt = spend.billing_exempt or scout_spend_exempt(scout)
                 spend.spend = cost_to_spend(run.cost_microusd or 0, task_count=1)
                 spend.accounting_failed = not run.complete
                 if run.is_terminal and run.complete:
