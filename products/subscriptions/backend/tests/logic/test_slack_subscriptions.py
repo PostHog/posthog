@@ -95,17 +95,8 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             },
             {"type": "context", "elements": [{"type": "plain_text", "text": "📊 Insight: My Test subscription"}]},
             {
-                "type": "rich_text",
-                "elements": [
-                    {
-                        "type": "rich_text_section",
-                        "elements": [{"type": "link", "url": self.insight.url, "text": "My Test subscription"}],
-                    }
-                ],
-            },
-            {
                 "type": "image",
-                "image_url": post_message_calls[0].kwargs["blocks"][4]["image_url"],
+                "image_url": post_message_calls[0].kwargs["blocks"][3]["image_url"],
                 "alt_text": "My Test subscription",
             },
             {"type": "divider"},
@@ -958,7 +949,8 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             delivery_config={"post_all_insights_in_main_message": post_all_in_main},
         )
 
-    def test_prepare_slack_gallery_builds_comment_and_uploads(self) -> None:
+    @parameterized.expand([("insight", False), ("dashboard", True)])
+    def test_prepare_slack_gallery_builds_comment_and_uploads(self, _name: str, is_dashboard: bool) -> None:
         subscription = create_subscription(
             team=self.team,
             created_by=self.user,
@@ -967,6 +959,9 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             insight=self.insight,
             delivery_config={"post_all_insights_in_main_message": True},
         )
+        if is_dashboard:
+            subscription.insight = None
+            subscription.dashboard = Dashboard.objects.create(team=self.team, name="Test dashboard")
         ok = ExportedAsset.objects.create(
             team=self.team, export_format="image/png", content=b"PNGBYTES", insight_id=self.insight.id
         )
@@ -978,7 +973,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assert len(gallery.file_uploads) == 1  # failed asset excluded
         assert gallery.file_uploads[0]["content"] == b"PNGBYTES"
         links = [block for block in gallery.blocks if block["type"] == "rich_text"]
-        assert links == [
+        expected_links = [
             {
                 "type": "rich_text",
                 "elements": [
@@ -989,6 +984,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
                 ],
             }
         ]
+        assert links == (expected_links if is_dashboard else [])
         assert "View in PostHog" in gallery.initial_comment
         # Failed assets are listed by name with a "Could not generate" notice
         assert "Could not generate" in gallery.initial_comment
