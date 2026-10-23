@@ -29,9 +29,9 @@ export const messagingSendEmailCreateBodyTagsMax = 10
 
 export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
 
-export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 255
+export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
 
-export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 128
+export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
 

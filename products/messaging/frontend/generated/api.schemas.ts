@@ -58,12 +58,12 @@ export interface EmailAttachmentApi {
     content: string
     /**
      * MIME type with its parameters, such as `text/calendar; method=REQUEST`. Without it, the type follows the file name.
-     * @maxLength 255
+     * @maxLength 78
      */
     content_type?: string
     /**
      * Shows the file inline: reference it in `html` as `<img src="cid:logo">` with `content_id` `logo`.
-     * @maxLength 128
+     * @maxLength 78
      */
     content_id?: string
 }
