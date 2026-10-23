@@ -34,9 +34,8 @@ def validate_modifiers(value: dict | None) -> dict | None:
 
     # The native JSON events table is an internal rollout switch that PostHog staff set per project in Django
     # admin. Dropping the key keeps a client from setting or clearing it, including a settings page that echoes
-    # the whole modifiers dict back. useNewEventsCluster is gone from the schema, and a project that stored it
-    # echoes it back the same way.
-    value = {key: item for key, item in value.items() if key not in {"useNewEventsSchema", "useNewEventsCluster"}}
+    # the whole modifiers dict back.
+    value = {key: item for key, item in value.items() if key != "useNewEventsSchema"}
 
     if "bounceRateDurationSeconds" in value:
         bounce_rate = value["bounceRateDurationSeconds"]
