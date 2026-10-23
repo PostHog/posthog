@@ -305,6 +305,49 @@ interface WaitingTileRefresh {
     settings: DashboardSettings
 }
 
+/** Tiles in closed groups that a refresh skips wait for their group to open, alongside tiles an earlier refresh skipped. */
+function nextWaitingTileRefresh({
+    previous,
+    tiles,
+    collapsedTileIds,
+    candidateTileIds,
+    loadedHere,
+    forceRefresh,
+    settings,
+}: {
+    previous: WaitingTileRefresh | null
+    tiles: DashboardTile[]
+    collapsedTileIds: Set<number>
+    candidateTileIds: number[]
+    loadedHere: number[]
+    forceRefresh: boolean
+    settings: DashboardSettings
+}): WaitingTileRefresh {
+    const loaded = new Set(loadedHere)
+    const groupedTileIds = new Set(tiles.filter((tile) => tile.group_key).map((tile) => tile.id))
+    // This refresh aborts a running group load, so a tile it does not load itself must keep waiting.
+    const previouslyWaiting = previous?.tileIds.filter((id) => groupedTileIds.has(id) && !loaded.has(id)) ?? []
+    return {
+        tileIds: [...new Set([...previouslyWaiting, ...candidateTileIds.filter((id) => collapsedTileIds.has(id))])],
+        // A refresh of only stale tiles must not let a group that a manual refresh skipped show older data.
+        forceRefresh: forceRefresh || (previouslyWaiting.length > 0 && !!previous?.forceRefresh),
+        settings,
+    }
+}
+
+/** Open groups that still hold tiles an earlier refresh skipped. */
+function openTileGroupsWaiting(
+    tiles: DashboardTile[],
+    collapsedTileIds: Set<number>,
+    waiting: WaitingTileRefresh | null
+): Set<string> {
+    return new Set(
+        tiles
+            .filter((tile) => tile.group_key && !collapsedTileIds.has(tile.id) && waiting?.tileIds.includes(tile.id))
+            .map((tile) => tile.group_key as string)
+    )
+}
+
 export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType
@@ -5136,25 +5179,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const sortedTilesToRefresh = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
             const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
-            const loadedHere = new Set([...sortedTilesToRefresh.map((tile) => tile.id), ...openWidgetTileIds])
-            const groupedTileIds = new Set(values.tiles.filter((tile) => tile.group_key).map((tile) => tile.id))
-            // This refresh aborts a running group load, so a tile it does not load itself must keep waiting.
-            const previouslyWaiting =
-                values.waitingTileRefresh?.tileIds.filter((id) => groupedTileIds.has(id) && !loadedHere.has(id)) ?? []
-            actions.setWaitingTileRefresh({
-                tileIds: [
-                    ...new Set([
-                        ...previouslyWaiting,
-                        ...[...staleTiles.map((tile) => tile.id), ...widgetTileIds].filter((id) =>
-                            collapsedTileIds.has(id)
-                        ),
-                    ]),
-                ],
-                // A refresh of only stale tiles must not let a group that a manual refresh skipped show older data.
-                forceRefresh:
-                    !!forceRefresh || (previouslyWaiting.length > 0 && !!values.waitingTileRefresh?.forceRefresh),
-                settings: settingsToRefresh,
-            })
+            actions.setWaitingTileRefresh(
+                nextWaitingTileRefresh({
+                    previous: values.waitingTileRefresh,
+                    tiles: values.tiles,
+                    collapsedTileIds,
+                    candidateTileIds: [...staleTiles.map((tile) => tile.id), ...widgetTileIds],
+                    loadedHere: [...sortedTilesToRefresh.map((tile) => tile.id), ...openWidgetTileIds],
+                    forceRefresh: !!forceRefresh,
+                    settings: settingsToRefresh,
+                })
+            )
 
             const tilesStaleCount = sortedTilesToRefresh.length
             let tilesRefreshedCount = 0
@@ -5303,16 +5338,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             const openGroupsWaiting = (): Set<string> =>
-                new Set(
-                    values.tiles
-                        .filter(
-                            (tile) =>
-                                tile.group_key &&
-                                !values.collapsedTileIds.has(tile.id) &&
-                                values.waitingTileRefresh?.tileIds.includes(tile.id)
-                        )
-                        .map((tile) => tile.group_key as string)
-                )
+                openTileGroupsWaiting(values.tiles, values.collapsedTileIds, values.waitingTileRefresh)
             if (openGroupsWaiting().size > 0) {
                 // The aborted group load clears its queued status a few microtasks later, and that status blocks a reload.
                 await breakpoint(0)
