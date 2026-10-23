@@ -12,6 +12,7 @@ separate from report and PR assignment. GitHub failures must not break report wr
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
@@ -97,8 +98,8 @@ class FirstAssignment:
     limited: int = 0
 
     @classmethod
-    def skipped(cls, reason: str, **counts: int) -> FirstAssignment:
-        return cls(status="skipped", reason=reason, **counts)
+    def skipped(cls, reason: str) -> FirstAssignment:
+        return cls(status="skipped", reason=reason)
 
 
 def schedule_reviewer_pr_assignment(
@@ -549,7 +550,7 @@ def _assign_report_reviewers(
             result = github.is_assignable(parsed.repository, login)
             if not result.get("success"):
                 log.warning("signals.reviewer_pr_assignment.assignable_check_failed")
-                return FirstAssignment.skipped("assignable_check_failed", unlinked=unlinked)
+                return FirstAssignment(status="skipped", reason="assignable_check_failed", unlinked=unlinked)
             if result.get("assignable"):
                 assignable.append(login)
         unassignable = len(candidates) - len(assignable)
@@ -559,30 +560,30 @@ def _assign_report_reviewers(
                 selected=len(candidates),
                 assignable=len(assignable),
             )
-        counts = {"unlinked": unlinked, "unassignable": unassignable}
+        outcome = FirstAssignment(status="skipped", unlinked=unlinked, unassignable=unassignable)
         if not assignable:
-            return FirstAssignment.skipped("no_assignable_recipients", **counts)
+            return replace(outcome, reason="no_assignable_recipients")
         attempted = assignable[:MAX_PR_ASSIGNEES]
-        counts["limited"] = len(assignable) - len(attempted)
+        outcome = replace(outcome, limited=len(assignable) - len(attempted))
 
         current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
         if current_pr is None or current_pr.get("assignees"):
-            return FirstAssignment.skipped("pull_request_changed", **counts)
+            return replace(outcome, reason="pull_request_changed")
         if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
-            return FirstAssignment.skipped("unassigned_by_hand", **counts)
+            return replace(outcome, reason="unassigned_by_hand")
         current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
         if current.state != snapshot.state or _report_assignee_logins(team, current) != candidates:
-            return FirstAssignment.skipped("report_changed", **counts)
+            return replace(outcome, reason="report_changed")
         if not (
             assignment_writer_enabled(team_id)
             and team_research_reviewer_selection_enabled(team_id)
             and assignment_side_effects_enabled(team_id)
         ):
-            return FirstAssignment.skipped("delivery_disabled", **counts)
+            return replace(outcome, reason="delivery_disabled")
         assigned = _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=attempted)
         if not assigned:
-            return FirstAssignment.skipped("github_rejected", **counts)
-        return FirstAssignment(status="assigned", assigned=tuple(assigned), **counts)
+            return replace(outcome, reason="github_rejected")
+        return replace(outcome, status="assigned", assigned=tuple(assigned))
     except Exception:
         log.exception("signals.reviewer_pr_assignment.report_assignment_failed")
         return FirstAssignment.skipped("error")
