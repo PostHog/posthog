@@ -26,6 +26,8 @@ from uuid import UUID
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
+from posthog.uuidt import UUIDT
+
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
@@ -546,25 +548,15 @@ def denied_table_ids(team_id: int, user_access_control: "UserAccessControl") -> 
         # With access to both resources, only a rule on a table or on its source can deny the table,
         # so the tables those rules name are the only candidates.
         blocked = user_access_control.blocked_resource_ids_by_scope
-        table_ids = _valid_uuids(blocked.get("warehouse_table", frozenset()))
-        source_ids = _valid_uuids(blocked.get("external_data_source", frozenset()))
+        # A rule's resource_id is free text, and one malformed id must not break the id__in lookup.
+        table_ids = [UUID(i) for i in blocked.get("warehouse_table", ()) if UUIDT.is_valid_uuid(i)]
+        source_ids = [UUID(i) for i in blocked.get("external_data_source", ()) if UUIDT.is_valid_uuid(i)]
         if not table_ids and not source_ids:
             return frozenset()
         candidates = candidates.filter(Q(id__in=table_ids) | Q(external_data_source_id__in=source_ids))
     tables = _tables_for_access_check(candidates)
     allowed = _allowed_tables(tables, user_access_control, "viewer")
     return frozenset(table.id for table in tables if table.id not in allowed)
-
-
-def _valid_uuids(ids: Collection[str]) -> set[UUID]:
-    # A rule's resource_id is free text, and one malformed id must not break the id__in lookup.
-    valid: set[UUID] = set()
-    for value in ids:
-        try:
-            valid.add(UUID(value))
-        except ValueError:
-            continue
-    return valid
 
 
 def _tables_for_access_check(candidates: QuerySet[_DataWarehouseTable]) -> list[_DataWarehouseTable]:

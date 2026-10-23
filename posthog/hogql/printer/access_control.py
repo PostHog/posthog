@@ -49,9 +49,10 @@ def build_access_control_guard(
     Mirrors `UserAccessControl.filter_queryset_by_access_level`, the REST equivalent, branch for
     branch: with no resource-level access the rows are narrowed to the user's explicit grants,
     otherwise the objects denied to them are removed, and either way the objects they created stay
-    visible. The id sets live on UserAccessControl (`allowlisted_resource_ids_by_scope` /
-    `blocked_resource_ids_by_scope`) — single source of truth, shared with the cache-key fingerprint
-    in query_runner.py.
+    visible. The grant set comes from `UserAccessControl.allowlisted_resource_ids_by_scope`, shared
+    with the cache-key fingerprint in query_runner.py. The deny set comes from
+    `table.blocked_object_ids`, and the parent objects a child table's reader created come from
+    `table.creator_owned_object_ids`. Both default to the rules on UserAccessControl.
     """
     resource = table.access_scope
     if not resource:

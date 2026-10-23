@@ -460,36 +460,57 @@ class TestRestParityForObjectGrants(BaseTest):
         deny_key = next(iter(placeholders))
         assert f"notIn(toString(system__{table}.{column}), %({deny_key})s)" in sql
 
-    @parameterized.expand([("resource_granted", "editor"), ("resource_denied", "none")])
-    def test_view_creator_keeps_the_jobs_of_their_denied_view(self, _name: str, resource_level: str) -> None:
+    def _own_views(self, *names: str) -> list:
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
-        own_view, own_unruled_view = (
+        return [
             DataWarehouseSavedQuery.objects.create(
                 team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
             )
-            for name in ("own_view", "own_unruled_view")
-        )
-        other_view_id = "018f0000-0000-0000-0000-000000000003"
-        self._ac(resource="warehouse_objects", access_level=resource_level)
-        for view_id in (str(own_view.id), other_view_id):
+            for name in names
+        ]
+
+    def _view_rules(self, access_level: str, view_ids: list[str]) -> None:
+        for view_id in view_ids:
             self._ac(
                 resource="warehouse_view",
                 resource_id=view_id,
-                access_level="none" if resource_level == "editor" else "viewer",
+                access_level=access_level,
                 organization_member=self.membership,
             )
 
+    def test_view_creator_drops_out_of_the_jobs_deny_list(self) -> None:
+        own_view, _own_unruled_view = self._own_views("own_view", "own_unruled_view")
+        other_view_id = "018f0000-0000-0000-0000-000000000003"
+        self._view_rules("none", [str(own_view.id), other_view_id])
+
         sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
 
-        placeholders = self._id_list_placeholders(context)
-        if resource_level == "editor":
-            # Only the denied view is looked up, and the creator's own one leaves the deny list.
-            assert list(placeholders.values()) == [[other_view_id]]
-            assert "notIn(toString(system__data_modeling_jobs.saved_query_id)" in sql
-        else:
-            owned_key = next(k for k, v in placeholders.items() if v == [str(own_unruled_view.id)])
-            assert f"in(toString(system__data_modeling_jobs.saved_query_id), %({owned_key})s)" in sql
+        assert list(self._id_list_placeholders(context).values()) == [[other_view_id]]
+        assert "notIn(toString(system__data_modeling_jobs.saved_query_id)" in sql
+
+    def test_view_creator_denied_only_their_own_view_gets_no_jobs_guard(self) -> None:
+        (own_view,) = self._own_views("own_view")
+        self._view_rules("none", [str(own_view.id)])
+
+        sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
+
+        assert self._id_list_placeholders(context) == {}
+        assert "warehouse_view" not in context.access_control_restricted_resources
+
+    def test_view_creator_without_resource_access_keeps_the_jobs_of_their_views(self) -> None:
+        own_view, own_unruled_view = self._own_views("own_view", "own_unruled_view")
+        other_view_id = "018f0000-0000-0000-0000-000000000003"
+        self._ac(resource="warehouse_objects", access_level="none")
+        self._view_rules("viewer", [str(own_view.id), other_view_id])
+
+        sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
+
+        keys = {tuple(v): k for k, v in self._id_list_placeholders(context).items()}
+        grant_key = keys[tuple(sorted([str(own_view.id), other_view_id]))]
+        owned_key = keys[(str(own_unruled_view.id),)]
+        column = "toString(system__data_modeling_jobs.saved_query_id)"
+        assert f"or(in({column}, %({grant_key})s), in({column}, %({owned_key})s))" in sql
 
     @parameterized.expand(
         [

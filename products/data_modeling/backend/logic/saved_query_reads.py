@@ -13,6 +13,7 @@ from posthog.hogql.functions.prompt_jev import DECISION_FUNCTIONS, PromptJevFind
 from posthog.hogql.parser import parse_select
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.uuidt import UUIDT
 
 from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
 from ..models.data_modeling_job import (
@@ -171,12 +172,7 @@ def saved_query_ids_created_by(team_id: int, user_id: int, *, ids: Collection[st
     """
     candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, created_by_id=user_id)
     if ids is not None:
-        valid_ids = []
-        for value in ids:
-            try:
-                valid_ids.append(UUID(value))
-            except ValueError:
-                continue
+        valid_ids = [UUID(value) for value in ids if UUIDT.is_valid_uuid(value)]
         if not valid_ids:
             return frozenset()
         candidates = candidates.filter(id__in=valid_ids)
