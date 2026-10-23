@@ -1107,10 +1107,10 @@ class TestValidateConfig:
 
 def _contract_path(instance_path: str, expected: dict[str, Any]) -> str:
     attr = "filters" + re.sub(r"/(\d+)", r"[\1]", instance_path).replace("/", ".")
-    # Upstream writes the field name, sometimes quoted, in `message_contains` for these two keywords,
+    # Upstream writes the field name in `message_contains` for these two keywords,
     # so it is the missing or unknown field's path segment. Other keywords carry prose (`2 was expected`).
     if expected["keyword"] in ("required", "additionalProperties"):
-        attr += "." + expected["message_contains"].strip("'")
+        attr += "." + expected["message_contains"]
     return attr
 
 
