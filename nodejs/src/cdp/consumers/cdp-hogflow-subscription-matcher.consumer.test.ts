@@ -10,7 +10,11 @@ import * as posthogUtils from '~/common/utils/posthog'
 
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
-import { CdpHogflowSubscriptionMatcherConsumer } from './cdp-hogflow-subscription-matcher.consumer'
+import {
+    CdpHogflowSubscriptionMatcherConsumer,
+    counterHogflowMatcherEventSkipped,
+} from './cdp-hogflow-subscription-matcher.consumer'
+import { counterParseError } from './metrics'
 
 jest.mock('./cdp-base.consumer', () => {
     return {
@@ -1282,6 +1286,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('message and lookup failures', () => {
+        const invalidTeamIdParseErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+        const invalidTeamIdSkips = async (): Promise<number> =>
+            (await counterHogflowMatcherEventSkipped.get()).values.find((v) => v.labels.reason === 'invalid_team_id')
+                ?.value ?? 0
+
         beforeEach(() => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
             // Postgres rejects a team id outside int4 on every read. The valid messages here all use team 1.
@@ -1300,12 +1310,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     parse: '_parseKafkaBatch',
                     bad: rawEvent({ team_id: teamId }),
                     good: rawEvent({}),
+                    expectedInvalidTeamIdSkips: 1,
                 },
                 {
                     name: `a person with team_id ${teamId}`,
                     parse: '_parsePersonBatch',
                     bad: rawPerson({ team_id: teamId }),
                     good: rawPerson({}),
+                    expectedInvalidTeamIdSkips: 1,
                 },
             ]),
             // The schema already rejects a missing, null or string team_id.
@@ -1316,35 +1328,45 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     parse: '_parseInternalEventsBatch',
                     bad: rawInternalEvent({ team_id: teamId }),
                     good: rawInternalEvent(),
+                    expectedInvalidTeamIdSkips: 1,
                 })),
             {
                 name: 'an event that is not JSON',
                 parse: '_parseKafkaBatch',
                 bad: { value: Buffer.from('not json') },
                 good: rawEvent({}),
+                expectedInvalidTeamIdSkips: 0,
             },
             {
                 name: 'an event whose properties are not JSON',
                 parse: '_parseKafkaBatch',
                 bad: rawEvent({ properties: 'not json' }),
                 good: rawEvent({}),
+                expectedInvalidTeamIdSkips: 0,
             },
             {
                 name: 'a person whose properties are not JSON',
                 parse: '_parsePersonBatch',
                 bad: rawPerson({ properties: 'not json' }),
                 good: rawPerson({}),
+                expectedInvalidTeamIdSkips: 0,
             },
             {
                 name: 'an internal event without its required event',
                 parse: '_parseInternalEventsBatch',
                 bad: { value: Buffer.from(JSON.stringify({ team_id: 1 })) },
                 good: rawInternalEvent(),
+                expectedInvalidTeamIdSkips: 0,
             },
-        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good }) => {
+        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good, expectedInvalidTeamIdSkips }) => {
+            const parseErrorsBefore = await invalidTeamIdParseErrors()
+            const skipsBefore = await invalidTeamIdSkips()
+
             const result = await (matcher as any)[parse]([bad, good])
 
             expect(result).toHaveLength(1)
+            expect(await invalidTeamIdParseErrors()).toBe(parseErrorsBefore)
+            expect(await invalidTeamIdSkips()).toBe(skipsBefore + expectedInvalidTeamIdSkips)
         })
 
         const streams = [
@@ -1367,10 +1389,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 },
             },
             {
-                // handlePostgresError does not mark this transient replica error as retriable.
-                lookup: 'the hog flow lookup is cancelled on the read replica',
+                // handlePostgresError does not mark a statement timeout as retriable.
+                lookup: 'the hog flow lookup hits a statement timeout',
                 fail: (m: MatcherUnderTest): Error => {
-                    const error = new Error('canceling statement due to conflict with recovery')
+                    const error = new Error('canceling statement due to statement timeout')
                     ;(m as any).hogFlowManager.getHogFlowsForTeam.mockRejectedValueOnce(error)
                     return error
                 },

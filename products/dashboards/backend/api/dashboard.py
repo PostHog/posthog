@@ -4,10 +4,12 @@ import re
 import json
 import uuid
 import builtins
-from collections.abc import AsyncGenerator, Mapping
+import contextvars
+from collections.abc import AsyncGenerator, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
+from functools import partial
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -417,6 +419,10 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
+
+
+def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    return context.run(work)
 
 
 def _run_widget_query(
@@ -2015,6 +2021,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "duplicated_from_dashboard_id": use_dashboard,
+                **self.context.get("creation_event_properties", {}),
             },
             team=dashboard.team,
             request=request,
@@ -3978,13 +3985,19 @@ class DashboardsViewSet(
         if query_work_items:
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Each worker gets a copy of the request context, so the query tags (such as the API key
+                # access method that the metrics concurrency limits read) reach the widget query.
                 futures = {
                     executor.submit(
-                        _run_widget_query,
-                        self.team,
-                        work_item,
-                        dashboard_id=dashboard.id,
-                        distinct_id=distinct_id,
+                        _run_in_context,
+                        contextvars.copy_context(),
+                        partial(
+                            _run_widget_query,
+                            self.team,
+                            work_item,
+                            dashboard_id=dashboard.id,
+                            distinct_id=distinct_id,
+                        ),
                     ): work_item["tile_id"]
                     for work_item in query_work_items
                 }

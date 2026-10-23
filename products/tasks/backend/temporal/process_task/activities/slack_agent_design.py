@@ -169,6 +169,7 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
     """Mark the last step complete, stream the answer and the turn's attachments, close, attach files."""
+    from products.slack_app.backend.facade.api import SlackFeature, record_slack_feature_used
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.logic.services.living_artifacts import (
         SlackFileDeliveryResult,
@@ -209,7 +210,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
                 )
             )
 
-        handler.stop_status_stream(
+        answer_delivered = handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
@@ -230,6 +231,11 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
                 )
         if handler.stream_ended and task_run is not None:
             # A closed stream takes no cards, so whatever is still pending posts under the answer as its own message.
-            deliver_pending_slack_file_artifacts(task_run)
+            deliveries.append(deliver_pending_slack_file_artifacts(task_run))
+        if any(delivery.delivered_count for delivery in deliveries):
+            record_slack_feature_used(context.integration_id, handler.actor_slack_user_id, SlackFeature.FILE_OUTPUTS)
+        # Last, so a file this answer delivered already counts as used when the tip is picked.
+        if answer_delivered and input.answer_markdown is not None:
+            handler.offer_feature_tip()
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))
