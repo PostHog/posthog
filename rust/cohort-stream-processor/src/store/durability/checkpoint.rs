@@ -394,13 +394,13 @@ impl CheckpointSweeper {
         match tokio::task::spawn_blocking(move || flush_store.flush_wal_sync()).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                warn!(error = %e, "checkpoint tick: WAL fsync failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: WAL fsync failed; skipping tick");
                 metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "flush_failed")
                     .increment(1);
                 return;
             }
             Err(join_err) => {
-                error!(error = %join_err, "checkpoint tick: WAL fsync task panicked; skipping tick");
+                error!(error = %join_err, trigger = trigger.label(), "checkpoint tick: WAL fsync task panicked; skipping tick");
                 metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "flush_failed")
                     .increment(1);
                 return;
@@ -433,13 +433,13 @@ impl CheckpointSweeper {
                     PositionsError::Foreign { .. } => "foreign",
                     PositionsError::Kafka(_) | PositionsError::Negative(_) => "positions",
                 };
-                warn!(error = %e, "checkpoint tick: reading input positions failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: reading input positions failed; skipping tick");
                 metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => reason)
                     .increment(1);
                 return;
             }
             Err(join_err) => {
-                error!(error = %join_err, "checkpoint tick: reading input positions panicked; skipping tick");
+                error!(error = %join_err, trigger = trigger.label(), "checkpoint tick: reading input positions panicked; skipping tick");
                 metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "positions")
                     .increment(1);
                 return;
@@ -450,7 +450,7 @@ impl CheckpointSweeper {
         let manifest = match OffsetManifest::capture(&owned, positions) {
             Ok(manifest) => manifest,
             Err(e) => {
-                warn!(error = %e, "checkpoint tick: incomplete manifest; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: incomplete manifest; skipping tick");
                 metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "incomplete")
                     .increment(1);
                 return;
@@ -464,7 +464,7 @@ impl CheckpointSweeper {
         let attempt_dir = self.local_dir().join(&checkpoint_id);
         // `create_checkpoint` requires the leaf to NOT exist; it creates it and errors if it does.
         if let Err(e) = tokio::fs::create_dir_all(self.local_dir()).await {
-            warn!(error = %e, dir = %self.local_dir().display(), "checkpoint tick: cannot create attempt parent dir; skipping tick");
+            warn!(error = %e, dir = %self.local_dir().display(), trigger = trigger.label(), "checkpoint tick: cannot create attempt parent dir; skipping tick");
             return;
         }
         let checkpoint_store = self.store.clone();
@@ -476,12 +476,12 @@ impl CheckpointSweeper {
         match create_result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                warn!(error = %e, "checkpoint tick: create_checkpoint failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: create_checkpoint failed; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
             Err(join_err) => {
-                error!(error = %join_err, "checkpoint tick: create_checkpoint task panicked; skipping tick");
+                error!(error = %join_err, trigger = trigger.label(), "checkpoint tick: create_checkpoint task panicked; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
@@ -490,7 +490,7 @@ impl CheckpointSweeper {
         // 6. Write offsets.json after create_checkpoint (so it is never frozen mid-write) but before
         //    planning, so the planner tracks it as a non-SST file and the S3 upload carries it.
         if let Err(e) = manifest.write_to_dir(&attempt_dir) {
-            warn!(error = %e, "checkpoint tick: writing offsets.json failed; skipping tick");
+            warn!(error = %e, trigger = trigger.label(), "checkpoint tick: writing offsets.json failed; skipping tick");
             drop(tokio::fs::remove_dir_all(&attempt_dir).await);
             return;
         }
@@ -499,7 +499,7 @@ impl CheckpointSweeper {
         let db = match self.store.db_identity() {
             Ok(db) => db,
             Err(e) => {
-                warn!(error = %e, "checkpoint tick: reading the DB id failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: reading the DB id failed; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
@@ -525,7 +525,7 @@ impl CheckpointSweeper {
         ) {
             Ok(plan) => plan,
             Err(e) => {
-                warn!(error = %e, "checkpoint tick: planning failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: planning failed; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
@@ -535,7 +535,7 @@ impl CheckpointSweeper {
             .metadata
             .save(&attempt_dir.join(METADATA_FILENAME))
         {
-            warn!(error = %e, "checkpoint tick: writing metadata.json failed; skipping tick");
+            warn!(error = %e, trigger = trigger.label(), "checkpoint tick: writing metadata.json failed; skipping tick");
             drop(tokio::fs::remove_dir_all(&attempt_dir).await);
             return;
         }

@@ -268,7 +268,7 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
   The image has no `kill` binary, so `kubectl exec` needs `sh -c 'kill -USR1 1'`.
   Before the loop starts, the request waits for it.
   The pod logs `checkpoint upload requested (SIGUSR1)`, and then `checkpoint uploaded to S3` with `trigger` `requested` and the `checkpoint_id`.
-  A failed upload logs a warning with `trigger` `requested` instead, and is not retried, so send the signal again.
+  A requested checkpoint that fails at any step logs a warning with `trigger` `requested` instead, and is not retried, so send the signal again.
   A request that arrives during a checkpoint waits for it, and requests that arrive meanwhile count as one.
 - **Compaction of unowned partitions.**
   Boot deletes the slices of the partitions the pod does not own, and drops the SST files that lie wholly inside them.
