@@ -386,11 +386,11 @@ def get_survey_responses_count(
         scan_conditions = "\n                AND properties.$survey_id IN {survey_ids}"
         placeholders["survey_ids"] = ast.Constant(value=survey_ids)
 
-    submission_conditions = ""
+    archived_filter = ""
     if exclude_archived:
         archived_uuids = get_archived_response_uuids(None, team.pk)
         if archived_uuids:
-            submission_conditions = "\n        WHERE response_uuid NOT IN {archived_uuids}"
+            archived_filter = "\n        WHERE response_uuid NOT IN {archived_uuids}"
             placeholders["archived_uuids"] = ast.Constant(value=sorted(archived_uuids))
 
     # HogQL adds a 100-row LIMIT to a top-level SELECT without one, which would silently drop
@@ -403,7 +403,7 @@ def get_survey_responses_count(
             WHERE {RESPONSE_EVENT_FILTER}
                 AND timestamp >= {{since}}{scan_conditions}
             GROUP BY survey_id, {SUBMISSION_GROUPING_KEY}
-        ){submission_conditions}
+        ){archived_filter}
         GROUP BY survey_id
         LIMIT {MAX_SELECT_RETURNED_ROWS}
     """
