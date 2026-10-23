@@ -136,7 +136,7 @@ RETRY_AFTER_LOCK_OUTCOMES = frozenset(
     }
 )
 # Lock values that mean no generation runs. Any other value is a live claim.
-HELD_LOCK_OUTCOMES = frozenset(
+STOPPED_LOCK_OUTCOMES = frozenset(
     {IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED, *RETRY_AFTER_LOCK_OUTCOMES}
 )
 
@@ -368,7 +368,7 @@ def _held_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome 
 
 def _lock_outcome(held: bytes | str | None) -> IssueSummaryOutcome:
     value = held.decode() if isinstance(held, bytes) else held
-    if value in HELD_LOCK_OUTCOMES:
+    if value in STOPPED_LOCK_OUTCOMES:
         return IssueSummaryOutcome(value)
     return IssueSummaryOutcome.IN_PROGRESS
 

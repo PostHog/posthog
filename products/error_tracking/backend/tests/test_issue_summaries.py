@@ -137,10 +137,12 @@ class TestIssueSummaryGeneration(BaseTest):
     def llm_calls(self) -> int:
         return self.completions.call_count
 
+    @property
+    def _lock_key(self) -> str:
+        return issue_summaries._lock_key(self.team.id, self.issue.id)
+
     def _release_lock(self) -> None:
-        issue_summaries.get_client().delete(
-            f"{issue_summaries.ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{self.team.id}:{self.issue.id}"
-        )
+        issue_summaries.get_client().delete(self._lock_key)
 
     @parameterized.expand(
         [
@@ -313,10 +315,6 @@ class TestIssueSummaryGeneration(BaseTest):
         )
         assert stored_issue_ids == {self.issue.id}
 
-    @property
-    def _lock_key(self) -> str:
-        return f"{issue_summaries.ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{self.team.id}:{self.issue.id}"
-
     def _start(self) -> tuple[bool, bool]:
         with patch.object(issue_summaries.generate_error_tracking_issue_summary, "delay") as delay:
             started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id)
@@ -353,7 +351,17 @@ class TestIssueSummaryGeneration(BaseTest):
                     patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=None)
                 ),
             ),
-            *[(name, arrange) for name, arrange, _ in FAILURE_CASES],
+            (
+                "issue_missing",
+                lambda test: test.build_inputs.configure_mock(
+                    side_effect=None, return_value=IssueSummaryOutcome.ISSUE_MISSING
+                ),
+            ),
+            *[
+                (name, arrange)
+                for name, arrange, outcome in FAILURE_CASES
+                if outcome in issue_summaries.RETRY_AFTER_LOCK_OUTCOMES
+            ],
         ]
     )
     def test_failure_stops_start_until_the_lock_expires(self, _name: str, arrange: Any) -> None:
@@ -361,7 +369,7 @@ class TestIssueSummaryGeneration(BaseTest):
         get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert self._start() == (False, False)
-        assert issue_summaries.get_client().ttl(self._lock_key) > 0
+        assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= issue_summaries.ISSUE_SUMMARY_LOCK_TTL_SECONDS
 
         self._release_lock()
         assert self._start() == (True, True)
@@ -383,6 +391,7 @@ class TestIssueSummaryGeneration(BaseTest):
     )
     def test_flag_off_hides_stored_summary(self, _name: str, read: Any) -> None:
         get_or_generate_issue_summary(self.team.id, self.issue.id)
+        assert read(self) is not None
 
         with patch.object(team_flags, "feature_enabled_or_false", return_value=False):
             assert read(self) is None
