@@ -570,6 +570,7 @@ export const FEATURE_FLAGS = {
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
+    WAREHOUSE_SUGGESTIONS: 'warehouse-suggestions', // owner: #team-data-modeling
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_AGENT_ANALYTICS: 'web-analytics-agent-analytics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
@@ -587,6 +588,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_MARKETING_CROSS_SELL_V2: 'web-analytics-marketing-cross-sell-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_PAGE_PERFORMANCE: 'web-analytics-page-performance', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_PRECOMPUTED_AT: 'web-analytics-precomputed-at', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_RECAP: 'web-analytics-recap', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_REGIONS_MAP: 'web-analytics-regions-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_REMOVE_REPLAY_TILE: 'web-analytics-remove-replay-tile', // owner: @lricoy #team-web-analytics multivariate=control,test
