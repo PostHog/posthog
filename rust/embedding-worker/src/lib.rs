@@ -1,12 +1,14 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{borrow::Cow, sync::Arc};
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use common_kafka::kafka_consumer::Offset;
 use common_types::embedding::{
-    EmbeddingModel, EmbeddingRequest, EmbeddingResponse, EmbeddingResult, ModelResult,
+    EmbeddingModel, EmbeddingRecord, EmbeddingRequest, EmbeddingResponse, EmbeddingResult,
+    ModelResult,
 };
-use metrics::counter;
+use metrics::{counter, histogram};
 use rand::Rng;
 use reqwest::{Client, Method, Request, RequestBuilder};
 use tracing::{error, warn};
@@ -16,9 +18,11 @@ use crate::{
     metrics_utils::{
         RequestLabels, DROPPED_REQUESTS, EMBEDDINGS_GENERATED, EMBEDDING_FAILED,
         EMBEDDING_REQUEST_TIME, EMBEDDING_TOTAL_TIME, EMBEDDING_TOTAL_TOKENS, MESSAGES_RECEIVED,
-        MESSAGE_TRUNCATED, REQUESTS_SENT, RESPONSES_RECEIVED,
+        MESSAGE_TRUNCATED, RECENTLY_SEEN_DOCUMENTS, RECENTLY_SEEN_OPERATIONS,
+        RECENTLY_SEEN_OPERATION_TIME, REQUESTS_SENT, RESPONSES_RECEIVED,
     },
     organization::apply_ai_opt_in,
+    recently_seen::{dedup_seen, DocumentKey, SeenRecord},
 };
 
 static CL100K_ENCODER: std::sync::LazyLock<tiktoken_rs::CoreBPE> = std::sync::LazyLock::new(|| {
@@ -35,6 +39,7 @@ pub mod config;
 pub mod metrics_utils;
 pub mod organization;
 pub mod recently_seen;
+pub mod stored;
 
 pub async fn handle_batch(
     requests: Vec<EmbeddingRequest>,
@@ -76,6 +81,34 @@ pub async fn handle_batch(
         .collect();
 
     results
+}
+
+/// Call only after the records' Kafka write is committed, so a hit never advertises missing output.
+pub async fn record_recently_seen(
+    context: &AppContext,
+    records: &[EmbeddingRecord],
+    emitted_at: DateTime<Utc>,
+) {
+    let seen = dedup_seen(records.iter().map(|record| SeenRecord {
+        team_id: record.team_id,
+        key: DocumentKey {
+            product: record.product.clone(),
+            document_type: record.document_type.clone(),
+            rendering: record.rendering.clone(),
+            document_id: record.document_id.clone(),
+        },
+        emitted_at,
+    }));
+    if seen.is_empty() {
+        return;
+    }
+    let started_at = Instant::now();
+    context.recently_seen.record(&seen).await;
+    histogram!(RECENTLY_SEEN_OPERATION_TIME, "operation" => "write")
+        .record(started_at.elapsed().as_secs_f64());
+    counter!(RECENTLY_SEEN_OPERATIONS, "operation" => "write").increment(1);
+    counter!(RECENTLY_SEEN_DOCUMENTS, "operation" => "write", "result" => "attempted")
+        .increment(seen.len() as u64);
 }
 
 pub async fn handle_single(

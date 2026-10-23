@@ -2,7 +2,8 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use common_kafka::{
-    kafka_consumer::SingleTopicConsumer, kafka_producer::KafkaContext,
+    kafka_consumer::SingleTopicConsumer,
+    kafka_producer::{create_kafka_producer, KafkaContext},
     transaction::TransactionalProducer,
 };
 use common_types::embedding::{ApiLimits, EmbeddingModel};
@@ -10,6 +11,7 @@ use health::{HealthHandle, HealthRegistry};
 use leaky_bucket::RateLimiter;
 use metrics::{counter, gauge};
 use moka::sync::{Cache, CacheBuilder};
+use rdkafka::producer::FutureProducer;
 use reqwest::Response;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tokio::sync::{Mutex, RwLock};
@@ -28,6 +30,9 @@ pub struct AppContext {
     pub worker_liveness: HealthHandle,
     pub kafka_consumer: SingleTopicConsumer,
     pub transactional_producer: Mutex<TransactionalProducer<KafkaContext>>,
+    // The consumer loop holds the transactional producer for a whole batch, so the stored
+    // endpoint produces through its own client instead of waiting behind it.
+    pub producer: FutureProducer<KafkaContext>,
     pub pool: PgPool,
     pub config: Config,
     pub client: reqwest::Client,
@@ -63,6 +68,11 @@ impl AppContext {
             KafkaContext::from(kafka_transactional_liveness),
         )?;
 
+        let kafka_producer_liveness = health_registry
+            .register("kafka_producer".to_string(), Duration::from_secs(30))
+            .await;
+        let producer = create_kafka_producer(&config.kafka, kafka_producer_liveness).await?;
+
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
@@ -83,6 +93,7 @@ impl AppContext {
             worker_liveness,
             kafka_consumer,
             transactional_producer: Mutex::new(transactional_producer),
+            producer,
             pool,
             config,
             client,

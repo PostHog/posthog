@@ -16,6 +16,7 @@ common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
+rdkafka = { workspace = true }
 common-types = { path = "../common/types" }
 common-posthog = { path = "../common/posthog" }
 anyhow = { workspace = true } # We use anyhow for now because we're in hack it ship it mode, real error types later
@@ -27,6 +28,7 @@ tiktoken-rs.workspace = true
 leaky-bucket = "1.1.2" # Arguably we should just implement this, but :shrug:
 moka.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 rand.workspace = true
 chrono.workspace = true
 aws-config.workspace = true

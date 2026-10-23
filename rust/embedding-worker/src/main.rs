@@ -19,7 +19,9 @@ use embedding_worker::{
         DROPPED_REQUESTS, RECENTLY_SEEN_DOCUMENTS, RECENTLY_SEEN_OPERATIONS,
         RECENTLY_SEEN_OPERATION_TIME,
     },
-    recently_seen::{dedup_seen, DocumentKey, SeenRecord},
+    recently_seen::DocumentKey,
+    record_recently_seen,
+    stored::{handle_stored_request, StoredEmbeddingResponse},
 };
 
 use metrics::{counter, histogram};
@@ -51,6 +53,13 @@ async fn ad_hoc_handler(
     Json(request): Json<AdHocEmbeddingRequest>,
 ) -> Result<Json<AdHocEmbeddingResponse>, StatusCode> {
     handle_ad_hoc_request(context, request).await
+}
+
+async fn stored_handler(
+    State(context): State<Arc<AppContext>>,
+    Json(request): Json<EmbeddingRequest>,
+) -> Result<Json<StoredEmbeddingResponse>, StatusCode> {
+    handle_stored_request(context, request).await
 }
 
 #[derive(Deserialize)]
@@ -109,6 +118,7 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
             get(move || ready(liveness_context.health_registry.get_status())),
         )
         .route("/generate/ad_hoc", axum::routing::post(ad_hoc_handler))
+        .route("/generate/stored", axum::routing::post(stored_handler))
         .route("/recently_seen", axum::routing::post(recently_seen_handler))
         .with_state(context);
     let router = setup_metrics_routes(router);
@@ -257,27 +267,6 @@ async fn main() {
         }
 
         // Store only after commit so a hit never advertises uncommitted output.
-        let seen = dedup_seen(records.iter().map(|record| {
-            let key = DocumentKey {
-                product: record.product.clone(),
-                document_type: record.document_type.clone(),
-                rendering: record.rendering.clone(),
-                document_id: record.document_id.clone(),
-            };
-            SeenRecord {
-                team_id: record.team_id,
-                key,
-                emitted_at,
-            }
-        }));
-        if !seen.is_empty() {
-            let started_at = Instant::now();
-            context.recently_seen.record(&seen).await;
-            histogram!(RECENTLY_SEEN_OPERATION_TIME, "operation" => "write")
-                .record(started_at.elapsed().as_secs_f64());
-            counter!(RECENTLY_SEEN_OPERATIONS, "operation" => "write").increment(1);
-            counter!(RECENTLY_SEEN_DOCUMENTS, "operation" => "write", "result" => "attempted")
-                .increment(seen.len() as u64);
-        }
+        record_recently_seen(&context, &records, emitted_at).await;
     }
 }
