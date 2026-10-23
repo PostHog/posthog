@@ -1,8 +1,9 @@
 from django import forms
 from django.contrib import admin, messages
+from django.db import transaction
 from django.utils.html import format_html
 
-from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport
+from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport, CommitInFlightError
 
 
 class BatchImportAdminForm(forms.ModelForm):
@@ -13,6 +14,7 @@ class BatchImportAdminForm(forms.ModelForm):
     )
     send_rate = forms.IntegerField(
         required=False,
+        min_value=1,
         help_text=f"Events per second to send (e.g., {DEFAULT_SEND_RATE}). Leave empty to keep current value.",
         widget=forms.NumberInput(attrs={"placeholder": f"e.g., {DEFAULT_SEND_RATE}"}),
     )
@@ -47,7 +49,16 @@ class BatchImportAdminForm(forms.ModelForm):
         # A page rendered without hidden initial values would make every field read as changed.
         if self.instance.pk and any(self.add_initial_prefix(name) not in self.data for name in self.fields):
             raise forms.ValidationError("This page is out of date. Reload it and make your change again.")
+        if self.resumes() and self.instance.commit_in_flight():
+            raise forms.ValidationError(str(CommitInFlightError()))
         return cleaned_data
+
+    def resumes(self) -> bool:
+        return (
+            bool(self.instance.pk)
+            and "status" in self.changed_data
+            and self.cleaned_data.get("status") == BatchImport.Status.RUNNING
+        )
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -174,10 +185,18 @@ class BatchImportAdmin(admin.ModelAdmin):
         update_fields = [name for name in form.changed_data if name in EDITABLE_MODEL_FIELDS]
         if any(name in form.changed_data for name in SINK_FORM_FIELDS):
             update_fields.append("import_config")
-        if "status" in form.changed_data and obj.status == BatchImport.Status.RUNNING:
-            message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
+        if not form.resumes():
+            if update_fields:
+                obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
+            return
+
+        message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
+        with transaction.atomic():
+            # The form checked this already; the lock closes the gap until the save.
+            if BatchImport.objects.select_for_update().get(pk=obj.pk).commit_in_flight():
+                self.message_user(request, str(CommitInFlightError()), level=messages.ERROR)
+                return
             update_fields.extend(obj.reset_for_resume(message))
-        if update_fields:
             obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
 
     @admin.display(description="Progress")
