@@ -4,14 +4,12 @@ Trials run scout versions in parallel, then judge them against the same saved ru
 
 ## Preparing a portable scout environment
 
-Use the internal [creating-scout-eval-environments skill](../../.agents/skills/creating-scout-eval-environments/SKILL.md)
-with a saved scout, or a draft skill and target project. Run it from the user's
-local machine to create a devbox, validate one real trial and leave the environment
-running for future evaluations. A minimal real-data slice is the default data
-route; trace reconstruction is an explicit alternative. No prior scout run is
-required for the real-data route. The source exporter preserves supported context,
-checks complete pagination and rejects unsupported dependencies instead of filling
-them with synthetic data.
+Load the shared [creating-scout-eval-environments skill](https://us.posthog.com/project/2/skills/creating-scout-eval-environments)
+through PostHog MCP (`posthog:skill-get`). The MCP skill is the source of truth for
+data sufficiency, capture limits, validation depth and handoff; do not maintain a
+local skill copy. It accepts a saved scout, or a draft skill and target project.
+The source exporter preserves supported context, checks complete pagination and
+rejects unsupported dependencies instead of filling them with synthetic data.
 
 The existing Parquet `pack` command accepts `--scout-case <private case.json>`.
 This produces a version-2 archive containing events, optional governed metrics,
@@ -19,7 +17,7 @@ and a checksum-bound scout definition and starting state. The existing
 `hogli devbox:prepare-eval-env` flow validates the attachment before startup,
 restores and verifies it, then freezes the baseline. Event-only version-1 bundles
 continue to work. See the [bundle README](../../products/posthog_ai/eval_harness/environment/README.md)
-for command usage and the skill's real-data reference for current API limits,
+for command usage and the MCP skill's bundled real-data reference for current API limits,
 including the required existing project-profile snapshot.
 
 A source plan can include `companion_skill_names` for skills the scout reads.
@@ -49,26 +47,15 @@ still binds the case and harness version; the native `runtime-prompt.json` is a
 verification descriptor, not a prompt override. Recorded replay remains explicit
 and follows the instructions below.
 
-Create a fresh devbox and reuse existing provisioning and spend authorization.
 The preparation helper preserves an existing box's startup setting; it defers
-automatic app startup only when creating a box.
-Ask for a paid-trial budget only if the session has no usable remaining budget.
-Check representative task queries, isolation and the full trace from one real
-trial. Fix environment failures; do not rewrite the scout's task or skill to
-improve its score. Repairs that preserve the frozen baseline can use the same box.
-Changes to the bundle or shared starting state require a fresh disposable box;
-save diagnostics and remove only the box created for that failed attempt.
-
-Keep a working devbox running. Return its project and trial URLs, tested login
-route and instructions, reusable bundle, restore receipt and validation results.
-Stop at bundle preparation only on an explicit request or a concrete host,
-credential or required-data blocker. Report the remaining work; static checks
-alone do not complete this workflow.
+automatic app startup only when creating a box. Follow the MCP skill for the
+requested completion checks. Environment preparation and a paid scout trial are
+separate outcomes; report the checks actually performed.
 
 ## Reconstructing an isolated project from traces
 
-For checkout-based reconstruction, use the internal `creating-scout-eval-environments`
-skill. Keep private traces, reconstructed Parquet files, starting scout state,
+For checkout-based reconstruction, load `creating-scout-eval-environments`
+through PostHog MCP. Keep private traces, reconstructed Parquet files, starting scout state,
 assumptions and trial exports outside Git or in an ignored directory. The scout
 sandbox must not mount that directory.
 
@@ -85,9 +72,9 @@ Match product feature gates needed by the captured tools too. The existing
 `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` setting accepts an explicit comma-separated
 list for the disposable local stack; record those choices with the private case
 and restart services after changing them.
-Verify required services with direct health or client checks as well as tool
-probes. Cached or fallback responses can succeed while a dependency is unavailable.
-Use the normal local development configuration for Personhog.
+Start with task-relevant tool probes. When a required probe fails or masks a
+required live dependency behind a cache/fallback, check that dependency directly
+using its supported local configuration.
 `build-events --recipe <private JSON> --output <new private Parquet>` builds event
 rows from the `EventRecipe` schema in `eval_environment/recipes.py`; it refuses
 to overwrite an existing file. Record reconstruction assumptions separately.
@@ -141,8 +128,9 @@ use source-backed values or explicit private assumptions for missing fields.
 Keep public examples and defaults on reserved domains, and never fill missing
 identity fields from production.
 
-Start with one standalone trial and inspect its complete exported log before
-launching comparisons. The `run` command plans without paid calls; `--launch`
+For requested and authorized execution, start with one standalone trial and
+inspect its complete exported log before launching comparisons. Environment-only
+preparation stops at the MCP skill's smoke-test handoff. The `run` command plans without paid calls; `--launch`
 dispatches the saved IDs. A multi-run plan uses existing Scout comparisons and
 their saved rubric judges. Comparison exports include each run's full trace and
 private results alongside the saved judge report. Check the export's per-run
@@ -157,10 +145,9 @@ still needs independent task-relevant queries; equal aggregate counts and bounds
 cannot detect every event edit.
 Review tool responses and available reasoning summaries for both evaluation
 awareness and suspected fabricated data. Report the exact evidence separately;
-an absence of remarks does not establish what the scout believed. Fix concrete
-environment faults and inspect another single run. Recreate the disposable box
-only when the bundle or shared baseline changed. Keep scout quality changes and
-comparison batches separate from environment validation.
+an absence of remarks does not establish what the scout believed. For a failed
+requested run, follow the MCP skill's repair boundaries and preserve diagnostics.
+Keep scout quality changes and comparison batches separate from preparation.
 Configured local evaluations also snapshot the starting project profile. A
 `force_refresh` call runs the real profile builder, rolls back its shared cache
 and pruning writes and background callbacks, then saves the result only in that
@@ -207,7 +194,8 @@ and the backend. Otherwise source edits or formatter cache writes can restart th
 backend during MCP requests, producing misleading tool failures. Restart through
 the normal stack workflow after changing these settings.
 
-For a data-only reset on a disposable devbox, export results, then use the
+When the requested execution needs a fresh baseline, export results before a
+data-only reset on the disposable devbox. Use the
 existing `hogli down --timeout 20`, `hogli docker:services:remove -y`, and
 `hogli up -d -y` flow before preparing into a fresh private workspace. Run those
 commands through `.codex/with-flox`. This removes local service data; do not seed
