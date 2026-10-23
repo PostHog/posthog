@@ -2273,6 +2273,11 @@ describe('CDP API', () => {
                     { send: { ...codeSend, tags: [{ name: 'plan', value: 'free' }] } },
                     { send: { ...codeSend, tags: [{ name: 'plan', value: 'pro' }] } },
                 ],
+                [
+                    'another attachment',
+                    { send: { ...codeSend, attachments: [{ filename: 'invoice.pdf', content: 'Zmlyc3Q=' }] } },
+                    { send: { ...codeSend, attachments: [{ filename: 'invoice.pdf', content: 'c2Vjb25k' }] } },
+                ],
             ])('rejects the key for %s', async (_desc, first, retry) => {
                 await sendKeyed({ ...keyed, ...first })
 
