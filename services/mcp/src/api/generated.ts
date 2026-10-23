@@ -12293,11 +12293,7 @@ export namespace Schemas {
     export interface LLMDetectorConfig {
       /** What counts as unusual or interesting for this metric, in your own words. Optional. */
       instructions?: string | null;
-      /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
-      threshold?: number | null;
       type: LLMDetectorConfigType;
-      /** How many recent points the model is shown (default: 90) */
-      window?: number | null;
     }
 
     /**
@@ -12502,6 +12498,11 @@ export namespace Schemas {
       date_from?: string | null;
       /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
       config?: AlertConfigUnion | null;
+      /**
+         * ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert.
+         * @nullable
+         */
+      alert?: string | null;
     }
 
     export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
@@ -12542,7 +12543,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -12559,6 +12560,13 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+      /** AI detector only: the model's reason for its verdict on the latest point. */
+      rationale?: string;
+      /**
+         * AI detector only: the shape the model saw at the latest point, or 'none'.
+         * @nullable
+         */
+      kind?: string | null;
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
     }
@@ -26955,6 +26963,50 @@ export namespace Schemas {
     }
 
     /**
+     * * `GET` - GET
+     * * `HEAD` - HEAD
+     */
+    export type UptimeMonitorMethodEnum = typeof UptimeMonitorMethodEnum[keyof typeof UptimeMonitorMethodEnum];
+
+
+    export const UptimeMonitorMethodEnum = {
+      Get: 'GET',
+      Head: 'HEAD',
+    } as const;
+
+    export interface CreateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Display name for the monitor.
+         * @maxLength 255
+         */
+      name: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         */
+      interval_seconds?: number;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 10.
+         * @minimum 1
+         * @maximum 10
+         */
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
+    }
+
+    /**
      * Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB).
      */
     export type CreateVersionFromSourceInputFiles = {[key: string]: string};
@@ -27039,6 +27091,13 @@ export namespace Schemas {
          * @nullable
          */
       api_version?: string | null;
+    }
+
+    export interface CronitorIncidentSignalExtra {
+      severity: string | null;
+      state: string | null;
+      created: string | null;
+      started: string | null;
     }
 
     export interface CrossProjectDashboardTile {
@@ -35806,6 +35865,12 @@ export namespace Schemas {
       value: string | number;
     }
 
+    export interface DecagonConversationSignalExtra {
+      csat_rating: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
     /**
      * * `noul` - Yes or no
      * * `choice` - Multiple choice
@@ -38942,6 +39007,16 @@ export namespace Schemas {
       casetypecode: string | null;
       statuscode: string | null;
       createdon: string | null;
+    }
+
+    export interface DynatraceIncidentSignalExtra {
+      display_id: string | null;
+      status: string | null;
+      severity_level: string | null;
+      impact_level: string | null;
+      start_time: string | null;
+      root_cause_entity: string | null;
+      affected_entities: string[];
     }
 
     /**
@@ -45182,6 +45257,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -45204,6 +45280,7 @@ export namespace Schemas {
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
+      EarlySignificance: 'early_significance',
     } as const;
 
     /**
@@ -45268,7 +45345,8 @@ export namespace Schemas {
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-       * * `new_flag_no_traffic` - New Flag No Traffic */
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `early_significance` - Early Significance */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45308,6 +45386,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -45328,6 +45407,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -45364,6 +45444,7 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -56153,6 +56234,14 @@ export namespace Schemas {
       has_more?: boolean;
     }
 
+    export interface HelpscoutConversationSignalExtra {
+      number: string | null;
+      status: string | null;
+      state: string | null;
+      type: string | null;
+      created_at: string | null;
+    }
+
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
 
 
@@ -62679,6 +62768,12 @@ export namespace Schemas {
       agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
+    }
+
+    export interface InstatusIncidentSignalExtra {
+      status: string | null;
+      started: string | null;
+      components: string[];
     }
 
     /**
@@ -77250,6 +77345,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetricList[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
@@ -79645,6 +79742,41 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: UploadedMedia[];
+    }
+
+    export interface UptimeMonitor {
+      /** Unique identifier of the monitor. */
+      id: string;
+      /** Project the monitor belongs to. */
+      team_id: number;
+      /** Display name for the monitor. */
+      name: string;
+      /** The http or https URL to check. */
+      url: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method: UptimeMonitorMethodEnum;
+      /** Seconds between checks, a whole number of minutes from 60 to 86400. */
+      interval_seconds: number;
+      /** Seconds to wait for a response before the check fails, from 1 to 10. */
+      timeout_seconds: number;
+      /** Whether checks run for this monitor. */
+      enabled: boolean;
+      /** When the monitor was created. */
+      created_at: string;
+      /** When the monitor was last changed. */
+      updated_at: string;
+    }
+
+    export interface PaginatedUptimeMonitorList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UptimeMonitor[];
     }
 
     export interface UserGitHubAccount {
@@ -90416,6 +90548,38 @@ export namespace Schemas {
       library_ids?: string[];
     }
 
+    export interface PatchedUpdateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Display name for the monitor.
+         * @maxLength 255
+         */
+      name?: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         */
+      interval_seconds?: number;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 10.
+         * @minimum 1
+         * @maximum 10
+         */
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
+    }
+
     /**
      * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
      */
@@ -99218,6 +99382,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetric[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. Empty when the report has no tags. */
+      readonly tags: readonly string[];
       /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
       readonly source_suggestion: ReportSourceSuggestion | null;
       /**
@@ -99765,6 +99931,11 @@ export namespace Schemas {
       created_time: string | null;
     }
 
+    export interface VitallyConversationSignalExtra {
+      external_url: string | null;
+      created_at: string | null;
+    }
+
     export interface SquadcastIncidentSignalExtra {
       status: string | null;
       priority: string | null;
@@ -99808,6 +99979,13 @@ export namespace Schemas {
       first_found: string | null;
     }
 
+    export interface StatuspageIncidentSignalExtra {
+      status: string | null;
+      impact: string | null;
+      shortlink: string | null;
+      created_at: string | null;
+    }
+
     export interface TriggerDevErrorSignalExtra {
       task_identifier: string | null;
       status: string | null;
@@ -99844,7 +100022,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -124254,6 +124432,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -124367,6 +124546,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -124466,6 +124646,7 @@ export namespace Schemas {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -124567,6 +124748,7 @@ export namespace Schemas {
       EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
+      LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -136272,7 +136454,23 @@ export namespace Schemas {
      * @minimum 1
      */
     tail_bytes?: number;
+    /**
+     * 'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.
+     *
+     * * `full` - full
+     * * `thread` - thread
+     * @minLength 1
+     */
+    view?: TasksRunsLogsRetrieveView;
     };
+
+    export type TasksRunsLogsRetrieveView = typeof TasksRunsLogsRetrieveView[keyof typeof TasksRunsLogsRetrieveView];
+
+
+    export const TasksRunsLogsRetrieveView = {
+      Full: 'full',
+      Thread: 'thread',
+    } as const;
 
     export type TasksRunsSessionLogsRetrieveParams = {
     /**
@@ -136646,6 +136844,17 @@ export namespace Schemas {
       image: Blob;
       /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
       purpose?: UploadedMediaCreateBodyPurpose;
+    };
+
+    export type UptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisionAlertsListParams = {
