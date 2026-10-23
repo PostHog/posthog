@@ -441,6 +441,16 @@ class TestBuildViewEnrichmentPrompt:
         assert str(columns[-1]["name"]) not in prompt
 
 
+class TestGatherLineage:
+    def test_an_unknown_parent_table_degrades_without_reporting(self):
+        team = _team()
+        sq = _saved_query(team, columns=_columns("id"), query="SELECT id FROM postgres.missing_table")
+        with patch.object(enrich, "capture_exception") as mock_capture:
+            lineage = enrich._gather_lineage(team, sq, sq.query["query"])
+        assert lineage == []
+        mock_capture.assert_not_called()
+
+
 class TestComputeEnrichmentHash:
     def test_sample_bit_flips_when_a_table_is_linked(self, django_assert_num_queries):
         # The first successful materialization links the table; that must register as a change so the

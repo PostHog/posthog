@@ -24,6 +24,8 @@ from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.hogql.errors import QueryError, ResolutionError
+
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import GatewayNotConfiguredError, Product
@@ -122,6 +124,9 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     """
     try:
         parent_names = get_parents_from_model_query(team, saved_query.name, query_str)
+    except (QueryError, ResolutionError):
+        # A view can name a table the team has since dropped. That is expected user state, not a bug.
+        return []
     except Exception as e:
         capture_exception(e)
         return []
