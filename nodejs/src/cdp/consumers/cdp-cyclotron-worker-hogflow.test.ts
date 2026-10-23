@@ -772,7 +772,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 [hogFlow.id],
                 'disableHogFlow'
             )
-            ;(processor['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
+            processor['hogFlowManager']['onHogFlowsReloaded'](hogFlow.team_id, [hogFlow.id])
             mockProducerObserver.resetKafkaProducer()
             const invocation = createSerializedHogFlowInvocation(hogFlow, {
                 event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_person_1', properties: {} } as any,
