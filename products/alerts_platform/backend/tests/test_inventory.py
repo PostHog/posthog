@@ -11,7 +11,7 @@ from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
-from products.alerts_platform.backend.logic.inventory import count_source_inventory
+from products.alerts_platform.backend.logic.inventory import count_inventory
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 NOW = datetime(2026, 10, 23, 12, tzinfo=UTC)
@@ -47,7 +47,7 @@ class TestSourceInventory(BaseTest):
                 snooze_until=alert_snooze,
             )
 
-    def test_counts_one_source_across_teams_split_by_state_and_mute(self) -> None:
+    def test_counts_each_source_across_teams_split_by_state_and_mute(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
         self._configuration(
             self.team,
@@ -58,17 +58,21 @@ class TestSourceInventory(BaseTest):
         self._configuration(other_team, enabled=False, alerts=[("firing", None)])
         self._configuration(self.team, source=SourceKind.INSIGHT, alerts=[("firing", None)])
 
-        inventory = count_source_inventory(SourceKind.LOGS, NOW)
+        by_source = {inventory.source: inventory for inventory in count_inventory(NOW)}
 
-        assert inventory.source == SourceKind.LOGS
-        assert {(c.enabled, c.count) for c in inventory.configurations} == {(True, 3), (False, 1)}
-        assert {(a.state.value, a.muted): a.count for a in inventory.alerts if a.count} == {
+        assert set(by_source) == set(SourceKind)
+        logs = by_source[SourceKind.LOGS]
+        assert {(c.enabled, c.count) for c in logs.configurations} == {(True, 3), (False, 1)}
+        assert {(a.state.value, a.muted): a.count for a in logs.alerts if a.count} == {
             ("firing", False): 1,
             ("firing", True): 2,
             ("not_firing", False): 1,
             ("broken", False): 1,
         }
-        assert len(inventory.alerts) == len(PlatformAlertState) * 2
+        assert len(logs.alerts) == len(PlatformAlertState) * 2
+        insight = by_source[SourceKind.INSIGHT]
+        assert {(c.enabled, c.count) for c in insight.configurations} == {(True, 1), (False, 0)}
+        assert {(a.state.value, a.muted): a.count for a in insight.alerts if a.count} == {("firing", False): 1}
 
     def test_a_slow_count_is_canceled_by_the_statement_timeout(self) -> None:
         def slow_count(
@@ -87,6 +91,6 @@ class TestSourceInventory(BaseTest):
             connection.execute_wrapper(slow_count),
             pytest.raises(OperationalError) as caught,
         ):
-            count_source_inventory(SourceKind.LOGS, NOW)
+            count_inventory(NOW)
 
         assert getattr(caught.value.__cause__, "sqlstate", None) == "57014"

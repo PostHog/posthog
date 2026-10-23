@@ -1,7 +1,7 @@
 """How many platform alerts exist and what state they are in, across every team.
 
-Counted once a tick for the worker health dashboard, one source at a time. Every label combination
-is returned, zeros included, because a gauge keeps its last value until it is set again.
+Counted once a tick during demand discovery, for the worker health dashboard. Every source and label
+combination is returned, zeros included, because a gauge keeps its last value until it is set again.
 """
 
 import datetime as dt
@@ -15,9 +15,10 @@ from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
-# Per statement. The counts scan every row of a source, unlike discovery, which reads only the due
-# index, so a slow scan fails fast and holds no Postgres connection the tick needs.
-INVENTORY_STATEMENT_TIMEOUT_MS = 1000
+# Per statement. The counts scan every configuration, unlike discovery, which reads only the due index.
+# They run inside the discovery activity, so two statements at this cap must fit well inside its
+# start-to-close timeout.
+INVENTORY_STATEMENT_TIMEOUT_MS = 500
 
 
 @frozen
@@ -40,35 +41,35 @@ class SourceInventory:
     alerts: tuple[AlertCount, ...]
 
 
-def count_source_inventory(source: SourceKind, now: dt.datetime) -> SourceInventory:
+def count_inventory(now: dt.datetime) -> tuple[SourceInventory, ...]:
     # Cross-team by definition, like demand discovery. Both queries are evaluated inside the block,
     # because the timeout is transaction-local.
     with execute_with_timeout(INVENTORY_STATEMENT_TIMEOUT_MS):
         configuration_counts = {
-            row["enabled"]: row["n"]
+            (row["source_kind"], row["enabled"]): row["n"]
             for row in PlatformAlertConfiguration.objects.unscoped()
-            .filter(source_kind=source.value)
-            .values("enabled")
+            .values("source_kind", "enabled")
             .annotate(n=Count("id"))
         }
         muted = Q(snooze_until__gt=now) | Q(configuration__snooze_until__gt=now)
         alert_counts = {
-            row["state"]: (row["total"], row["muted"])
+            (row["configuration__source_kind"], row["state"]): (row["total"], row["muted"])
             for row in PlatformAlert.objects.unscoped()
-            .filter(configuration__source_kind=source.value, configuration__enabled=True)
-            .values("state")
+            .filter(configuration__enabled=True)
+            .values("configuration__source_kind", "state")
             .annotate(total=Count("id"), muted=Count("id", filter=muted))
         }
 
-    alerts: list[AlertCount] = []
-    for state in PlatformAlertState:
-        total, muted_count = alert_counts.get(state.value, (0, 0))
-        alerts.append(AlertCount(state=state, muted=True, count=muted_count))
-        alerts.append(AlertCount(state=state, muted=False, count=total - muted_count))
-    return SourceInventory(
-        source=source,
-        configurations=tuple(
-            ConfigurationCount(enabled=enabled, count=configuration_counts.get(enabled, 0)) for enabled in (True, False)
-        ),
-        alerts=tuple(alerts),
-    )
+    inventories: list[SourceInventory] = []
+    for source in SourceKind:
+        alerts: list[AlertCount] = []
+        for state in PlatformAlertState:
+            total, muted_count = alert_counts.get((source.value, state.value), (0, 0))
+            alerts.append(AlertCount(state=state, muted=True, count=muted_count))
+            alerts.append(AlertCount(state=state, muted=False, count=total - muted_count))
+        configurations = tuple(
+            ConfigurationCount(enabled=enabled, count=configuration_counts.get((source.value, enabled), 0))
+            for enabled in (True, False)
+        )
+        inventories.append(SourceInventory(source=source, configurations=configurations, alerts=tuple(alerts)))
+    return tuple(inventories)
