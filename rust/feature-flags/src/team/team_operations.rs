@@ -409,11 +409,11 @@ mod tests {
         for team_from_pg in [by_token, by_id] {
             assert_eq!(
                 team_from_pg
-                    .request_block_reason(Some("app.example.com"), "192.0.2.1".parse().unwrap()),
+                    .request_block_reason(Some("app.example.com"), ["192.0.2.1".parse().unwrap()]),
                 Some(BlockReason::Host)
             );
             assert_eq!(
-                team_from_pg.request_block_reason(None, "203.0.113.9".parse().unwrap()),
+                team_from_pg.request_block_reason(None, ["203.0.113.9".parse().unwrap()]),
                 Some(BlockReason::Ip)
             );
         }

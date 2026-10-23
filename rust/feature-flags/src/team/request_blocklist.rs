@@ -110,6 +110,12 @@ impl BlockedIps {
     pub fn matches(&self, ip: IpAddr) -> bool {
         self.ranges.iter().any(|range| range.contains(ip))
     }
+
+    /// Consumes `ips` only when the list has a range, so a team without IP entries does
+    /// not pay for parsing the caller's addresses.
+    pub fn matches_any(&self, ips: impl IntoIterator<Item = IpAddr>) -> bool {
+        !self.ranges.is_empty() && ips.into_iter().any(|ip| self.matches(ip))
+    }
 }
 
 fn parse_ip_entry(entry: &str) -> Option<ParsedCidr> {
@@ -120,16 +126,18 @@ fn parse_ip_entry(entry: &str) -> Option<ParsedCidr> {
 }
 
 /// Host first: when both match, `host` is the more specific answer for support.
+/// `client_ips` are all the addresses the request carries. The caller can add addresses
+/// but cannot remove the one our edge appended, so a match on any of them blocks.
 pub fn check(
     hosts: &BlockedHosts,
     ips: &BlockedIps,
     origin_host: Option<&str>,
-    ip: IpAddr,
+    client_ips: impl IntoIterator<Item = IpAddr>,
 ) -> Option<BlockReason> {
     if origin_host.is_some_and(|host| hosts.matches(host)) {
         return Some(BlockReason::Host);
     }
-    if ips.matches(ip) {
+    if ips.matches_any(client_ips) {
         return Some(BlockReason::Ip);
     }
     None
@@ -211,21 +219,22 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Some("app.example.com"), "203.0.113.7", Some(BlockReason::Host))]
-    #[case(Some("example.org"), "203.0.113.7", Some(BlockReason::Ip))]
-    #[case(None, "203.0.113.7", Some(BlockReason::Ip))]
-    #[case(Some("example.org"), "198.51.100.1", None)]
-    #[case(None, "198.51.100.1", None)]
+    #[case(Some("app.example.com"), &["203.0.113.7"], Some(BlockReason::Host))]
+    #[case(Some("example.org"), &["203.0.113.7"], Some(BlockReason::Ip))]
+    #[case(None, &["203.0.113.7"], Some(BlockReason::Ip))]
+    #[case(None, &["192.0.2.1", "203.0.113.7"], Some(BlockReason::Ip))]
+    #[case(Some("example.org"), &["198.51.100.1"], None)]
+    #[case(None, &["198.51.100.1", "192.0.2.1"], None)]
     fn check_reports_host_before_ip(
         #[case] host: Option<&str>,
-        #[case] client_ip: &str,
+        #[case] client_ips: &[&str],
         #[case] expected: Option<BlockReason>,
     ) {
         let reason = check(
             &hosts(&["example.com"]),
             &ips(&["203.0.113.7"]),
             host,
-            client_ip.parse().unwrap(),
+            client_ips.iter().map(|ip| ip.parse().unwrap()),
         );
 
         assert_eq!(reason, expected);

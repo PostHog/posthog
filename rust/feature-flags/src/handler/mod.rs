@@ -27,6 +27,7 @@ use crate::{
         FLAG_REQUEST_FAULTS_COUNTER,
     },
     team::team_models::Team,
+    utils::forwarded_for,
 };
 use std::collections::HashMap;
 use tracing::{debug, instrument};
@@ -206,10 +207,15 @@ async fn process_request_inner(
         // Internal requests skip the check. Django calls from a private pod IP without an
         // `Origin`, so a team that blocks a private range would see every flag off in its own
         // PostHog app.
+        // `context.ip` is the leftmost `X-Forwarded-For` entry, which the caller controls, so
+        // the check also reads the entries that our edge appended on the right.
         let block_reason = if is_internal {
             None
         } else {
-            team.request_block_reason(context.origin_host.as_deref(), context.ip)
+            team.request_block_reason(
+                context.origin_host.as_deref(),
+                forwarded_for::addresses(&context.headers).chain(std::iter::once(context.ip)),
+            )
         };
         if let Some(reason) = block_reason {
             with_canonical_log(|log| log.request_blocked_by = Some(reason));

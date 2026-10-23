@@ -91,18 +91,18 @@ pub struct Team {
 }
 
 impl Team {
-    /// The reason this team's request blocklist refuses a caller with this host and client
-    /// IP, or `None` when the caller is allowed.
+    /// The reason this team's request blocklist refuses a caller with this host and these
+    /// client IPs, or `None` when the caller is allowed.
     pub fn request_block_reason(
         &self,
         origin_host: Option<&str>,
-        ip: IpAddr,
+        client_ips: impl IntoIterator<Item = IpAddr>,
     ) -> Option<BlockReason> {
         request_blocklist::check(
             &self.flags_blocked_hosts,
             &self.flags_blocked_ips,
             origin_host,
-            ip,
+            client_ips,
         )
     }
 }
@@ -164,7 +164,7 @@ mod tests {
             PropertyMatchingVersion::LEGACY
         );
         assert_eq!(
-            team.request_block_reason(Some("example.com"), "203.0.113.7".parse().unwrap()),
+            team.request_block_reason(Some("example.com"), ["203.0.113.7".parse().unwrap()]),
             None
         );
     }
@@ -187,11 +187,11 @@ mod tests {
         assert_eq!(reserialized.flags_blocked_ips, team.flags_blocked_ips);
         assert_eq!(
             reserialized
-                .request_block_reason(Some("app.example.com"), "198.51.100.1".parse().unwrap()),
+                .request_block_reason(Some("app.example.com"), ["198.51.100.1".parse().unwrap()]),
             Some(BlockReason::Host)
         );
         assert_eq!(
-            reserialized.request_block_reason(None, "203.0.113.9".parse().unwrap()),
+            reserialized.request_block_reason(None, ["203.0.113.9".parse().unwrap()]),
             Some(BlockReason::Ip)
         );
     }

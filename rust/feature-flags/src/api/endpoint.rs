@@ -18,7 +18,7 @@ use crate::{
     },
     router,
     team::request_blocklist,
-    utils::{bot_detection, user_agent::UserAgentInfo},
+    utils::{bot_detection, forwarded_for, user_agent::UserAgentInfo},
 };
 // TODO: stream this instead
 use axum::extract::{Extension, MatchedPath, Query, State};
@@ -46,56 +46,12 @@ fn extract_request_id(headers: &HeaderMap) -> Uuid {
 /// Extracts client IP address from request headers, checking X-Forwarded-For first
 /// then falling back to the direct client IP. Matches Python's get_ip_address function.
 fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
-    // Check X-Forwarded-For header first (case-insensitive)
-    if let Some(forwarded_for) = headers.get("X-Forwarded-For") {
-        if let Ok(forwarded_str) = forwarded_for.to_str() {
-            // Take the first IP from the comma-separated list
-            if let Some(first_ip) = forwarded_str.split(',').next() {
-                let trimmed = first_ip.trim();
-
-                // Strip port from IP address if present (Azure gateway compatibility)
-                let ip_without_port = if trimmed.starts_with('[') {
-                    // IPv6 with port (e.g., "[::1]:8080")
-                    trimmed
-                        .split(']')
-                        .next()
-                        .and_then(|s| s.strip_prefix('['))
-                        .unwrap_or(trimmed)
-                } else if trimmed.contains('.') {
-                    // Likely IPv4 - check for port after the last dot
-                    if let Some(colon_idx) = trimmed.rfind(':') {
-                        if let Some(last_dot_idx) = trimmed.rfind('.') {
-                            if colon_idx > last_dot_idx {
-                                // Port comes after the last dot, so this is IPv4:port
-                                &trimmed[..colon_idx]
-                            } else {
-                                // Colon before last dot? Malformed, return as-is
-                                trimmed
-                            }
-                        } else {
-                            // Has colon but no dot? Shouldn't happen for IPv4
-                            trimmed
-                        }
-                    } else {
-                        // No colon, just return the IP
-                        trimmed
-                    }
-                } else {
-                    // No dots and no brackets - assume IPv6 without port
-                    // IPv6 can have colons as part of the address, so don't strip
-                    trimmed
-                };
-
-                // Try to parse the IP address
-                if let Ok(parsed_ip) = ip_without_port.parse::<IpAddr>() {
-                    return parsed_ip;
-                }
-            }
-        }
-    }
-
-    // Fall back to the direct client IP
-    fallback_ip
+    headers
+        .get("X-Forwarded-For")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .and_then(forwarded_for::parse_entry)
+        .unwrap_or(fallback_ip)
 }
 
 /// Updates the canonical log with rate limit info and returns the error for early return.

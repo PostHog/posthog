@@ -90,6 +90,7 @@ fn assert_minimal_response(body: &Value, flags_key: &str) {
 #[case::ipv4_address("/flags", &[("X-Forwarded-For", "203.0.113.7")])]
 #[case::ipv4_cidr("/flags", &[("X-Forwarded-For", "198.51.100.42")])]
 #[case::ipv6_cidr("/flags", &[("X-Forwarded-For", "2001:db8:abcd:12::1")])]
+#[case::blocked_ip_behind_spoofed_entry("/flags", &[("X-Forwarded-For", "192.0.2.1, 203.0.113.7")])]
 #[case::decide_host("/decide", &[("Origin", "https://example.com")])]
 #[case::decide_ip("/decide", &[("X-Forwarded-For", "203.0.113.7")])]
 #[tokio::test]
