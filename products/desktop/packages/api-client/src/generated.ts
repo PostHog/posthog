@@ -82,8 +82,12 @@ export namespace Schemas {
     /**
      * * `custom_property` - Custom property
      * * `relationship` - Relationship
+     * * `account_field` - Account field
      */
-    export type AccountPropertyPinKindEnum = "custom_property" | "relationship";
+    export type AccountPropertyPinKindEnum =
+        | "custom_property"
+        | "relationship"
+        | "account_field";
     export type BounceRatePageViewMode =
         | "count_pageviews"
         | "uniq_urls"
@@ -9763,6 +9767,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9781,7 +9786,8 @@ export namespace Schemas {
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
         | "release_conditions_changed_mid_run"
-        | "new_flag_no_traffic";
+        | "new_flag_no_traffic"
+        | "early_significance";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9831,6 +9837,7 @@ export namespace Schemas {
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `early_significance` - Early Significance
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -9878,6 +9885,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -9895,6 +9903,7 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "exposure_criteria_cannot_match"
+        | "early_significance"
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
@@ -9925,6 +9934,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -19951,14 +19961,15 @@ export namespace Schemas {
     }>;
     export type TeamCustomerAnalyticsPinnedAccountProperty = {
         /**
-         * Definition type for this default pinned account property.
+         * Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
          *
          * * `custom_property` - Custom property
          * * `relationship` - Relationship
+         * * `account_field` - Account field
          */
         kind: AccountPropertyPinKindEnum;
         /**
-         * Project-scoped custom property or relationship definition UUID.
+         * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
          */
         id: string;
     };

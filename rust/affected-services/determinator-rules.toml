@@ -71,6 +71,7 @@ globs = [
     "../bin/download-mmdb",
     "../.github/workflows/ci-rust.yml",
     "../.github/actions/setup-protoc/**",
+    "../.github/actions/setup-rust/**",
     "../.github/actions/setup-sccache/**",
     "../.github/actions/setup-sqlx-cli/**",
     "../.github/actions/rust-compute-affected/**",

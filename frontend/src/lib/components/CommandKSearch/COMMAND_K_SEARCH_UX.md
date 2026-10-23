@@ -103,7 +103,7 @@ The input is always in exactly one mode, decided from the token under the cursor
 
 ### Ranked results
 
-Results for a search with words follow ordered tie-breaking rules: words matched, typos, word proximity, name before folder, exact words, word position, exactness, the person's recent views, then recency. Products rank with the same rules through their name and search keywords, so "recordings" finds Session replay.
+Results for a search with words follow ordered tie-breaking rules: words matched, typos, word proximity, name before folder, exact words, word position, exactness, the person's recent views, then recency. Products rank with the same rules through their name and search keywords, so "recordings" finds Session replay. When a name match and a search keyword match tie, the name match ranks first, so "metrics" puts Metrics above Data catalog.
 
 - When no result has every word, results use the words that matched. A callout above the results names the dropped word ("No matches for **xyzzy**. Showing results for **report**."). When every match needs a typo, it says "No exact matches for **dashbord**. Showing close spellings." The callout is not selectable.
 - **Best matches** comes first: the three best results of different types.

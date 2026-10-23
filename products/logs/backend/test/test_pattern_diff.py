@@ -19,6 +19,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseQueryTimeOut
@@ -249,6 +251,43 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
         assert results["baseline"]["date_from"].startswith("2026-06-20T12:00:00")
         assert results["baseline"]["total_count"] == 2
 
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_both_windows_share_one_deadline(self) -> None:
+        self._insert([self._log("deploy marker line", day=23), self._log("deploy marker line", day=16)])
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:00Z"),
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=[],
+            serviceNames=[],
+            searchTerm=None,
+        )
+
+        with patch("products.logs.backend.patterns_query_runner.monotonic", return_value=100.0) as clock:
+            budgets = []
+
+            def execute_with_elapsed_time(*args, **kwargs):
+                budgets.append(kwargs["settings"].max_execution_time)
+                result = execute_hogql_query(*args, **kwargs)
+                clock.return_value += 200
+                return result
+
+            with patch(
+                "products.logs.backend.patterns_query_runner.execute_hogql_query",
+                side_effect=execute_with_elapsed_time,
+            ):
+                # Three timeouts in a row would open the query failure breaker if they counted.
+                for _ in range(3):
+                    budgets.clear()
+                    with self.assertRaises(ClickHouseQueryTimeOut):
+                        run_patterns_diff(self.team, query, None, deadline=clock.return_value + 420)
+                    # Two queries per window. The third query gets the 20 seconds left, and no query gets
+                    # more than its own 60-second limit.
+                    assert budgets == [60, 60, 20]
+
+                results = run_patterns_diff(self.team, query, None)
+
+        assert results["baseline"]["total_count"] == 1
+
 
 class TestStoredPatternKeys(TestCase):
     def test_groups_sharing_a_stored_member_compare_as_one_pattern(self) -> None:
@@ -347,6 +386,20 @@ class TestFirstSeenEver(TestCase):
             result = _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC))
 
         assert result is None
+
+    @parameterized.expand([("time_left", 110.0, 10), ("deadline_passed", 100.5, None)])
+    def test_stays_inside_the_request_deadline(self, _name, deadline, expected_limit) -> None:
+        with (
+            patch("products.logs.backend.pattern_diff.monotonic", return_value=100.0),
+            patch("products.logs.backend.pattern_diff.execute_hogql_query") as execute,
+        ):
+            execute.return_value.results = []
+            _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC), deadline)
+
+        if expected_limit is None:
+            execute.assert_not_called()
+        else:
+            assert execute.call_args.kwargs["settings"].max_execution_time == expected_limit
 
 
 class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):

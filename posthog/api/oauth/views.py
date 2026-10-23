@@ -76,7 +76,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -372,14 +372,7 @@ def _gateway_blocklist_block(
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
         refused = False
-    if not refused and not wizard_identity_blocked(
-        distinct_id=str(request.user.distinct_id),
-        email=request.user.email,
-        surface="oauth_authorize",
-        user_uuid=str(request.user.uuid),
-        organization_ids=[str(organization_id) for organization_id in organization_ids],
-        team_ids=scoped_team_ids or [],
-    ):
+    if not refused:
         return None
     return Response(
         {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},

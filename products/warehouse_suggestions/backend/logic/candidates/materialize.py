@@ -143,6 +143,8 @@ class MaterializeCandidate(Candidate):
         reads: SubjectReads,
         incremental: _IncrementalProposer,
     ) -> _Proposal | str:
+        if context.accepted_recently(WarehouseSuggestionKind.UNMATERIALIZE, saved_query.id):
+            return f"was unmaterialized on a suggestion in the last {context.rules.lifecycle.flip_cooldown_days} days"
         rejection = self._read_floor_rejection(context, reads)
         if rejection is not None:
             return rejection

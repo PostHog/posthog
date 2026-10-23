@@ -112,7 +112,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def setUp(self):
         super().setUp()
-        self._sync_connect_patcher = patch("products.subscriptions.backend.presentation.views.sync_connect")
+        self._sync_connect_patcher = patch("products.subscriptions.backend.logic.subscription_writes.sync_connect")
         self.mock_sync = self._sync_connect_patcher.start()
         self.mock_temporal_client = MagicMock()
         self.mock_temporal_client.start_workflow = AsyncMock()
@@ -239,7 +239,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         if failure == "capture_raises":
             self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
             capture_patcher = patch(
-                "products.subscriptions.backend.presentation.views.capture_exception",
+                "products.subscriptions.backend.logic.subscription_writes.capture_exception",
                 side_effect=RuntimeError("capture down"),
             )
             capture_patcher.start()
@@ -769,6 +769,31 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not belong to your team" in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("an insight that does not exist", "insight", "missing", 'Invalid pk "999999" - object does not exist.'),
+            ("an insight given as a word", "insight", "word", "Incorrect type. Expected pk value, received str."),
+            ("another team's insight", "insight", "other_team", "This insight does not belong to your team."),
+            ("another team's dashboard", "dashboard", "other_team", "This dashboard does not belong to your team."),
+        ]
+    )
+    def test_create_rejects_an_unusable_target(self, _name, field, target, detail):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        if target == "missing":
+            target_id: int | str = 999999
+        elif target == "word":
+            target_id = "abc"
+        elif field == "insight":
+            target_id = Insight.objects.create(query=default_pageview_query(), team=other_team, created_by=self.user).id
+        else:
+            target_id = Dashboard.objects.create(team=other_team, name="Other dashboard").id
+
+        response = self._create_subscription(**{"insight": None, field: target_id})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == field
+        assert response.json()["detail"] == detail
+
     def test_can_create_slack_subscription_with_delivery_config(self):
         integration = Integration.objects.create(
             team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
@@ -1184,7 +1209,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         self._seed_active_summary_subscriptions(existing_active)
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=limit):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=limit):
             response = self._create_subscription(summary_enabled=True)
 
         assert response.status_code == expected_status, response.content
@@ -1200,7 +1225,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         create_response = self._create_subscription(summary_enabled=False)
         sub_id = create_response.json()["id"]
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=5):
             patch_response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
                 {"summary_enabled": True},
@@ -1217,7 +1242,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         existing = self._seed_active_summary_subscriptions(7)
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=5):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
                 {"title": "renamed while over the cap"},
@@ -1246,7 +1271,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        with patch("products.subscriptions.backend.presentation.views.is_team_limited", return_value=is_limited):
+        with patch("products.subscriptions.backend.logic.subscription_writes.is_team_limited", return_value=is_limited):
             response = self._create_subscription(summary_enabled=summary_enabled)
 
         assert response.status_code == expected_status, response.content
@@ -1259,7 +1284,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         create_response = self._create_subscription(summary_enabled=False)
         sub_id = create_response.json()["id"]
 
-        with patch("products.subscriptions.backend.presentation.views.is_team_limited", return_value=True):
+        with patch("products.subscriptions.backend.logic.subscription_writes.is_team_limited", return_value=True):
             patch_response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
                 {"summary_enabled": True},
@@ -1275,7 +1300,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         existing = self._seed_active_summary_subscriptions(1)
 
-        with patch("products.subscriptions.backend.presentation.views.is_team_limited", return_value=True):
+        with patch("products.subscriptions.backend.logic.subscription_writes.is_team_limited", return_value=True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
                 {"title": "renamed while over budget"},
@@ -1303,7 +1328,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         self._seed_active_summary_subscriptions(active_count)
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=limit):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=limit):
             response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
 
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -1321,7 +1346,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         self._seed_active_summary_subscriptions(2)
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=10):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=10):
             first = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
             assert first.status_code == status.HTTP_200_OK
             assert first.json()["active_count"] == 2
@@ -1347,8 +1372,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         self._seed_active_summary_subscriptions(5)
 
         with (
-            patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5),
-            patch("products.subscriptions.backend.presentation.views.posthoganalytics.capture") as mock_capture,
+            patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=5),
+            patch("products.subscriptions.backend.logic.summary_quota.posthoganalytics.capture") as mock_capture,
         ):
             first = self._create_subscription(summary_enabled=True)
             second = self._create_subscription(summary_enabled=True)
@@ -1386,7 +1411,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             deleted=True,
         )
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=5):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{deleted_summary.id}",
                 {"deleted": False},
@@ -1402,7 +1427,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         existing = self._seed_active_summary_subscriptions(7)
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=5):
             off_response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
                 {"summary_enabled": False},
@@ -1456,7 +1481,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         _seed_for_team(team_two, 2)
         _seed_for_team(team_three, 1)
 
-        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.logic.summary_quota.get_organization_limit", return_value=5):
             response = self.client.post(
                 f"/api/projects/{team_three.id}/subscriptions",
                 {
@@ -1971,7 +1996,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         stale_date = timezone.now() - timedelta(days=3)
         Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=stale_date)
 
-        with patch("products.subscriptions.backend.presentation.views.sync_connect") as temporal_mock:
+        with patch("products.subscriptions.backend.logic.subscription_writes.sync_connect") as temporal_mock:
             temporal_mock.return_value.start_workflow = AsyncMock()
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
@@ -2130,7 +2155,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             title="t",
             enabled=initial_enabled,
         )
-        with patch("products.subscriptions.backend.presentation.views.sync_connect") as temporal_mock:
+        with patch("products.subscriptions.backend.logic.subscription_writes.sync_connect") as temporal_mock:
             temporal_mock.return_value.start_workflow = AsyncMock()
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
@@ -2160,7 +2185,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
 
     def setUp(self):
         super().setUp()
-        self._sync_connect_patcher = patch("products.subscriptions.backend.presentation.views.sync_connect")
+        self._sync_connect_patcher = patch("products.subscriptions.backend.logic.subscription_writes.sync_connect")
         self.mock_sync = self._sync_connect_patcher.start()
         self.mock_temporal_client = MagicMock()
         self.mock_temporal_client.start_workflow = AsyncMock()
@@ -2785,6 +2810,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
         }
 
+        back = self.client.get(body2["previous"])
+        assert back.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in back.json()["results"]] == [row["id"] for row in body["results"]]
+
     def test_summaries_list_completed_summaries_across_subscriptions_on_the_source(self):
         second_subscription = Subscription.objects.create(
             team=self.team,
@@ -2944,9 +2973,9 @@ class TestSubscriptionFreeTierAccess(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
 
 
-@patch("products.subscriptions.backend.presentation.views.sync_connect")
-@patch("products.subscriptions.backend.presentation.views.posthoganalytics.feature_enabled", return_value=True)
-@patch("products.subscriptions.backend.presentation.views.is_cloud", return_value=True)
+@patch("products.subscriptions.backend.logic.subscription_writes.sync_connect")
+@patch("products.subscriptions.backend.logic.subscription_writes.posthoganalytics.feature_enabled", return_value=True)
+@patch("products.subscriptions.backend.logic.subscription_writes.is_cloud", return_value=True)
 class TestAISubscriptionAPI(APILicensedTest):
     def _enable_ai(self):
         self.organization.is_ai_data_processing_approved = True
@@ -3750,7 +3779,9 @@ class TestAISubscriptionAPI(APILicensedTest):
         # a separate capture, so the content-kind split lives in one metric/dashboard.
         self._enable_ai()
         self._mock_temporal(mock_sync)
-        with patch("products.subscriptions.backend.presentation.views.slo_operation", wraps=slo_operation) as mock_slo:
+        with patch(
+            "products.subscriptions.backend.logic.subscription_writes.slo_operation", wraps=slo_operation
+        ) as mock_slo:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/subscriptions",
                 self._make_ai_payload(),
@@ -4240,7 +4271,7 @@ class TestAISubscriptionAPI(APILicensedTest):
 class TestSubscriptionObjectAccessControl(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self._sync_connect_patcher = patch("products.subscriptions.backend.presentation.views.sync_connect")
+        self._sync_connect_patcher = patch("products.subscriptions.backend.logic.subscription_writes.sync_connect")
         self.mock_temporal_client = MagicMock(start_workflow=AsyncMock())
         self._sync_connect_patcher.start().return_value = self.mock_temporal_client
         self.addCleanup(self._sync_connect_patcher.stop)
@@ -4313,9 +4344,10 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
 
         with (
-            patch("products.subscriptions.backend.presentation.views.is_cloud", return_value=True),
+            patch("products.subscriptions.backend.logic.subscription_writes.is_cloud", return_value=True),
             patch(
-                "products.subscriptions.backend.presentation.views.posthoganalytics.feature_enabled", return_value=True
+                "products.subscriptions.backend.logic.subscription_writes.posthoganalytics.feature_enabled",
+                return_value=True,
             ),
         ):
             response = self.client.post(
@@ -4845,6 +4877,24 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_update_recipients_is_rejected_when_a_selected_tile_is_hidden(self):
+        insight = self._insight_over_a_governed_view()
+        dashboard = self._dashboard_with_tiles(insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        subscription.dashboard_export_insights.add(insight)
+        # A hidden tile leaves the delivery; a tile restore brings it back without a subscription write.
+        DashboardTile.objects.filter(dashboard=dashboard, insight=insight).update(deleted=True)
+        self._deny_warehouse_tables()
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+                {"target_value": "attacker@example.com"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "governed_view" in response.json()["detail"]
 
     @parameterized.expand(
         [

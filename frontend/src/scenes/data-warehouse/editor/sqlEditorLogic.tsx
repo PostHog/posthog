@@ -991,6 +991,9 @@ export interface sqlEditorLogicActions {
     reportAIQueryRejected: () => {
         value: true
     }
+    reviewEditingViewUpdate: () => {
+        value: true
+    }
     reviewViewUpdate: (
         view: UpdateViewPayload,
         draftId?: string
@@ -1496,6 +1499,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        reviewEditingViewUpdate: true,
         reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -3415,6 +3419,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     }
                 }
+            },
+            reviewEditingViewUpdate: () => {
+                const view = values.editingView
+                if (!view) {
+                    return
+                }
+                // The data node is bound inside the editor, so the response is read from the mounted instance.
+                const response = dataNodeLogic.findMounted({ key: values.dataLogicKey })?.values.response
+                actions.reviewViewUpdate({
+                    id: view.id,
+                    query: { ...values.sourceQuery.source, query: values.queryInput ?? '' },
+                    types: response && 'types' in response ? (response.types ?? []) : [],
+                    shouldRematerialize: view.is_materialized === true,
+                    edited_history_id: values.inProgressViewEdits[view.id],
+                })
             },
             reviewViewUpdate: ({ view, draftId }) => {
                 // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate

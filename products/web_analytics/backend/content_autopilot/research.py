@@ -20,7 +20,12 @@ from posthog.egress.limiter.policies import Priority
 from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
 from posthog.security.url_validation import strip_userinfo
 
-from products.web_analytics.backend.content_autopilot.site_discovery import has_same_public_site, site_host
+from products.web_analytics.backend.content_autopilot.edits import first_h1
+from products.web_analytics.backend.content_autopilot.site_discovery import (
+    has_same_public_site,
+    is_site_link,
+    site_host,
+)
 from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError, fetch_public_url
 
 MAX_DOCUMENT_CHARS = 40_000
@@ -31,6 +36,7 @@ MAX_LINK_CANDIDATES = 60
 FETCH_SECONDS = 20.0
 FIRECRAWL_SOURCE = "content_autopilot"
 MAX_SITE_SEARCH_RESULTS = 10
+MAX_STUB_TWIN_WORDS = 80
 
 DocumentOrigin = Literal["site", "competitor"]
 
@@ -104,6 +110,8 @@ _REPEATED_SPACES_RE = re.compile(r" {2,}")
 _CODE_LANGUAGE_RE = re.compile(r"(?:^|\s)lang(?:uage)?-([\w+#.-]+)")
 _CODE_BLOCK_TOKEN_RE = re.compile(r"\x00code-block-(\d+)\x00")
 _BACKTICK_RUN_RE = re.compile(r"`+")
+_TWIN_METADATA_RE = re.compile(r"^canonical url:", re.IGNORECASE)
+_MARKDOWN_COPY_LINK_RE = re.compile(r"(\]\()([^()\[\]\s?#]+?)\.md(?=[#?)\s])")
 
 
 def _code_language(attrs: list[tuple[str, str | None]]) -> str:
@@ -255,12 +263,42 @@ def _links_to_page(markdown: str, url: str) -> bool:
     return re.search(f"(?:{'|'.join(targets)})/?(?![\\w/.-])", markdown) is not None
 
 
-def _without_preamble(markdown: str) -> str:
+def _without_twin_metadata(markdown: str) -> str:
     lines = markdown.splitlines()
-    h1 = next((index for index, line in enumerate(lines) if line.startswith("# ")), None)
-    if h1 is None or not all(not line.strip() or line.startswith(">") for line in lines[:h1]):
+    heading = first_h1(lines)
+    if heading is None:
         return markdown
-    return "\n".join(lines[h1:])
+    start = end = heading[0] + 1
+    while end < len(lines) and (
+        not lines[end].strip() or lines[end].startswith(">") or _TWIN_METADATA_RE.match(lines[end])
+    ):
+        end += 1
+    if not any(_TWIN_METADATA_RE.match(line) for line in lines[start:end]):
+        return markdown
+    return "\n".join([*lines[:start], "", *lines[end:]])
+
+
+def _with_page_links(markdown: str, url: str) -> str:
+    host = site_host(url)
+
+    def page_link(match: re.Match[str]) -> str:
+        return f"{match.group(1)}{match.group(2)}" if is_site_link(match.group(2), host) else match.group(0)
+
+    return _MARKDOWN_COPY_LINK_RE.sub(page_link, markdown)
+
+
+def _from_first_h1(markdown: str) -> str:
+    lines = markdown.splitlines()
+    heading = first_h1(lines)
+    return "\n".join(lines[heading[0] :]) if heading else markdown
+
+
+def _is_stub_twin(markdown: str, url: str) -> bool:
+    lines = markdown.splitlines()
+    heading = first_h1(lines)
+    if not any(line.strip() for line in lines[heading[0] + 1 if heading else 0 :]):
+        return True
+    return _links_to_page(markdown, url) and len(markdown.split()) <= MAX_STUB_TWIN_WORDS
 
 
 def _fetch_html_document(url: str, origin: DocumentOrigin) -> SourceDocument | None:
@@ -270,7 +308,7 @@ def _fetch_html_document(url: str, origin: DocumentOrigin) -> SourceDocument | N
     extracted = html_to_text(page.body)
     if not extracted.text:
         return None
-    return SourceDocument(url=url, title=extracted.title, text=_clean(extracted.text), origin=origin)
+    return SourceDocument(url=url, title=extracted.title, text=_clean(_from_first_h1(extracted.text)), origin=origin)
 
 
 def _fetch_rendered_document(url: str, origin: DocumentOrigin) -> SourceDocument | None:
@@ -279,7 +317,9 @@ def _fetch_rendered_document(url: str, origin: DocumentOrigin) -> SourceDocument
         if origin == "site" and not (scraped.final_url and has_same_public_site(scraped.final_url, url)):
             return _fetch_html_document(url, origin)
         if scraped.markdown:
-            return SourceDocument(url=url, title=scraped.title or "", text=_clean(scraped.markdown), origin=origin)
+            return SourceDocument(
+                url=url, title=scraped.title or "", text=_clean(_from_first_h1(scraped.markdown)), origin=origin
+            )
     except (FirecrawlNotConfigured, FirecrawlScrapeFailed, FirecrawlEgressBudgetExhausted, requests.RequestException):
         pass
     return _fetch_html_document(url, origin)
@@ -289,10 +329,10 @@ def fetch_site_page(url: str) -> SourceDocument | None:
     twin_document: SourceDocument | None = None
     twin = _fetch(_markdown_twin(url), "text/markdown,text/plain;q=0.9")
     if twin is not None and "html" not in twin.content_type.lower() and twin.body.strip():
-        body = _without_preamble(twin.body)
-        first_heading = next((line[2:] for line in body.splitlines() if line.startswith("# ")), "")
-        twin_document = SourceDocument(url=url, title=first_heading.strip(), text=_clean(body), origin="site")
-        if not _links_to_page(twin.body, url):
+        body = _with_page_links(_without_twin_metadata(_from_first_h1(_clean(twin.body))), url)
+        heading = first_h1(body.splitlines())
+        twin_document = SourceDocument(url=url, title=heading[1] if heading else "", text=_clean(body), origin="site")
+        if not _is_stub_twin(body, url):
             return twin_document
     page_document = _fetch_rendered_document(url, "site")
     if page_document is None or (twin_document is not None and len(twin_document.text) >= len(page_document.text)):
