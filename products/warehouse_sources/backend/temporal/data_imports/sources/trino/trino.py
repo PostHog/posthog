@@ -401,7 +401,7 @@ def _execute_with_tenant_admission_retry(cursor: Cursor, query: str, parameters:
             cursor.execute(query, parameters)
             return
         except HttpError as exc:
-            if attempt == _TENANT_ADMISSION_RETRY_ATTEMPTS or TRINO_TENANT_NOT_ADMITTED_ERROR not in str(exc):
+            if attempt == _TENANT_ADMISSION_RETRY_ATTEMPTS or TRINO_TENANT_NOT_ADMITTED_ERROR not in str(exc).lower():
                 raise
             interruptible_wait(_TENANT_ADMISSION_RETRY_BACKOFF_SECONDS * attempt)
 
