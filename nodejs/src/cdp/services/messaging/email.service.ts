@@ -876,7 +876,7 @@ export class EmailService {
         if (decision.code === 'sending_suspended') {
             logger.warn('Skipping email send for a suspended team', {
                 teamId: invocation.teamId,
-                detail: decision.detail,
+                cause: decision.cause,
             })
         }
         result.logs.push(logEntry(presentation.logLevel, decision.detail))

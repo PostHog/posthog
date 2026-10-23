@@ -5,14 +5,17 @@ import { EmailSuppressionService } from './email-suppression.service'
 
 export type PolicyCode = 'sending_suspended' | 'template_paused' | 'sender_not_verified' | 'recipient_suppressed'
 
-export type PolicyRejection = {
+type Rejection = {
     ok: false
-    code: PolicyCode
     /** What happened, as the run log shows it. */
     detail: string
     why: string
     fix: string
 }
+
+export type PolicyRejection =
+    | (Rejection & { code: Exclude<PolicyCode, 'sending_suspended'> })
+    | (Rejection & { code: 'sending_suspended'; cause: EmailSendingSuspensionCause })
 
 export type PolicyDecision = { ok: true; sender: IntegrationType } | PolicyRejection
 
@@ -93,6 +96,7 @@ function sendingSuspended(cause: EmailSendingSuspensionCause): PolicyRejection {
         return {
             ok: false,
             code: 'sending_suspended',
+            cause,
             detail: `Skipping send: email sending is suspended for this project. ${CONTACT_SUPPORT}`,
             why: 'Email sending is suspended for this project.',
             fix: CONTACT_SUPPORT,
@@ -101,6 +105,7 @@ function sendingSuspended(cause: EmailSendingSuspensionCause): PolicyRejection {
     return {
         ok: false,
         code: 'sending_suspended',
+        cause,
         detail: 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
         why: 'Our email provider paused sending for this project.',
         fix: 'Check the Reputation tab to see what to fix.',
