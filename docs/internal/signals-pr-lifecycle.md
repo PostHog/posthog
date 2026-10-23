@@ -267,8 +267,8 @@ The repair keeps the old rows and existing corrections. It does not confirm the 
 
 ### Shared report and PR assignment
 
-With `signals-research-reviewer-selection` and `signals-assignment-writer` enabled, the saved report assignment also supplies the PR assignees.
-`signals-assignment-side-effects` must allow delivery. The legacy DRI flag does not change this shared list.
+With `signals-research-reviewer-selection` and `signals-assignment-writer` enabled, the saved report assignment supplies candidates for one PR owner.
+`signals-assignment-side-effects` must allow delivery. The legacy DRI flag does not change this rule.
 
 ```mermaid
 flowchart LR
@@ -277,7 +277,7 @@ flowchart LR
     C --> D[(suggested_reviewers)]
     D --> E[Inbox report]
     D --> F[Check personal settings, accounts, and GitHub access]
-    F --> G[First PR assignment]
+    F --> G[First eligible recipient becomes PR owner]
     E --> H[Human edit and reason]
     H --> I[(Existing corrections and notes)]
     I --> A
@@ -293,8 +293,9 @@ flowchart LR
 
 The worker maps selected project members to their current personal GitHub accounts and checks repository assignability.
 Each attempt checks at most ten eligible candidates, in the saved order.
-It assigns eligible selected people in the saved order only when their **Assign me on GitHub** setting is on.
-A missing settings row, a missing GitHub account, or lost access prevents assignment to that person. The worker does not select a replacement.
+It assigns the first eligible person whose **Assign me on GitHub** setting is on, then stops.
+A missing settings row, a missing GitHub account, or lost access skips that person. The worker can choose the next saved recipient, but nobody outside the report.
+If no saved recipient qualifies, the PR remains unassigned.
 The personal setting does not remove anyone from the report. Claims and owning teams do not change the selected list or its order.
 The report remains the source of the assignment. Logs record unavailable accounts, permission failures, and GitHub delivery failures.
 
@@ -303,8 +304,8 @@ Queued work and retries use the current personal setting.
 Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
 The legacy DRI path also respects report exclusions and rechecks human choices before assignment.
 Claimants and suggested reviewers must be active project members to receive assignments or review requests.
-This first version copies the list only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
-That work must preserve human GitHub changes and copy the shared report assignment, not select another owner.
+This first version selects an owner only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
+That work must preserve human GitHub changes and use the same ordered report candidates.
 GitHub's final read and write are not atomic, so a small external race remains.
 
 There is no separate PR model call, evidence collector, decision cache, or assignment artefact.

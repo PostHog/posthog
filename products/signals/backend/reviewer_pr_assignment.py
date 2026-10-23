@@ -1,8 +1,8 @@
 """Apply report assignments and request reviews on implementation pull requests.
 
-With research selection and the assignment writer enabled, the report's saved reviewers
-supply the PR assignees. Personal preferences and GitHub access checks can reject a person
-but never select another.
+With research selection and the assignment writer enabled, the first eligible saved report
+reviewer becomes the PR's single owner. Personal preferences and GitHub access checks can
+reject a person but never select someone outside the report.
 Existing GitHub assignments and manual unassignment remain authoritative.
 
 Other projects retain the legacy DRI and opt-in policies. Task execution permission is
@@ -539,12 +539,7 @@ def _assign_report_reviewers(
                 return []
             if result.get("assignable"):
                 assignable.append(login)
-        if len(assignable) < len(candidates):
-            log.info(
-                "signals.reviewer_pr_assignment.unassignable_accounts",
-                selected=len(candidates),
-                assignable=len(assignable),
-            )
+                break
         if not assignable:
             return []
 
@@ -630,11 +625,9 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             return assigned
         try:
             snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
-            reviewers = (
-                []
-                if snapshot.corrections.needs_review
-                else _report_assignee_logins(Team.objects.get(id=team_id), snapshot, require_opt_in=False)
-            )
+            if snapshot.corrections.needs_review:
+                return assigned
+            reviewers = _report_assignee_logins(Team.objects.get(id=team_id), snapshot, require_opt_in=False)
         except Exception:
             logger.exception(
                 "signals.reviewer_pr_assignment.reviewers_lookup_failed", team_id=team_id, report_id=report_id

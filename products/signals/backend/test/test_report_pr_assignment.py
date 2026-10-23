@@ -59,8 +59,9 @@ class TestReportPRAssignment:
             return assign_reviewers_to_pull_request(team_id=report.team_id, report_id=str(report.id), pr_url=PR_URL)
 
     @pytest.mark.parametrize("dri_enabled", [False, True])
-    def test_pr_filters_opted_out_reviewers_without_reordering_or_replacing_them(
-        self, org_and_team: tuple[Organization, Team], dri_flag: MagicMock, dri_enabled: bool
+    @pytest.mark.parametrize("first_assignable", [False, True])
+    def test_pr_selects_one_eligible_owner_without_changing_report_recipients(
+        self, org_and_team: tuple[Organization, Team], dri_flag: MagicMock, dri_enabled: bool, first_assignable: bool
     ) -> None:
         org, team = org_and_team
         dri_flag.return_value = dri_enabled
@@ -68,18 +69,20 @@ class TestReportPRAssignment:
         _make_reviewer(org, "selected-second", opted_in=True)
         _make_reviewer(org, "opted-out", opted_in=False)
         claimant = _make_reviewer(org, "claimant", opted_in=True)
-        report_logins = ["selected-second", "opted-out", "selected-first"]
+        report_logins = ["opted-out", "selected-second", "selected-first"]
         report = _make_report(team, report_logins)
         claim_report(
             report=report, actor=ArtefactAttribution.from_user(claimant.id), user=claimant, was_impersonated=False
         )
         github = self.github()
+        github.is_assignable.side_effect = lambda _repo, login: {
+            "success": True,
+            "assignable": first_assignable or login != "selected-second",
+        }
+        expected_owner = "selected-second" if first_assignable else "selected-first"
 
-        assert self.assign(report, github) == ["selected-second", "selected-first"]
-        github.add_pull_request_assignees.assert_called_once_with(
-            "PostHog/posthog", 123, ["selected-second", "selected-first"]
-        )
-        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["opted-out"])
+        assert self.assign(report, github) == [expected_owner]
+        github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, [expected_owner])
         assert json.loads(report.artefacts.get(type="suggested_reviewers").content) == [
             {"github_login": login} for login in report_logins
         ]
@@ -134,9 +137,12 @@ class TestReportPRAssignment:
             github.was_ever_unassigned.return_value = {"success": False}
         elif protection == "needs-review":
             report.artefacts.filter(type="suggested_reviewers").update(actor_kind="user", created_by=reviewer)
+            github.get_pull_request.return_value["assignees"] = ["selected"]
 
         assert self.assign(report, github) == []
         github.add_pull_request_assignees.assert_not_called()
+        if protection == "needs-review":
+            github.request_pull_request_reviews.assert_not_called()
 
     def test_saved_human_edits_are_used_by_the_pr(self, org_and_team):
         org, team = org_and_team
@@ -154,8 +160,8 @@ class TestReportPRAssignment:
             )
         github = self.github()
 
-        assert self.assign(report, github) == ["retained", "added"]
-        github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["retained", "added"])
+        assert self.assign(report, github) == ["retained"]
+        github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["retained"])
 
     @pytest.mark.parametrize("assignable", [False, True])
     def test_large_reviewer_lists_have_bounded_github_checks(
@@ -169,8 +175,8 @@ class TestReportPRAssignment:
         github = self.github()
         github.is_assignable.return_value = {"success": True, "assignable": assignable}
 
-        assert self.assign(report, github) == (logins[:10] if assignable else [])
-        assert github.is_assignable.call_count == 10
+        assert self.assign(report, github) == (logins[:1] if assignable else [])
+        assert github.is_assignable.call_count == (1 if assignable else 10)
 
     @pytest.mark.parametrize(
         "change", ["reviewers", "identity", "access", "preference", "github", "delivery", "writer", "selection"]
