@@ -42,3 +42,15 @@ export const AiGatewayDevTokensCliExchangeCreateBody = /* @__PURE__ */ zod.objec
 export const AiGatewayDevTokensRevokeCreateBody = /* @__PURE__ */ zod.object({
     id: zod.uuid().nullish().describe("Token to revoke. Omit to revoke all of the user's live tokens."),
 })
+
+/**
+ * @summary Look up a developer mode token's status and budget left by its bearer
+ */
+export const aiGatewayDevTokensTokenStatusCreateBodyTokenRegExp = new RegExp('^phe_[A-Za-z0-9_-]{1,252}$')
+
+export const AiGatewayDevTokensTokenStatusCreateBody = /* @__PURE__ */ zod.object({
+    token: zod
+        .string()
+        .regex(aiGatewayDevTokensTokenStatusCreateBodyTokenRegExp)
+        .describe('The phe_ bearer to look up. Only its sha256 is compared.'),
+})

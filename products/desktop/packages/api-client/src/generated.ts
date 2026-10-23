@@ -20487,6 +20487,10 @@ export namespace Schemas {
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**
+         * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
+         */
+        api_host: string;
+        /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
          * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
