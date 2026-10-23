@@ -19,7 +19,7 @@ from ..logic.evaluations.score_distribution import load_score_distribution, scor
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.events_fallback import fallback_window
-from ..logic.traces.neighbour_queries import load_neighbours
+from ..logic.traces.neighbour_queries import is_usable_anchor, load_neighbours
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
@@ -57,6 +57,10 @@ def is_usable_timestamp_hint(timestamp_hint: datetime) -> bool:
     except OverflowError:
         return False
     return True
+
+
+def is_usable_neighbour_anchor(created_at: datetime) -> bool:
+    return is_usable_anchor(created_at)
 
 
 def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> contracts.Trace:

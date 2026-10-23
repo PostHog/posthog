@@ -353,6 +353,15 @@ class TestTraceNeighboursView(ClickhouseTestMixin, APIBaseTest):
             ("unencoded id", "trace-b", {"created_at": "2026-09-01T10:00:00Z"}),
             ("missing created_at", _encode("trace-b"), {}),
             ("malformed created_at", _encode("trace-b"), {"created_at": "nope"}),
+            ("created_at out of range", _encode("trace-b"), {"created_at": "0001-01-01T00:00:00Z"}),
+            (
+                "invalid regex filter",
+                _encode("trace-b"),
+                {
+                    "created_at": "2026-09-01T10:00:00Z",
+                    "properties": '[{"type": "event", "key": "plan", "operator": "regex", "value": "["}]',
+                },
+            ),
             ("unparsable properties", _encode("trace-b"), {"created_at": "2026-09-01T10:00:00Z", "properties": "[{"}),
             (
                 "unknown property filter",

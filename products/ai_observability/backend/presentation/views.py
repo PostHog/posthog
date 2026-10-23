@@ -22,6 +22,8 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -100,6 +102,11 @@ class TraceNeighboursQuerySerializer(serializers.Serializer):
         default=None,
         help_text="Whether to apply the project's test account filters. Defaults to the project's setting.",
     )
+
+    def validate_created_at(self, value: datetime) -> datetime:
+        if not api.is_usable_neighbour_anchor(value):
+            raise serializers.ValidationError("Created at is out of range.")
+        return value
 
 
 TRACE_ID_PARAMETER = OpenApiParameter(
@@ -204,7 +211,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         parameters=[TRACE_ID_PARAMETER],
         responses={
             200: OpenApiResponse(response=contracts.TraceNeighbours),
-            400: OpenApiResponse(description="The encoded trace id or a query parameter is malformed."),
+            400: OpenApiResponse(description="The encoded trace id or a query parameter is malformed or out of range."),
             429: THROTTLED_RESPONSE,
         },
         operation_id="ai_observability_traces_neighbours_retrieve",
@@ -218,22 +225,26 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
         query = request.validated_query_data
         filter_test_accounts = query.get("filter_test_accounts")
-        neighbours = self._read(
-            request,
-            lambda user, _hint: api.get_trace_neighbours(
-                self.team,
-                user,
-                trace_id,
-                query["created_at"],
-                date_from=query.get("date_from"),
-                date_to=query.get("date_to"),
-                properties=query.get("properties") or [],
-                filter_test_accounts=(
-                    bool(self.team.test_account_filters_default_checked)
-                    if filter_test_accounts is None
-                    else filter_test_accounts
+        try:
+            neighbours = self._read(
+                request,
+                lambda user, _hint: api.get_trace_neighbours(
+                    self.team,
+                    user,
+                    trace_id,
+                    query["created_at"],
+                    date_from=query.get("date_from"),
+                    date_to=query.get("date_to"),
+                    properties=query.get("properties") or [],
+                    filter_test_accounts=(
+                        bool(self.team.test_account_filters_default_checked)
+                        if filter_test_accounts is None
+                        else filter_test_accounts
+                    ),
+                    include_support_traces=is_impersonated_session(request),
                 ),
-                include_support_traces=is_impersonated_session(request),
-            ),
-        )
+            )
+        except QueryError as error:
+            # Filters the schema accepts can still be invalid, such as a regex that does not compile.
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(neighbours.model_dump(mode="json", by_alias=True))

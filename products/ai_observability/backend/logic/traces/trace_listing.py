@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
 
@@ -7,11 +7,15 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.ai.traces_query_runner import TracesQueryDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
 AI_TRACE_EVENTS = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
 _UNBOUNDED_START = datetime.min.replace(tzinfo=UTC)
+# The traces list reads this far past its range, so a trace that started just before the range keeps its real first
+# event.
+CAPTURE_BUFFER = timedelta(minutes=TracesQueryDateRange.CAPTURE_RANGE_MINUTES)
 
 
 @frozen
@@ -33,6 +37,14 @@ class TraceWindow:
 class TracePosition:
     trace_id: str
     first_timestamp: datetime
+
+
+def read_window(window: TraceWindow) -> TraceWindow:
+    """The events a window's traces are read from. Raises `OverflowError` near the ends of the datetime range."""
+    return TraceWindow(
+        start=window.start - CAPTURE_BUFFER if window.start > _UNBOUNDED_START else window.start,
+        end=window.end + CAPTURE_BUFFER,
+    )
 
 
 class _ListDateRange(QueryDateRange):
@@ -73,17 +85,20 @@ def _event_condition(team: Team, filters: TraceFilters, window: TraceWindow) -> 
 
 
 def trace_positions_query(team: Team, filters: TraceFilters, window: TraceWindow) -> ast.SelectQuery:
-    """Each trace's first event, as the traces list orders them: property filters pick traces, they do not move them."""
+    """Each trace with events in the window, at its first event as the traces list orders them. Property filters pick
+    traces, they do not move them."""
     query = parse_select(
         """
         SELECT properties.$ai_trace_id AS trace_id, min(timestamp) AS first_timestamp
         FROM events
         WHERE {condition}
         GROUP BY trace_id
-        HAVING countIf({membership}) > 0
+        HAVING countIf({membership}) > 0 AND first_timestamp <= {end} AND max(timestamp) >= {start}
         """,
         placeholders={
-            "condition": _event_condition(team, filters, window),
+            "condition": _event_condition(team, filters, read_window(window)),
+            "start": ast.Constant(value=window.start),
+            "end": ast.Constant(value=window.end),
             "membership": ast.And(exprs=[property_to_expr(prop, team) for prop in filters.properties])
             if filters.properties
             else ast.Constant(value=True),

@@ -103,6 +103,18 @@ class TestLoadNeighbours(ClickhouseTestMixin, BaseTest):
 
         assert _ids(self._load()) == ("trace-d", None)
 
+    def test_a_trace_started_just_before_the_list_range_keeps_its_first_event(self) -> None:
+        bulk_create_events(
+            [
+                _event(self.team, "trace-d", T0 - timedelta(minutes=2)),
+                _event(self.team, "trace-d", T0 + timedelta(minutes=2)),
+                _event(self.team, "trace-e", T0 - timedelta(minutes=3)),
+                _event(self.team, "trace-b", T0),
+            ]
+        )
+
+        assert _ids(self._load(date_from=(T0 - timedelta(minutes=1)).isoformat())) == ("trace-d", None)
+
     def test_ties_on_first_event_order_by_trace_id(self) -> None:
         bulk_create_events([_event(self.team, trace_id, T0) for trace_id in ("trace-a", "trace-b", "trace-c")])
 

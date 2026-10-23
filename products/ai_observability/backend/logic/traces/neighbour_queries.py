@@ -9,7 +9,14 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from .trace_listing import TraceFilters, TracePosition, TraceWindow, resolve_date_range, trace_positions_query
+from .trace_listing import (
+    TraceFilters,
+    TracePosition,
+    TraceWindow,
+    read_window,
+    resolve_date_range,
+    trace_positions_query,
+)
 
 NEIGHBOUR_WINDOW = timedelta(days=3)
 
@@ -27,6 +34,16 @@ def neighbour_window(created_at: datetime, list_range: TraceWindow | None) -> Tr
         start = max(start, list_range.start)
         end = min(end, list_range.end)
     return TraceWindow(start=start, end=end) if start <= end else None
+
+
+def is_usable_anchor(created_at: datetime) -> bool:
+    try:
+        window = neighbour_window(created_at, None)
+        assert window is not None
+        read_window(window)
+    except OverflowError:
+        return False
+    return True
 
 
 def _neighbours_query(anchor: TracePosition, positions: ast.SelectQuery) -> ast.SelectQuery:
