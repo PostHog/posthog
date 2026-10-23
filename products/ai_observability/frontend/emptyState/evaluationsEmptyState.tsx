@@ -9,6 +9,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EvaluationQuickStart } from '../evaluations/EvaluationQuickStart'
+import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { EvaluationsPreview } from './EvaluationsPreview'
 import { evaluationsSetupLogic } from './evaluationsSetupLogic'
 
@@ -16,9 +17,12 @@ const HedgehogJudge = pngHoggie(judgePng)
 
 export const evaluationsEmptyState: SceneProductEmptyState = {
     statusLogic: evaluationsSetupLogic,
+    SceneNav: function EvaluationsEmptyStateNav(): JSX.Element {
+        return <EvaluationsTabs activeTab="online-evals" />
+    },
     config: {
         productKey: ProductKey.LLM_EVALUATIONS,
-        productName: 'Evaluations',
+        productName: 'Online evaluations',
         icon: <IconListCheck />,
         accentColor: 'var(--color-product-llm-evaluations-light)',
         accentColorDark: 'var(--color-product-llm-analytics-dark)',
