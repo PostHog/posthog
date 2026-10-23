@@ -585,7 +585,7 @@ class TestTransactionalEmail(APIBaseTest):
                 },
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
-                    "from": {"integrationId": "sender"},
+                    "from": {"integrationId": "sender", "isDefault": True},
                     "cc": ["jane@example.com"],
                     "bcc": ["audit@example.com"],
                     "headers": [{"name": "X-Entity-Ref-ID", "value": "order-123"}],
@@ -645,7 +645,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert error["why"] and error["fix"]
         if expected_code == "invalid_request":
             # The why explains the field that failed, not what a send needs in general.
-            assert f"`{expected_attr}`" in error["why"], error["why"]
+            assert f"`{expected_attr.split('__')[0]}`" in error["why"], error["why"]
+            assert ("doesn't know" in error["why"]) == (_name == "field_this_server_lacks"), error["why"]
         mock_post.assert_not_called()
 
     @parameterized.expand(

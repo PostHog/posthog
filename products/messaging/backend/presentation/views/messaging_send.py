@@ -253,6 +253,14 @@ SEND_FIELD_WHY = {
     "from": "PostHog sends from an address on a verified domain, given in `from`. A template made in PostHog keeps "
     "its own sender.",
     "reply_to": "Replies go to the addresses in `reply_to`. A template made in PostHog keeps its own reply-to.",
+    "cc": f"`cc` holds up to {MAX_COPIES} plain addresses that get a visible copy. A template made in PostHog keeps "
+    "its own recipients.",
+    "bcc": f"`bcc` holds up to {MAX_COPIES} plain addresses that get a hidden copy. A template made in PostHog keeps "
+    "its own recipients.",
+    "headers": f"`headers` adds up to {MAX_HEADERS} headers of your own. PostHog sets `From`, `Subject` and the "
+    "other standard headers itself, so you can't set them here.",
+    "tags": f"`tags` holds up to {MAX_TAGS} name and value pairs of letters, numbers, `_` and `-`, which PostHog "
+    "adds to the email's engagement events.",
     "capture_engagement": "`capture_engagement` turns the email's engagement events on or off, so it is true or false.",
 }
 
