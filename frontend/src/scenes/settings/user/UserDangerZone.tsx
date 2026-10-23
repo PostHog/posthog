@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { DeleteOrganizationModal } from '../organization/OrganizationDangerZone'
 import { TagList } from './PersonalAPIKeys'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { ScopeGroupSummary } from './scopes/ScopeGroupSummary'
 import { userDangerZoneLogic } from './userDangerZoneLogic'
 
 const DELETE_CONFIRMATION_TEXT = 'permanently delete data'
@@ -199,7 +200,11 @@ export function DeleteUserModal({
                                                 key.scopes[0] === '*' ? (
                                                     <LemonTag type="warning">All access</LemonTag>
                                                 ) : (
-                                                    <TagList tags={key.scopes} onMoreClick={() => {}} />
+                                                    <TagList
+                                                        tags={key.scopes}
+                                                        tooltip={<ScopeGroupSummary scopes={key.scopes} />}
+                                                        onMoreClick={() => {}}
+                                                    />
                                                 ),
                                         },
                                     ]}

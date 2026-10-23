@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { IconInfo, IconPlus } from '@posthog/icons'
 import {
@@ -33,6 +33,7 @@ import { PersonalAPIKeyType } from '~/types'
 import { APIKeyTable } from '../shared/APIKeyTable'
 import { KeyExpirationOption, expiresAtForOption, isExpired, personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
+import { ScopeGroupSummary } from './scopes/ScopeGroupSummary'
 
 interface EditKeyModalProps {
     zIndex?: LemonModalProps['zIndex']
@@ -311,9 +312,14 @@ function openRollKeyDialog(
     })
 }
 
-type TagListProps = { onMoreClick?: () => void; tags: string[] }
+type TagListProps = {
+    onMoreClick?: () => void
+    tags: string[]
+    /** Content of the "+N more" tooltip. Defaults to the hidden tags, comma separated. */
+    tooltip?: ReactNode
+}
 
-export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
+export function TagList({ tags, onMoreClick, tooltip }: TagListProps): JSX.Element {
     return (
         <span className="flex flex-wrap gap-1">
             {tags.slice(0, 4).map((x) => (
@@ -322,7 +328,7 @@ export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
                 </>
             ))}
             {tags.length > 4 && (
-                <Tooltip title={tags.slice(4).join(', ')}>
+                <Tooltip title={tooltip ?? tags.slice(4).join(', ')}>
                     <LemonTag onClick={onMoreClick} forceClickable={!!onMoreClick}>
                         +{tags.length - 4} more
                     </LemonTag>
@@ -605,7 +611,11 @@ function PersonalAPIKeysTable(): JSX.Element {
                     key.scopes[0] === '*' ? (
                         <LemonTag type="warning">All access</LemonTag>
                     ) : (
-                        <TagList tags={key.scopes} onMoreClick={() => setEditingKeyId(key.id)} />
+                        <TagList
+                            tags={key.scopes}
+                            tooltip={<ScopeGroupSummary scopes={key.scopes} />}
+                            onMoreClick={() => setEditingKeyId(key.id)}
+                        />
                     )
                 }
                 extraColumnsAfterLabel={[statusColumn]}
