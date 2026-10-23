@@ -1,7 +1,5 @@
 import pytest
 
-from requests import HTTPError
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     always,
@@ -40,5 +38,8 @@ def test_credentials_probe(status: int, schema: str | None, path: str, expected:
 
 
 def test_service_error_is_not_reported_as_invalid_credentials() -> None:
-    with scripted_network(always(ScriptedResponse(status=503, json={}))), pytest.raises(HTTPError):
-        VimeoSource().validate_credentials(VimeoSourceConfig(access_token="test-token"), 1)
+    with scripted_network(always(ScriptedResponse(status=503, json={}))):
+        assert VimeoSource().validate_credentials(VimeoSourceConfig(access_token="test-token"), 1) == (
+            False,
+            "Couldn't reach Vimeo to check your credentials. Try again in a few minutes.",
+        )

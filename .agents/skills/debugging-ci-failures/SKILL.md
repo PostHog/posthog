@@ -249,20 +249,26 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 
 #### Backend tests that ran on Depot CI
 
-A PR can route its backend tests to Depot CI.
-Then the GitHub Actions run holds only the relay: `Django Tests Pass` fails with "Backend tests on Depot CI concluded failure", and the GitHub run logs show nothing more.
-A re-run of that job is not read-only: it retries the failed and cancelled Depot jobs and reports the new verdict, so the rule against re-running CI applies to it.
-A run that Depot still shows as running past its job timeouts is stuck. A re-run waits on it, so cancel it with `depot ci cancel` first.
-The log of the `Relay the Depot verdict` step prints the Depot run URL, each failed step with its log lines, and the label that sends the PR back to GitHub Actions.
+Depot CI runs the backend tests of every same-repo PR.
+The required check is `Backend CI on Depot / Django Tests Pass on Depot`, and the `Backend CI on Depot / Test results` check lists each failed step with its log lines.
+`Django Tests Pass` on GitHub Actions only prints a notice on a PR.
 
-Read more of the failure from Depot with the `depot` CLI, which the flox environment installs.
-Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the Depot run URL in the relay log.
+GitHub's Re-run button does nothing on a Depot check.
+A `/depot retry` comment on the PR from an organization member or collaborator retries the failed and cancelled jobs of the newest run, also while the rest of the run still goes.
+With the user's permission, post that comment.
+With a Depot login, `depot ci retry <run-id> --failed --workflow <workflow-id>` does the same without a comment.
+The flox environment installs the `depot` CLI. Outside an activated flox shell, run it as `flox activate -- depot ...`.
+A run that Depot still shows as running past its job timeouts is stuck. Cancel the stuck job with `depot ci cancel` before you retry.
+
+Read more of the failure from Depot with the `depot` CLI.
+Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the details link of a Depot check.
 For logs, artifacts, and test results, load the `depot-ci` skill.
-Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs when you have no relay log.
+Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs.
 If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overrides the saved login, so a wrong one fails every command.
 Without it, ask the user to run `! depot login --clear`.
 Do not run it yourself: it waits on a browser sign-in.
-If the user has no access to the Depot org, report the relay log's no-Depot retry options instead.
+Every PostHog engineer gets an invite to the Depot org. A user without access checks their email for it, or requests one in #team-devex.
+Until then, retry with the `/depot retry` comment.
 
 ## Classification
 

@@ -104,14 +104,16 @@ export function Navigation({
         [registerSceneTakeoverElement]
     )
 
+    const deferSceneMeasurementsDuringResize = sceneConfig?.deferSceneMeasurementsDuringResize ?? false
+
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (mainRef.current) {
-            setMainContentRef(mainRef)
+            setMainContentRef(mainRef, deferSceneMeasurementsDuringResize)
             // Set main content rect so we can measure the width of the scene layout in logic
             setMainContentRect(mainRef.current.getBoundingClientRect())
         }
-    }, [mainRef, setMainContentRef, setMainContentRect])
+    }, [mainRef, setMainContentRef, setMainContentRect, deferSceneMeasurementsDuringResize])
 
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
 
@@ -228,9 +230,6 @@ export function Navigation({
                                 '--scene-layout-rect-right': mainContentRect?.right + 'px',
                                 '--scene-layout-rect-width': mainContentRect?.width + 'px',
                                 '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                                '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
-                                    ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
-                                    : '0px',
                             } as React.CSSProperties
                         }
                     >
@@ -244,13 +243,11 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
+                                // The container rounds the corners. In Chrome, a rounded scroller that holds many canvases stops painting.
                                 '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 focus-visible:outline-none flex flex-col',
                                 {
-                                    // The Today layout's content meets the chrome on straight seams.
-                                    'rounded-t': !todayRail,
                                     'p-0': noPaddingScene,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
-                                        sidePanelOverlapsMain,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
                                 }
                             )}
                         >

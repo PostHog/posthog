@@ -73,6 +73,12 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     ],
 )
 
+SANDBOX_RUN_START_TOTAL = Counter(
+    "posthog_tasks_sandbox_run_start_total",
+    "Run starts requested by task sandboxes, by endpoint and outcome",
+    labelnames=["endpoint", "outcome"],
+)
+
 TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
     "posthog_tasks_task_run_dispatch_callback_total",
     "on_commit workflow-dispatch callback lifecycle: 'scheduled' when registered, 'fired' when it runs. "
@@ -134,13 +140,6 @@ SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS = Gauge(
     "Age of the oldest due scheduled task run",
 )
 
-AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
-    "posthog_tasks_agent_otel_telemetry_stamped_total",
-    "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
-    "(tasks-agent-run-otel-telemetry flag). First-time stamps only; resumes reuse the stamp.",
-    labelnames=["enabled"],
-)
-
 RUN_LOG_MIRROR_ENTRIES_TOTAL = Counter(
     "posthog_tasks_run_log_mirror_entries_total",
     "Task-run log entries mirrored to stdout for the internal Logs project (run_log_mirror).",
@@ -188,6 +187,14 @@ TASK_RUN_FAILED_TOTAL = Counter(
         "temporal_activity_retry_state",
         "cause_error_type",
     ],
+)
+
+# Counted once per run on the terminal status write. TASK_RUN_FAILED_TOTAL only sees failures
+# that raise, so it misses runs the workflow fails directly, such as an agent lost mid-turn.
+TASK_RUN_TERMINAL_TOTAL = Counter(
+    "posthog_tasks_task_run_terminal_total",
+    "TaskRun terminal status transitions",
+    labelnames=["origin_product", "run_environment", "status", "error_type", "termination_reason"],
 )
 
 CUSTOM_IMAGE_BUILD_TOTAL = Counter(
@@ -532,6 +539,10 @@ def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
 
 
+def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
+    SANDBOX_RUN_START_TOTAL.labels(endpoint=endpoint, outcome=outcome).inc()
+
+
 def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
     TASK_RUN_DISPATCH_CALLBACK_TOTAL.labels(**_task_run_labels(task_run), phase=phase).inc()
 
@@ -695,6 +706,17 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
 
 
 _WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def observe_task_run_terminal(task_run: "TaskRun", *, error_type: str | None, termination_reason: str | None) -> None:
+    labels = _task_run_labels(task_run)
+    TASK_RUN_TERMINAL_TOTAL.labels(
+        origin_product=labels["origin_product"],
+        run_environment=labels["run_environment"],
+        status=_metric_label(task_run.status),
+        error_type=_failure_metric_label(error_type),
+        termination_reason=_metric_label(termination_reason),
+    ).inc()
 
 
 def observe_wizard_run_unbound(task_run: "TaskRun") -> None:

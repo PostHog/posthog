@@ -48,9 +48,9 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
+import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
-import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsTable/FunnelStepsTable'
 import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
@@ -173,7 +173,6 @@ export function shouldShowDashboardInsightRefreshHint({
 export function InsightVizDisplay({
     disableHeader,
     disableTable,
-    disableCorrelationTable,
     disableLastComputation,
     disableLastComputationRefresh,
     showingResults,
@@ -184,7 +183,6 @@ export function InsightVizDisplay({
 }: {
     disableHeader?: boolean
     disableTable?: boolean
-    disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
     showingResults?: boolean
@@ -442,7 +440,13 @@ export function InsightVizDisplay({
                 return (
                     <ChunkLoadErrorBoundary>
                         {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
-                        <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+                        <Suspense
+                            fallback={
+                                <div className="flex justify-center my-8">
+                                    <Spinner className="text-3xl" />
+                                </div>
+                            }
+                        >
                             <WebAnalyticsInsight context={context} editMode={editMode} />
                         </Suspense>
                     </ChunkLoadErrorBoundary>
@@ -547,6 +551,7 @@ export function InsightVizDisplay({
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
+    const showsDataChecks = !!context?.showDataChecks && !inSharedMode
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -593,6 +598,7 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
+                                        {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
                             )}
@@ -623,7 +629,6 @@ export function InsightVizDisplay({
             <ResultCustomizationsModal />
             {renderAIAnalysisSection()}
             {renderTable()}
-            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

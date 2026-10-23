@@ -119,6 +119,8 @@ class StepsContext:
     events: tuple[str, ...]
     channels: frozenset[Channel]
     has_slack: bool
+    # The trigger event's own properties, like a product name or an amount, that an email can show.
+    event_properties: tuple[str, ...] = ()
 
 
 _SIMPLE_RULE = (
@@ -132,6 +134,13 @@ _ONBOARDING_RULE = (
     "even when other events fire more often. Then prefer other meaningful moments."
 )
 
+_REVENUE_RULE = (
+    "Prefer moments where a message earns or saves money: a trial that ends soon, a cart or checkout left "
+    "unfinished, a failed payment, a cancellation or pause to win back, and a sign-up that has not reached its "
+    "first key action. Prefer them over thank-you, feedback and review requests. Prefer events that happen every "
+    "week over rare ones, so the workflow keeps sending."
+)
+
 _COPY_RULES = "Write plain, friendly copy in sentence case. No emojis, no em dashes, no placeholders like [Name], no template tags."
 
 _IDEAS_PROMPT = f"""You suggest marketing and automation workflows for a product team using PostHog Workflows.
@@ -140,7 +149,9 @@ Suggest up to 6 workflows the project does not have yet. Each one starts when on
 Rules:
 - trigger_event must be copied exactly from the event list.
 - {_ONBOARDING_RULE}
+- {_REVENUE_RULE}
 - Each idea must use a different trigger_event.
+- List the ideas best first. Within one lifecycle stage only the first idea is shown.
 - Email is the main way to reach people. {{channel_rule}} {{slack_rule}}
 - Use the steps the workflow needs, including waits for an event and branches. {_SIMPLE_RULE}
 - Put a delay between two emails.
@@ -158,7 +169,7 @@ Step types:
 - delay: wait a fixed time.
 - wait_until_time_window: wait for a time of day or day of the week the team picks.
 - wait_until_event: wait until the person does one of the project's events, at most duration.
-- conditional_branch: split on conditions the team defines, such as a person property.
+- conditional_branch: split on person properties the team defines. It cannot check what the person did.
 - random_split: split people at random into paths, such as for an A/B test.
 - exit: end the workflow early with a reason.
 
@@ -166,6 +177,14 @@ Rules:
 - Steps form a graph: next, branches and wait_event_next point at step ids. Never point back at an earlier step.
 - Leave settings you cannot know blank: API keys, URLs, channels, phone numbers, property filters and \
 recipients. The team fills them in. Say what is left in setup_note.
+- A wait_until_event step waits for the event that shows the workflow reached its goal for this person, like a \
+successful payment after a failed one, or an order after an abandoned cart. Use it only when an event in the list \
+clearly means that. Another event of the same kind is not enough: a paid invoice from the person's own customer is not \
+their subscription payment. When no event means it, use a delay instead.
+- To check whether the person did something, like started a chat or placed an order, wait for that event with a \
+wait_until_event step. Never use a delay followed by a conditional_branch for it, which the team would have to set up.
+- {{personalization_rule}}
+- Never promise a discount, offer or gift. The team adds one if it has one.
 - {{email_rule}}
 - {{channel_rule}}
 - {{slack_rule}}
@@ -225,6 +244,15 @@ def plan_steps(
         if context.has_slack
         else "The team has not connected Slack yet. A slack step is fine, the team connects it on the step."
     )
+    personalization_rule = (
+        "The trigger event carries the properties listed in trigger_event_properties. To show one in an email, write "
+        "[[property|fallback words]], for example [[product_name|your items]]. The fallback shows when the event has "
+        "no value. Use a property where it makes the email specific, like naming the product, plan or amount. Never show a "
+        "code, id or error value, which reads as noise to a customer. Never write a value yourself. This is the only "
+        "placeholder allowed."
+        if context.event_properties
+        else "Do not mention a product name, price or amount you cannot know."
+    )
     idea = context.idea
     human = as_untrusted_data(
         "workflow",
@@ -239,6 +267,12 @@ def plan_steps(
     human += "\n\n" + as_untrusted_data(
         "project_events", list(context.events), source="event names sent by this project's app"
     )
+    if context.event_properties:
+        human += "\n\n" + as_untrusted_data(
+            "trigger_event_properties",
+            list(context.event_properties),
+            source="property names this project sends on the trigger event",
+        )
     human += "\n\n" + as_untrusted_data(
         "step_catalog",
         [
@@ -267,6 +301,7 @@ def plan_steps(
             email_rule=email_rule,
             channel_rule=_channel_rule(context.channels),
             slack_rule=slack_rule,
+            personalization_rule=personalization_rule,
             max_steps=MAX_PLANNED_STEPS,
         ),
         excluded_values=_missing_channels(context.channels),

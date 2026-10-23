@@ -10,7 +10,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.models.subscription import Subscription
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
@@ -20,6 +19,7 @@ from products.subscriptions.backend.logic.auto_disable import (
     disable_invalid_subscription,
 )
 from products.subscriptions.backend.logic.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
+from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.temporal.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,

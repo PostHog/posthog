@@ -16,7 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
-from products.error_tracking.backend.logic.severity_inference import build_severity_state
+from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_severity_state
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
@@ -207,6 +207,27 @@ def test_embedding_failure_classification_and_capture(
     assert capture_exception.called is expect_captured
 
 
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
+def test_embedding_hands_the_judge_its_text_before_clickhouse_has_it(
+    generate_embedding: MagicMock,
+    get_team: MagicMock,
+    fetch_event_properties: MagicMock,
+    render_stacktrace: MagicMock,
+) -> None:
+    get_team.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    render_stacktrace.return_value = "TypeError: boom"
+    generate_embedding.return_value = MagicMock(embedding=[0.1, 0.2])
+
+    result = generate_issue_created_embedding_activity(_inputs("fingerprint"))
+
+    assert result.embedding is not None
+    assert result.embedding.merge_inputs.content == "TypeError: boom"
+
+
 def _decision(choice: str) -> DecisionResult:
     return DecisionResult(
         model="severity-model",
@@ -216,9 +237,10 @@ def _decision(choice: str) -> DecisionResult:
 
 
 @pytest.mark.parametrize(
-    "enabled,decide_outcome,expected_result,expected_error_type",
+    "enabled,ai_approved,decide_outcome,expected_result,expected_error_type",
     [
         (
+            False,
             False,
             _decision("critical"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DISABLED),
@@ -226,11 +248,27 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            False,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED),
+            None,
+        ),
+        (
+            True,
+            None,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED),
+            None,
+        ),
+        (
+            True,
+            True,
             _decision("critical"),
             IssueSeverityInferenceResult(resolved=True, stored_severity="critical"),
             None,
         ),
         (
+            True,
             True,
             _decision("catastrophic"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.UNEXPECTED_ANSWER),
@@ -238,19 +276,21 @@ def _decision(choice: str) -> DecisionResult:
         ),
         (
             True,
+            True,
             DecisionsDisabledError(1),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DECISIONS_UNAVAILABLE),
             None,
         ),
         (
             True,
+            True,
             DecisionGatewayError(422, "bad request"),
             IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.GATEWAY_REJECTED),
             None,
         ),
-        (True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
-        (True, DecisionGatewayError(503, "unavailable"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
-        (True, DecisionGatewayUnreachableError("timeout"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, True, DecisionGatewayError(503, "unavailable"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, True, DecisionGatewayUnreachableError("timeout"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
     ],
 )
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.posthoganalytics.capture_exception")
@@ -259,7 +299,7 @@ def _decision(choice: str) -> DecisionResult:
 )
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.logger")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.apply_inferred_severity")
-@patch("products.error_tracking.backend.logic.severity_inference.ml_inference.decide")
+@patch("products.error_tracking.backend.logic.severity_inference.ml_inference.decide_when_available")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.select_related")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.severity_inference_enabled")
@@ -273,12 +313,13 @@ def test_severity_inference_outcomes(
     inference_outcomes: MagicMock,
     capture_exception: MagicMock,
     enabled: bool,
+    ai_approved: bool | None,
     decide_outcome: DecisionResult | Exception,
     expected_result: IssueSeverityInferenceResult | None,
     expected_error_type: str | None,
 ) -> None:
     severity_inference_enabled.return_value = enabled
-    select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = True
+    select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = ai_approved
     fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     if isinstance(decide_outcome, Exception):
         decide.side_effect = decide_outcome
@@ -309,6 +350,12 @@ def test_severity_inference_outcomes(
     inference_outcomes.labels.assert_called_once_with(outcome=expected_outcome, severity=expected_severity)
     inference_outcomes.labels.return_value.inc.assert_called_once_with()
     capture_exception.assert_not_called()
+    if enabled and not ai_approved:
+        fetch_event_properties.assert_not_called()
+        decide.assert_not_called()
+    elif enabled and isinstance(decide_outcome, DecisionResult):
+        assert decide.call_args.args[0].model == SEVERITY_INFERENCE_MODEL
+        assert decide.call_args.args[0].privacy_mode is True
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")

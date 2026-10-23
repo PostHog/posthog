@@ -50,6 +50,7 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
+    ExecutionResult,
     SandboxBase,
     build_agent_runtime_env_prefix,
     build_agent_server_capability_probe,
@@ -213,6 +214,7 @@ class AgentServerPreflight:
     reused: bool
     capabilities: frozenset[str]
     memory_watchdog_missing: bool = False
+    launch_prepared: bool = False
 
     def supports(self, capability: str) -> bool:
         return capability in self.capabilities
@@ -221,6 +223,16 @@ class AgentServerPreflight:
 def build_agent_server_preflight_script(
     *, probe_health: bool, executable_paths: tuple[str, ...], probe_memory_watchdog: bool = False
 ) -> str:
+    lines = build_agent_server_preflight_lines(
+        probe_health=probe_health, executable_paths=executable_paths, probe_memory_watchdog=probe_memory_watchdog
+    )
+    lines.append("exit 0")
+    return "\n".join(lines)
+
+
+def build_agent_server_preflight_lines(
+    *, probe_health: bool, executable_paths: tuple[str, ...], probe_memory_watchdog: bool = False
+) -> list[str]:
     lines = [
         f"if ! chmod +x {shlex.quote(path)}; then exit {AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE}; fi"
         for path in executable_paths
@@ -246,8 +258,7 @@ def build_agent_server_preflight_script(
                 AGENT_SERVER_FREE_PORT_SCRIPT,
             ]
         )
-    lines.append("exit 0")
-    return "\n".join(lines)
+    return lines
 
 
 CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER = "claude_credential_unavailable"
@@ -326,7 +337,6 @@ class AgentServerLaunchMixin(SandboxBase):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
@@ -354,7 +364,6 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_token=event_ingest_token,
             task_run_session_token=task_run_session_token,
             event_ingest_url=event_ingest_url,
-            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
@@ -558,9 +567,6 @@ class AgentServerLaunchMixin(SandboxBase):
     def _agent_server_reuse_enabled(self) -> bool:
         return True
 
-    def _on_agent_server_reused(self) -> None:
-        return None
-
     def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
         executable_paths = self._install_agent_server_launch_files()
         result = self.execute_in_task_filesystem(
@@ -576,6 +582,11 @@ class AgentServerLaunchMixin(SandboxBase):
             ),
             timeout_seconds=AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
         )
+        return self._read_agent_server_preflight(result, executable_paths, allowed_domains)
+
+    def _read_agent_server_preflight(
+        self, result: ExecutionResult, executable_paths: tuple[str, ...], allowed_domains: list[str] | None
+    ) -> AgentServerPreflight:
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE:
             raise SandboxExecutionError(
                 "Failed to set permissions on required sandbox file",
@@ -605,7 +616,6 @@ class AgentServerLaunchMixin(SandboxBase):
         if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in lines:
             if allowed_domains is None or self._agentsh_daemon_is_healthy():
                 logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-                self._on_agent_server_reused()
                 return AgentServerPreflight(reused=True, capabilities=capabilities)
             self._free_agent_server_port()
         return AgentServerPreflight(
@@ -701,7 +711,6 @@ class AgentServerLaunchMixin(SandboxBase):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
@@ -732,7 +741,8 @@ class AgentServerLaunchMixin(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        self._prepare_agent_server_launch(allowed_domains)
+        if not preflight.launch_prepared:
+            self._prepare_agent_server_launch(allowed_domains)
         memory_watchdog_ready = self._install_memory_watchdog(preflight)
 
         codex_run_token_file = CODEX_RUN_TOKEN_FILE if codex_run_token else None
@@ -789,7 +799,6 @@ class AgentServerLaunchMixin(SandboxBase):
                 event_ingest_token=event_ingest_token,
                 task_run_session_token=task_run_session_token,
                 event_ingest_url=event_ingest_url,
-                event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,

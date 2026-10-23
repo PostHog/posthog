@@ -42,6 +42,23 @@ export function BIToolbar(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
+            {!config.querySnapshot && (
+                <>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        active={fieldsPaneOpen}
+                        onClick={toggleFieldsPane}
+                        aria-label="Fields"
+                        aria-pressed={fieldsPaneOpen}
+                        tooltip={fieldsPaneOpen ? 'Hide fields panel' : 'Show fields panel'}
+                        data-attr="bi-editor-toggle-fields"
+                    >
+                        Fields
+                    </LemonButton>
+                    <LemonDivider vertical />
+                </>
+            )}
             <LemonButton
                 size="xsmall"
                 type="primary"
@@ -133,7 +150,7 @@ export function BIToolbar(): JSX.Element {
                         value={config.limit}
                         options={LIMIT_OPTIONS}
                         onChange={setLimit}
-                        renderButtonContent={(option) => `Aggregated rows: ${option?.label ?? config.limit}`}
+                        renderButtonContent={(option) => `Rows: ${option?.label ?? config.limit}`}
                         aria-label="Aggregated result row limit"
                         tooltip="Maximum aggregated result rows, after grouping and calculations. This does not limit the source rows read."
                         size="xsmall"
@@ -160,16 +177,6 @@ export function BIToolbar(): JSX.Element {
             </LemonButton>
             {!config.querySnapshot && (
                 <div className="ml-auto flex flex-wrap items-center gap-1">
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        active={fieldsPaneOpen}
-                        onClick={toggleFieldsPane}
-                        aria-pressed={fieldsPaneOpen}
-                        data-attr="bi-editor-toggle-fields"
-                    >
-                        Fields
-                    </LemonButton>
                     <LemonButton
                         size="xsmall"
                         type="secondary"

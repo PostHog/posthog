@@ -1,14 +1,18 @@
+from collections import deque
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.settings import (
@@ -26,6 +30,8 @@ DEFAULT_REGION = "us"
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
+# Each folders request lists the provider live, so bound the tree walk per connection.
+MAX_FOLDER_REQUESTS_PER_CONNECTION = 200
 
 
 class HyperspellRetryableError(Exception):
@@ -109,15 +115,13 @@ def validate_credentials(
     return False, f"Hyperspell API returned an unexpected status code: {response.status_code}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((HyperspellRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(
-    session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
+def _fetch_page(session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
     response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # Rate limits aren't documented; treat 429 and transient 5xx as retryable with backoff.
@@ -146,7 +150,7 @@ def _normalize_row(config: HyperspellEndpointConfig, item: dict[str, Any], user_
 
 
 def _page_params(config: HyperspellEndpointConfig, cursor: str | None) -> dict[str, Any]:
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.static_params)
     if config.pagination == "none":
         return params
     if config.page_size_param:
@@ -184,7 +188,7 @@ def _get_list_rows(
         url = _build_url(base_url, config.path, _page_params(config, cursor))
 
         data = _fetch_page(session, url, headers, logger)
-        items = data.get(config.data_key) or []
+        items = (data if config.data_key is None else data.get(config.data_key)) or []
         next_cursor = _next_cursor(config, data, items, cursor)
 
         if items:
@@ -199,16 +203,19 @@ def _get_list_rows(
         cursor = next_cursor
 
 
-def _channel_integration_ids(
-    session: requests.Session, base_url: str, api_key: str, logger: FilteringBoundLogger
+# Integration capability flags that make a connection worth fanning out over, per endpoint.
+FAN_OUT_INTEGRATION_FLAGS: dict[str, tuple[str, ...]] = {
+    "integration_channels": ("supports_channel_selection", "requires_channel_selection"),
+    "connection_folders": ("supports_folder_selection", "folder_selection_required"),
+}
+
+
+def _fan_out_integration_ids(
+    session: requests.Session, base_url: str, api_key: str, flags: tuple[str, ...], logger: FilteringBoundLogger
 ) -> set[str]:
     url = _build_url(base_url, HYPERSPELL_ENDPOINTS["integrations"].path, {})
     integrations = _fetch_page(session, url, _get_headers(api_key), logger).get("integrations") or []
-    return {
-        integration["id"]
-        for integration in integrations
-        if integration.get("supports_channel_selection") or integration.get("requires_channel_selection")
-    }
+    return {integration["id"] for integration in integrations if any(integration.get(flag) for flag in flags)}
 
 
 def _get_channel_rows(
@@ -258,6 +265,68 @@ def _get_channel_rows(
         ]
 
 
+def _get_folder_rows(
+    session: requests.Session,
+    base_url: str,
+    config: HyperspellEndpointConfig,
+    headers: dict[str, str],
+    principal: str | None,
+    folder_integration_ids: set[str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[HyperspellResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    connections_url = _build_url(base_url, HYPERSPELL_ENDPOINTS["connections"].path, {})
+    connections = _fetch_page(session, connections_url, headers, logger).get("connections") or []
+    resumable_source_manager.safe_point()
+
+    for connection in connections:
+        integration_id = connection.get("integration_id")
+        if integration_id not in folder_integration_ids:
+            continue
+
+        connection_id = connection["id"]
+        path = config.path.format(connection_id=quote(connection_id, safe=""))
+        # The endpoint lists one level per request, so walk the tree breadth-first from the root.
+        pending_parents: deque[str | None] = deque([None])
+        seen: set[str] = set()
+        requests_made = 0
+
+        while pending_parents:
+            if requests_made >= MAX_FOLDER_REQUESTS_PER_CONNECTION:
+                logger.warning(
+                    f"Hyperspell: folder walk for connection {connection_id} hit the cap of "
+                    f"{MAX_FOLDER_REQUESTS_PER_CONNECTION} requests, deeper folders are not synced"
+                )
+                break
+
+            parent_id = pending_parents.popleft()
+            url = _build_url(base_url, path, {"parent_id": parent_id} if parent_id else {})
+            data = _fetch_page(session, url, headers, logger)
+            requests_made += 1
+
+            rows: list[dict[str, Any]] = []
+            for folder in data.get(config.data_key) or []:
+                folder_id = folder.get("provider_folder_id")
+                # Providers such as Google Drive let one folder sit under several parents.
+                if not folder_id or folder_id in seen:
+                    continue
+                seen.add(folder_id)
+                if folder.get("has_children"):
+                    pending_parents.append(folder_id)
+                rows.append(
+                    {
+                        **_normalize_row(config, folder, principal),
+                        "connection_id": connection_id,
+                        "integration_id": integration_id,
+                    }
+                )
+
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+
 def get_rows(
     api_key: str,
     region: str | None,
@@ -294,8 +363,9 @@ def get_rows(
         resume_cursor = resume.cursor
         logger.debug(f"Hyperspell: resuming {endpoint} from user_id={resume.user_id}, cursor={resume_cursor}")
 
-    channel_integration_ids = (
-        _channel_integration_ids(session, base_url, api_key, logger) if endpoint == "integration_channels" else set()
+    fan_out_flags = FAN_OUT_INTEGRATION_FLAGS.get(endpoint)
+    fan_out_integration_ids = (
+        _fan_out_integration_ids(session, base_url, api_key, fan_out_flags, logger) if fan_out_flags else set()
     )
 
     for index, principal in enumerate(remaining):
@@ -310,7 +380,18 @@ def get_rows(
                 config,
                 headers,
                 principal,
-                channel_integration_ids,
+                fan_out_integration_ids,
+                logger,
+                resumable_source_manager,
+            )
+        elif endpoint == "connection_folders":
+            yield from _get_folder_rows(
+                session,
+                base_url,
+                config,
+                headers,
+                principal,
+                fan_out_integration_ids,
                 logger,
                 resumable_source_manager,
             )

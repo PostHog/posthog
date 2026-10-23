@@ -132,7 +132,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -178,6 +178,8 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/job_owners.py'
                         - 'posthog/llm/**'
+                        - 'posthog/api/embedding_worker.py'
+                        - 'posthog/security/outbound_proxy.py'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/personhog_client/**'
@@ -224,6 +226,10 @@ jobs:
                         - 'products/feature_flags/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
                         - 'products/signals/backend/**/*.py'
+                        # The activity summary DAG reads tasks through this one facade module.
+                        # Narrow on purpose: tasks is a busy backend that no other DAG imports.
+                        - 'products/tasks/backend/facade/user_task_summaries.py'
+                        - 'products/tasks/backend/logic/user_task_summaries.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'

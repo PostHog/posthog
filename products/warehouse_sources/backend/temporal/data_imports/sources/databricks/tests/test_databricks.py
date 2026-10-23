@@ -300,6 +300,7 @@ class TestBuildPipeline:
             # Full refresh rewrites the whole table — the partition probes must be skipped.
             assert response.partition_count is None
             assert response.partition_size is None
+            assert response.sort_mode is None
             # The stream must terminate on the first empty arrow batch — not loop forever.
             assert list(response.items()) == [batch]
 
@@ -327,11 +328,12 @@ class TestBuildPipeline:
             # Table stats feed the shared partition math so incremental merges get md5 partitioning.
             assert response.partition_count is not None
             assert response.partition_size is not None
+            assert response.sort_mode == "asc"
             list(response.items())
 
         sql, params = streaming_cursor.execute.call_args.args
         assert "WHERE `updated_at` > :incremental_value" in sql
-        assert "ORDER BY `updated_at` ASC" in sql
+        assert sql.endswith("ORDER BY `updated_at` ASC")
         assert params == {"incremental_value": "2025-01-01T00:00:00"}
 
 
@@ -421,6 +423,18 @@ class TestDatabricksSource:
         # rather than disabling the source.
         observed_error = "Command failed because warehouse abc123 was stopped."
         assert any(key in observed_error for key in source.get_retryable_errors())
+
+    def test_get_non_retryable_errors_matches_incompatible_view_schema_change(self, source):
+        # A synced view whose underlying table schema changed fails identically on every retry
+        # until the customer recreates the view — Databricks even echoes the view and column
+        # names plus a CREATE OR REPLACE statement, so the match must key off the stable error
+        # class rather than any of that volatile detail.
+        observed_error = (
+            "[INCOMPATIBLE_VIEW_SCHEMA_CHANGE] The SQL query of view `main`.`posthog`.`alert` has an "
+            "incompatible schema change and column alert_severity cannot be resolved. Expected 1 "
+            "columns named alert_severity but got []."
+        )
+        assert any(key in observed_error for key in source.get_non_retryable_errors())
 
 
 class TestGetSchemasDeadline:

@@ -111,10 +111,14 @@ export interface todayReportLogicActions {
         reportUrl: string,
         question: string,
         agentQuestion?: string | undefined,
-        intent?: import('products/signals/frontend/inbox/inboxTaskKickoffLogic').ReportDiscussionIntent | undefined
+        intent?: import('products/signals/frontend/inbox/inboxTaskKickoffLogic').ReportDiscussionIntent | undefined,
+        pullRequestUrl?: string | undefined,
+        background?: boolean | undefined
     ) => {
         agentQuestion: string | undefined
+        background: boolean | undefined
         intent: import('products/signals/frontend/inbox/inboxTaskKickoffLogic').ReportDiscussionIntent | undefined
+        pullRequestUrl: string | undefined
         question: string
         report: SignalReport
         reportUrl: string

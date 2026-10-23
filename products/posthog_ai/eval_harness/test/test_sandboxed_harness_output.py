@@ -7,6 +7,7 @@ import json
 import asyncio
 import logging
 import warnings
+import importlib
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -41,15 +42,16 @@ from products.posthog_ai.eval_harness.engines.types import (
 )
 from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
+from products.posthog_ai.eval_harness.harness.discovery import EvalSuite, discover_suites
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
+from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
 from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
-from products.posthog_ai.evals.sql import eval_sql as sql_eval
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
@@ -379,17 +381,22 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.parametrize(
-    "suite_kind,enrolled,no_send_logs,configuration,http_status,delivery_state",
+    "suite_kind,enrolled,no_send_logs,send_to_posthog,posthog_enabled,configuration,http_status,delivery_state",
     [
-        ("sandboxed", True, False, "valid", 200, "ready"),
-        ("sandboxed", True, False, "valid", 403, "ready"),
-        ("sandboxed", True, False, "invalid", 200, "ready"),
-        ("sandboxed", True, False, "absent", 200, "ready"),
-        ("sandboxed", True, True, "valid", 200, "ready"),
-        ("sandboxed", False, False, "valid", 200, "ready"),
-        ("one-shot", True, False, "valid", 200, "ready"),
-        ("sandboxed", True, False, "valid", 200, "unavailable"),
-        ("sandboxed", True, False, "valid", 200, "closed"),
+        ("sandboxed", True, False, None, True, "valid", 200, "ready"),
+        ("sandboxed", True, False, None, True, "valid", 403, "ready"),
+        ("sandboxed", True, False, None, True, "invalid", 200, "ready"),
+        ("sandboxed", True, False, None, True, "absent", 200, "ready"),
+        ("sandboxed", True, True, None, False, "valid", 200, "ready"),
+        ("sandboxed", False, False, None, True, "valid", 200, "ready"),
+        ("one-shot", True, False, None, True, "valid", 200, "ready"),
+        ("sandboxed", True, False, None, True, "valid", 200, "unavailable"),
+        ("sandboxed", True, False, None, True, "valid", 200, "closed"),
+        ("sandboxed", True, True, True, True, "valid", 200, "ready"),
+        ("one-shot", True, True, True, True, "valid", 200, "ready"),
+        ("sandboxed", True, False, False, False, "valid", 200, "ready"),
+        ("sandboxed", True, True, True, True, "absent", 200, "ready"),
+        ("sandboxed", False, True, True, True, "valid", 200, "ready"),
     ],
 )
 @pytest.mark.asyncio
@@ -400,11 +407,13 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     suite_kind: Literal["sandboxed", "one-shot"],
     enrolled: bool,
     no_send_logs: bool,
+    send_to_posthog: bool | None,
+    posthog_enabled: bool,
     configuration: Literal["valid", "invalid", "absent"],
     http_status: int,
     delivery_state: Literal["ready", "unavailable", "closed"],
 ) -> None:
-    for key in ("API_KEY", "HOST"):
+    for key in ("API_KEY", "HOST", "LOCAL_CONFIG"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
     monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
     monkeypatch.chdir(tmp_path)
@@ -473,6 +482,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
             ctx=ctx,
             is_public=not no_send_logs,
             no_send_logs=no_send_logs,
+            send_to_posthog=send_to_posthog,
             offline_suite=OfflineEvalSuite(
                 key="example/suite",
                 project_id=123,
@@ -494,14 +504,14 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     engine.run_experiment.assert_awaited_once()
     engine_spec = engine.run_experiment.call_args.args[0]
     assert engine_spec.no_send_logs is no_send_logs
-    assert engine_spec.record_scorer_results is (enrolled and not no_send_logs and configuration == "valid")
+    assert engine_spec.record_scorer_results is (enrolled and posthog_enabled and configuration == "valid")
     assert reporter.mean_score() == 1.0
     reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
     output = capsys.readouterr().out
     assert "Braintrust: https://braintrust.example.com/experiment/test" in output
     assert "exit_code_zero: 100.0%" in output
     assert not (tmp_path / "offline-pilot" / "latest" / "posthog-offline-upload.json").exists()
-    if enrolled and not no_send_logs and configuration == "valid" and delivery_state == "ready":
+    if enrolled and posthog_enabled and configuration == "valid" and delivery_state == "ready":
         declaration = json.loads(requests[0].content)
         assert declaration["name"] == "offline-pilot"
         assert declaration["expected_item_count"] == 1
@@ -530,34 +540,68 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
             )
             assert reason in output
             assert "Results were not saved for retry." in output
-        elif enrolled and not no_send_logs:
+        elif enrolled and posthog_enabled:
             assert "PostHog offline: disabled:" in output
             assert "POSTHOG_OFFLINE_EVAL_" in output
         else:
             assert "POSTHOG OFFLINE" not in output
 
 
+@pytest.mark.parametrize(
+    "discovered",
+    [
+        suite
+        for suite in discover_suites()
+        if suite.fn.__module__.startswith(("products.posthog_ai.evals.", "products.slack_app.evals."))
+        and hasattr(importlib.import_module(suite.fn.__module__), "offline_suite")
+    ],
+    ids=lambda suite: suite.id,
+)
 @pytest.mark.asyncio
-async def test_sql_suite_enrolls_every_scorer_in_offline_publishing(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_suite_enrolls_every_scorer_in_offline_publishing(
+    monkeypatch: pytest.MonkeyPatch, discovered: EvalSuite
+) -> None:
+    domain, module_name, suite_kind = discovered.domain, discovered.module_name, discovered.kind
+    module = importlib.import_module(discovered.fn.__module__)
+    if domain == "taxonomic_filter":
+        monkeypatch.setattr(module, "system_one_configured", lambda: True)
+        if module_name == "eval_event_match":
+            monkeypatch.setattr(module, "EVENT_MATCH_MODEL", MagicMock())
+        else:
+            monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
     run = AsyncMock()
-    monkeypatch.setattr(sql_eval, "SandboxedPublicEval", run)
+    runner_kind = "OneShot" if suite_kind == SuiteKind.ONE_SHOT else "Sandboxed"
+    runner_visibility = "Private" if discovered.no_send_logs else "Public"
+    monkeypatch.setattr(module, f"{runner_kind}{runner_visibility}Eval", run)
 
-    await sql_eval.eval_sql(MagicMock())
+    await discovered.fn(MagicMock(skill_delivery="bundled"))
 
     run.assert_awaited_once()
     suite = run.call_args.kwargs["offline_suite"]
-    assert suite.key == "sql/eval_sql::eval_sql"
-    assert suite.scorer_kinds == {
-        "exit_code_zero": "boolean",
-        "no_persistent_insight_save": "boolean",
-        "execute_sql_called": "boolean",
-        "answer_tool_not_typed_query": "boolean",
-        "querying_posthog_data_skill_loaded": "boolean",
-        "sql_schema_alignment": "numeric",
-        "sql_result_message_alignment": "numeric",
-    }
+    assert suite.key == discovered.id
+    component = (
+        f"slack-app/{module_name.removeprefix('eval_').replace('_', '-')}"
+        if domain == "slack_app"
+        else f"posthog-ai/{domain.replace('_', '-')}"
+    )
+    assert suite.tags == ("team:surfaces", f"component:{component}")
+    if domain == "experiments":
+        assert run.call_args.kwargs["send_to_posthog"] is True
+        assert set(suite.scorer_kinds.values()) == {"boolean"}
+    elif domain == "sql":
+        assert suite.scorer_kinds == {
+            "exit_code_zero": "boolean",
+            "no_persistent_insight_save": "boolean",
+            "execute_sql_called": "boolean",
+            "answer_tool_not_typed_query": "boolean",
+            "querying_posthog_data_skill_loaded": "boolean",
+            "sql_schema_alignment": "numeric",
+            "sql_result_message_alignment": "numeric",
+        }
     configured_names = {scorer._name() for scorer in run.call_args.kwargs["scorers"]}
-    assert set(suite.scorer_kinds) == {"exit_code_zero", *configured_names}
+    if suite_kind == SuiteKind.SANDBOXED:
+        configured_names.add("exit_code_zero")
+    assert set(suite.scorer_kinds) == set(suite.scorer_versions) == configured_names
 
 
 @pytest.mark.parametrize(

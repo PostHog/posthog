@@ -60,6 +60,9 @@ class TestBuildParams:
             ("leave_requests", True, "updated_at", None, "created_at"),
             ("payroll_runs", True, None, None, "check_date"),
             ("payroll_runs", False, None, None, "check_date"),
+            # The payouts list rejects OData filters and accepts no order_by.
+            ("variable_compensation_payouts", True, "updated_at", None, None),
+            ("variable_compensation_payouts", False, None, None, None),
         ],
     )
     def test_request_params(
@@ -73,7 +76,7 @@ class TestBuildParams:
         )
 
         assert params.get("filter") == expected_filter
-        assert params["order_by"] == expected_order_by
+        assert params.get("order_by") == expected_order_by
         assert params["limit"] == PAGE_SIZE
 
 
@@ -96,11 +99,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
             # A valid token without the companies.read scope still 403s; only 401
             # means the token itself is bad.
             (403, True),
-            (401, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):

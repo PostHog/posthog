@@ -198,6 +198,25 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
 
 
+def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
+    return (
+        AccessControl.objects.filter(
+            team_id=team_id,
+            resource__in=[
+                "project",
+                "dashboard",
+                "notebook",
+                "insight",
+                "external_data_source",
+                "warehouse_objects",
+                "warehouse_table",
+                "warehouse_view",
+            ],
+        ).exists()
+        or PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
+    )
+
+
 def user_organizations_use_access_controls(*, user_id: int) -> bool:
     """Whether access rules can narrow what the user reaches in one of their organizations.
 
@@ -358,6 +377,28 @@ def object_ids_restricted_from_any_member(
         .values_list("resource_id", flat=True)
     )
     return {resource_id for resource_id in restricted if resource_id}
+
+
+def object_ids_with_rules(*, team_id: int, resource: APIScopeObject) -> set[str]:
+    """Ids of `resource` objects that carry any object-level rule, whatever its level.
+
+    For a caller that copies an object into a new one that can't carry the same rules. It skips
+    every object with a rule rather than judging which rules restrict, and it ignores whether
+    the organization enforces rules today, because the rules apply again when it does.
+    """
+    resource_ids = AccessControl.objects.filter(
+        team_id=team_id, resource=resource, resource_id__isnull=False
+    ).values_list("resource_id", flat=True)
+    return {resource_id for resource_id in resource_ids if resource_id}
+
+
+def resource_has_rules(*, team_id: int, resource: APIScopeObject) -> bool:
+    """Whether the team has any resource-level rule for `resource`, whatever its level.
+
+    For a caller about to make objects inherit from `resource`, which changes what those rules
+    reach. Like `object_ids_with_rules`, it ignores whether the organization enforces rules today.
+    """
+    return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=True).exists()
 
 
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:

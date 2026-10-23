@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -13,6 +15,8 @@ import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './steps/batchTriggerLogic'
 import { MissingRecipientEmailBanner } from './steps/components/MissingRecipientEmailBanner'
+import { RealtimeCohortCalculatingBanner } from './steps/components/RealtimeCohortCalculatingBanner'
+import { isRealtimeCohortCalculating, realtimeCohortSendBlockedReason } from './steps/realtimeCohortStatus'
 import { recipientEmailProperties } from './steps/recipientEmail'
 
 const TriggerPopover = ({
@@ -54,7 +58,10 @@ const TriggerPopover = ({
         return ''
     }
 
-    const getButtonText = (): string => `Run workflow${blastRadiusSuffix()}`
+    const realtimeCohort = workflow?.trigger?.type === 'batch' ? blastRadius?.realtime_cohort : undefined
+    // The cohort has no size to show until it finishes calculating.
+    const getButtonText = (): string =>
+        isRealtimeCohortCalculating(realtimeCohort) ? 'Run when calculated' : `Run workflow${blastRadiusSuffix()}`
 
     const variablesSection =
         !workflow?.variables || workflow.variables.length === 0 ? (
@@ -119,6 +126,7 @@ const TriggerPopover = ({
                     audienceSize={blastRadius?.affected}
                 />
             ))}
+            <RealtimeCohortCalculatingBanner status={realtimeCohort} />
             <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"
@@ -127,7 +135,7 @@ const TriggerPopover = ({
                     disabledReason={
                         blastRadiusExceeded && blastRadius?.limit != null
                             ? `Your audience is above this project's batch limit of ${humanFriendlyNumber(blastRadius.limit)} ${isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow it.${hogFlowSendsEmail(workflow) ? ' The limit rises as the project builds a clean sending history.' : ''}`
-                            : undefined
+                            : realtimeCohortSendBlockedReason(realtimeCohort)
                     }
                     onClick={() => {
                         if (workflow?.trigger?.type === 'batch') {
@@ -154,8 +162,26 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
     const { workflow, hasUnsavedChanges } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const triggerButton = (
+    const triggerDisabledReason =
+        workflow?.status !== 'active'
+            ? 'Must enable workflow to use trigger'
+            : hasUnsavedChanges
+              ? 'Save changes first'
+              : undefined
+
+    const triggerButton = todayRailNav ? (
+        <Button
+            variant="primary"
+            disabledReason={triggerDisabledReason}
+            tooltip="Triggers workflow immediately"
+            onClick={() => setPopoverVisible(!popoverVisible)}
+        >
+            Trigger
+            <IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />
+        </Button>
+    ) : (
         <LemonButton
             type="primary"
             size="small"

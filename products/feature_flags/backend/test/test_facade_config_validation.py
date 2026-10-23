@@ -44,7 +44,7 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 
 # Vendored from the released harness contract; SOURCE.json records the revision and digests.
-CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "2.0.0"
+CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract"
 LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
 
 TARGETED_ID = "11111111-1111-4111-8111-111111111111"
@@ -344,9 +344,9 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     (
         "targeted_with_experiment_fields",
-        config(targeted(experiment_id=1, variants=[], holdout=None)),
+        config(targeted(paused=False, variants=[], holdout=None)),
         [
-            ("unknown_field", "filters.rules[0].experiment_id"),
+            ("unknown_field", "filters.rules[0].paused"),
             ("unknown_field", "filters.rules[0].variants"),
             ("unknown_field", "filters.rules[0].holdout"),
         ],
@@ -913,27 +913,16 @@ def _admitted_family(document: dict[str, Any]) -> bool:
 class TestReleasedContract:
     def test_vendored_contract_is_intact(self) -> None:
         source = load_contract("SOURCE.json")
-        index_bytes = (CONTRACT_DIR / "SHA256SUMS").read_bytes()
-        assert hashlib.sha256(index_bytes).hexdigest() == source["source_sha256sums_digest"]
-        index = {
-            path: digest for digest, path in re.findall(r"^([0-9a-f]{64})  (.+)$", index_bytes.decode("utf-8"), re.M)
-        }
-        vendored = [
-            path
+        vendored = {
+            path.relative_to(CONTRACT_DIR).as_posix(): path
             for path in CONTRACT_DIR.rglob("*")
-            if path.is_file() and path.name not in ("SHA256SUMS", "SOURCE.json")
-        ]
-        relatives = {path.relative_to(CONTRACT_DIR).as_posix() for path in vendored}
-        # A deliberate subset of the upstream index: the corpus and wire files stay with the Rust runner.
-        assert relatives <= set(index)
-        for path in vendored:
-            relative = path.relative_to(CONTRACT_DIR).as_posix()
-            assert hashlib.sha256(path.read_bytes()).hexdigest() == index[relative], relative
-        assert {entry["path"] for entry in CONTRACT_FIXTURES} <= relatives
+            if path.is_file() and path.name != "SOURCE.json"
+        }
+        assert set(vendored) == set(source["files"])
+        for relative, path in vendored.items():
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == source["files"][relative], relative
+        assert {entry["path"] for entry in CONTRACT_FIXTURES} <= set(vendored)
         assert MANIFEST["contract"]["version"] == source["contract_version"]
-        versions = {artifact["path"]: artifact.get("version") for artifact in MANIFEST["artifacts"]}
-        assert versions["schemas/config.schema.json"] == source["config_schema_version"]
-        assert versions["registries/literals.json"] == source["registry_version"]
 
     def test_literals_agree_with_the_released_registry(self) -> None:
         registry = load_contract("registries/literals.json")

@@ -15,7 +15,7 @@ import {
     IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsButton, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,6 +33,7 @@ import { urls } from 'scenes/urls'
 
 import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
+import { SessionLogsUnavailableNotice } from './components/SessionLogsUnavailableNotice'
 
 function sideActionForType({
     type,
@@ -281,16 +282,46 @@ function CommentsFilterSettingsButton(): JSX.Element {
 
 function LogsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByItemType, logsLoading, logsLoadError } = useValues(playerInspectorLogic(logicProps))
+    const { allItemsByItemType, logsLoading, logsLoadError, logsInitialLoadRequested } = useValues(
+        playerInspectorLogic(logicProps)
+    )
 
     const hasLogItems = allItemsByItemType['logs']?.length > 0
+    const showLogsUpsell = logsInitialLoadRequested && !logsLoading && !logsLoadError && !hasLogItems
+
+    useEffect(() => {
+        if (showLogsUpsell) {
+            posthog.capture('recording inspector upsell shown', { type: 'logs' })
+        }
+    }, [showLogsUpsell])
+
+    if (showLogsUpsell) {
+        return (
+            <div className="SettingsBar--button--square">
+                <LemonDropdown
+                    overlay={<SessionLogsUnavailableNotice sessionId={logicProps.sessionRecordingId} />}
+                    closeOnClickInside={false}
+                    placement="bottom-end"
+                >
+                    <LemonButton
+                        className="rounded-[0px]"
+                        size="xsmall"
+                        icon={<IconLive />}
+                        data-attr="player-inspector-logs-unavailable"
+                    >
+                        Logs
+                    </LemonButton>
+                </LemonDropdown>
+            </div>
+        )
+    }
 
     const disabledReason = logsLoading
         ? 'Loading logs...'
-        : logsLoadError
-          ? 'Failed to load logs for this session'
-          : !hasLogItems
-            ? 'No logs found for this session'
+        : !logsInitialLoadRequested
+          ? "Logs load after the recording's events load"
+          : logsLoadError
+            ? 'Failed to load logs for this session'
             : undefined
 
     return (

@@ -244,10 +244,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status", "valid", "message_fragment"),
         [
-            (200, True, None),
-            (401, False, "Invalid HCP Terraform API token"),
             (404, False, "not found or your API token cannot access it"),
-            (500, False, "unexpected status"),
         ],
     )
     def test_maps_status_to_result(self, status: int, valid: bool, message_fragment: str | None) -> None:

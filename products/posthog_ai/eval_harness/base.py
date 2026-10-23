@@ -166,12 +166,14 @@ class _BaseEvalRun:
         no_send_logs: bool,
         engine: EvalEngine | None = None,
         offline_suite: OfflineEvalSuite | None = None,
+        send_to_posthog: bool | None = None,
     ) -> None:
         self.experiment_name = experiment_name
         self.cases = cases
         self.ctx = ctx
         self.is_public = is_public
         self.no_send_logs = no_send_logs
+        self.send_to_posthog = not no_send_logs if send_to_posthog is None else send_to_posthog
         self.offline_suite = offline_suite
         self.offline_publisher: OfflineEvalPublisher | None = None
         self.started_at = datetime.now(UTC)
@@ -386,6 +388,7 @@ class _BaseEvalRun:
             result.summary,
             error_count=error_count,
             trial_stats=trial_stats(result.results, trials=self.ctx.trials),
+            case_results=result.results,
         )
 
         if os.getenv("EXPORT_EVAL_RESULTS"):
@@ -394,7 +397,7 @@ class _BaseEvalRun:
         await self._enqueue_offline_upload(result)
 
     async def _enqueue_offline_upload(self, result: ExperimentResult) -> None:
-        if self.offline_publisher is None or self.no_send_logs:
+        if self.offline_publisher is None or not self.send_to_posthog:
             return
         try:
             upload = await asyncio.to_thread(
@@ -471,7 +474,7 @@ class _BaseEvalRun:
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
 
-        if self.offline_suite is not None and not self.no_send_logs:
+        if self.offline_suite is not None and self.send_to_posthog:
             try:
                 settings = OfflineEvalSettings.from_env(self.offline_suite)
                 if settings is not None:
@@ -495,7 +498,12 @@ class _BaseEvalRun:
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
         planned_cases = len(eval_cases) * self.ctx.trials
-        await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases, self.run_log_dir)
+        await self.ctx.reporter.experiment_started(
+            self.experiment_name,
+            planned_cases,
+            self.run_log_dir,
+            case_names=[str(case.input["name"]) for case in eval_cases],
+        )
 
         try:
             result = await self.engine.run_experiment(
@@ -607,6 +615,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         is_public: bool,
         no_send_logs: bool,
         offline_suite: OfflineEvalSuite | None = None,
+        send_to_posthog: bool | None = None,
     ) -> None:
         if any(isinstance(scorer, ExitCodeZero) for scorer in scorers):
             raise ValueError("ExitCodeZero is added by the sandboxed eval harness; remove it from scorers")
@@ -618,6 +627,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             is_public=is_public,
             no_send_logs=no_send_logs,
             offline_suite=offline_suite,
+            send_to_posthog=send_to_posthog,
         )
         # Narrow the infra-backed optionals once: they are None only when the
         # harness didn't boot sandbox infrastructure for this run.
@@ -864,6 +874,7 @@ async def SandboxedEval(
     is_public: bool = False,
     no_send_logs: bool = True,
     offline_suite: OfflineEvalSuite | None = None,
+    send_to_posthog: bool | None = None,
 ) -> ExperimentResult:
     """Run a sandboxed agent evaluation suite via Braintrust.
 
@@ -888,6 +899,7 @@ async def SandboxedEval(
         is_public=is_public,
         no_send_logs=no_send_logs,
         offline_suite=offline_suite,
+        send_to_posthog=send_to_posthog,
     )
     return await run.run()
 

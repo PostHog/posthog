@@ -5,7 +5,7 @@ Scripts for connecting AI assistants (Claude Code, Cursor, etc.) to PostHog's in
 ## Why these scripts exist
 
 PostHog's Grafana instances are reachable directly over Tailscale at plain HTTP hostnames
-(`grafana-prod-us`, `grafana-prod-eu`, `grafana-dev`, `grafana-internal`).
+(`grafana-prod-us`, `grafana-prod-eu`, `grafana-dev`, `grafana-internal`, `grafana-mw-dev`, `grafana-mw-prod-us`, `grafana-mw-prod-eu`, `grafana-infra-dev`, `grafana-infra-dev-wl`).
 Authentication is handled at the Grafana layer via a service account Bearer token,
 which the Grafana MCP server supports natively.
 
@@ -47,7 +47,7 @@ The wrapper does not add a proxy, tunnel, or authentication bypass.
 
 ## Prerequisites
 
-- **Tailscale** connected, with access to the selected Grafana host (`grafana-prod-us`, `grafana-prod-eu`, `grafana-dev`, or `grafana-internal`)
+- **Tailscale** connected, with access to the selected Grafana host (`grafana-prod-us`, `grafana-prod-eu`, `grafana-dev`, `grafana-internal`, `grafana-mw-dev`, `grafana-mw-prod-us`, `grafana-mw-prod-eu`, `grafana-infra-dev`, or `grafana-infra-dev-wl`)
 - **mcp-grafana** binary installed
 - **macOS** (for Keychain-based token storage) or Linux with environment variables
 
@@ -92,6 +92,11 @@ grafana-token us <your-us-token>
 grafana-token eu <your-eu-token>
 grafana-token dev <your-dev-token>  # optional
 grafana-token internal <your-internal-token>  # optional
+grafana-token mw-dev <your-mw-dev-token>  # optional
+grafana-token mw-prod-us <your-mw-prod-us-token>  # optional
+grafana-token mw-prod-eu <your-mw-prod-eu-token>  # optional
+grafana-token infra-dev <your-infra-dev-token>  # optional
+grafana-token infra-dev-wl <your-infra-dev-wl-token>  # optional
 ```
 
 ### 4. Configure your MCP client
@@ -123,12 +128,17 @@ The wrapper script determines which Grafana region to connect to using (in order
 
 Region → host mapping:
 
-| Region     | Tailscale host            |
-| ---------- | ------------------------- |
-| `us`       | `http://grafana-prod-us`  |
-| `eu`       | `http://grafana-prod-eu`  |
-| `dev`      | `http://grafana-dev`      |
-| `internal` | `http://grafana-internal` |
+| Region         | Tailscale host                |
+| -------------- | ----------------------------- |
+| `us`           | `http://grafana-prod-us`      |
+| `eu`           | `http://grafana-prod-eu`      |
+| `dev`          | `http://grafana-dev`          |
+| `internal`     | `http://grafana-internal`     |
+| `mw-dev`       | `http://grafana-mw-dev`       |
+| `mw-prod-us`   | `http://grafana-mw-prod-us`   |
+| `mw-prod-eu`   | `http://grafana-mw-prod-eu`   |
+| `infra-dev`    | `http://grafana-infra-dev`    |
+| `infra-dev-wl` | `http://grafana-infra-dev-wl` |
 
 #### Single-server setup (switching regions manually)
 
@@ -140,6 +150,7 @@ grafana-region us       # Switch to prod-us (us-east-1)
 grafana-region eu       # Switch to prod-eu (eu-central-1)
 grafana-region dev      # Switch to dev environment
 grafana-region internal # Switch to internal environment
+grafana-region mw-dev   # Switch to mw-dev (same for mw-prod-us, mw-prod-eu, infra-dev, infra-dev-wl)
 ```
 
 **Important: Restart required after switching regions**
@@ -189,6 +200,7 @@ To add internal alongside those servers, add a `grafana-internal` entry to `mcpS
 ```
 
 Store its token with `grafana-token internal <your-internal-token>`, then restart your MCP client.
+The `mw-dev`, `mw-prod-us`, `mw-prod-eu`, `infra-dev`, and `infra-dev-wl` regions work the same way: set `GRAFANA_REGION` to the region and store its token with `grafana-token <region> <token>`.
 Supported regions are explicit so each selection maps to a known host and its own Keychain token.
 
 #### Migrating from single-server to multi-server
@@ -233,7 +245,7 @@ You may want to use a secrets manager or encrypted file for production use.
 
 ### Hostname doesn't resolve / connection refused
 
-The Tailscale hostnames (`grafana-prod-us`, `grafana-prod-eu`, `grafana-dev`, `grafana-internal`) only resolve when Tailscale is connected to the PostHog tailnet. Check with:
+The Tailscale hostnames (`grafana-prod-us`, `grafana-prod-eu`, `grafana-dev`, `grafana-internal`, `grafana-mw-*`, `grafana-infra-dev*`) only resolve when Tailscale is connected to the PostHog tailnet. Check with:
 
 ```bash
 tailscale status

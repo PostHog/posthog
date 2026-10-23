@@ -53,6 +53,76 @@ class TestAppLovinSource:
         assert error_message == expected_message
         assert [request.param("api_key") for request in network.requests_log] == ["report-key"] * len(responses)
 
+    @pytest.mark.parametrize(
+        "campaign_api_key, account_id, schema_name, management_response, expected",
+        [
+            (
+                "campaign-key",
+                None,
+                None,
+                None,
+                (False, "Enter both the Campaign Management API key and the account ID, or leave both empty."),
+            ),
+            (
+                None,
+                None,
+                "campaigns",
+                None,
+                (False, "Add a Campaign Management API key and account ID to sync this table."),
+            ),
+            (None, None, "max_ad_revenue", None, (True, None)),
+            # A Campaign Management outage must not block settings for a report table.
+            ("campaign-key", "42", "max_ad_revenue", None, (True, None)),
+            (
+                "campaign-key",
+                "42",
+                None,
+                ScriptedResponse(status=401),
+                (False, "Invalid AppLovin Campaign Management API key or account ID"),
+            ),
+            ("campaign-key", "42", "campaigns", ScriptedResponse(json=[]), (True, None)),
+        ],
+    )
+    def test_validate_campaign_management_credentials(
+        self,
+        campaign_api_key: Optional[str],
+        account_id: Optional[str],
+        schema_name: Optional[str],
+        management_response: Optional[ScriptedResponse],
+        expected: tuple[bool, Optional[str]],
+    ) -> None:
+        config = AppLovinSourceConfig(api_key="report-key", campaign_api_key=campaign_api_key, account_id=account_id)
+        responses = [ScriptedResponse(json={"code": 200, "results": []})]
+        if management_response is not None:
+            responses.append(management_response)
+
+        with scripted_network(responses) as network:
+            assert self.source.validate_credentials(config, self.team_id, schema_name) == expected
+
+        assert len(network.requests_log) == len(responses)
+
+    @pytest.mark.parametrize(
+        "campaign_api_key, account_id, expected_campaigns_reason",
+        [
+            (None, None, "Add a Campaign Management API key and account ID to this source to sync this table."),
+            (
+                "campaign-key",
+                None,
+                "Add a Campaign Management API key and account ID to this source to sync this table.",
+            ),
+            ("campaign-key", "42", None),
+        ],
+    )
+    def test_endpoint_permissions_flag_campaign_tables_without_credentials(
+        self, campaign_api_key: Optional[str], account_id: Optional[str], expected_campaigns_reason: Optional[str]
+    ) -> None:
+        config = AppLovinSourceConfig(api_key="report-key", campaign_api_key=campaign_api_key, account_id=account_id)
+
+        assert self.source.get_endpoint_permissions(config, self.team_id, ["campaigns", "max_ad_revenue"]) == {
+            "campaigns": expected_campaigns_reason,
+            "max_ad_revenue": None,
+        }
+
 
 class TestAppLovinCanonicalDescriptions:
     def setup_method(self) -> None:

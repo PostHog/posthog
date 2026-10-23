@@ -111,15 +111,15 @@ class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeC
             name=ExternalDataSourceType.CLOUDINARY,
             category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="Cloudinary",
-            caption="""Enter your Cloudinary cloud name, API key, and API secret to sync your media library metadata into the PostHog Data warehouse: images, videos, raw files, folders, transformations, and upload presets.
+            caption="""Enter your Cloudinary cloud name, API key, and API secret to sync your media library metadata into the PostHog Data warehouse: images, videos, raw files, folders, subfolders, transformations, upload presets, daily usage, and last access reports.
 
 Find all three in your Cloudinary console under Settings, then API Keys. The source only reads metadata, so a key with read access is enough. Media files themselves are never downloaded.
 
-Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync of a large media library can take a while.""",
+Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync of a large media library can take a while. Subfolders take one call per folder, and usage takes one call per day. Last access reports are an Enterprise feature that Cloudinary turns on by request.""",
             iconPath="/static/services/cloudinary.png",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudinary",
             keywords=["cloudinary.com", "media", "images", "cdn"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -179,7 +179,7 @@ Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync o
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("usage",))
 
     def validate_credentials(
         self,
@@ -211,4 +211,6 @@ Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync o
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

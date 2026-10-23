@@ -1033,9 +1033,7 @@ class TestEgressConsentRecheck:
         team = await sync_to_async(self._team_without_consent)()
         # The activity derives the team from the asset row (no team_id in the payload), so it must exist.
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4")
-        with patch(
-            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
-        ) as mock_client:
+        with patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client:
             with pytest.raises(ConsentWithdrawnError) as exc_info:
                 await ActivityEnvironment().run(
                     upload_video_to_gemini_activity,
@@ -3720,10 +3718,12 @@ class TestUploadedFileNotActive:
             state=types.FileState.FAILED,
             error=types.FileStatus(code=code, message="the provider quoted 'wf-secret-name' back at us"),
         )
-        with patch(
-            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
-        ) as mock_client:
+        with (
+            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client,
+            patch("products.replay_vision.backend.gemini_client.genai.AsyncClient"),
+        ):
             mock_client.return_value.files.upload.return_value = failed_file
+            mock_client.return_value.aio.aclose = AsyncMock()
             with patch(
                 "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.track_uploaded_file",
                 AsyncMock(),
@@ -3738,6 +3738,72 @@ class TestUploadedFileNotActive:
         assert exc_info.value.non_retryable is expected_non_retryable
         # The provider's message can quote request content, so only the shape of the failure reaches the user.
         assert exc_info.value.message == f"The AI provider could not process the video (error code {code})"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUploadThroughTheGateway:
+    @staticmethod
+    def _team() -> Team:
+        org = Organization.objects.create(name="gateway-upload-org")
+        return Team.objects.create(organization=org, name="gateway-upload-team")
+
+    @pytest.mark.asyncio
+    async def test_the_upload_runs_on_the_teams_client_and_closes_it(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        uri = "https://generativelanguage.googleapis.com/v1beta/files/abc"
+        gemini = MagicMock()
+        gemini.aclose = AsyncMock()
+        gemini.raw.files.upload.return_value = types.File(name="files/abc", state=types.FileState.PROCESSING)
+        gemini.raw.files.get.return_value = types.File(
+            name="files/abc", state=types.FileState.ACTIVE, uri=uri, mime_type="video/mp4"
+        )
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        with (
+            patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)) as factory,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+            patch(f"{module}.asyncio.sleep", AsyncMock()),
+        ):
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        factory.assert_awaited_once_with(team.id)
+        upload = gemini.raw.files.upload.call_args.kwargs
+        assert "http_options" not in upload and upload["config"].http_options is None
+        assert upload["config"].mime_type == "video/mp4"
+        gemini.raw.files.get.assert_called_once_with(name="files/abc")
+        assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
+        gemini.aclose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_flag_off_uploads_direct_with_the_gateway_configured(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        gateway_settings = {
+            "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
+            "AI_GATEWAY_API_KEY": "phs_gateway",
+            "REPLAY_VISION_GEMINI_API_KEY": "replay-vision-google-key",
+        }
+        with (
+            override_settings(**gateway_settings),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=False),
+            patch("products.replay_vision.backend.gemini_client.build_gemini_client") as build,
+            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as raw_client,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+        ):
+            raw_client.return_value.aio.aclose = AsyncMock()
+            raw_client.return_value.files.upload.return_value = types.File(
+                name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc"
+            )
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        raw_client.assert_called_once_with(api_key="replay-vision-google-key")
+        build.assert_not_called()
+        assert uploaded.gemini_file_name == "files/abc"
 
 
 class TestGeminiErrorRedaction:

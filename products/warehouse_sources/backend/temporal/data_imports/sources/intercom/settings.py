@@ -26,7 +26,9 @@ class IntercomEndpointConfig:
     partition_count: int = 1
     partition_size: int = 1
     page_size: int = 150
-    sort_mode: SortMode = "asc"
+    # Where page-number endpoints report their page count: top level, or nested under `pages`.
+    total_pages_path: str = "total_pages"
+    sort_mode: SortMode | None = "asc"
     extra_params: dict[str, str] = field(default_factory=dict)
     # Query-string param Intercom expects for the cursor filter (e.g. "created_at_after"
     # on /admins/activity_logs). Only set on endpoints that filter via query params.
@@ -40,8 +42,8 @@ class IntercomEndpointConfig:
 # Endpoint contracts validated against the live Intercom REST API (version 2.13).
 # Selectors, pagination shape, and partition keys reflect what the API actually
 # returns — not the docs.
-# The endpoints with `api_versions=("2.16",)` exist only on 2.16 and follow
-# Intercom's published 2.16 OpenAPI description.
+# The endpoints with `api_versions` set exist only from 2.16 or 2.17 on and follow
+# Intercom's published OpenAPI description for that version.
 #
 # Real-incremental endpoints (server-side filter honored): contacts, conversations,
 # tickets, activity_logs, macros, conversation_parts (via parent). Everything else is
@@ -181,6 +183,8 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="substream",
         parent_endpoint="conversations",
         partition_key="created_at",
+        # The parts of each conversation are a separate series, so the rows of a run have no single order.
+        sort_mode=None,
     ),
     "help_centers": IntercomEndpointConfig(
         # `GET /help_center/help_centers` — one row per Help Center site. A workspace
@@ -285,7 +289,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         partition_mode="md5",
         partition_format=None,
         extra_params={"include_archived": "true"},
-        api_versions=("2.16",),
+        api_versions=("2.16", "2.17"),
     ),
     "macros": IntercomEndpointConfig(
         # `GET /macros` — saved replies. Paged by a `pages.next.starting_after` cursor,
@@ -298,7 +302,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="pages",
         sort_mode="desc",
         incremental_query_param="updated_since",
-        api_versions=("2.16",),
+        api_versions=("2.16", "2.17"),
     ),
     "audiences": IntercomEndpointConfig(
         # `GET /audiences` — saved audience definitions (targeting predicates). Paged by
@@ -308,7 +312,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         data_selector="data",
         paginator_kind="page_number",
         page_size=50,
-        api_versions=("2.16",),
+        api_versions=("2.16", "2.17"),
     ),
     "content_snippets": IntercomEndpointConfig(
         # `GET /content_snippets` — snippets that feed Fin and Copilot answers. Same
@@ -318,7 +322,68 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         data_selector="data",
         paginator_kind="page_number",
         page_size=50,
-        api_versions=("2.16",),
+        api_versions=("2.16", "2.17"),
+    ),
+    "contact_activities": IntercomEndpointConfig(
+        # `GET /contacts/activities` — workspace feed of contact lifecycle events (created,
+        # role updated, merged, deleted). Oldest first, paged by a `pages.next.starting_after`
+        # cursor, with no timestamp filter, so full refresh.
+        name="contact_activities",
+        path="/contacts/activities",
+        data_selector="data",
+        paginator_kind="pages",
+        api_versions=("2.17",),
+    ),
+    "deleted_contacts": IntercomEndpointConfig(
+        # `GET /contacts/deleted` — contacts that are archived, blocked, merged, or deleted.
+        # Rows carry only `updated_at`, which changes, so partition on the id.
+        name="deleted_contacts",
+        path="/contacts/deleted",
+        data_selector="data",
+        paginator_kind="page_number",
+        partition_key="id",
+        partition_mode="md5",
+        partition_format=None,
+        total_pages_path="pages.total_pages",
+        api_versions=("2.17",),
+    ),
+    "folders": IntercomEndpointConfig(
+        # `GET /folders` — the folders articles and other content are organized into
+        # (decodes `articles.folder_id`). Intercom documents no `per_page` maximum, so this
+        # uses the 50 its examples show.
+        name="folders",
+        path="/folders",
+        data_selector="data",
+        paginator_kind="page_number",
+        page_size=50,
+        total_pages_path="pages.total_pages",
+        api_versions=("2.17",),
+    ),
+    "dynamic_contents": IntercomEndpointConfig(
+        # `GET /dynamic_contents` — reusable Help Center content with a variation per locale
+        # and brand. Most recently updated first, `per_page` max 50, no timestamp filter.
+        # Needs the `read_dynamic_content` scope and the feature enabled on the workspace.
+        name="dynamic_contents",
+        path="/dynamic_contents",
+        data_selector="data",
+        paginator_kind="page_number",
+        page_size=50,
+        sort_mode="desc",
+        api_versions=("2.17",),
+    ),
+    "conversation_hitl_events": IntercomEndpointConfig(
+        # Substream of `conversations`: `GET /conversations/{id}/hitl_events` for each parent
+        # the conversations search returns. Events have no id of their own. Every event of one
+        # consultation shares `hitl_cycle_id`, and each type occurs once per consultation or
+        # once per feedback round, hence the composite key. Each yielded event carries
+        # `conversation_id` and `round_index` (0 for event types outside a round).
+        name="conversation_hitl_events",
+        path="",
+        data_selector="",
+        paginator_kind="substream",
+        parent_endpoint="conversations",
+        primary_keys=["conversation_id", "hitl_cycle_id", "event_type", "round_index"],
+        api_versions=("2.17",),
     ),
 }
 
@@ -334,6 +399,11 @@ ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
 # - conversation_parts: child of conversations; the parent's `updated_at >`
 #   filter is server-honored, so parents whose timestamp didn't advance
 #   aren't refetched.
+# - conversation_hitl_events: child of conversations, filtered on the parent's
+#   `updated_at` like conversation_parts, but from a source cursor rather than the
+#   rows' `created_at`. Intercom lists the events only once a consultation ends,
+#   and the end (a reply, an escalation, a takeover) updates the conversation, so
+#   a parent with new events is refetched.
 #
 # Companies, segments, and company_segments are intentionally excluded: their
 # list endpoints don't accept a timestamp filter, and a "client-side cursor"
@@ -379,6 +449,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "label": "updated_at",
             "type": IncrementalFieldType.DateTime,
             "field": "updated_at",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    "conversation_hitl_events": [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created_at",
             "field_type": IncrementalFieldType.Integer,
         }
     ],

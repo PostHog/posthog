@@ -459,7 +459,45 @@ const E2E_DISPATCH: Scenario = {
     },
 }
 
+const mirrorPullRequest = (): Scenario['github'] =>
+    JSON.parse(JSON.stringify(pullRequest()).replaceAll('PostHog/posthog', 'PostHog/example'))
+
+const pathsFilterJobs = workflowFiles.flatMap((file) =>
+    Object.entries(workflow(file).jobs).flatMap(([job, definition]) =>
+        definition.steps?.some(
+            (step) =>
+                step.id === 'app-token' &&
+                String(step.with?.['client-id']).includes('GH_APP_POSTHOG_PATHS_FILTER_APP_ID')
+        )
+            ? [{ file, job }]
+            : []
+    )
+)
+
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...pathsFilterJobs.flatMap(({ file, job }) => [
+        {
+            file,
+            job,
+            step: 'app-token',
+            scenario: { name: 'canonical PR token', github: pullRequest() },
+            runs: true,
+        },
+        {
+            file,
+            job,
+            step: 'app-token',
+            scenario: { name: 'mirror PR token', github: mirrorPullRequest() },
+            runs: false,
+        },
+        {
+            file,
+            job,
+            step: 'app-token',
+            scenario: { name: 'fork PR token', github: pullRequest({ fork: true }) },
+            runs: false,
+        },
+    ]),
     ...[
         { name: 'known fallback', selective: '', changedFiles: '', fork: false },
         { name: 'empty source selection', selective: 'true', changedFiles: '', fork: false },
@@ -521,6 +559,33 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each([
+        { name: 'canonical PR', github: pullRequest(), runs: true },
+        { name: 'mirror PR', github: mirrorPullRequest(), runs: false },
+        { name: 'fork PR', github: pullRequest({ fork: true }), runs: false },
+    ])('bot comment resolver on $name runs=$runs', ({ name, github, runs }) => {
+        const plan = planWorkflow(workflow('pr-resolve-outdated-bot-comments.yml'), { name, github })
+        expect(runningJobs(plan).includes('resolve-outdated')).toBe(runs)
+    })
+
+    it.each(pathsFilterJobs)('$file $job can read changed files without the App token', ({ file, job }) => {
+        const wf = workflow(file)
+        const definition = wf.jobs[job]!
+        const tokens = definition
+            .steps!.map((step) => step.with?.token ?? step.with?.['github-token'] ?? step.env?.GH_TOKEN)
+            .filter((token) => String(token).includes('steps.app-token.outputs.token'))
+        expect(tokens.length).toBeGreaterThan(0)
+        for (const token of tokens) {
+            expect(
+                evaluateValue(
+                    token,
+                    { github: mirrorPullRequest(), steps: { 'app-token': { outputs: { token: '' } } } },
+                    planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+                )
+            ).toBe('stub-token')
+        }
+    })
+
     it.each([
         ['failed install', 'failure', 'src/example.ts', 'full'],
         ['empty source selection', 'skipped', '', 'selective'],

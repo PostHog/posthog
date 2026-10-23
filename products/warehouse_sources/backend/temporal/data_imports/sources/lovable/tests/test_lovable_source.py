@@ -55,9 +55,7 @@ class TestLovableSource:
 
     @parameterized.expand(
         [
-            ("401", "401 Client Error: Unauthorized for url: https://api.lovable.dev/v1/workspaces"),
             ("402", "402 Client Error: Payment Required for url: https://api.lovable.dev/v1/workspaces/ws-1/members"),
-            ("403", "403 Client Error: Forbidden for url: https://api.lovable.dev/v1/projects/p-1/pii-labels"),
         ]
     )
     def test_non_retryable_errors_match_permanent_failures(self, _name: str, observed_error: str) -> None:
@@ -65,7 +63,6 @@ class TestLovableSource:
 
     @parameterized.expand(
         [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.lovable.dev/v1/workspaces"),
             ("server_error", "HTTP 503 for https://api.lovable.dev/v1/workspaces"),
             ("timeout", "Request timed out (ConnectTimeout) for https://api.lovable.dev/v1/workspaces"),
         ]

@@ -55,6 +55,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -346,6 +347,7 @@ export function InboxDetailFrame({
         expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
             <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
+    const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
@@ -361,6 +363,7 @@ export function InboxDetailFrame({
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
+                            planBlock={planBlock}
                         />
                     ) : (
                         <div className="flex flex-col gap-6">
@@ -370,6 +373,7 @@ export function InboxDetailFrame({
                             {pullRequestNote}
                             {impactMetrics}
                             {expectedImpact}
+                            {planBlock}
                         </div>
                     )}
                     {trailingCharts.length > 0 && (

@@ -253,9 +253,12 @@ class ProjectRouteMatch(Scorer):
 
         got = _routes_to(output)
         wanted = want.get("integration_id")
+        # Null keeps the run on the default, so naming the default and answering null
+        # answer from the same data.
+        matched = got == wanted or (got is None and want.get("is_default", False))
         return Score(
             name=self._name(),
-            score=1.0 if got == wanted else 0.0,
+            score=1.0 if matched else 0.0,
             metadata={"expected_integration_id": wanted, "actual_integration_id": got},
         )
 
@@ -460,4 +463,53 @@ Answer `yes` if every reply follows all of these rules. Answer `no` if one reply
             model=JUDGE_MODEL,
             max_completion_tokens=256,
             **kwargs,
+        )
+
+
+UNTAGGED_QUESTION_KEY = "untagged_question"
+
+
+class UntaggedQuestionMatch(Scorer):
+    """Did the classifier decide about answering the way a person in the channel would?"""
+
+    def _name(self) -> str:
+        return UNTAGGED_QUESTION_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(UNTAGGED_QUESTION_KEY) or {}
+        if "answerable" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("answerable")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["answerable"] else 0.0,
+            metadata={"expected": want["answerable"], "actual": got, "verdict": (output or {}).get("verdict")},
+        )
+
+
+class NoUnaskedAnswer(Scorer):
+    """The expensive direction: answering a channel message PostHog cannot or should not answer.
+
+    Skips on cases PostHog should answer, so the score reads as a rate over the messages it
+    should have left alone.
+    """
+
+    def _name(self) -> str:
+        return "no_unasked_answer"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(UNTAGGED_QUESTION_KEY) or {}
+        if want.get("answerable", True):
+            return Score(name=self._name(), score=None, metadata={"reason": "Case is answerable"})
+        if output and output.get("error"):
+            # A failed call answers nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        return Score(
+            name=self._name(),
+            score=0.0 if (output or {}).get("answerable") else 1.0,
+            metadata={"actual": (output or {}).get("answerable"), "verdict": (output or {}).get("verdict")},
         )

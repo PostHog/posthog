@@ -415,7 +415,15 @@ _MONITORING_METRIC_CHECK_GUIDANCE = """- Make every effort to complete `config.m
   If required facts remain unknown, explain what is missing in the rationale and omit monitoring rather
   than invent them. Preserve the bounded relative query
   and whole-window comparison for existing Resolved behavior. This only defines the measurement; it does
-  not enable interim execution or decide a final outcome."""
+  not enable interim execution or decide a final outcome.
+- For metric checks with `config.monitoring`, author `run_interval_minutes` based on activity and
+  ingestion delay. It controls interim measurement cadence, independently of query bucket size and
+  target reference period. Use at least 360 minutes and strictly less than `soak_hours * 60`.
+  A 24-hour window with a 360-minute interval allows measurements at hours 6, 12, and 18.
+  Omission preserves an existing check's cadence. New checks default to a quarter of the window,
+  bounded to six hours through one day. For windows of six hours or less, omit the interval:
+  no interim sample fits. Preserve the evidence-backed window instead of lengthening it to fit
+  a sample. Interim measurements do not decide the final outcome. Explain the timing in the rationale."""
 
 _AGENT_CHECK_GUIDANCE = """- {agent_selection} It needs no metric,
   baseline, or comparison. The `config` is
@@ -1425,6 +1433,8 @@ def build_fix_verification_prompt(
         else "Do not force a product metric when another method gives better evidence."
     )
     schema_dict = FixVerificationOutput.model_json_schema()
+    if not (metric_checks_enabled and monitoring_enabled):
+        schema_dict["$defs"]["CheckSpec"]["properties"].pop("run_interval_minutes", None)
     kinds = [
         guidance
         for guidance, enabled in (

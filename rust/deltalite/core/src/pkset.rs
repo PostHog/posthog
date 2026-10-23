@@ -20,6 +20,7 @@ use arrow_row::{RowConverter, SortField};
 use arrow_schema::SchemaRef;
 
 use crate::errors::{Error, Result};
+use crate::probecache::hash_key;
 
 /// A hash set of primary-key tuples with SQL NULL semantics (NULL never matches).
 pub struct PkSet {
@@ -122,6 +123,69 @@ impl PkSet {
             .convert_columns(cols)
             .map_err(|e| Error::Generic(format!("row encode: {e}")))?;
         Ok((0..num_rows).any(|i| mask[i] && self.keys.contains(rows.row(i).as_ref())))
+    }
+
+    /// [`Self::contains_any_columns`] that also appends the hash of every matchable row
+    /// to `hashes` (see [`crate::probecache`]). It reads every row only when `hashes` is
+    /// given; without it, it stops at the first match.
+    pub fn probe_columns(
+        &self,
+        cols: &[Arc<dyn Array>],
+        num_rows: usize,
+        hashes: Option<&mut Vec<u64>>,
+    ) -> Result<bool> {
+        let Some(hashes) = hashes else {
+            return self.contains_any_columns(cols, num_rows);
+        };
+        if num_rows == 0 {
+            return Ok(false);
+        }
+        let mask = matchable_mask(cols, num_rows);
+        let rows = self
+            .converter
+            .convert_columns(cols)
+            .map_err(|e| Error::Generic(format!("row encode: {e}")))?;
+        let mut hit = false;
+        for (i, matchable) in mask.iter().enumerate() {
+            if !matchable {
+                continue;
+            }
+            let key = rows.row(i);
+            hashes.push(hash_key(key.as_ref()));
+            hit = hit || self.keys.contains(key.as_ref());
+        }
+        Ok(hit)
+    }
+
+    /// Append the hash of every matchable row of the given PK columns to `hashes`.
+    pub fn hash_columns(
+        &self,
+        cols: &[Arc<dyn Array>],
+        num_rows: usize,
+        hashes: &mut Vec<u64>,
+    ) -> Result<()> {
+        if num_rows == 0 {
+            return Ok(());
+        }
+        let mask = matchable_mask(cols, num_rows);
+        let rows = self
+            .converter
+            .convert_columns(cols)
+            .map_err(|e| Error::Generic(format!("row encode: {e}")))?;
+        hashes.extend(
+            (0..num_rows)
+                .filter(|i| mask[*i])
+                .map(|i| hash_key(rows.row(i).as_ref())),
+        );
+        Ok(())
+    }
+
+    /// The sorted, deduplicated hashes of the keys in the set.
+    pub fn sorted_key_hashes(&self) -> Vec<u64> {
+        let mut out: Vec<u64> = self.keys.iter().map(|k| hash_key(k)).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 
     /// For each row of `batch`, whether it is replaced by a source row.

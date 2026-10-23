@@ -520,6 +520,73 @@ export interface PatchedCohortApi {
     _create_static_person_ids?: string[]
 }
 
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
+}
+
 export interface PatchedAddPersonsToStaticCohortRequestApi {
     /** List of person UUIDs to add to the cohort */
     person_ids?: string[]
@@ -612,13 +679,17 @@ export interface CohortUsedInFlagApi {
      * @nullable
      */
     name: string | null
+    /** True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not */
+    archived: boolean
 }
 
 export interface CohortUsedInFlagsBlockApi {
     /** Feature flags referencing this cohort, capped at 100 results */
     results: CohortUsedInFlagApi[]
-    /** Total number of feature flags referencing this cohort, before truncation */
+    /** Total number of feature flags referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more feature flags exist beyond the truncation cap */
     has_more: boolean
 }
@@ -635,8 +706,10 @@ export interface CohortUsedInInsightApi {
 export interface CohortUsedInInsightsBlockApi {
     /** Insights referencing this cohort, capped at 100 results */
     results: CohortUsedInInsightApi[]
-    /** Total number of insights referencing this cohort, before truncation */
+    /** Total number of insights referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more insights exist beyond the truncation cap */
     has_more: boolean
 }
@@ -651,9 +724,27 @@ export interface CohortUsedInCohortApi {
 export interface CohortUsedInCohortsBlockApi {
     /** Cohorts that include this cohort as a criterion, capped at 100 results */
     results: CohortUsedInCohortApi[]
-    /** Total number of cohorts referencing this cohort, before truncation */
+    /** Total number of cohorts referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more cohorts exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInEnvironmentApi {
+    /** Environment (team) database ID */
+    id: number
+    /** Environment display name */
+    name: string
+}
+
+export interface CohortUsedInEnvironmentsBlockApi {
+    /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+    results: CohortUsedInEnvironmentApi[]
+    /** Total number of environments using this cohort in their test account filters, before truncation */
+    total: number
+    /** True when more environments exist beyond the truncation cap */
     has_more: boolean
 }
 
@@ -664,6 +755,8 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+    test_account_filters: CohortUsedInEnvironmentsBlockApi
     /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
     workflows: CohortUsedInWorkflowsBlockApi
 }
@@ -683,6 +776,10 @@ export type CohortsListParams = {
      */
     basic?: boolean
     /**
+     * Optional. Return only cohorts created by the user with this id.
+     */
+    created_by_id?: number
+    /**
      * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
      */
     hide_behavioral_cohorts?: boolean
@@ -698,6 +795,30 @@ export type CohortsListParams = {
      * Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
+    /**
+     * Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.
+     */
+    type?: CohortsListType
+}
+
+export type CohortsListType = (typeof CohortsListType)[keyof typeof CohortsListType]
+
+export const CohortsListType = {
+    Dynamic: 'dynamic',
+    Static: 'static',
+} as const
+
+export type CohortsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
 }
 
 export type CohortsPersonsRetrieveParams = {

@@ -25,6 +25,7 @@ from products.slack_app.backend.temporal import (
     classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
+    classify_untagged_question_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
     discover_posthog_code_repository_via_agent_activity,
@@ -35,6 +36,7 @@ from products.slack_app.backend.temporal import (
     post_posthog_code_repo_picker_activity,
     posthog_code_thread_has_task_activity,
     request_untagged_followup_confirmation_activity,
+    request_untagged_question_confirmation_activity,
 )
 
 if TYPE_CHECKING:
@@ -42,17 +44,6 @@ if TYPE_CHECKING:
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
-
-# Temporal patch ID — an arbitrary string recorded in workflow history. The gate has
-# drained: this workflow's longest wait is the 15-minute repo picker, and it is bounded
-# at an hour as a child of the queue workflow, so the pre-patch histories are gone within
-# hours of a deploy. The branch is gone and only `deprecate_patch` remains, keeping the
-# recorded marker compatible for executions in flight across the deploy that removes the
-# branch. Standard two-step Temporal patch lifecycle: the call comes out once the
-# histories that recorded a plain marker have drained as well.
-_PATCH_ID_MODEL_ROUTER = "slack-app-model-router-v1"
-# Histories recorded without this marker replay `_prework_in_sequence`.
-_PATCH_ID_PARALLEL_PREWORK = "slack-app-parallel-prework-v1"
 
 
 @workflow.defn(name="slack-app-mention-processing")
@@ -88,6 +79,9 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
         if not channel or not thread_ts or not slack_user_id:
             return
 
+        # An untagged question stays silent, error replies included, until its author's
+        # mode lets the run answer. Old histories carry no such input, so they never skip.
+        silent_on_error = inputs.untagged_question and not inputs.untagged_question_confirmed
         try:
             # Gate every workflow entry on the team's AI-credits quota before any
             # other activity runs. Webhook-level short-circuit catches the common
@@ -105,10 +99,19 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
             if blocked:
                 return
 
-            if workflow.patched(_PATCH_ID_PARALLEL_PREWORK):
-                prework = await _prework_in_parallel(inputs, channel, thread_ts, slack_user_id)
-            else:
-                prework = await _prework_in_sequence(inputs, channel, thread_ts, slack_user_id)
+            # Both gates run before anything visible, because nobody tagged us in this message.
+            if silent_on_error:
+                answerable = await _execute_posthog_code_activity(classify_untagged_question_activity, inputs)
+                if not answerable:
+                    return
+                awaiting_confirmation = await _execute_posthog_code_activity(
+                    request_untagged_question_confirmation_activity, inputs
+                )
+                if awaiting_confirmation:
+                    return
+                silent_on_error = False
+
+            prework = await _prework_in_parallel(inputs, channel, thread_ts, slack_user_id)
             if prework is None:
                 return
             inputs = prework.inputs
@@ -169,6 +172,9 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                     elif outcome.status == "no_match":
                         repository = None
                     else:
+                        if outcome.usage_limited:
+                            # The activity told the thread the team is out of credits. A picked repo would fail the same way.
+                            return
                         # Agent crashed/timed out/hallucinated — italicize its reason
                         # above the picker guidance so the user sees why.
                         picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
@@ -197,7 +203,6 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                         repository = self._selected_repo
 
             # After repo selection, so the repository can inform the pick.
-            workflow.deprecate_patch(_PATCH_ID_MODEL_ROUTER)
             model_override = await _execute_posthog_code_activity(
                 classify_slack_app_model_router_activity,
                 SlackAppModelRouterInput(
@@ -236,6 +241,8 @@ class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
                     "error_type": type(exc).__name__,
                 },
             )
+            if silent_on_error:
+                return
             await _execute_posthog_code_activity(
                 post_posthog_code_internal_error_activity,
                 inputs,
@@ -366,76 +373,18 @@ async def _apply_project_route(
     return None if blocked else inputs
 
 
-async def _prework_in_sequence(
-    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
-) -> _NewThreadPrework | None:
-    """The command order of histories recorded before `_PATCH_ID_PARALLEL_PREWORK`."""
-    # Untagged thread replies face the Haiku classifier before any
-    # forward. The webhook handler punted on this so its 3-second ack
-    # budget stays unencumbered; here we run it under Temporal's retry
-    # policy. Drop on chitchat or any failure (default-deny).
-    # File-only replies skip the classifier: there is no text to
-    # classify, and default-deny would silently drop the attachment.
-    # Replies with text still face it even when files are attached, so
-    # chitchat with a screenshot doesn't wake the agent.
-    unconfirmed_followup = inputs.untagged_followup and not inputs.untagged_followup_confirmed
-    if unconfirmed_followup and not _is_file_only_followup(inputs.event):
-        if not await _untagged_followup_is_agent_directed(inputs, channel, thread_ts, slack_user_id):
-            return None
-
-    # The reply is agent-directed. If the thread creator asked to be consulted
-    # about other people's replies, this is the moment to ask: the prompt now
-    # only interrupts someone over a message that would otherwise start work.
-    # A confirmed run skips it — the answer is what re-dispatched this.
-    if unconfirmed_followup and await _awaiting_followup_confirmation(inputs, channel, thread_ts, slack_user_id):
-        return None
-
-    # Read a model or effort request ("use fable for this one", "actually run
-    # this on opus") out of the message. Classified above the follow-up/new-task
-    # split because the mapping lookup that tells the two apart lives inside the
-    # follow-up activity: one call here serves whichever path the message takes,
-    # and recording the choice in history once stops a retry of either activity
-    # from landing on a different model than the first attempt announced.
-    model_override: SlackAppModelOverride | None = await _execute_posthog_code_activity(
-        classify_slack_app_model_override_activity, _model_override_input(inputs, thread_ts)
-    )
-
-    if await _forward_followup(inputs, channel, thread_ts, slack_user_id, model_override):
-        return None
-
-    # Untagged thread replies must not fall through to the new-task path.
-    # The user never @mentioned us — they only typed in a thread that
-    # used to have an active task. If the mapping is gone by the time we
-    # got here, the right behaviour is to do nothing.
-    if inputs.untagged_followup:
-        return None
-
-    # Past both returns above the message opens a thread: explicit @mention, and
-    # the forward activity found no task mapped to it. Only such a message may
-    # pick its own project, because a task, its mapping and its run all belong to
-    # one. Everything below reads the integration from `inputs`, so the switch
-    # lands above the repo cascade. Eligibility is decided inside the activity.
-    project_route = await _execute_posthog_code_activity(
-        classify_slack_app_project_route_activity, _project_route_input(inputs, thread_ts, slack_user_id)
-    )
-    routed_inputs = await _apply_project_route(inputs, project_route, channel, thread_ts, slack_user_id)
-    if routed_inputs is None:
-        return None
-
-    thread_messages = await _collect_thread_messages(routed_inputs, channel, thread_ts)
-    if not thread_messages:
-        return None
-    return _NewThreadPrework(inputs=routed_inputs, model_override=model_override, thread_messages=thread_messages)
-
-
 async def _prework_in_parallel(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
 ) -> _NewThreadPrework | None:
-    """Same decisions as `_prework_in_sequence`, with the independent steps run together.
+    """The steps before repo selection, with the independent steps run together.
 
     Each step reads only the message and the resolved project, so the slowest step sets
     the wall time instead of the sum of all of them.
     """
+    # Read a model or effort request ("use fable for this one", "actually run
+    # this on opus") out of the message. One call serves whichever path the
+    # message takes, and recording the choice in history once stops a retry of
+    # either activity from landing on a different model than the first attempt announced.
     model_override_task = asyncio.create_task(
         _execute_posthog_code_activity(
             classify_slack_app_model_override_activity, _model_override_input(inputs, thread_ts)
@@ -445,9 +394,14 @@ async def _prework_in_parallel(
     if inputs.untagged_followup:
         # Untagged replies never open a thread. The override is wasted on a dropped reply.
         unconfirmed_followup = not inputs.untagged_followup_confirmed
+        # Untagged thread replies face the Haiku classifier before any forward.
+        # Drop on chitchat or any failure (default-deny). File-only replies skip
+        # the classifier: there is no text to classify, and default-deny would
+        # silently drop the attachment.
         if unconfirmed_followup and not _is_file_only_followup(inputs.event):
             if not await _untagged_followup_is_agent_directed(inputs, channel, thread_ts, slack_user_id):
                 return None
+        # A confirmed run skips the prompt, because the answer is what re-dispatched this.
         if unconfirmed_followup and await _awaiting_followup_confirmation(inputs, channel, thread_ts, slack_user_id):
             return None
         await _forward_followup(inputs, channel, thread_ts, slack_user_id, await model_override_task)

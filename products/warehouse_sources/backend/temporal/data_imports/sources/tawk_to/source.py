@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+import requests
+
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -23,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.se
     TAWK_TO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import (
+    TawkToCredentialsError,
     TawkToResumeConfig,
+    TawkToRetryableError,
     tawk_to_source,
     validate_credentials as validate_tawk_to_credentials,
 )
@@ -56,7 +60,7 @@ class TawkToSource(ResumableSource[TawkToSourceConfig, TawkToResumeConfig]):
             name=ExternalDataSourceType.TAWKTO,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="tawk.to",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["tawkto", "live chat"],
             caption="""Enter your tawk.to REST API key to pull your chats, tickets, properties, and property members into the PostHog Data warehouse.
 
@@ -126,10 +130,13 @@ tawk.to's REST API is available by request: submit the [REST API Access Request 
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_tawk_to_credentials(config.api_key):
+        try:
+            validate_tawk_to_credentials(config.api_key)
             return True, None
-
-        return False, "Invalid tawk.to API key"
+        except TawkToCredentialsError as e:
+            return False, str(e)
+        except (TawkToRetryableError, requests.RequestException):
+            return False, "PostHog couldn't reach tawk.to to check your API key. Wait a few minutes, then try again."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TawkToResumeConfig]:
         return ResumableSourceManager[TawkToResumeConfig](inputs, TawkToResumeConfig)

@@ -333,6 +333,17 @@ export function getDashboardFilterChanges(
         })
     }
 
+    if (!dashboardFilterValuesEqual(previousFilters.metricVariables, currentFilters.metricVariables)) {
+        const previousLabels = formatMetricVariables(previousFilters)
+        const currentLabels = formatMetricVariables(currentFilters)
+        changes.push({
+            label: 'Metric variables',
+            previousValue: previousLabels,
+            value: currentLabels,
+            status: getChangeStatus(previousLabels.length > 0, currentLabels.length > 0),
+        })
+    }
+
     return changes
 }
 
@@ -347,4 +358,11 @@ function formatMetricFilters(filters: DashboardFilter): string[] {
     return (filters.metricFilters ?? []).map(
         (filter) => `${filter.key} ${METRIC_FILTER_OP_LABELS[filter.op]} ${filter.value}`
     )
+}
+
+function formatMetricVariables(filters: DashboardFilter): string[] {
+    return (filters.metricVariables ?? []).map((variable) => {
+        const value = variable.current?.all ? 'All' : (variable.current?.values ?? []).join(', ')
+        return `$${variable.name} = ${value || 'no value'}`
+    })
 }

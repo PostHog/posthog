@@ -211,6 +211,8 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
+    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`).
+    refusable_fields: tuple[str, ...] = ()
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -231,6 +233,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
             is_stats=schema_def.get("is_stats", False),
             single_object=schema_def.get("single_object", False),
             hoisted_columns=schema_def.get("hoisted_columns", ()),
+            refusable_fields=schema_def.get("refusable_fields", ()),
         )
 
         schemas[resource_name] = schema
@@ -275,16 +278,20 @@ PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 MALFORMED_JSON_MAX_ATTEMPTS = 3
 
 
+def _override_query_param(url: str, key: str, value: str) -> str:
+    parts = urlsplit(url)
+    pairs = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != key]
+    pairs.append((key, value))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
+
+
 def _override_limit(url: str, limit: int) -> str:
     """Return ``url`` with its ``limit`` query parameter overridden.
 
     Meta's ``paging.next`` URLs encode the limit that produced the cursor; if
     we want a smaller batch on the retry, we have to rewrite the URL.
     """
-    parts = urlsplit(url)
-    pairs = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "limit"]
-    pairs.append(("limit", str(limit)))
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
+    return _override_query_param(url, "limit", str(limit))
 
 
 def _next_smaller_limit(current: int) -> int | None:
@@ -459,8 +466,31 @@ META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 # scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
 
+# Meta error code 100 with one of these subcodes: Meta validates a creative again when it serves the
+# creative-backed fields of an ad or an ad creative, and refuses one it can no longer render.
+#   2446211: an Advantage+ ("degrees of freedom") creative whose asset feed spec no longer matches
+#            its object story spec.
+#   1443048: a creative whose object story spec is malformed, for example one with no Page.
+# Meta refuses the whole page for one such row, so without a fallback every sync of the table stops
+# at that row. The schema's `refusable_fields` name the fields to drop from the page request and then
+# read again per row (see `_restore_refusable_fields`).
+META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
+
+# Meta's batch endpoint (see `_fetch_refusable_fields`) accepts at most 50 subrequests per call.
+# https://developers.facebook.com/docs/graph-api/batch-requests
+META_BATCH_MAX_SUBREQUESTS = 50
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
+)
+
+# Code 190 / subcode 459: Meta has checkpointed the user behind the token. The token stays refused
+# until that user signs in to Facebook and clears the check, which reconnecting alone doesn't do.
+META_CHECKPOINT_ERROR_SUBCODE = 459
+
+META_CHECKPOINT_ERROR_MESSAGE = (
+    "Meta locked the Facebook account you connected until it passes a security check. Sign in at "
+    "facebook.com, follow the steps, then reconnect your Meta Ads account."
 )
 
 META_RATE_LIMIT_ERROR_MESSAGE = (
@@ -555,6 +585,10 @@ def _is_invalid_cursor_error(response: Response) -> bool:
     return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
 
 
+def _is_refused_creative_error(response: Response) -> bool:
+    return _meta_error_subcode(response) in META_REFUSED_CREATIVE_ERROR_SUBCODES
+
+
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     """Raise a descriptive exception for a non-200 Meta API response.
 
@@ -570,7 +604,12 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
-        raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+        message = (
+            META_CHECKPOINT_ERROR_MESSAGE
+            if _meta_error_subcode(response) == META_CHECKPOINT_ERROR_SUBCODE
+            else META_AUTH_ERROR_MESSAGE
+        )
+        raise Exception(f"{message} (Meta API response: {response.status_code} - {response.text})")
     if _is_rate_limit_error(response):
         raise Exception(
             f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
@@ -683,11 +722,135 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
     raise IntegrationAccountListingError("Meta returned too many pages while listing ad accounts. Please try again.")
 
 
+def _is_refused_batch_subresponse(error: typing.Any) -> bool:
+    """Return True for a batch subresponse error that is Meta's creative refusal.
+
+    Meta reports a per-node error inside its own HTTP status, not embedded in a 200 like the
+    deprecated multi-id lookup did. Any error other than the refusal raises, so a transient or
+    permission failure is not stored as empty fields.
+    """
+    subcode = error.get("error_subcode") if isinstance(error, dict) else None
+    return isinstance(subcode, int) and subcode in META_REFUSED_CREATIVE_ERROR_SUBCODES
+
+
+# Meta's batch endpoint can abort one subrequest on its own, independently of the rest of the
+# batch and of the overall call returning 200 — observed as code 960, "Request aborted. This could
+# happen if a dependent request failed or the entire request timed out." Our subrequests have no
+# JSONPath dependencies between them, so the cause is the batch nearing a timeout rather than the
+# lookup itself being invalid. `_get_with_transient_retry` never sees this: it only inspects the
+# outer HTTP response, and that response is a plain 200.
+META_BATCH_SUBREQUEST_ABORTED_ERROR_CODE = 960
+
+
+def _is_transient_batch_subresponse_error(sub_response: typing.Any, error: typing.Any) -> bool:
+    """Return True for a batch subresponse worth retrying the whole batch for (see above).
+
+    Meta also leaves a subresponse ``None`` for a subrequest it hadn't gotten back to before the
+    batch call itself ran out of time, which carries no error object to inspect — the same
+    batch-timeout condition as code 960, just without a body to classify.
+    """
+    if sub_response is None:
+        return True
+    if not isinstance(error, dict):
+        return False
+    return error.get("is_transient") is True or error.get("code") in (
+        *META_TRANSIENT_ERROR_CODES,
+        META_BATCH_SUBREQUEST_ABORTED_ERROR_CODE,
+    )
+
+
+def _fetch_refusable_fields(
+    node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
+) -> dict[str, dict]:
+    """Read ``fields`` for each node in ``ids``, keyed by id, skipping a node Meta refuses to serve.
+
+    Uses Meta's batch endpoint (``POST`` with a ``batch`` parameter,
+    https://developers.facebook.com/docs/graph-api/batch-requests) rather than the root multi-id
+    lookup (``GET /?ids=...``), which Meta deprecated in v26.0+. Each subrequest carries its own
+    status, so one refused node doesn't need the rest of its batch retried or bisected, and up to
+    ``META_BATCH_MAX_SUBREQUESTS`` ids are read per request rather than one request per id.
+    """
+    fields_param = ",".join(fields)
+    nodes: dict[str, dict] = {}
+    for start in range(0, len(ids), META_BATCH_MAX_SUBREQUESTS):
+        chunk = ids[start : start + META_BATCH_MAX_SUBREQUESTS]
+        data = {
+            "access_token": access_token,
+            "batch": json.dumps(
+                [{"method": "GET", "relative_url": f"{node_id}?fields={fields_param}"} for node_id in chunk]
+            ),
+        }
+
+        def _issue(data: dict[str, str] = data) -> Response:
+            return make_tracked_session().post(node_lookup_url, data=data)
+
+        malformed_json_attempts = 0
+        transient_subresponse_attempts = 0
+        while True:
+            response = _get_with_transient_retry(_issue)
+            if response.status_code != 200:
+                _raise_meta_api_error(response)
+            try:
+                sub_responses = response.json()
+            except RequestsJSONDecodeError:
+                malformed_json_attempts += 1
+                if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                    raise
+                continue
+
+            parsed_sub_responses: list[tuple[dict | None, typing.Any, dict | None]] = []
+            for sub_response in sub_responses:
+                if sub_response is None:
+                    parsed_sub_responses.append((None, None, None))
+                    continue
+                try:
+                    body = json.loads(sub_response.get("body") or "{}")
+                except (ValueError, TypeError):
+                    body = None
+                error = body.get("error") if isinstance(body, dict) else None
+                parsed_sub_responses.append((sub_response, body, error))
+
+            has_transient_error = any(
+                _is_transient_batch_subresponse_error(sub_response, error)
+                for sub_response, _body, error in parsed_sub_responses
+            )
+            if has_transient_error and transient_subresponse_attempts < META_TRANSIENT_ERROR_MAX_ATTEMPTS - 1:
+                transient_subresponse_attempts += 1
+                _backoff_sleep(transient_subresponse_attempts)
+                continue
+            break
+
+        for node_id, (sub_response, body, error) in zip(chunk, parsed_sub_responses):
+            if sub_response is None:
+                raise Exception(
+                    f"Meta API request failed: node lookup error - subrequest for node {node_id} "
+                    "never completed before the batch call timed out"
+                )
+            if sub_response.get("code") == 200 and isinstance(body, dict):
+                nodes[node_id] = body
+            elif _is_refused_batch_subresponse(error):
+                logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
+            else:
+                raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error or body)}")
+    return nodes
+
+
+def _restore_refusable_fields(
+    rows: list[dict], node_lookup_url: str, fields: tuple[str, ...], access_token: str
+) -> list[dict]:
+    """Add ``fields`` back to rows fetched without them, as ``None`` for a row Meta refuses them for."""
+    ids = [str(row["id"]) for row in rows if row.get("id")]
+    nodes = _fetch_refusable_fields(node_lookup_url, ids, fields, access_token)
+    return [{**row, **{field: nodes.get(str(row.get("id")), {}).get(field) for field in fields}} for row in rows]
+
+
 def _iter_simple_pagination(
     initial_url: str,
     params: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+    refusable_fields: tuple[str, ...] = (),
+    node_lookup_url: str | None = None,
 ) -> collections.abc.Generator[list[dict]]:
     """Iterate a non-time-range Graph API request via ``paging.next`` URLs.
 
@@ -704,9 +867,17 @@ def _iter_simple_pagination(
     yet, and a cursor points at the start of the next (not-yet-yielded) page.
     If the smallest limit still fails, the page is retried with backoff and
     then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
+
+    When Meta refuses a page for one row's ``refusable_fields`` (see
+    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), the same page is fetched
+    again without those fields, and the fields are read back per row from
+    ``node_lookup_url``. The next page asks for every field again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
+    all_fields = params.get("fields", "")
+    reduced_fields = ",".join(field for field in all_fields.split(",") if field not in refusable_fields)
+    without_refusable_fields = False
 
     # None while on the initial request; set to the active ``paging.next``
     # cursor once we start following pages. Used to retry-at-smaller-limit.
@@ -719,15 +890,18 @@ def _iter_simple_pagination(
         # healthy syncs keep their original request shape (saved cursor URLs and
         # the caller's params already encode the default limit).
         if cursor_url is not None:
-            url = (
-                _override_limit(cursor_url, current_limit)
-                if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]
-                else cursor_url
-            )
+            url = cursor_url
+            if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
+                url = _override_limit(url, current_limit)
+            if without_refusable_fields:
+                url = _override_query_param(url, "fields", reduced_fields)
             return _fetch_paging_url(url, access_token)
+        request_params = params
         if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
-            return _get_initial_request(initial_url, {**params, "limit": current_limit})
-        return _get_initial_request(initial_url, params)
+            request_params = {**request_params, "limit": current_limit}
+        if without_refusable_fields:
+            request_params = {**request_params, "fields": reduced_fields}
+        return _get_initial_request(initial_url, request_params)
 
     response = _issue()
     malformed_json_attempts = 0
@@ -735,6 +909,15 @@ def _iter_simple_pagination(
 
     while True:
         if response.status_code != 200:
+            if (
+                refusable_fields
+                and node_lookup_url is not None
+                and not without_refusable_fields
+                and _is_refused_creative_error(response)
+            ):
+                without_refusable_fields = True
+                response = _issue()
+                continue
             # Too-much-data: shrink the page limit and retry the same request.
             # Re-issuing the same URL/cursor at a smaller limit is safe — no
             # already-yielded rows are re-emitted.
@@ -769,7 +952,10 @@ def _iter_simple_pagination(
         malformed_json_attempts = 0
         smallest_limit_retries = 0
 
-        yield response_payload.get("data", [])
+        rows = response_payload.get("data", [])
+        if without_refusable_fields and node_lookup_url is not None:
+            rows = _restore_refusable_fields(rows, node_lookup_url, refusable_fields, access_token)
+        yield rows
 
         next_url = response_payload.get("paging", {}).get("next")
         if not next_url:
@@ -780,6 +966,10 @@ def _iter_simple_pagination(
         # Strip access_token from the URL before using it so we don't end up with a
         # duplicated `access_token` query param (requests merges `params=...` into the URL).
         cursor_url = _strip_access_token(next_url)
+        if without_refusable_fields:
+            # The cursor of a page fetched without the refusable fields carries the reduced field list.
+            cursor_url = _override_query_param(cursor_url, "fields", all_fields)
+            without_refusable_fields = False
         resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=cursor_url))
         response = _issue()
 
@@ -1006,6 +1196,8 @@ def _make_paginated_api_request(
     access_token: str,
     time_range: dict | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+    refusable_fields: tuple[str, ...] = (),
+    node_lookup_url: str | None = None,
 ) -> collections.abc.Generator[list[dict]]:
     """Make paginated requests to the Meta Graph API.
     This function handles two types of pagination:
@@ -1017,7 +1209,9 @@ def _make_paginated_api_request(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if time_range is None:
-        yield from _iter_simple_pagination(url, params, resume_config, resumable_source_manager)
+        yield from _iter_simple_pagination(
+            url, params, resume_config, resumable_source_manager, refusable_fields, node_lookup_url
+        )
     else:
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
@@ -1127,7 +1321,15 @@ def meta_ads_source(
             params.update(_attribution_params(config))
 
         yield from _hoist_columns(
-            _make_paginated_api_request(formatted_url, params, access_token, time_range, resumable_source_manager),
+            _make_paginated_api_request(
+                formatted_url,
+                params,
+                access_token,
+                time_range,
+                resumable_source_manager,
+                schema.refusable_fields,
+                f"https://graph.facebook.com/{api_version}/",
+            ),
             schema.hoisted_columns,
         )
 

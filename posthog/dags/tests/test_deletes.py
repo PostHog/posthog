@@ -32,6 +32,7 @@ from posthog.dags.deletes import (
     _count_through,
     _count_unswept_rows,
     _delete_predicate_params,
+    _watermark_holders,
     cleanup_old_events_by_partition,
     delete_events,
     deletes_job,
@@ -47,7 +48,7 @@ from posthog.dags.deletes import (
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
@@ -162,9 +163,16 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     # Check overrides is correct
     oldest_override_timestamp = cluster.any_host(get_oldest_override_timestamp).result()
     assert oldest_override_timestamp == timestamp - timedelta(hours=hour_delay - 1)
+    assert _watermark_holders(cluster, timestamp - timedelta(hours=hour_delay - 3)) == [
+        {
+            "team_id": 0,
+            "rows": 2,
+            "oldest": (timestamp - timedelta(hours=hour_delay - 1)).replace(tzinfo=UTC).isoformat(),
+        }
+    ]
 
     # Run the deletion job
-    deletes_job.execute_in_process(
+    result = deletes_job.execute_in_process(
         run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
         resources={"cluster": cluster},
     )
@@ -202,6 +210,13 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     post_override_deletions = AsyncDeletion.objects.filter(created_at__gt=oldest_override_timestamp)
     assert len(post_override_deletions) == hour_delay
     assert not all(deletion.delete_verified_at is not None for deletion in post_override_deletions)
+
+    run_log = DeletionRunLog.objects.get(dagster_run_id=result.dagster_run.run_id)
+    assert run_log.status == DeletionRunStatus.SUCCEEDED
+    assert run_log.watermark == oldest_override_timestamp.replace(tzinfo=UTC)
+    assert run_log.loaded_counts == {"Person": delete_count - hour_delay}
+    assert run_log.skipped_person_deletions == hour_delay
+    assert run_log.oldest_skipped_created_at == min(d.created_at for d in post_override_deletions)
 
     # Verify the temporary tables were cleaned up
     table = PendingDeletesTable(timestamp=timestamp)

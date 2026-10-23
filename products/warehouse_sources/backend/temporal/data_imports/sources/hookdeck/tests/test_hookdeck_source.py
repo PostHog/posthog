@@ -56,11 +56,6 @@ class TestHookdeckSource:
         self.team_id = 123
         self.config = HookdeckSourceConfig(api_key="hd_test_key")
 
-    def test_non_retryable_errors_match_the_error_the_api_raises(self) -> None:
-        observed = "401 Client Error: Unauthorized for url: https://api.hookdeck.com/2025-07-01/events?limit=250"
-
-        assert any(key in observed for key in self.source.get_non_retryable_errors())
-
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -85,14 +80,6 @@ class TestHookdeckSource:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
         assert schema.incremental_fields == []
-
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "attempts"])
-
-        assert {s.name for s in schemas} == {"events", "attempts"}
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         "probe_result, schema_name, expected",

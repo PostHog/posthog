@@ -9,12 +9,13 @@ import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { formatAggregationValue, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { formatAggregationValue } from 'scenes/insights/utils'
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
+import { CompareLabelType, IntervalType } from '~/types'
 
 import {
     FormattedDateOptions,
@@ -24,13 +25,14 @@ import {
     SeriesDatum,
 } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
+import { getResultSeriesName } from './resultSeriesName'
 import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type InsightSeriesMetaBase = {
-    action?: ActionFilter
-    /** Series name for rows without an `action` — formula series carry their formula label here. */
+    series?: ResultSeries
+    /** Series name for rows without a series node — formula series carry their formula label here. */
     series_name?: string
     breakdown_value?: string | number | string[] | null
     compare_label?: SeriesDatum['compare_label']
@@ -115,7 +117,7 @@ function formatHeaderDate(date: string | undefined, options: FormattedDateOption
 
 // ── SeriesLabel ────────────────────────────────────────────────────────────
 
-/** `SeriesDatum` plus the series name for rows whose meta has no `action` (formula series). */
+/** `SeriesDatum` plus the series name for rows whose meta has no series node (formula series). */
 type TooltipSeriesDatum = SeriesDatum & { series_name?: string }
 
 interface SeriesLabelProps {
@@ -160,7 +162,7 @@ export function SeriesLabel({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'currentColor', borderColor: 'currentColor' }}
             >
-                {alphabet[datum.action?.order ?? datum.order]}
+                {alphabet[datum.series?.order ?? datum.order]}
             </SeriesGlyph>
         ) : null
 
@@ -189,7 +191,7 @@ export function SeriesLabel({
                     value is what tells the rows apart, and a long event name would otherwise
                     truncate it away. The letter and the separator stay put. */}
                 <span className="opacity-50 truncate min-w-0 shrink">
-                    {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : datum.series_name) ?? datum.label}
+                    {(datum.series ? getResultSeriesName(datum.series) : null) ?? datum.series_name ?? datum.label}
                 </span>
                 <span className="opacity-50 shrink-0">&nbsp;·&nbsp;</span>
             </>
@@ -256,7 +258,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                 label: entry.series.label,
                 color: entry.color,
                 count: entry.value,
-                action: meta.action,
+                series: meta.series,
                 series_name: meta.series_name,
                 breakdown_value: meta.breakdown_value ?? undefined,
                 compare_label: meta.compare_label,
@@ -323,7 +325,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         (value: number, entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
             return formatAggregationValue(
-                datum?.action?.math_property,
+                datum?.series?.math?.math_property,
                 value,
                 (v) =>
                     formatRowValue(v, {

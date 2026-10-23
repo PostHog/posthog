@@ -110,6 +110,28 @@ const partialFailureRecalculation = {
     ],
 }
 
+// A run the backend rejected because the experiment started too long ago. The create response has no
+// results; the latest read carries the earlier run's rows under the same window.
+const REJECTION_MESSAGE = 'This experiment started too long ago for its metrics to be recalculated.'
+const windowError = {
+    step: 'request',
+    message: REJECTION_MESSAGE,
+    error_type: 'recalculation_window_too_long',
+    retriable: false,
+}
+const rejectedRecalculation = {
+    ...baseRecalculation,
+    id: 'recalc-rejected',
+    status: 'failed',
+    completed_at: new Date().toISOString(),
+    metric_errors: { [PRIMARY_METRIC_UUID]: windowError, [SECONDARY_METRIC_UUID]: windowError },
+}
+const rejectedLatestRecalculation = {
+    ...rejectedRecalculation,
+    query_to: completedRecalculation.query_to,
+    results: completedRecalculation.results,
+}
+
 // Timeseries cold-start placeholder: completed-status, primary filled from timeseries, secondary is a gap.
 const timeseriesFallbackRecalculation = {
     ...baseRecalculation,
@@ -750,6 +772,81 @@ describe('experimentMetricsLogic', () => {
                 logic.actions.triggerRecalculation()
             }).toNotHaveDispatchedActions(['pollRecalculation', 'setCurrentRecalculation'])
             expect(createMock).not.toHaveBeenCalled()
+        })
+
+        it('keeps the earlier results and shows the message when the backend rejects the run', async () => {
+            let latest: object = completedRecalculation
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [200, latest] },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, rejectedRecalculation],
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+
+            latest = rejectedLatestRecalculation
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            })
+                .toDispatchActions(['setCurrentRecalculation', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+                .toNotHaveDispatchedActions(['pollRecalculation'])
+
+            expect(logic.values.recalculationRejectionMessage).toEqual(REJECTION_MESSAGE)
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(logic.values.primaryMetricsResultsErrors[0]).toBeNull()
+            expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+        })
+
+        it('does not heal a gap in a rejected run, because every heal gets the same rejection', async () => {
+            const createMock = jest.fn(() => [201, rejectedRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        {
+                            ...rejectedLatestRecalculation,
+                            metric_errors: { [PRIMARY_METRIC_UUID]: windowError },
+                            results: completedRecalculation.results.slice(0, 1),
+                        },
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            }).toDispatchActions(['loadLatestRecalculation', 'setCurrentRecalculation'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(createMock).toHaveBeenCalledTimes(1)
+        })
+
+        it('clears the metric loading marks when the reload after a rejection fails', async () => {
+            let latestStatus = 200
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        latestStatus,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, rejectedRecalculation],
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+
+            latestStatus = 500
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            }).toDispatchActions(['loadLatestRecalculation', 'setRecalculationLoading'])
+
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
         })
 
         it('creates a recalculation for a stopped experiment to compute its final results', async () => {

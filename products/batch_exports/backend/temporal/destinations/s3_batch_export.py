@@ -43,8 +43,9 @@ from products.batch_exports.backend.service import (
     AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
+    BatchExportModelInput,
     S3BatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -852,7 +853,7 @@ class ConcurrentS3Consumer(Consumer):
         prefix: str,
         data_interval_start: str | None,
         data_interval_end: str | None,
-        batch_export_model: BatchExportModel | None,
+        batch_export_model: BatchExportModelInput | None,
         file_format: str,
         checksum_algorithm: str | None = None,
         kms_key_id: str | None = None,
@@ -865,7 +866,8 @@ class ConcurrentS3Consumer(Consumer):
         max_concurrent_uploads: int = 5,
         file_name_prefix: str | None = None,
     ):
-        super().__init__(model=batch_export_model.name if batch_export_model else "events")
+        model = migrate_batch_export_model(batch_export_model)
+        super().__init__(model=model.name)
 
         self.bucket = bucket
         self.region_name = region_name
@@ -874,7 +876,7 @@ class ConcurrentS3Consumer(Consumer):
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
         self.file_name_prefix = file_name_prefix
-        self.batch_export_model = batch_export_model
+        self.batch_export_model = model
 
         self.checksum_algorithm = checksum_algorithm
 

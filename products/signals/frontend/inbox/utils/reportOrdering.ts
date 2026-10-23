@@ -47,12 +47,17 @@ function timestampKey(value: string): string {
     return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
 }
 
-/** The served probability a model sort orders by, or null when the report has no score for that head or the score is stale. */
+/**
+ * The served probability a model sort orders by, or null when the report has no score for that head or the score is stale.
+ * Non-staff users get no probabilities, so their rows order by the lift. The lift is the probability over the head's
+ * base rate, so it gives the same order.
+ */
 export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
     if (report.ranking?.stale) {
         return null
     }
-    const score = report.ranking?.scores[rankingScoreForField(field).head]
+    const head = rankingScoreForField(field).head
+    const score = report.ranking?.scores[head] ?? report.ranking?.lifts?.[head]
     return typeof score === 'number' ? score : null
 }
 

@@ -26,7 +26,9 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
-from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
+from posthog.temporal.ai_observability.retries import is_last_attempt
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team, raise_emit_failure
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
@@ -464,10 +466,10 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
             return
         increment_emit_event_outcome("failed")
-        raise
-    except Exception:
+        raise_emit_failure(e)
+    except Exception as e:
         increment_emit_event_outcome("failed")
-        raise
+        raise_emit_failure(e)
 
 
 @temporalio.activity.defn
@@ -540,8 +542,10 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
     evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
     evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-    if evaluation_type not in ("hog", "sentiment"):
-        # An llm_judge returns before the read: its own activity hydrates what it grades.
+    stale_backfill = inputs.backfill_id is not None and (evaluation["deleted"] or not evaluation["enabled"])
+    if evaluation_type not in ("hog", "sentiment") or stale_backfill:
+        # An llm_judge returns before the read: its own activity hydrates what it grades. A backfill
+        # of an evaluation turned off since it started returns unrun, so the workflow reports the skip.
         return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
 
     event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
@@ -564,8 +568,7 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
             )
         except Exception as error:
             # Typed so the workflow counts one emit failure per run, after retries end.
-            raise ApplicationError(
-                "Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE
-            ) from error
+            error_class = ApplicationError if is_last_attempt() else NonReportableApplicationError
+            raise error_class("Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE) from error
         emitted = True
     return LocalEvaluationOutcome(evaluation=evaluation, result=result, emitted=emitted)
