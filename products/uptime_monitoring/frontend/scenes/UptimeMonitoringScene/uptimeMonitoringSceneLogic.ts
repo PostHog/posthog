@@ -90,7 +90,7 @@ export interface uptimeMonitoringSceneLogicActions {
         monitors: UptimeMonitorApi[]
         payload?: UptimeMonitorApi
     }
-    loadMonitors: () => any
+    loadMonitors: (_: void) => void
     loadMonitorsFailure: (
         error: string,
         errorObject?: any
@@ -100,10 +100,10 @@ export interface uptimeMonitoringSceneLogicActions {
     }
     loadMonitorsSuccess: (
         monitors: UptimeMonitorApi[],
-        payload?: any
+        payload?: void
     ) => {
         monitors: UptimeMonitorApi[]
-        payload?: any
+        payload?: void
     }
     openCreateModal: () => {
         value: true
@@ -175,7 +175,7 @@ export const uptimeMonitoringSceneLogic = kea<uptimeMonitoringSceneLogicType>([
         monitors: [
             null as UptimeMonitorApi[] | null,
             {
-                loadMonitors: async (_, breakpoint) => {
+                loadMonitors: async (_: void, breakpoint) => {
                     const response = await uptimeMonitorsList(projectId(), { limit: LIST_LIMIT })
                     // A newer load started while this one ran, so this response may miss a monitor created since.
                     breakpoint()
