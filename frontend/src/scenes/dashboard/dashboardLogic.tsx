@@ -2090,7 +2090,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return preserveTiles ? values.dashboard : null
                 },
                 saveEditModeChanges: ({ scope }) =>
-                    enqueueEditSave({ cache, mount: () => dashboardLogic(props).mount() }, async () => {
+                    enqueueEditSave({ cache, mount: (): (() => void) => dashboardLogic(props).mount() }, async () => {
                         cache.dashboardChangesPersisted = false
                         cache.draftLayoutsAtSave = values.draftLayouts
                         try {
@@ -4173,7 +4173,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 return
             }
-            await enqueueTileSave({ cache, mount: () => dashboardLogic(props).mount() }, async () => {
+            await enqueueTileSave({ cache, mount: (): (() => void) => dashboardLogic(props).mount() }, async () => {
                 const move = planTileMove(values, tileId, sectionKey, cell)
                 if (!move) {
                     return
