@@ -74,9 +74,33 @@ def inlining_could_deny_a_reader(team_id: int, saved_query_id: UUID) -> bool:
 
 
 @frozen
+class QueryCost:
+    seconds: float
+    read_bytes: float
+
+
+@frozen
 class RealizedSavings:
     seconds: float
     read_bytes: float
+
+
+def monthly_cost(context: "CandidateContext", duration_ms: int, read_bytes: int) -> QueryCost:
+    return QueryCost(
+        seconds=duration_ms / MILLISECONDS_PER_SECOND * context.month_scale,
+        read_bytes=read_bytes * context.month_scale,
+    )
+
+
+def savings_against(
+    score_inputs: Mapping[str, float], seconds_key: str, bytes_key: str, cost_now: QueryCost
+) -> RealizedSavings | None:
+    if seconds_key not in score_inputs or bytes_key not in score_inputs:
+        return None
+    return RealizedSavings(
+        seconds=score_inputs[seconds_key] - cost_now.seconds,
+        read_bytes=score_inputs[bytes_key] - cost_now.read_bytes,
+    )
 
 
 @frozen
@@ -147,11 +171,7 @@ class Candidate(ABC):
     ) -> WarehouseSuggestionAssetOutcome: ...
 
     def realized_savings(
-        self,
-        context: CandidateContext,
-        subject: Subject,
-        accepted_at: datetime | None,
-        score_inputs: Mapping[str, float],
+        self, context: CandidateContext, subject: Subject, score_inputs: Mapping[str, float]
     ) -> RealizedSavings | None:
         return None
 

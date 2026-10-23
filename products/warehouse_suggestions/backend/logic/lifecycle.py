@@ -259,12 +259,20 @@ def _reconcile_assets(context: CandidateContext) -> int:
 def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:
     candidate = CANDIDATES[WarehouseSuggestionKind(row.kind)]
     subject = _subject(row)
-    savings = candidate.realized_savings(context, subject, row.reviewed_at, row.score_inputs)
+    savings = (
+        candidate.realized_savings(context, subject, row.score_inputs)
+        if _window_starts_after(context, row.reviewed_at)
+        else None
+    )
     return {
         "asset_outcome": candidate.asset_outcome(context, subject, accepted_at=row.reviewed_at),
         "realized_seconds_saved_per_month": savings.seconds if savings else None,
         "realized_bytes_saved_per_month": savings.read_bytes if savings else None,
     }
+
+
+def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:
+    return accepted_at is not None and accepted_at < context.reads.window.starts_at
 
 
 def _move_all(

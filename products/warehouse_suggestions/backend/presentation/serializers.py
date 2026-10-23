@@ -265,13 +265,15 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
             "reviewed_at": {"help_text": "When the suggestion was accepted or dismissed."},
             "dismissal_note": {"help_text": "Free-text note left when dismissing."},
             "realized_seconds_saved_per_month": {
-                "help_text": "Query time an accepted materialization saved over the last 30 days, scaled to a month: "
-                "the read time before acceptance minus the read and refresh time now. Negative when it costs more "
-                "than it saves. Null until 30 days of reads after acceptance exist, and for other kinds."
+                "help_text": "Query time an accepted materialize or unmaterialize suggestion saved over the last 30 "
+                "days, scaled to a month: the cost when it was scored minus the cost now. For materialize, the cost "
+                "is people's reads before and reads plus refreshes now. For unmaterialize, it is refreshes before "
+                "and all reads now. Negative when the change costs more than it saves. Null until 30 days have "
+                "passed since acceptance, and for other kinds."
             },
             "realized_bytes_saved_per_month": {
-                "help_text": "Bytes read that an accepted materialization saved over the last 30 days, scaled to a "
-                "month, measured the same way as realized_seconds_saved_per_month."
+                "help_text": "Bytes read that an accepted materialize or unmaterialize suggestion saved over the "
+                "last 30 days, scaled to a month, measured the same way as realized_seconds_saved_per_month."
             },
             "can_act": {
                 "help_text": "Whether the caller has edit access to the subject and so may accept, dismiss or resume."

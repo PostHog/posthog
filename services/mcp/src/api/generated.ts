@@ -80955,12 +80955,12 @@ export namespace Schemas {
          */
       dismissal_note: string | null;
       /**
-         * Query time an accepted materialization saved over the last 30 days, scaled to a month: the read time before acceptance minus the read and refresh time now. Negative when it costs more than it saves. Null until 30 days of reads after acceptance exist, and for other kinds.
+         * Query time an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month: the cost when it was scored minus the cost now. For materialize, the cost is people's reads before and reads plus refreshes now. For unmaterialize, it is refreshes before and all reads now. Negative when the change costs more than it saves. Null until 30 days have passed since acceptance, and for other kinds.
          * @nullable
          */
       realized_seconds_saved_per_month: number | null;
       /**
-         * Bytes read that an accepted materialization saved over the last 30 days, scaled to a month, measured the same way as realized_seconds_saved_per_month.
+         * Bytes read that an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month, measured the same way as realized_seconds_saved_per_month.
          * @nullable
          */
       realized_bytes_saved_per_month: number | null;

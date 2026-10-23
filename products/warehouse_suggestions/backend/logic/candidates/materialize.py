@@ -36,8 +36,11 @@ from .base import (
     Candidate,
     CandidateContext,
     CandidateResult,
+    QueryCost,
     RealizedSavings,
     Rejection,
+    monthly_cost,
+    savings_against,
 )
 
 SECONDS_PER_MONTH = DAYS_PER_MONTH * 24 * 60 * 60
@@ -54,12 +57,6 @@ class SavingsEstimate:
     bytes_saved: float
     clears_a_floor: bool
     score: float
-
-
-@frozen
-class QueryCost:
-    seconds: float
-    read_bytes: float
 
 
 @frozen
@@ -140,23 +137,13 @@ class MaterializeCandidate(Candidate):
         return WarehouseSuggestionAssetOutcome.UNUSED
 
     def realized_savings(
-        self,
-        context: CandidateContext,
-        subject: Subject,
-        accepted_at: datetime | None,
-        score_inputs: Mapping[str, float],
+        self, context: CandidateContext, subject: Subject, score_inputs: Mapping[str, float]
     ) -> RealizedSavings | None:
         saved_query = context.inventory.saved_queries.get(subject.id)
         if saved_query is None or not saved_query.materializes:
             return None
-        if accepted_at is None or accepted_at >= context.reads.window.starts_at:
-            return None
-        if READ_SECONDS_PER_MONTH not in score_inputs or READ_BYTES_PER_MONTH not in score_inputs:
-            return None
-        cost_after = _monthly_cost_after(context, subject)
-        return RealizedSavings(
-            seconds=score_inputs[READ_SECONDS_PER_MONTH] - cost_after.seconds,
-            read_bytes=score_inputs[READ_BYTES_PER_MONTH] - cost_after.read_bytes,
+        return savings_against(
+            score_inputs, READ_SECONDS_PER_MONTH, READ_BYTES_PER_MONTH, _monthly_cost_after(context, subject)
         )
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
@@ -318,11 +305,10 @@ def estimate_savings(
 def _monthly_cost_after(context: CandidateContext, subject: Subject) -> QueryCost:
     reads = context.reads.reads_of(subject)
     refreshes = context.reads.refreshes.get(subject.id)
-    duration_ms = (reads.human_duration_ms if reads else 0) + (refreshes.duration_ms if refreshes else 0)
-    read_bytes = (reads.human_read_bytes if reads else 0) + (refreshes.read_bytes if refreshes else 0)
-    return QueryCost(
-        seconds=duration_ms / MILLISECONDS_PER_SECOND * context.month_scale,
-        read_bytes=read_bytes * context.month_scale,
+    return monthly_cost(
+        context,
+        duration_ms=(reads.human_duration_ms if reads else 0) + (refreshes.duration_ms if refreshes else 0),
+        read_bytes=(reads.human_read_bytes if reads else 0) + (refreshes.read_bytes if refreshes else 0),
     )
 
 
