@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
-import { assertResolvesInside, errorCode } from './utils'
+import { assertResolvesInside, assertSafeDestination, errorCode } from './utils'
 
 export interface SkillListItem {
     id: string
@@ -44,14 +44,6 @@ function targetSkillDirectory(targetRoot: string, skillId: string): string {
     const destinationRoot = path.resolve(skillsRoot, skillId)
     assertSafeDestination(skillsRoot, destinationRoot)
     return destinationRoot
-}
-
-function assertSafeDestination(root: string, destination: string): void {
-    const normalizedRoot = path.resolve(root)
-    const normalizedDestination = path.resolve(destination)
-    if (normalizedDestination !== normalizedRoot && !normalizedDestination.startsWith(normalizedRoot + path.sep)) {
-        throw new Error(`Refusing to write outside ${normalizedRoot}: ${normalizedDestination}`)
-    }
 }
 
 function assertSafeSkillId(skillId: string): void {

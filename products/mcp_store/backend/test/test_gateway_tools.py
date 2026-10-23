@@ -157,16 +157,19 @@ class TestMCPGatewayToolPoliciesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("policy_context_owner", "policy_context", True, "approved"),
-            ("policy_context_teammate", "policy_context", False, "needs_approval"),
-            ("facade_owner", "facade", True, "approved"),
-            ("facade_teammate", "facade", False, "needs_approval"),
+            (f"{entry_point}_{caller}_{legacy_state}", entry_point, caller == "owner", legacy_state, expected)
+            for entry_point in ("policy_context", "facade", "facade_unlinked")
+            for caller, legacy_state, expected in (
+                ("owner", "approved", "approved"),
+                ("teammate", "approved", "needs_approval"),
+                ("teammate", "do_not_use", "do_not_use"),
+            )
         ]
     )
-    def test_shared_installation_legacy_state_is_only_the_owner_s_preference(
-        self, _name: str, entry_point: str, caller_is_owner: bool, expected: str
+    def test_shared_installation_teammates_keep_owner_restrictions_but_not_approvals(
+        self, _name: str, entry_point: str, caller_is_owner: bool, legacy_state: str, expected: str
     ) -> None:
-        server, installation = self._server_with_tool("shared", legacy_state="approved")
+        server, installation = self._server_with_tool("shared", legacy_state=legacy_state)
         installation.scope = "shared"
         installation.save(update_fields=["scope"])
         caller = (
@@ -185,6 +188,9 @@ class TestMCPGatewayToolPoliciesAPI(APIBaseTest):
                 .state
             )
         else:
-            state = resolve_member_tool_states(str(installation.id), self.team.id, server.id, caller.id)["search_items"]
+            gateway_server_id = server.id if entry_point == "facade" else None
+            state = resolve_member_tool_states(str(installation.id), self.team.id, gateway_server_id, caller.id)[
+                "search_items"
+            ]
 
         assert state == expected

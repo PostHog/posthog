@@ -18,7 +18,7 @@ export async function installAgentsMdSnippet(opts: { cwd?: string; filePath?: st
     const cwd = opts.cwd ?? process.cwd()
     const targetPath = path.resolve(opts.filePath ?? path.join(cwd, 'AGENTS.md'))
     if (!opts.filePath) {
-        await assertResolvesInside(cwd, targetPath)
+        await assertResolvesInside(cwd, targetPath, '. Pass --path to choose the file to update.')
     }
     let existing = ''
     try {

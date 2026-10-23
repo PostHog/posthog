@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
+from . import frontmatter
+
 MANIFEST_VERSION = "1.0.0"
 
 
@@ -22,8 +24,7 @@ class SkillFile(BaseModel):
 
 
 class SkillResource(BaseModel):
-    # The name becomes the ``dist/skills/<name>`` directory, so it must stay one path segment.
-    name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
+    name: str = Field(pattern=frontmatter.SKILL_NAME_PATTERN)
     description: str
     files: list[SkillFile]
     source: str

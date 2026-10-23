@@ -389,10 +389,15 @@ def test_build_manifest_rejects_duplicate_rendered_names(tmp_path: Path) -> None
         builder.build_manifest(discoverer.discover(), SkillRenderer())
 
 
-@pytest.mark.parametrize("name", ["shadow/../trusted-skill", "../escape", "nested/skill", ""])
-def test_skill_resource_rejects_names_that_are_not_one_path_segment(name: str) -> None:
+@pytest.mark.parametrize("name", ["shadow/../trusted-skill", "../escape", "nested/skill", '""'])
+def test_frontmatter_rejects_names_that_are_not_one_path_segment(name: str) -> None:
     with pytest.raises(ValueError):
-        SkillResource(name=name, description="desc", files=[], source="products/alpha/skills/x")
+        validate_frontmatter(f"---\nname: {name}\ndescription: desc\n---\n# Body\n")
+
+
+def test_skill_resource_rejects_names_that_are_not_one_path_segment() -> None:
+    with pytest.raises(ValueError):
+        SkillResource(name="shadow/../trusted-skill", description="desc", files=[], source="products/alpha/skills/x")
 
 
 def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:

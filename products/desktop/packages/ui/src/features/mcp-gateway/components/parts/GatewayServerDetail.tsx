@@ -26,6 +26,7 @@ import {
 } from "@posthog/core/mcp-gateway/gatewayConnect";
 import {
   agentShareMessage,
+  canEditGatewayPolicyScope,
   countPoliciesByState,
   formatAgo,
   getGatewayServerRemovalAction,
@@ -219,18 +220,11 @@ export function GatewayServerDetail({
   const bulkEditableCount = hasToolSearch
     ? filteredEditablePolicies.length
     : editableCount;
-  const scopeEditable =
-    isAdmin ||
-    scope.scopeType === "member" ||
-    // An agent's tool policy covers every member's share, so members tune it
-    // only alongside their own.
-    (scope.scopeType === "agent" &&
-      canManageAgentAccess &&
-      server.agents.some(
-        (agent) =>
-          agent.service_account_id === scope.scopeServiceAccountId &&
-          agent.user.id === currentUser?.id,
-      ));
+  const scopeEditable = canEditGatewayPolicyScope(server, scope, {
+    isAdmin,
+    canManageAgentAccess,
+    currentUserId: currentUser?.id ?? null,
+  });
   // Any connected member can re-list — it runs against their own credential,
   // and it is the manual retry when auto-discovery failed.
   const refreshInstallationId = liveInstallationId;

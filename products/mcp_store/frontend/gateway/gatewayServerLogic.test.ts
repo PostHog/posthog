@@ -278,11 +278,12 @@ describe('gatewayServerLogic', () => {
     })
 
     it.each([
-        ['their own share', YOU, true],
-        ['only a teammate share', TEAMMATE, false],
-    ])('lets a member edit an agent scope backed by %s', (_label, sharer, expected) => {
+        ['a member with their own share', false, YOU, true],
+        ['a member with only a teammate share', false, TEAMMATE, false],
+        ['an admin without a share', true, TEAMMATE, true],
+    ])('lets %s edit an agent scope', (_label, isAdmin, sharer, expected) => {
         parentLogic.actions.loadConfigSuccess({
-            is_admin: false,
+            is_admin: isAdmin,
             registered_template_ids: [],
             allow_custom_servers: true,
             allow_member_agent_access: true,
