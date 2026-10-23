@@ -158,7 +158,7 @@ def _iter_parents(client: RESTClient, api_version: str, config: LovableEndpointC
         workspace_ref = _ParentRef(workspace_id=workspace_id)
         for project in _iter_rows(client, _path(projects, workspace_ref), _params(projects, workspace_ref)):
             project_id = project.get("id")
-            if not project_id:
+            if not project_id or (config.published_projects_only and not project.get("is_published")):
                 continue
             project_ref = _ParentRef(workspace_id=workspace_id, project_id=project_id)
             if config.scope == "project":

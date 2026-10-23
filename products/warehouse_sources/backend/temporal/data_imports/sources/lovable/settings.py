@@ -42,6 +42,8 @@ class LovableEndpointConfig:
     # The endpoint returns one unpaginated `time_series` object over a required date range instead
     # of a cursor page of rows.
     time_series: bool = False
+    # Lovable answers 404 for an unpublished project, so only published projects are fanned out.
+    published_projects_only: bool = False
 
 
 LOVABLE_ENDPOINTS: dict[str, LovableEndpointConfig] = {
@@ -164,6 +166,7 @@ LOVABLE_ENDPOINTS_2026_09_11: dict[str, LovableEndpointConfig] = {
         partition_key="timestamp",
         minimum_plan="Business",
         time_series=True,
+        published_projects_only=True,
     ),
     "WorkspaceAnalytics": LovableEndpointConfig(
         name="WorkspaceAnalytics",
@@ -213,3 +216,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "ProjectAnalytics": [incremental_field("timestamp", IncrementalFieldType.DateTime)],
     "WorkspaceAnalytics": [incremental_field("timestamp", IncrementalFieldType.DateTime)],
 }
+
+# An incremental analytics run reads the watermark day again, so append would duplicate that bucket.
+MERGE_ONLY_ENDPOINTS = frozenset(INCREMENTAL_FIELDS)

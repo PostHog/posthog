@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.se
     INCREMENTAL_FIELDS,
     LOVABLE_API_VERSION_2026_09_11,
     LOVABLE_API_VERSION_V1,
+    MERGE_ONLY_ENDPOINTS,
     version_config,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -76,7 +77,7 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
     ) -> list[SourceSchema]:
         # The table set differs by version, so discovery must follow the source's pin.
         endpoints = tuple(version_config(self.resolve_api_version(api_version)).endpoints)
-        return build_endpoint_schemas(endpoints, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(endpoints, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,

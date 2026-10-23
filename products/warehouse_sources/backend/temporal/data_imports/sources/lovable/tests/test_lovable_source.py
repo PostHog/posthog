@@ -56,6 +56,8 @@ class TestLovableSource:
         # Only the analytics endpoints take a timestamp filter, so nothing else can sync incrementally.
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
         assert incremental == {"ProjectAnalytics", "WorkspaceAnalytics"} & set(expected)
+        # Each analytics run rereads the watermark day, which append would duplicate.
+        assert all(not schema.supports_append for schema in schemas)
 
     @parameterized.expand(
         [

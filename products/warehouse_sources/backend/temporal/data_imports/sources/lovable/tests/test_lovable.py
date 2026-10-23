@@ -141,6 +141,20 @@ class TestLovableSourceTransport:
         assert result.requests[-1].param("cursor") == expected_cursor
         assert [(row["project_id"], row["scan_id"], row["id"]) for row in result.rows][-1] == ("p-1", "s-2", "f-1")
 
+    def test_project_analytics_skips_unpublished_projects(self) -> None:
+        result = _driver().run(
+            "ProjectAnalytics",
+            [
+                _page([{"id": "ws-1"}]),
+                _page([{"id": "p-draft", "is_published": False}, {"id": "p-live", "is_published": True}]),
+                ScriptedResponse(json={"time_series": {}}),
+            ],
+            api_version="2026-09-11",
+        )
+
+        assert result.raised is None
+        assert result.paths[2:] == ["/v1/projects/p-live/analytics"]
+
     def test_analytics_pivots_each_bucket_into_one_row(self) -> None:
         result = _driver().run(
             "WorkspaceAnalytics",
