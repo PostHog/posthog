@@ -640,7 +640,9 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
     ctx.demo_data.make_context.return_value = sandbox_context
     ctx.provider_strategy.keeps_sandboxes.return_value = False
     setup = MagicMock(return_value={"seeded": True})
-    case = SandboxedEvalCase(name="ordinary-case", prompt="Run the task", interaction_origin=origin, setup=setup)
+    case = SandboxedEvalCase(
+        name="ordinary-case", prompt="Run the task", interaction_origin=origin, setup=setup, inherit_demo_data=False
+    )
     run = base._SandboxedEvalRun(
         experiment_name="skill-delivery-test",
         cases=[case] if has_original else [],
@@ -658,6 +660,7 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
     launched_context = launch.call_args.args[1]
     assert launched_context.interaction_origin == expected_origin
     assert ctx.demo_data.make_context.call_args.kwargs["disable_bundled_skills"] == (delivery == "exec")
+    assert ctx.demo_data.make_context.call_args.kwargs["inherit_demo_data"] == (not has_original)
     if has_original:
         assert setup.call_args.args[0].interaction_origin == expected_origin
         assert seed == {"seeded": True}
@@ -868,15 +871,23 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("agent_error", [None, RuntimeError("agent failed"), asyncio.CancelledError()])
 @pytest.mark.parametrize("reporting_phase", ["agent", "cleanup"])
+@pytest.mark.parametrize("custom_runner", [False, True])
 async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent_error: BaseException | None, reporting_phase: str
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    agent_error: BaseException | None,
+    reporting_phase: str,
+    custom_runner: bool,
 ) -> None:
     monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
     ctx = MagicMock(posthog_client=None, case_filter=None, sandbox_slots=asyncio.Semaphore(1))
     ctx.per_case_timeout_seconds = 30
     ctx.provider_strategy.keeps_sandboxes.return_value = False
     case = SandboxedEvalCase(name="case", prompt="Run the task")
-    run = base._SandboxedEvalRun("cleanup", [case], [], ctx, is_public=False, no_send_logs=True)
+    launch = AsyncMock()
+    run = base._SandboxedEvalRun(
+        "cleanup", [case], [], ctx, is_public=False, no_send_logs=True, case_runner=launch if custom_runner else None
+    )
     context = CustomPromptSandboxContext(team_id=1, user_id=2)
     monkeypatch.setattr(
         run, "_prepare_case", AsyncMock(return_value=base._SandboxedCaseSetup(context=context, seed={}))
@@ -890,7 +901,11 @@ async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
     hooks = NullCaseHooks()
     hooks.metadata["trial_id"] = "trial"
     result = base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0))
-    monkeypatch.setattr(base, "run_eval_case", AsyncMock(return_value=result, side_effect=agent_error))
+    launch.return_value = result
+    launch.side_effect = agent_error
+    monkeypatch.setattr(
+        base, "run_eval_case", AsyncMock(side_effect=AssertionError("Default runner used")) if custom_runner else launch
+    )
     cleanup = AsyncMock()
     monkeypatch.setattr(base, "reclaim_kernels", cleanup)
 
@@ -910,6 +925,9 @@ async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
 async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    class ProductArtifacts(AgentArtifacts):
+        report_id: str
+
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     monkeypatch.setattr(base, "build_case_dir", lambda *_: tmp_path)
     ctx = MagicMock(posthog_client=None, reporter=ProgressReporter(total_suites=1))
@@ -937,9 +955,14 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         output = await run._post_process(
             SandboxedEvalCase(name="same-case", prompt="Run the task"),
             hooks,
-            base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0), raw_log=raw_log, trace_id=f"trace-{index}"),
+            base.EvalCaseResult(
+                artifacts=ProductArtifacts(exit_code=0, report_id=f"report-{index}"),
+                raw_log=raw_log,
+                trace_id=f"trace-{index}",
+            ),
             {},
         )
+        assert output["report_id"] == f"report-{index}"
         results.append(
             CaseResult(input={"name": "same-case"}, output=output, scores={"score": index / 2}, metadata=hooks.metadata)
         )
@@ -950,6 +973,8 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         )
     )
     for index in range(3):
+        artifacts = json.loads((tmp_path / f"same-case.trial-trial-{index}.artifacts.json").read_text())
+        assert artifacts["report_id"] == f"report-{index}"
         summary = (tmp_path / f"same-case.trial-trial-{index}.summary.txt").read_text()
         assert f"trace_id: trace-{index}" in summary
         assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}
