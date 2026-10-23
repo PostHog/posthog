@@ -25,6 +25,7 @@ from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.github_recovery import GitHubRecoveryCheck
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, TaskRun
 from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
@@ -1664,7 +1665,12 @@ class TestProcessTaskWorkflowUnit:
     @pytest.mark.parametrize("recovered", [True, False])
     async def test_github_wait_precedes_context_loading_and_sandbox_creation(self, monkeypatch, recovered):
         workflow = ProcessTaskWorkflow()
-        checks = iter(["blocked", "ready" if recovered else "cancelled"])
+        checks = iter(
+            [
+                GitHubRecoveryCheck(status="suspended", retry_until=datetime.now(UTC) + timedelta(days=7)),
+                GitHubRecoveryCheck(status="ready" if recovered else "cancelled"),
+            ]
+        )
         activity_calls = []
 
         async def execute(activity_fn, activity_input, **kwargs):
@@ -1684,13 +1690,64 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
         monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", wait)
         monkeypatch.setattr(workflow, "_get_task_processing_context", load_context)
+        monkeypatch.setattr(workflow, "_update_task_run_status", AsyncMock())
 
         result = await workflow.run(ProcessTaskInput(run_id="run-id", create_pr=True))
 
         assert load_context.await_count == int(recovered)
         assert activity_calls.count(check_self_driving_github_readiness) == 2
         assert wait.await_count == 1
+        assert wait.await_args is not None
+        assert wait.await_args.kwargs["timeout"] > timedelta(days=6)
         assert result.sandbox_id is None
+
+    @pytest.mark.parametrize("temporary", [False, True])
+    async def test_github_wait_expires_without_another_readiness_check(self, monkeypatch, temporary):
+        instance = ProcessTaskWorkflow()
+        start = datetime.now(UTC)
+        current = start
+        check = AsyncMock(
+            return_value=GitHubRecoveryCheck(
+                status="retry" if temporary else "suspended", retry_until=start + timedelta(days=7)
+            )
+        )
+
+        async def wait(condition, *, timeout):
+            nonlocal current
+            assert timeout == (timedelta(minutes=5) if temporary else timedelta(days=7))
+            current = start + timedelta(days=7)
+            raise TimeoutError
+
+        update = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: current)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", check)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", wait)
+        monkeypatch.setattr(instance, "_update_task_run_status", update)
+        assert await instance._wait_for_github_readiness("run-id") is False
+        assert check.await_count == 1
+        assert update.await_args is not None
+        assert update.await_args.args[0] == "cancelled"
+
+    async def test_reconnect_during_readiness_check_is_not_lost(self, monkeypatch):
+        instance = ProcessTaskWorkflow()
+        checks = 0
+
+        async def check(*args, **kwargs):
+            nonlocal checks
+            checks += 1
+            if checks == 1:
+                instance.github_access_restored()
+                return GitHubRecoveryCheck(status="suspended", retry_until=datetime.now(UTC) + timedelta(days=7))
+            return GitHubRecoveryCheck(status="ready")
+
+        async def wait(condition, **kwargs):
+            assert condition()
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: datetime.now(UTC))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", check)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", wait)
+        assert await instance._wait_for_github_readiness("run-id") is True
+        assert checks == 2
 
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
         # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with

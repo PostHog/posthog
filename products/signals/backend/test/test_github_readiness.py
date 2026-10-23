@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models.github_integration_base import github_access_changed
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.integration.github_readiness import GitHubReadiness, GitHubReadinessStatus, github_readiness
 from posthog.models.organization import OrganizationMembership
@@ -137,6 +138,10 @@ class TestGitHubReadiness(BaseTest):
             GitHubIntegration, "sync_repository_cache", return_value=[{"full_name": "example/application"}]
         ):
             self.assertEqual(get_team_github_readiness(self.team.id, verify=True).status, GitHubReadinessStatus.READY)
+
+    @parameterized.expand([("EXAMPLE/application", "ready"), ("example/other", "no_repositories")])
+    def test_queued_recovery_requires_the_original_repository(self, repository: str, expected: str) -> None:
+        self.assertEqual(get_team_github_readiness(self.team.id, repository=repository).status, expected)
 
     def test_transient_refresh_error_is_retried_without_reconnection(self) -> None:
         self.integration.errors = "TOKEN_REFRESH_FAILED"
@@ -288,6 +293,17 @@ class TestGitHubReadiness(BaseTest):
             resume_github_blocked_reports(self.team.id)
         readiness.assert_not_called()
 
+    def test_connection_event_schedules_report_and_queued_run_recovery(self) -> None:
+        with (
+            patch("products.signals.backend.receivers.cache.add", return_value=True),
+            patch(f"{TASKS}.resume_github_blocked_reports.apply_async") as reports,
+            patch(f"{TASKS}.resume_github_blocked_task_runs.apply_async") as runs,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            github_access_changed.send(sender=GitHubIntegration, installation_id=self.integration.integration_id)
+        reports.assert_called_once_with(args=[self.team.id], kwargs={"connection_restored": True}, countdown=60)
+        runs.assert_called_once_with(args=[self.team.id], countdown=60)
+
     def test_scout_cannot_run_without_github_or_create_a_run_row(self) -> None:
         self.integration.delete()
         rejection = check_github_gate(self.team.id)
@@ -312,17 +328,45 @@ class TestGitHubReadiness(BaseTest):
             check_implementation_github_readiness(self.team.id, str(report.id))
         report.refresh_from_db()
         self.assertEqual(report.implementation_blocked_reason, "reconnect_required")
+        self.assertEqual(report.implementation_blocked_at, timezone.now())
         self.assertEqual(report.status, SignalReport.Status.READY)
         with patch(
             f"{MODULE}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
         ):
-            check_implementation_github_readiness(self.team.id, str(report.id))
+            check_implementation_github_readiness(self.team.id, str(report.id), recovery=True)
         report.refresh_from_db()
         self.assertIsNone(report.implementation_blocked_reason)
 
+    @parameterized.expand(
+        [
+            ("not_connected", False, 1, False),
+            ("not_connected", True, 6, True),
+            ("not_connected", True, 7, False),
+            ("temporarily_unavailable", False, 1, True),
+        ]
+    )
+    def test_implementation_rechecks_only_on_reconnect_or_temporary_retry(
+        self, reason: str, recovery: bool, age_days: int, resumes: bool
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            implementation_blocked_reason=reason,
+            implementation_blocked_at=timezone.now() - timedelta(days=age_days),
+        )
+        with patch(
+            f"{MODULE}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
+        ) as check:
+            result = check_implementation_github_readiness(self.team.id, str(report.id), recovery=recovery)
+        self.assertEqual(result.status == GitHubReadinessStatus.READY, resumes)
+        self.assertEqual(check.call_count, int(resumes))
+
     def test_recovery_rechecks_implementation_without_researching_again(self) -> None:
         report = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.READY, implementation_blocked_reason="not_connected"
+            team=self.team,
+            status=SignalReport.Status.READY,
+            implementation_blocked_reason="not_connected",
+            implementation_blocked_at=timezone.now(),
         )
         with (
             patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=False)),
@@ -335,7 +379,7 @@ class TestGitHubReadiness(BaseTest):
             ) as start,
             patch(f"{TASKS}.start_recovered_report", new_callable=AsyncMock) as research,
         ):
-            resume_github_blocked_reports(self.team.id)
+            resume_github_blocked_reports(self.team.id, connection_restored=True)
         assert start.await_args is not None
         self.assertEqual(start.await_args.kwargs["report_id"], str(report.id))
         research.assert_not_called()

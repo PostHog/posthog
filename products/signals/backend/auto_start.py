@@ -7,6 +7,7 @@ from typing import Literal, NotRequired, TypedDict
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -131,6 +132,13 @@ NO_SUPERSEDE = SupersedeDecision(allowed=False)
 class AutostartOutcome:
     status: Literal["started", "blocked", "cancelled", "queued"]
     reason: str = ""
+
+
+@frozen
+class ImplementationResume:
+    task_id: str
+    user_id: int
+    repository: str
 
 
 @frozen
@@ -1368,6 +1376,8 @@ async def maybe_autostart_implementation_task(
     implementation_decision: ImplementationDecision | None = None,
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
+    github_recovery: bool = False,
+    resume: ImplementationResume | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
@@ -1422,15 +1432,22 @@ async def maybe_autostart_implementation_task(
 
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
-    task_exists = bool(
-        await SignalReport.aassociated_task_runs(
-            report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
-        )
+    associated_runs = await SignalReport.aassociated_task_runs(
+        report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
     )
+    task_exists = bool(associated_runs)
     report = await SignalReport.objects.filter(id=report_id, team_id=team_id).afirst()
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
+    if resume is not None and (
+        report.status != SignalReport.Status.READY
+        or report.run_count != (report.implemented_at_run_count or 0)
+        or (report.content_revision_count or 0) != (report.implemented_at_revision_count or 0)
+        or not associated_runs
+        or any(str(run.task_id) != resume.task_id for run in associated_runs)
+    ):
+        return AutostartOutcome(status="cancelled", reason="The report or its implementation has changed")
     assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
     if (
         assignment.state.corrections_id is None
@@ -1466,6 +1483,8 @@ async def maybe_autostart_implementation_task(
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
                 dispatch=dispatch,
+                github_recovery=github_recovery,
+                resume=resume,
                 ch_user=ch_user,
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
@@ -1478,7 +1497,7 @@ async def maybe_autostart_implementation_task(
 
     skip_reason: str | None = None
     skip_code: str | None = None
-    if task_exists and not supersede.allowed:
+    if task_exists and resume is None and not supersede.allowed:
         skip_reason = "implementation task already exists"
     elif actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
         skip_reason = f"not immediately actionable: {actionability.actionability.value}"
@@ -1540,6 +1559,8 @@ async def maybe_autostart_implementation_task(
     # a user's reviewer edit). The report stays ready; the next new-signal research cycle after
     # the quota lifts re-evaluates auto-start.
     team = await Team.objects.select_related("organization").aget(pk=team_id)
+    if resume is not None and not team.organization.is_ai_data_processing_approved:
+        return AutostartOutcome(status="cancelled", reason="AI data processing is disabled")
     quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
     if quota_gate.limited:
         capture_signal_report_quota_paused(team, report_id=report_id, stage="autostart", enforced=quota_gate.enforced)
@@ -1556,7 +1577,7 @@ async def maybe_autostart_implementation_task(
         return AutostartOutcome(status="blocked", reason="Self-driving quota is exhausted")
 
     readiness = await database_sync_to_async(check_implementation_github_readiness, thread_sensitive=False)(
-        team_id, report_id
+        team_id, report_id, recovery=github_recovery
     )
     if readiness.status != GitHubReadinessStatus.READY:
         return AutostartOutcome(status="blocked", reason=str(GitHubAccessUnavailable(readiness.status).detail))
@@ -1634,6 +1655,11 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Organization is on a free trial")
 
+    if resume is not None:
+        if not task_user.is_active or task_user.id != resume.user_id or repository != resume.repository:
+            return AutostartOutcome(status="cancelled", reason="The implementation runner or repository has changed")
+        return AutostartOutcome(status="queued")
+
     base_branch = team_config.base_branch_for(repository) if team_config else None
     stack_base_branch = await database_sync_to_async(dependency_head_branch, thread_sensitive=False)(
         team_id=team_id, report_id=report_id, repository=repository
@@ -1682,7 +1708,8 @@ async def maybe_autostart_implementation_task(
         )
     except GitHubAccessUnavailable as error:
         await SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY).aupdate(
-            implementation_blocked_reason=error.get_codes()
+            implementation_blocked_reason=error.get_codes(),
+            implementation_blocked_at=Coalesce("implementation_blocked_at", timezone.now()),
         )
         return AutostartOutcome(status="blocked", reason=str(error.detail))
     except ReportChangedDuringAutostart:
@@ -1692,6 +1719,8 @@ async def maybe_autostart_implementation_task(
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
                 dispatch=dispatch,
+                github_recovery=github_recovery,
+                resume=resume,
                 ch_user=ch_user,
             )
         raise ReportChangedDuringAutostart("Report kept changing during autostart")
@@ -1703,6 +1732,9 @@ async def maybe_autostart_implementation_task(
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return AutostartOutcome(status="cancelled", reason="Another start or report change won the race")
 
+    await SignalReport.objects.filter(team_id=team_id, id=report_id).aupdate(
+        implementation_blocked_reason=None, implementation_blocked_at=None
+    )
     return AutostartOutcome(status="started")
 
 
@@ -1756,6 +1788,8 @@ async def maybe_autostart_from_report_artefacts(
     report_id: str,
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
+    github_recovery: bool = False,
+    resume: ImplementationResume | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Re-evaluate auto-start from a report's *current* artefacts.
@@ -1780,7 +1814,7 @@ async def maybe_autostart_from_report_artefacts(
             reason="report from background scout",
         )
         return AutostartOutcome(status="blocked", reason="Reports from background scouts do not auto-start")
-    if dispatch is None:
+    if dispatch is None and resume is None and not github_recovery:
         from products.signals.backend.implementation_dispatch import (
             ImplementationDispatcher,  # noqa: PLC0415 - breaks the dispatcher/autostart cycle
         )
@@ -1859,5 +1893,7 @@ async def maybe_autostart_from_report_artefacts(
         implementation_decision=implementation_decision,
         remaining_retries=remaining_retries,
         dispatch=dispatch,
+        github_recovery=github_recovery,
+        resume=resume,
         ch_user=ch_user,
     )

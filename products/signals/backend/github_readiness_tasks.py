@@ -26,6 +26,9 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
 from products.tasks.backend.facade.github_readiness import GITHUB_RECOVERY_WINDOW, get_team_github_readiness
+from products.tasks.backend.facade.github_recovery import (
+    resume_github_blocked_task_runs as resume_github_blocked_task_runs,
+)
 
 RECOVERY_BATCH_SIZE = 25
 
@@ -61,7 +64,9 @@ async def start_recovered_report(team_id: int, report_id: str) -> None:
 def resume_github_blocked_reports(
     team_id: int, after_report_id: str | None = None, *, connection_restored: bool = False
 ) -> None:
-    eligible = github_blocked_reports(connection_restored=connection_restored) | implementation_blocked_reports(connection_restored=connection_restored)
+    eligible = github_blocked_reports(connection_restored=connection_restored) | implementation_blocked_reports(
+        connection_restored=connection_restored
+    )
     reports = SignalReport.objects.filter(eligible, team_id=team_id)
     if after_report_id:
         reports = reports.filter(id__gt=after_report_id)
@@ -95,7 +100,7 @@ def resume_github_blocked_reports(
             )
 
             async_to_sync(maybe_autostart_from_report_artefacts)(
-                team_id=team_id, report_id=str(report_id), ch_user=ClickHouseUser.SIGNALS
+                team_id=team_id, report_id=str(report_id), ch_user=ClickHouseUser.SIGNALS, github_recovery=True
             )
         else:
             async_to_sync(start_recovered_report)(team_id, str(report_id))
@@ -109,7 +114,9 @@ def resume_github_blocked_reports(
 @skip_team_scope_audit
 def sweep_github_blocked_reports(after_team_id: int = 0) -> None:
     team_ids = list(
-        SignalReport.objects.filter(github_blocked_reports() | implementation_blocked_reports(), team_id__gt=after_team_id)
+        SignalReport.objects.filter(
+            github_blocked_reports() | implementation_blocked_reports(), team_id__gt=after_team_id
+        )
         .order_by("team_id")
         .values_list("team_id", flat=True)
         .distinct()[:100]

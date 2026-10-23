@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from temporalio import activity
@@ -120,10 +121,25 @@ def check_report_github_readiness(
     return False
 
 
-def check_implementation_github_readiness(team_id: int, report_id: str) -> GitHubReadiness:
+def check_implementation_github_readiness(team_id: int, report_id: str, *, recovery: bool = False) -> GitHubReadiness:
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+    if report and (report.implementation_blocked_reason or report.implementation_blocked_at):
+        if (
+            report.implementation_blocked_at is None
+            or report.implementation_blocked_at <= timezone.now() - GITHUB_RECOVERY_WINDOW
+            or (not recovery and report.implementation_blocked_reason in GITHUB_RECONNECT_REQUIRED_STATUSES)
+        ):
+            return GitHubReadiness(
+                status=GitHubReadinessStatus(
+                    report.implementation_blocked_reason or GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+                )
+            )
     readiness = get_team_github_readiness(team_id, verify=True)
     SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY).update(
-        implementation_blocked_reason=None if readiness.status == GitHubReadinessStatus.READY else readiness.status
+        implementation_blocked_reason=None if readiness.status == GitHubReadinessStatus.READY else readiness.status,
+        implementation_blocked_at=F("implementation_blocked_at")
+        if readiness.status == GitHubReadinessStatus.READY
+        else Coalesce("implementation_blocked_at", timezone.now()),
     )
     return readiness
 
