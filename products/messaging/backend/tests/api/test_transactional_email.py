@@ -686,6 +686,17 @@ class TestTransactionalEmail(APIBaseTest):
             sent = {**sent, "from": {**sent["from"], "integrationId": sender_ids[sent["from"]["integrationId"]]}}
         assert mock_post.call_args.kwargs["json"].get("send") == sent
 
+    def test_a_send_posts_the_same_headers_whatever_their_order(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        client = self._psak_client(["hog_flow:write"])
+
+        for headers in ({"X-Entity-Ref-ID": "order-123", "X-Ref": "1"}, {"X-Ref": "1", "X-Entity-Ref-ID": "order-123"}):
+            response = client.post(self.send_email_url, self._send_body("template_key", headers=headers), format="json")
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+        first, second = (call.kwargs["json"]["send"] for call in mock_post.call_args_list)
+        assert first == second
+
     @parameterized.expand(
         [
             ("template_and_key", {"template": {"key": "password-reset"}}, "invalid_request", "template_key"),

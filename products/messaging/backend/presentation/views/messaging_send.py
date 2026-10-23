@@ -499,7 +499,9 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             capture_engagement=True if capture is None else capture,
             cc=tuple(data.get("cc", ())),
             bcc=tuple(data.get("bcc", ())),
-            headers=tuple(EmailField(name=name, value=value) for name, value in data.get("headers", {}).items()),
+            headers=tuple(
+                EmailField(name=name, value=value) for name, value in sorted(data.get("headers", {}).items())
+            ),
             tags=tuple(EmailField(name=tag["name"], value=tag["value"]) for tag in data.get("tags", ())),
         )
 
