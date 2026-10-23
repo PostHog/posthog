@@ -173,7 +173,11 @@ They cannot replace it with an ownership-first or commit-count selection.
 Research first reads recent human corrections from the project profile, which is available on every plan.
 It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
-The existing limit remains three reviewers.
+Research and scouts check each candidate against the affected behavior or entity.
+For code reports, they inspect specific ownership rules and substantive implementation or review work.
+Broad directory activity, commit counts, mechanical changes, and team roster order alone do not establish responsibility.
+Each reason names the affected behavior and cites its source. Responsibility and review expertise are distinct reasons to include someone.
+Recipients are ordered by relevance, with at most three. Agents can return fewer recipients or none when evidence is insufficient.
 
 A missing, malformed, or entirely ineligible decision retains valid existing recipients and records a failed selection.
 An explicit empty decision clears automatic recipients while preserving pins and confirmed lists.
@@ -236,6 +240,13 @@ Selection guidance and scoped memory should remain inspectable and tunable; acce
 A current-report correction is binding. On another report, it is scoped evidence with its source, date, and reason where available.
 Self-removal alone does not establish an ownership change or a global exclusion.
 Agents must not turn their own repeated selections into ownership evidence.
+
+Compare selection before and after prompt changes with the same saved inputs and model.
+The invented cases in `products/signals/backend/report_generation/fixtures/reviewer_selection_cases.json` cover specific ownership, team members, weak evidence, multiple roles, and scoped corrections.
+The cases with and without feedback differ only in the available correction. An unrelated correction must not change the selection.
+Check both the selected people and the sources cited in their reasons. Do not expose expected results to the model.
+A comparison with supplied evidence tests selection judgment, not whether an agent can find that evidence through tools.
+Live report samples must check retrieval and recipient suitability separately.
 
 The complete-loop trial remains pending. Measure feedback availability before selection, retrieval, use, the applied result, and repeated assignment errors.
 Distinguish unavailable feedback from feedback the agent considered but did not apply. Recipient review supplies the suitability judgment.
