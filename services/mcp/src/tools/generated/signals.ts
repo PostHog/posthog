@@ -390,6 +390,44 @@ const inboxReportChecksRetrieve = (): ToolBase<
     },
 })
 
+const InboxReportReviewersUpdateSchema = () => {
+    const SignalsReportsReviewersUpdateBody = orvalSchemas.SignalsReportsReviewersUpdateBody()
+    const SignalsReportsReviewersUpdateParams = orvalSchemas.SignalsReportsReviewersUpdateParams()
+    return SignalsReportsReviewersUpdateParams.omit({ project_id: true }).extend(
+        SignalsReportsReviewersUpdateBody.shape
+    )
+}
+
+const inboxReportReviewersUpdate = (): ToolBase<
+    ReturnType<typeof InboxReportReviewersUpdateSchema>,
+    WithPostHogUrl<Schemas.SignalReportSuggestedReviewersArtefact>
+> => ({
+    name: 'inbox-report-reviewers-update',
+    schema: InboxReportReviewersUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportReviewersUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.targets !== undefined) {
+            body['targets'] = params.targets
+        }
+        const result = await context.api.request<Schemas.SignalReportSuggestedReviewersArtefact>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/reviewers/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
 const InboxReportsBulkSetStateSchema = () => {
     const SignalsReportsBulkStateCreateBody = orvalSchemas.SignalsReportsBulkStateCreateBody()
     return SignalsReportsBulkStateCreateBody
@@ -3295,6 +3333,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-checks-list': inboxReportChecksList,
     'inbox-report-checks-replace': inboxReportChecksReplace,
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
+    'inbox-report-reviewers-update': inboxReportReviewersUpdate,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-feedback-create': inboxReportsFeedbackCreate,

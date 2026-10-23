@@ -7841,7 +7841,7 @@
         }
     },
     "inbox-report-artefacts-update": {
-        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead.",
+        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead. Do not use this tool to change suggested reviewers. Use `inbox-report-reviewers-update` so reviewer corrections and stale-write protection are preserved.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Replace an artefact's content",
@@ -7915,6 +7915,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "inbox-report-reviewers-update": {
+        "description": "Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the current list. For add or remove, pass the changed people in `targets` and the full list in `content` for compatibility with older servers. For replace or confirm, first read the report and pass `reviewer_assignment.state` as `expected_reviewers`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a report's suggested reviewers",
+        "title": "Update a report's suggested reviewers",
+        "required_scopes": ["task:write"],
+        "api_operations": ["PUT /api/projects/{project_id}/signals/reports/{id}/reviewers/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "inbox-reports-bulk-set-state": {
