@@ -91,6 +91,9 @@ export interface tracingViewerLogicActions {
         initialFilters: Partial<
             import('products/logs/frontend/components/LogsViewer/config/types').LogsViewerFilters
         > | null
+        openedFrom:
+            | null
+            | import('products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic').LogsViewerModalOrigin
         personId: string | null
         pinnedFilters: null | import('~/types').UniversalFiltersGroup
         sessionId: string | null
