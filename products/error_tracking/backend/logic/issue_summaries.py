@@ -125,20 +125,10 @@ class IssueSummaryOutcome(StrEnum):
     INVALID_OUTPUT = "invalid_output"
 
 
-# Failures that write no row. The next try waits for the lock to expire.
-RETRY_AFTER_LOCK_OUTCOMES = frozenset(
-    {
-        IssueSummaryOutcome.ISSUE_MISSING,
-        IssueSummaryOutcome.INPUTS_ERROR,
-        IssueSummaryOutcome.GATEWAY_UNCONFIGURED,
-        IssueSummaryOutcome.MODEL_ERROR,
-        IssueSummaryOutcome.INVALID_OUTPUT,
-    }
-)
-# Lock values that mean no generation runs. Any other value is a live claim.
-STOPPED_LOCK_OUTCOMES = frozenset(
-    {IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED, *RETRY_AFTER_LOCK_OUTCOMES}
-)
+# Outcomes that hold the issue past the lock TTL, because each try runs the input queries before it finds them.
+HOLD_OUTCOMES = frozenset({IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED})
+# Outcomes that leave a summary current. The claim then stays until the lock expires.
+SETTLED_OUTCOMES = frozenset({IssueSummaryOutcome.GENERATED, IssueSummaryOutcome.UNCHANGED, IssueSummaryOutcome.FRESH})
 
 ISSUE_SUMMARY_OUTCOMES = Counter(
     "error_tracking_issue_summary_total",
@@ -252,8 +242,7 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         return IssueSummaryResult(outcome=held, summary=stored)
 
     result = _generate_claimed(team_id, issue_id)
-    if result.outcome in RETRY_AFTER_LOCK_OUTCOMES:
-        _mark_claim_failed(team_id, issue_id, result.outcome)
+    _settle_claim(team_id, issue_id, result.outcome)
     return result
 
 
@@ -267,7 +256,6 @@ def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     # The input queries run before `consume`, so an unchanged issue spends no token. This read keeps a team
     # with no tokens left from running them for every issue it opens. `consume` still makes the decision.
     if _budget_exhausted(budget_key):
-        _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
         return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
 
     team = Team.objects.get(id=team_id)
@@ -278,8 +266,6 @@ def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         logger.warning("error_tracking_issue_summary_inputs_failed", team_id=team_id, issue_id=str(issue_id))
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INPUTS_ERROR, summary=stored)
     if isinstance(inputs, IssueSummaryOutcome):
-        if inputs == IssueSummaryOutcome.NO_EXCEPTION:
-            _hold_generation(team_id, issue_id, inputs)
         return IssueSummaryResult(outcome=inputs, summary=stored)
     if stored is not None and stored.input_hash == inputs.input_hash:
         stored.checked_at = timezone.now()
@@ -289,7 +275,6 @@ def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     decision = consume(budget_key, ISSUE_SUMMARY_BUDGET)
     match decision:
         case BucketDecision(allowed=False):
-            _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
             return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
         case BucketUnavailable(error=bucket_error):
             # Fail open: the per-issue lock and the regenerate interval still bound the spend.
@@ -367,28 +352,26 @@ def _held_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome 
 
 
 def _lock_outcome(held: bytes | str | None) -> IssueSummaryOutcome:
+    """Only a live claim stores `LOCK_HELD_FOR_GENERATION`. Every other value is the outcome that stopped generation."""
     value = held.decode() if isinstance(held, bytes) else held
-    if value in STOPPED_LOCK_OUTCOMES:
-        return IssueSummaryOutcome(value)
-    return IssueSummaryOutcome.IN_PROGRESS
+    if value is None or value == LOCK_HELD_FOR_GENERATION:
+        return IssueSummaryOutcome.IN_PROGRESS
+    return IssueSummaryOutcome(value)
 
 
-def _mark_claim_failed(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
-    """Replace the claim with `outcome` until the lock expires, so reads stop waiting for a summary that is not coming.
+def _settle_claim(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
+    """Replace the claim with `outcome` when no summary came of it, so reads stop waiting for one.
 
-    The lock keeps its TTL, so the retry spacing does not change. `xx` keeps an expired lock from coming back
-    with no TTL at all.
+    A hold outcome extends the lock. Any other failure keeps the lock TTL, so the retry spacing does not change,
+    and `xx` keeps an expired lock from coming back with no TTL at all.
     """
+    if outcome in SETTLED_OUTCOMES:
+        return
     try:
-        get_client().set(_lock_key(team_id, issue_id), outcome.value, xx=True, keepttl=True)
-    except RedisError:
-        logger.warning("error_tracking_issue_summary_hold_unavailable", team_id=team_id, exc_info=True)
-
-
-def _hold_generation(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
-    """Keep the issue claimed past the lock TTL, so reads return `outcome` without running the queries again."""
-    try:
-        get_client().set(_lock_key(team_id, issue_id), outcome.value, ex=ISSUE_SUMMARY_HOLD_SECONDS)
+        if outcome in HOLD_OUTCOMES:
+            get_client().set(_lock_key(team_id, issue_id), outcome.value, ex=ISSUE_SUMMARY_HOLD_SECONDS)
+        else:
+            get_client().set(_lock_key(team_id, issue_id), outcome.value, xx=True, keepttl=True)
     except RedisError:
         logger.warning("error_tracking_issue_summary_hold_unavailable", team_id=team_id, exc_info=True)
 

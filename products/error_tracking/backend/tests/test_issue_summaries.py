@@ -92,6 +92,11 @@ FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
     ),
     ("cap_denied", lambda test: test._drain_budget(), IssueSummaryOutcome.RATE_LIMITED),
     (
+        "gateway_unconfigured",
+        lambda test: test.enterContext(patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=None)),
+        IssueSummaryOutcome.GATEWAY_UNCONFIGURED,
+    ),
+    (
         "llm_raises",
         lambda test: test.completions.configure_mock(side_effect=TimeoutError("slow")),
         IssueSummaryOutcome.MODEL_ERROR,
@@ -200,13 +205,6 @@ class TestIssueSummaryGeneration(BaseTest):
                 IssueSummaryOutcome.DISABLED,
             ),
             ("ai_not_approved", lambda test: test._disapprove_ai(), IssueSummaryOutcome.AI_NOT_APPROVED),
-            (
-                "gateway_unconfigured",
-                lambda test: test.enterContext(
-                    patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=None)
-                ),
-                IssueSummaryOutcome.GATEWAY_UNCONFIGURED,
-            ),
             *FAILURE_CASES,
         ]
     )
@@ -345,23 +343,13 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "gateway_unconfigured",
-                lambda test: test.enterContext(
-                    patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=None)
-                ),
-            ),
+            ("llm_raises", lambda test: test.completions.configure_mock(side_effect=TimeoutError("slow"))),
             (
                 "issue_missing",
                 lambda test: test.build_inputs.configure_mock(
                     side_effect=None, return_value=IssueSummaryOutcome.ISSUE_MISSING
                 ),
             ),
-            *[
-                (name, arrange)
-                for name, arrange, outcome in FAILURE_CASES
-                if outcome in issue_summaries.RETRY_AFTER_LOCK_OUTCOMES
-            ],
         ]
     )
     def test_failure_stops_start_until_the_lock_expires(self, _name: str, arrange: Any) -> None:
