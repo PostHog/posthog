@@ -46,7 +46,7 @@ export function getVisibleAccountExpansionTab(
     if (tab === 'tasks' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
         return DEFAULT_ACCOUNT_TAB
     }
-    if (tab === 'meetings' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+    if ((tab === 'users' || tab === 'meetings') && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
         return DEFAULT_ACCOUNT_TAB
     }
     return tab as AccountExpansionTab
