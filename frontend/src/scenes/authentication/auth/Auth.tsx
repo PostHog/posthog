@@ -15,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AuthPageStep, authLogic } from './authLogic'
 import { authTelemetryLogic } from './authTelemetryLogic'
 import { EmailStep } from './steps/EmailStep'
+import { LoginCodeStep } from './steps/LoginCodeStep'
 import { LoginStep } from './steps/LoginStep'
 import { PendingInviteStep } from './steps/PendingInviteStep'
 import { SignupCredentialsStep } from './steps/SignupCredentialsStep'
@@ -50,7 +51,7 @@ function authNotes(step: AuthPageStep, entry: AuthEntry, isReturning: boolean): 
 const STEP_COMPONENTS: Record<AuthPageStep, () => JSX.Element> = {
     email: EmailStep,
     login: LoginStep,
-    login_code: LoginStep,
+    login_code: LoginCodeStep,
     signup_credentials: SignupCredentialsStep,
     signup_profile: SignupProfileStep,
     signup_pending_invite: PendingInviteStep,

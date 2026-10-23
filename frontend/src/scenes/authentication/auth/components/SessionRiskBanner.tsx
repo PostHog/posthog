@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
-import { loginLogic } from './loginLogic'
+import { loginLogic } from '../loginLogic'
 
 export function SessionRiskBanner({ className }: { className?: string }): JSX.Element | null {
     const { wasSignedOutForSessionRisk } = useValues(loginLogic)

@@ -401,7 +401,7 @@ export type loginLogicType = MakeLogicType<loginLogicValues, loginLogicActions, 
 const PRECHECK_IDLE_DELAY_MS = 3000
 
 export const loginLogic = kea<loginLogicType>([
-    path(['scenes', 'authentication', 'login', 'loginLogic']),
+    path(['scenes', 'authentication', 'auth', 'loginLogic']),
     connect(() => ({
         values: [
             preflightLogic,

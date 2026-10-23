@@ -2,57 +2,61 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { PrecheckResponseType } from 'scenes/authentication/login/loginLogic'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
-import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
-
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { PreflightStatus } from '~/types'
 
-import { AuthAccountPath, accountPathFor, authLogic } from './authLogic'
+import { AuthAccountPath, accountPathFor, authLogic, canSignUpWithEmail } from './authLogic'
 import { authTelemetryLogic } from './authTelemetryLogic'
+import { PrecheckResponseType } from './loginLogic'
+import { loginLogic } from './loginLogic'
+import { signupLogic } from './signupLogic'
 
 jest.mock('posthog-js')
 
 const COMPLETED: PrecheckResponseType = { status: 'completed', saml_available: false }
+const PREFLIGHT = { can_create_org: true, demo: false } as PreflightStatus
 
 describe('authLogic', () => {
-    it.each<[string, PrecheckResponseType, { isDemo: boolean; canCreateOrg: boolean }, AuthAccountPath]>([
-        ['an existing account', { ...COMPLETED, account_exists: true }, { isDemo: false, canCreateOrg: true }, 'login'],
-        ['a new email', { ...COMPLETED, account_exists: false }, { isDemo: false, canCreateOrg: true }, 'signup'],
+    it.each<[string, PrecheckResponseType, PreflightStatus, AuthAccountPath]>([
+        ['an existing account', { ...COMPLETED, account_exists: true }, PREFLIGHT, 'login'],
+        ['a new email', { ...COMPLETED, account_exists: false }, PREFLIGHT, 'signup'],
         [
             'a failed precheck',
             { ...COMPLETED, precheckFailed: true, password_login_available: true },
-            { isDemo: false, canCreateOrg: true },
+            PREFLIGHT,
             'login',
         ],
         [
             'a new email on an SSO-enforced domain',
             { ...COMPLETED, account_exists: false, sso_enforcement: 'saml' },
-            { isDemo: false, canCreateOrg: true },
+            PREFLIGHT,
             'login',
         ],
         [
             'a new email on a domain with optional SAML',
             { ...COMPLETED, account_exists: false, saml_available: true },
-            { isDemo: false, canCreateOrg: true },
+            PREFLIGHT,
             'login',
         ],
         [
             'a new email where no organization can be created',
             { ...COMPLETED, account_exists: false },
-            { isDemo: false, canCreateOrg: false },
+            { ...PREFLIGHT, can_create_org: false },
             'login',
         ],
-        [
-            'an existing demo user',
-            { ...COMPLETED, account_exists: true },
-            { isDemo: true, canCreateOrg: true },
-            'signup',
-        ],
-    ])('routes %s to the right step', (_name, precheck, instance, expected) => {
-        expect(accountPathFor(precheck, instance)).toEqual(expected)
+        ['an existing demo user', { ...COMPLETED, account_exists: true }, { ...PREFLIGHT, demo: true }, 'signup'],
+    ])('routes %s to the right step', (_name, precheck, preflight, expected) => {
+        expect(accountPathFor(precheck, preflight)).toEqual(expected)
+    })
+
+    it.each<[string, PrecheckResponseType, PreflightStatus, boolean]>([
+        ['an instance that creates organizations', COMPLETED, PREFLIGHT, true],
+        ['an instance that cannot create organizations', COMPLETED, { ...PREFLIGHT, can_create_org: false }, false],
+        ['an SSO-enforced domain', { ...COMPLETED, sso_enforcement: 'saml' }, PREFLIGHT, false],
+    ])('offers email signup to a new person on %s: %s', (_name, precheck, preflight, expected) => {
+        expect(canSignUpWithEmail(precheck, preflight)).toEqual(expected)
     })
 
     describe('funnel events', () => {

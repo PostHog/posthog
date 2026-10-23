@@ -23,8 +23,8 @@ import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
 
-import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
-import type { PreflightStatus } from '../../../../types'
+import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
+import type { PreflightStatus } from '../../../types'
 
 export interface AccountResponse {
     success: boolean
@@ -243,7 +243,7 @@ export interface signupLogicMeta {
 export type signupLogicType = MakeLogicType<signupLogicValues, signupLogicActions, Record<string, any>, signupLogicMeta>
 
 export const signupLogic = kea<signupLogicType>([
-    path(['scenes', 'authentication', 'signupLogic']),
+    path(['scenes', 'authentication', 'auth', 'signupLogic']),
     connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     })),

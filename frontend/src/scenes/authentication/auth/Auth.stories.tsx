@@ -11,8 +11,6 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
-import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -21,6 +19,8 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { arrivedFromWebsiteLogic } from '../shared/arrivedFromWebsiteLogic'
 import { Auth } from './Auth'
 import { authLogic } from './authLogic'
+import { loginLogic } from './loginLogic'
+import { signupLogic } from './signupLogic'
 
 const STEP_OPTIONS = [
     'Email',

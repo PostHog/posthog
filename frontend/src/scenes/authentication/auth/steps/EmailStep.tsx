@@ -8,8 +8,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
-import { SessionRiskBanner } from 'scenes/authentication/login/SessionRiskBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
@@ -21,6 +19,8 @@ import { authLogic } from '../authLogic'
 import { ConnectTitle } from '../components/ConnectTitle'
 import { HighlightedName } from '../components/HighlightedName'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
+import { SessionRiskBanner } from '../components/SessionRiskBanner'
+import { loginLogic } from '../loginLogic'
 
 function EmailStepTitle(): JSX.Element {
     const { entry } = useValues(authLogic)

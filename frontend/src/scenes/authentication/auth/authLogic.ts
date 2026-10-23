@@ -2,33 +2,35 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { router, urlToAction } from 'kea-router'
 
 import { isEmail } from 'lib/utils/url'
-import { PrecheckResponseType, loginLogic } from 'scenes/authentication/login/loginLogic'
 import { AuthEntry, AuthStep } from 'scenes/authentication/shared/authStepViewed'
-import { PendingInvite, signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import type { PreflightStatus } from '~/types'
 
-import type { LoginForm } from '../login/loginLogic'
+import { LoginForm, PrecheckResponseType, loginLogic } from './loginLogic'
+import { PendingInvite, signupLogic } from './signupLogic'
 
 export type AuthAccountPath = 'login' | 'signup'
 
 /** `verify_email` is its own scene, so this page never shows it. */
 export type AuthPageStep = Exclude<AuthStep, 'verify_email'>
 
-export function accountPathFor(
-    precheck: PrecheckResponseType,
-    { isDemo, canCreateOrg }: { isDemo: boolean; canCreateOrg: boolean }
-): AuthAccountPath {
+/** Whether a person without an account may create one with email and password on this page. */
+export function canSignUpWithEmail(precheck: PrecheckResponseType, preflight: PreflightStatus | null): boolean {
+    // A self-hosted instance that cannot create organizations refuses every signup, so new people
+    // there need an invite link. An enforced domain sends everyone through its IdP.
+    return !!preflight?.can_create_org && !precheck.sso_enforcement
+}
+
+export function accountPathFor(precheck: PrecheckResponseType, preflight: PreflightStatus | null): AuthAccountPath {
     // Demo signup logs an existing demo user straight in, and demo users have no password to type.
-    if (isDemo) {
+    if (preflight?.demo) {
         return 'signup'
     }
     // A domain with SAML or OIDC lets its IdP create the account, and only the login step offers
-    // those buttons. A self-hosted instance that cannot create organizations refuses every signup,
-    // so new people there need an invite link instead.
-    if (precheck.sso_enforcement || precheck.saml_available || precheck.oidc_available || !canCreateOrg) {
+    // those buttons. That step links to email signup when `canSignUpWithEmail` allows it.
+    if (!canSignUpWithEmail(precheck, preflight) || precheck.saml_available || precheck.oidc_available) {
         return 'login'
     }
     // Only a definite "no account" goes to signup. An unknown answer (a failed precheck) shows the
@@ -40,6 +42,7 @@ export function accountPathFor(
 export interface authLogicValues {
     codeVerificationRequired: boolean // loginLogic
     login: LoginForm // loginLogic
+    precheckResponse: PrecheckResponseType // loginLogic
     preflight: PreflightStatus | null // preflightLogic
     isSignupEmailChecking: boolean // signupLogic
     panel: number // signupLogic
@@ -47,6 +50,7 @@ export interface authLogicValues {
     signupEmailError: string | null // signupLogic
     accountPath: AuthAccountPath | null
     awaitingPrecheckFor: string | null
+    canSignUpWithEmail: boolean
     emailError: string | null
     emailValidationError: string | null
     entry: AuthEntry
@@ -131,8 +135,9 @@ export interface authLogicMeta {
             panel: number,
             pendingInvite: PendingInvite | null
         ) => AuthPageStep
-        isEmailSubmitting: (awaitingPrecheckFor: string | null, isSignupEmailChecking: any) => boolean
-        emailError: (emailValidationError: string | null, signupEmailError: any) => string | null
+        canSignUpWithEmail: (precheckResponse: any, preflight: PreflightStatus | null) => boolean
+        isEmailSubmitting: (awaitingPrecheckFor: string | null, isSignupEmailChecking: boolean) => boolean
+        emailError: (emailValidationError: string | null, signupEmailError: string | null) => string | null
     }
 }
 
@@ -150,7 +155,7 @@ export const authLogic = kea<authLogicType>([
             preflightLogic,
             ['preflight'],
             loginLogic,
-            ['login', 'codeVerificationRequired'],
+            ['login', 'codeVerificationRequired', 'precheckResponse'],
             signupLogic,
             ['panel', 'pendingInvite', 'isSignupEmailChecking', 'signupEmailError'],
         ],
@@ -226,6 +231,11 @@ export const authLogic = kea<authLogicType>([
                 return 'email'
             },
         ],
+        canSignUpWithEmail: [
+            (s) => [s.precheckResponse, s.preflight],
+            (precheckResponse: PrecheckResponseType, preflight: PreflightStatus | null): boolean =>
+                canSignUpWithEmail(precheckResponse, preflight),
+        ],
         isEmailSubmitting: [
             (s) => [s.awaitingPrecheckFor, s.isSignupEmailChecking],
             (awaitingPrecheckFor: string | null, isSignupEmailChecking: boolean): boolean =>
@@ -265,10 +275,7 @@ export const authLogic = kea<authLogicType>([
             }
             actions.setAwaitingPrecheckFor(null)
             actions.chooseAccountPath(
-                accountPathFor(precheckResponse, {
-                    isDemo: !!values.preflight?.demo,
-                    canCreateOrg: !!values.preflight?.can_create_org,
-                }),
+                accountPathFor(precheckResponse, values.preflight),
                 precheckResponse.precheckFailed ? null : (precheckResponse.account_exists ?? null)
             )
         },
