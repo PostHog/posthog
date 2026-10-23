@@ -659,7 +659,7 @@ jobs:
     flags-db-faults:
         name: Flags persons DB fault tests
         needs: changes
-        if: needs.changes.outputs.rust == 'true' && needs.changes.outputs.flags_db_faults == 'true'
+        if: needs.changes.outputs.flags_db_faults == 'true'
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 25
         permissions:

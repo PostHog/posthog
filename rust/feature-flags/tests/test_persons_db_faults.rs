@@ -2,7 +2,7 @@
 //! need no persons data still evaluate, and flags that need persons data fail within the persons
 //! DB deadline. After the fault ends, the same server answers every flag again.
 //!
-//! These tests depend on timing, so CI runs them alone in `ci-rust-flags-db-faults.yml`. Run them
+//! These tests depend on timing, so CI runs them alone in the `flags-db-faults` job of `ci-rust.yml`. Run them
 //! locally with `cargo test -p feature-flags --test test_persons_db_faults -- --ignored`.
 
 use std::time::{Duration, Instant};
@@ -30,19 +30,13 @@ const RECOVERY_LIMIT: Duration = Duration::from_secs(5);
 
 fn flag_row(team_id: i32, key: &str, filters: Value) -> FeatureFlagRow {
     FeatureFlagRow {
-        id: 0,
         team_id,
         name: Some(key.to_string()),
         key: key.to_string(),
         filters,
-        deleted: false,
         active: true,
-        ensure_experience_continuity: Some(false),
         version: Some(1),
-        evaluation_runtime: None,
-        evaluation_tags: None,
-        bucketing_identifier: None,
-        has_experiment: false,
+        ..Default::default()
     }
 }
 
@@ -134,9 +128,8 @@ fn is_healthy(body: &Value) -> bool {
 async fn assert_person_flags_fail_within(
     server: &ServerHandle,
     team: &Team,
-    person_flags: &[&str],
     deadline: Duration,
-) -> Result<Value> {
+) -> Result<()> {
     let (body, elapsed) = evaluate(server, team).await?;
     assert!(
         elapsed < deadline + RESPONSE_SLACK,
@@ -152,10 +145,10 @@ async fn assert_person_flags_fail_within(
         body["flags"][DB_FREE_FLAG].get("failed").is_none(),
         "{body}"
     );
-    for key in person_flags {
+    for key in [CONTINUITY_FLAG, PERSON_FLAG] {
         assert_eq!(body["flags"][key]["failed"], json!(true), "{key}: {body}");
     }
-    Ok(body)
+    Ok(())
 }
 
 /// Sends requests until one answers every flag, and fails the test after `RECOVERY_LIMIT`.
@@ -175,7 +168,7 @@ async fn assert_recovers(server: &ServerHandle, team: &Team) -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "depends on timing; runs alone in ci-rust-flags-db-faults.yml"]
+#[ignore = "depends on timing; runs alone in the flags-db-faults CI job"]
 async fn person_flags_fail_at_the_deadline_when_replies_arrive_late() -> Result<()> {
     let context = TestContext::new(None).await;
     let (team, _) = insert_team_with_flags(&context).await?;
@@ -193,15 +186,14 @@ async fn person_flags_fail_at_the_deadline_when_replies_arrive_late() -> Result<
     assert!(is_healthy(&body), "{body}");
 
     proxy.hold_replies_on_open_connections();
-    assert_person_flags_fail_within(&server, &team, &[CONTINUITY_FLAG, PERSON_FLAG], deadline)
-        .await?;
+    assert_person_flags_fail_within(&server, &team, deadline).await?;
 
     proxy.resume();
     assert_recovers(&server, &team).await
 }
 
 #[tokio::test]
-#[ignore = "depends on timing; runs alone in ci-rust-flags-db-faults.yml"]
+#[ignore = "depends on timing; runs alone in the flags-db-faults CI job"]
 async fn person_flags_fail_at_the_deadline_when_a_lock_wait_outlasts_it() -> Result<()> {
     let context = TestContext::new(None).await;
     let (team, person_id) = insert_team_with_flags(&context).await?;
@@ -222,9 +214,7 @@ async fn person_flags_fail_at_the_deadline_when_a_lock_wait_outlasts_it() -> Res
         .execute(&mut *conn)
         .await?;
 
-    let result =
-        assert_person_flags_fail_within(&server, &team, &[CONTINUITY_FLAG, PERSON_FLAG], deadline)
-            .await;
+    let result = assert_person_flags_fail_within(&server, &team, deadline).await;
     sqlx::query("ROLLBACK").execute(&mut *conn).await?;
     result?;
 
@@ -232,7 +222,7 @@ async fn person_flags_fail_at_the_deadline_when_a_lock_wait_outlasts_it() -> Res
 }
 
 #[tokio::test]
-#[ignore = "depends on timing; runs alone in ci-rust-flags-db-faults.yml"]
+#[ignore = "depends on timing; runs alone in the flags-db-faults CI job"]
 async fn person_flags_fail_within_the_deadline_when_new_connections_open_too_slowly() -> Result<()>
 {
     let context = TestContext::new(None).await;
@@ -250,8 +240,7 @@ async fn person_flags_fail_within_the_deadline_when_new_connections_open_too_slo
     assert!(Duration::from_secs(config.acquire_timeout_secs) < deadline);
     let server = start_server(config, &team).await;
 
-    assert_person_flags_fail_within(&server, &team, &[CONTINUITY_FLAG, PERSON_FLAG], deadline)
-        .await?;
+    assert_person_flags_fail_within(&server, &team, deadline).await?;
 
     proxy.resume();
     assert_recovers(&server, &team).await
