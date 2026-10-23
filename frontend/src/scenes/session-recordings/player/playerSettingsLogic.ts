@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic, peekFeatureFlag } from 'lib/logic/featureFlagLogic'
 import { ReplayLayout, offeredReplayLayout, replayLayoutFrom } from 'scenes/session-recordings/playlist/replayLayout'
 import { userLogic } from 'scenes/userLogic'
 
@@ -28,6 +28,8 @@ export interface playerSettingsLogicValues {
     autoplayDirection: AutoplayDirection
     canOverrideLayout: boolean
     debugHintDismissed: boolean
+    debugMode: boolean
+    debugModePreference: boolean
     hideRecordingsMenuLabelFor: (
         option: HideViewedRecordingsOptions
     ) => 'All recordings' | 'Hide all viewed recordings' | 'Hide my viewed recordings'
@@ -126,6 +128,7 @@ export interface playerSettingsLogicMeta {
             staffLayoutOverride: ReplayLayout | null,
             canOverrideLayout: boolean
         ) => ReplayLayout
+        debugMode: (debugModePreference: any, urlOverrideSidebarOpen: boolean | null) => boolean
         sidebarOpen: (userPreferenceSidebarOpen: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         isVerticallyStacked: (preferredSidebarStacking: SessionRecordingSidebarStacking) => boolean
     }
@@ -262,6 +265,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { setStaffLayoutOverride: (_, { layout }) => layout },
         ],
         watchDebugDock: ['right' as WatchDebugDock, { persist: true }, { setWatchDebugDock: (_, { dock }) => dock }],
+        // Starts closed for everyone, whatever the legacy sidebar preference was.
+        debugModePreference: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
         debugHintDismissed: [
             false,
             { persist: true },
@@ -284,7 +289,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         watchLayoutOffered: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean =>
-                offeredReplayLayout(featureFlags[FEATURE_FLAGS.REPLAY_WATCH_LAYOUT]) !== null,
+                offeredReplayLayout(peekFeatureFlag(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)) !== null,
         ],
         canOverrideLayout: [(s) => [s.user], (user: UserType | null): boolean => !!user?.is_staff],
         replayLayout: [
@@ -296,10 +301,15 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 canOverrideLayout: boolean
             ): ReplayLayout =>
                 replayLayoutFrom(
-                    featureFlags[FEATURE_FLAGS.REPLAY_WATCH_LAYOUT],
+                    peekFeatureFlag(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT),
                     preferClassicReplayLayout,
                     canOverrideLayout ? staffLayoutOverride : null
                 ),
+        ],
+        debugMode: [
+            (s) => [s.debugModePreference, s.urlOverrideSidebarOpen],
+            (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null): boolean =>
+                urlOverrideSidebarOpen ?? debugModePreference,
         ],
         sidebarOpen: [
             (s) => [s.userPreferenceSidebarOpen, s.urlOverrideSidebarOpen],

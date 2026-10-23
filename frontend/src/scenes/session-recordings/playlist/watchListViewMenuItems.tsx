@@ -20,7 +20,7 @@ import { getRecommendedFilterChange, getSortChangedEvent } from './SessionRecord
 
 /**
  * The watch layout's sort options. Clicks, keystrokes, mouse activity, expiration, active and inactive duration
- * were dropped for low use; a list already sorted by one of them keeps it until the sort changes.
+ * were dropped for low use. A list already sorted by one of them keeps it until the sort changes.
  */
 const WATCH_SORTS: { label: string; order: NonNullable<RecordingUniversalFilters['order']> }[] = [
     { label: 'Latest', order: 'start_time' },
@@ -109,7 +109,6 @@ export function useWatchViewMenuItems(
     return [{ title: 'Sort by', items: sortItems }, { items: directionItems }, { title: 'Show', items: showItems }]
 }
 
-/** Timestamps, autoplay and the layout switch, which left the View menu for a settings menu. */
 export function useWatchSettingsMenuItems(): LemonMenuItems {
     const timestampItems = useTimestampFormatMenuItems()
     const autoplayItems = useAutoplayMenuItems()

@@ -35,7 +35,7 @@
         }
     }
 
-    // The watch layout stacks the player over a scrolling panel; the player keeps a fixed share of the viewport.
+    // The watch layout stacks the player over a scrolling panel. The player keeps a fixed share of the viewport.
     &--watch {
         flex-direction: column;
         overflow-y: auto;

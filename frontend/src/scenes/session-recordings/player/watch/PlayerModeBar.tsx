@@ -30,18 +30,17 @@ import { SessionRecordingSidebarTab } from '~/types'
 
 type PlayerMode = 'watch' | 'debug'
 
-/** The row over the player in the watch layout: the Watch/Debug switch, the window and URL, and the recording actions. */
 export function PlayerModeBar(): JSX.Element {
     const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const { windowIds, trackedWindow, currentURL, currentWindowIndex, loading } = useValues(playerMetaLogic(logicProps))
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
-    const { sidebarOpen } = useValues(playerSettingsLogic)
+    const { debugMode } = useValues(playerSettingsLogic)
     const { setSidebarOpen } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const chromeItems = usePlayerChromeMenuItems()
     const { ref, size } = useResizeBreakpoints({ 0: 'small', 600: 'normal' })
 
-    const mode: PlayerMode = sidebarOpen ? 'debug' : 'watch'
+    const mode: PlayerMode = debugMode ? 'debug' : 'watch'
     const setMode = (next: PlayerMode): void => {
         posthog.capture('session recording mode changed', { mode: next })
         setSidebarOpen(next === 'debug')

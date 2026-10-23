@@ -17,7 +17,7 @@ export function filterLeaves(group: UniversalFiltersGroup, path: number[] = []):
     )
 }
 
-/** The group tree without the leaf at `path`; a group that empties stays, so the editor's structure is kept. */
+/** The group tree without the leaf at `path`. A group that empties stays, so the editor's structure is kept. */
 export function removeFilterLeaf(group: UniversalFiltersGroup, path: number[]): UniversalFiltersGroup {
     const [index, ...rest] = path
     return {

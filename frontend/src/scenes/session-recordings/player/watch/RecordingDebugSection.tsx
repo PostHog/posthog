@@ -14,12 +14,10 @@ import { DebugTabBar } from './DebugTabBar'
 
 const DEBUG_TABS = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.NETWORK_WATERFALL]
 
-/** Events, console and network under the summary, shown in Debug mode only. */
 export function RecordingDebugSection(): JSX.Element {
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const { setWatchDebugDock } = useActions(playerSettingsLogic)
-    // The sidebar logic still receives tabs this section does not own, such as Observations; they land on the inspector.
     const tab = DEBUG_TABS.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
     return (

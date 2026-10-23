@@ -44,7 +44,6 @@ export type replayListColumnLogicType = MakeLogicType<
     replayListColumnLogicMeta
 >
 
-/** Which segment the watch-layout list column shows: What to watch, All recordings, or the open recording's Moments. */
 export const replayListColumnLogic = kea<replayListColumnLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'replayListColumnLogic', key]),
     props({} as ReplayListColumnLogicProps),
@@ -79,7 +78,7 @@ export const replayListColumnLogic = kea<replayListColumnLogicType>([
         setSegment: ({ segment }) => {
             posthog.capture('session recording list segment changed', { segment })
         },
-        // Summarize and View details still ask for the Observations tab; in this layout that content is the Moments segment.
+        // Summarize and View details still ask for the Observations tab. In this layout that content is the Moments segment.
         setSidebarTab: ({ tab }) => {
             if (tab === SessionRecordingSidebarTab.OBSERVATIONS) {
                 actions.setSegment('moments')

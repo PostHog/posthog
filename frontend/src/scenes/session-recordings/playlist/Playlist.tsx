@@ -76,6 +76,7 @@ export type PlaylistProps = {
      * offer the generic replay hints. Collections keep their own empty state.
      */
     listEmptyState?: JSX.Element
+    watchLayout?: boolean
 }
 
 export function Playlist({
@@ -86,8 +87,10 @@ export function Playlist({
     description,
     selectInitialItem,
     listEmptyState,
+    watchLayout = false,
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
+    const newLayout = watchLayout && isNewReplayLayout(replayLayout)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const collapseButton = (
         <LemonButton
@@ -111,7 +114,7 @@ export function Playlist({
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
-    const watchFilterBar = isNewReplayLayout(replayLayout) && !notebookNode && type !== 'collection'
+    const watchFilterBar = newLayout && !notebookNode && type !== 'collection'
 
     // bound outside here
     const {
@@ -155,14 +158,14 @@ export function Playlist({
     }
 
     const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
-        isNewReplayLayout(replayLayout) ? (
+        newLayout ? (
             <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable={selectMode} />
         ) : (
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
         )
 
     // Still-ingesting recordings fold above the results in the watch layout, so the list opens on finished ones.
-    const ongoingRecordings = isNewReplayLayout(replayLayout) ? otherRecordings.filter((r) => r.ongoing) : []
+    const ongoingRecordings = newLayout ? otherRecordings.filter((r) => r.ongoing) : []
     const finishedRecordings =
         ongoingRecordings.length > 0 ? otherRecordings.filter((r) => !r.ongoing) : otherRecordings
 

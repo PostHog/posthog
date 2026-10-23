@@ -7,7 +7,6 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 
 import { RecordingOverviewPanels } from './RecordingOverviewPanels'
 
-/** The sidebar's Overview behind a disclosure, remembered across recordings, with the host's actions on its header row. */
 export function RecordingOverviewDisclosure({ actions }: { actions?: ReactNode }): JSX.Element {
     const { watchPanelOpenSections } = useValues(playerSettingsLogic)
     const { toggleWatchPanelSection } = useActions(playerSettingsLogic)

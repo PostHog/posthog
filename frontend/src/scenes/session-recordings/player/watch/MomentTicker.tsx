@@ -17,7 +17,6 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 const formatMs = (ms: number): string => colonDelimitedDuration(ms / 1000, ms >= 3_600_000 ? 3 : 2)
 
-/** Where the player is among the recording's moments, and what comes next. */
 export function MomentTicker({ sessionId }: { sessionId: string }): JSX.Element | null {
     const { timeline } = useValues(observationsDockLogic({ sessionId }))
     const { logicProps, currentPlayerTime } = useValues(sessionRecordingPlayerLogic)

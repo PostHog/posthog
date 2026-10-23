@@ -306,7 +306,11 @@ function MainPanel(): JSX.Element {
                     {isRedesignEnabled ? (
                         <SessionRecordingsPlaylistRedesign {...SCENE_PLAYLIST_LOGIC_PROPS} />
                     ) : (
-                        <SessionRecordingsPlaylist {...SCENE_PLAYLIST_LOGIC_PROPS} picksInList={picksInList} />
+                        <SessionRecordingsPlaylist
+                            {...SCENE_PLAYLIST_LOGIC_PROPS}
+                            picksInList={picksInList}
+                            watchLayout
+                        />
                     )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (

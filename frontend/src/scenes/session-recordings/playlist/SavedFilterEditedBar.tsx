@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 
@@ -9,7 +10,6 @@ import { RecordingUniversalFilters } from '~/types'
 import { updatePlaylist } from './playlistUtils'
 import { stripSessionIds } from './playlistUtils'
 
-/** Shown while the applied saved filter differs from the list's filters: update it, save a copy, or revert. */
 export function SavedFilterEditedBar({
     filters,
     setFilters,
@@ -19,20 +19,28 @@ export function SavedFilterEditedBar({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     onSaveAsCopy: () => void
 }): JSX.Element | null {
-    const { appliedSavedFilter, playlistsLoading } = useValues(sessionRecordingSavedFiltersLogic)
+    const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
+    const [updating, setUpdating] = useState(false)
     if (!appliedSavedFilter) {
         return null
     }
 
     const update = async (): Promise<void> => {
-        const updated = await updatePlaylist(
-            appliedSavedFilter.short_id,
-            { filters: stripSessionIds(filters), type: 'filters' },
-            false
-        )
-        loadSavedFilters()
-        setAppliedSavedFilter(updated)
+        setUpdating(true)
+        try {
+            const updated = await updatePlaylist(
+                appliedSavedFilter.short_id,
+                { filters: stripSessionIds(filters), type: 'filters' },
+                false
+            )
+            loadSavedFilters()
+            setAppliedSavedFilter(updated)
+        } catch {
+            lemonToast.error('Could not update the saved filter. Please try again.')
+        } finally {
+            setUpdating(false)
+        }
     }
 
     return (
@@ -44,7 +52,7 @@ export function SavedFilterEditedBar({
             <LemonButton
                 size="xsmall"
                 type="secondary"
-                loading={playlistsLoading}
+                loading={updating}
                 onClick={() => void update()}
                 className="max-w-60"
                 truncate

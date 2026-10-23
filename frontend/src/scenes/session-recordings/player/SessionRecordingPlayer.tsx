@@ -105,7 +105,7 @@ function SessionRecordingPlayerInternal({
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
-    const { isVerticallyStacked, sidebarOpen, replayLayout, watchDebugDock } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock } = useValues(playerSettingsLogic)
     const { setWatchDebugDock } = useActions(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -115,7 +115,7 @@ function SessionRecordingPlayerInternal({
     const debugReplayAction = showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null
 
     if (playerUsesWatchLayout(replayLayout, logicProps)) {
-        const rightDock = sidebarOpen && watchDebugDock === 'right' && !isFullScreen
+        const rightDock = debugMode && watchDebugDock === 'right' && !isFullScreen
         return (
             <div
                 ref={playerRef}

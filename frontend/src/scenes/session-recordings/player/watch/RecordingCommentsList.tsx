@@ -15,7 +15,6 @@ import { CommentType } from '~/types'
 import { sessionRecordingCommentsLogic } from '../sessionRecordingCommentsLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
-/** The recording's comments in time order, each one a jump to where it was left. Adding one stays on the player bar. */
 export function RecordingCommentsList({ sessionId }: { sessionId: string }): JSX.Element | null {
     const { sessionComments, sessionCommentsLoading } = useValues(
         sessionRecordingCommentsLogic({ sessionRecordingId: sessionId })

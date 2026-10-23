@@ -35,7 +35,6 @@ function isDefaultDuration(duration: RecordingDurationFilter): boolean {
     )
 }
 
-/** The applied conditions as removable chips: each filter, each duration bound, and the hidden-watched setting. */
 export function FilterChips({
     filters,
     setFilters,
@@ -57,14 +56,19 @@ export function FilterChips({
             />
         )),
         ...filters.duration.flatMap((duration, index) =>
-            // The default bound is always in effect; a chip should mean the viewer applied something.
             isDefaultDuration(duration)
                 ? []
                 : [
                       <FilterChip
                           key={`${duration.key}-${index}`}
                           icon={<IconClock />}
-                          onClose={() => setFilters({ duration: filters.duration.filter((_, i) => i !== index) })}
+                          onClose={() =>
+                              setFilters({
+                                  duration: filters.duration.map((d, i) =>
+                                      i === index ? defaultRecordingDurationFilter : d
+                                  ),
+                              })
+                          }
                           dataAttr="list-filter-chip-duration"
                       >
                           {compactDurationLabel(duration)}

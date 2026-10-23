@@ -15,7 +15,7 @@ import {
     recordingsQueryToUniversalFilters,
 } from './recordingsQueryConversions'
 
-// Static instruction rendered into the trusted context block — never interpolate user or ingested data.
+// Static instruction rendered into the trusted context block. Never interpolate user or ingested data.
 const RECORDINGS_QUERY_TOOL_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
