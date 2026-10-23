@@ -1395,21 +1395,6 @@ export const WorkflowDataSuggestionsGenerateBody = () => zod.object({
 })
 
 /**
- * @summary Read what importing a workflow changed or left out
- */
-export const WorkflowImportsListParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const WorkflowImportsListQueryParams = () => zod.object({
-    hog_flow_id: zod.string().describe('The workflow to read the latest import of.'),
-})
-
-/**
  * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it, with the templates its messages use. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
  * @summary Import Customer.io automations as draft workflows
  */
@@ -1462,6 +1447,21 @@ export const WorkflowImportsCreateBody = () => zod.object({
         .boolean()
         .default(workflowImportsCreateBodyDryRunDefault)
         .describe('When true, translate and check the automations but save nothing, to preview the import.'),
+})
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const WorkflowImportsForWorkflowRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WorkflowImportsForWorkflowRetrieveQueryParams = () => zod.object({
+    hog_flow_id: zod.string().describe('The workflow to read the import of.'),
 })
 
 /**

@@ -401,21 +401,21 @@ const workflowsImportCustomerio = (): ToolBase<
 })
 
 const WorkflowsImportNotesSchema = () => {
-    const WorkflowImportsListQueryParams = orvalSchemas.WorkflowImportsListQueryParams()
-    return WorkflowImportsListQueryParams
+    const WorkflowImportsForWorkflowRetrieveQueryParams = orvalSchemas.WorkflowImportsForWorkflowRetrieveQueryParams()
+    return WorkflowImportsForWorkflowRetrieveQueryParams
 }
 
 const workflowsImportNotes = (): ToolBase<
     ReturnType<typeof WorkflowsImportNotesSchema>,
-    Schemas.WorkflowImportRecord[]
+    Schemas.WorkflowImportRecord
 > => ({
     name: 'workflows-import-notes',
     schema: WorkflowsImportNotesSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsImportNotesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WorkflowImportRecord[]>({
+        const result = await context.api.request<Schemas.WorkflowImportRecord>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/for_workflow/`,
             query: {
                 hog_flow_id: params.hog_flow_id,
             },

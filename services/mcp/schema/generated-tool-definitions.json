@@ -16331,13 +16331,13 @@
         "feature_flag": "workflows-customerio-import"
     },
     "workflows-import-notes": {
-        "description": "What importing a workflow from Customer.io changed or left out, step by step. Empty for a workflow that was not imported.",
+        "description": "What importing a workflow from Customer.io changed or left out, step by step. Returns 404 for a workflow that was not imported.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get a workflow's import notes",
         "title": "Get a workflow's import notes",
         "required_scopes": ["hog_flow:read"],
-        "api_operations": ["GET /api/projects/{project_id}/workflow_imports/"],
+        "api_operations": ["GET /api/projects/{project_id}/workflow_imports/for_workflow/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
