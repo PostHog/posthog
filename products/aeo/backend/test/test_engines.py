@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -375,19 +375,15 @@ def _response(status: int, retry_after: str | None = None) -> requests.Response:
 def test_gateway_post_json_retries_throttling_and_transient_errors(
     _name: str, responses: list, raises: type[Exception] | None, posts: int, sleeps: list[float]
 ) -> None:
-    session = SimpleNamespace(post=lambda *args, **kwargs: responses.pop(0))
-    sent: list[int] = []
-
-    def post(*args, **kwargs):
-        sent.append(1)
-        return session.post(*args, **kwargs)
+    session = MagicMock(spec=requests.Session)
+    session.post.side_effect = responses
 
     with patch("products.aeo.backend.engines.time.sleep") as sleep:
         if raises is None:
-            assert gateway_post_json(SimpleNamespace(post=post), "https://gw.test", {}, {}) == {"ok": True}
+            assert gateway_post_json(session, "https://gw.test", {}, {}) == {"ok": True}
         else:
             with pytest.raises(raises):
-                gateway_post_json(SimpleNamespace(post=post), "https://gw.test", {}, {})
+                gateway_post_json(session, "https://gw.test", {}, {})
 
-    assert len(sent) == posts
+    assert session.post.call_count == posts
     assert [call.args[0] for call in sleep.call_args_list] == sleeps
