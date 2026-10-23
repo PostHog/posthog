@@ -90,7 +90,13 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
         SlackSettings.objects.get_or_create(
             slack_workspace_id=integration.integration_id, slack_user_id=request.slack_user_id
         )
-    reservation = _reserve_candidates(request)
+    # Counted before the lock, so a reader with a long thread history never holds the row during the scan.
+    history_count = (
+        _thread_count(integration.integration_id, request.slack_user_id)
+        if not stored or parse_state(stored[0]).backfilled_at is None
+        else None
+    )
+    reservation = _reserve_candidates(request, history_count)
     if reservation is None:
         return None
     choice = choose_tip(
@@ -164,7 +170,13 @@ def _save(settings: SlackSettings, state: FeatureTipsState) -> None:
     settings.save(update_fields=["feature_tips", "updated_at"])
 
 
-def _reserve_candidates(request: TipRequest) -> _Reservation | None:
+def _thread_count(workspace_id: str, slack_user_id: str) -> int:
+    return SlackThreadTaskMapping.objects.filter(
+        slack_workspace_id=workspace_id, mentioning_slack_user_id=slack_user_id
+    ).count()
+
+
+def _reserve_candidates(request: TipRequest, history_count: int | None) -> _Reservation | None:
     """Count this interaction, run the gates and the feature checks, and hold today's tip slot.
 
     The slot is held before the tip posts, so two answers that finish together cannot both send
@@ -181,9 +193,9 @@ def _reserve_candidates(request: TipRequest) -> _Reservation | None:
         state = parse_state(settings.feature_tips)
         if state.backfilled_at is None:
             # The history already holds the thread of this answer, so it is not counted again.
-            state.interaction_count = SlackThreadTaskMapping.objects.filter(
-                slack_workspace_id=workspace_id, mentioning_slack_user_id=slack_user_id
-            ).count()
+            state.interaction_count = (
+                history_count if history_count is not None else _thread_count(workspace_id, slack_user_id)
+            )
             state.backfilled_at = now
         else:
             state.interaction_count += 1
