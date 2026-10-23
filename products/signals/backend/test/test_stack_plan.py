@@ -27,6 +27,7 @@ from products.signals.backend.report_generation.research import (
     ReportPresentationOutput,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_plan import report_plan
 from products.signals.backend.stack_plan import (
     create_layer_reports,
     dependency_head_branch,
@@ -182,6 +183,22 @@ class TestStackPlan(BaseTest):
                 "priority_judgment",
                 "repo_selection",
             }
+
+    @parameterized.expand([("from_the_plan", None), ("from_a_layer", 2)])
+    def test_the_plan_and_each_layer_read_the_same_plan(self, _name: str, viewed_layer: int | None):
+        child_ids = self._create_layers()
+        self._attach_pull_request(child_ids[0], 101, SignalReportPullRequest.State.OPEN)
+        SignalReport.objects.filter(id=child_ids[1]).update(status=SignalReport.Status.DELETED)
+        viewed_id = str(self.parent.id) if viewed_layer is None else child_ids[viewed_layer]
+
+        plan = report_plan(team_id=self.team.id, report_id=viewed_id)
+
+        assert plan is not None
+        assert plan.id == str(self.parent.id)
+        assert [(step.id, step.depends_on, step.implementation_pr_state) for step in plan.steps] == [
+            (child_ids[0], (), SignalReportPullRequest.State.OPEN),
+            (child_ids[2], (), None),
+        ]
 
     @parameterized.expand(
         [

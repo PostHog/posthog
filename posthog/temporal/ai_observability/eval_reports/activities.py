@@ -423,7 +423,9 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
     # These count checks run every 5 minutes across all count-triggered reports, so keep them
     # off the online cluster that serves user-facing queries — route to the offline replica.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=report.team_id):
-        result = execute_hogql_query(query=query, team=report.team, workload=Workload.OFFLINE)
+        result = execute_hogql_query(
+            query=query, team=report.team, workload=Workload.OFFLINE, query_type="EvalReportResultCount"
+        )
     rows = result.results or []
     if not rows:
         return 0
@@ -518,6 +520,7 @@ def _count_eval_results_for_reports(
             query=query,
             team=team,
             workload=Workload.OFFLINE,
+            query_type="EvalReportResultCountBatch",
             # "throw", not the profile default: the split retry needs the timeout to raise. A
             # partial count reads as below threshold and silently keeps the report from firing.
             settings=HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
@@ -658,7 +661,9 @@ def _find_nth_eval_timestamp(
         },
     )
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
+        result = execute_hogql_query(
+            query=query, team=team, workload=Workload.OFFLINE, query_type="EvalReportNthResultTimestamp"
+        )
     rows = result.results or []
     if rows and rows[0][0] is not None:
         ts = rows[0][0]
