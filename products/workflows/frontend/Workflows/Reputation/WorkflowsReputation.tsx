@@ -1,15 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonTable,
-    LemonTag,
-    LemonTagType,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -390,29 +381,29 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
     return (
         <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2">
                 <h3 className="mb-0">Sending allowance</h3>
                 <Tooltip title="Every project shares PostHog's sending infrastructure, so allowances start small and grow with a clean sending record.">
                     <LemonTag type="muted">
                         Tier {allowance.tier} of {allowance.max_tier}
                     </LemonTag>
                 </Tooltip>
-                {canRequestSendingTierIncrease && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        className="ml-auto"
-                        onClick={() => requestSendingTierIncrease(allowance)}
-                        tooltip="Opens a support request with your current tier and usage filled in."
-                        data-attr="workflows-request-sending-tier-increase"
-                    >
-                        Request a higher allowance
-                    </LemonButton>
-                )}
             </div>
             <p className="text-secondary mt-2 mb-0">
                 Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
                 above the allowance are not dropped, they are sent later.
+                {canRequestSendingTierIncrease && (
+                    <>
+                        {' '}
+                        Need more sooner?{' '}
+                        <Link
+                            onClick={() => requestSendingTierIncrease(allowance)}
+                            data-attr="workflows-request-sending-tier-increase"
+                        >
+                            Request a higher allowance
+                        </Link>
+                    </>
+                )}
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
                 <div className="min-w-48">
