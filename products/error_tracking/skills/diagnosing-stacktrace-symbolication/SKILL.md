@@ -89,7 +89,9 @@ posthog-cli symbol-sets resolve --ref "$CHUNK_ID" --frame-file frame.json
 posthog-cli symbol-sets resolve symbolset.bin --frame-file frame.json
 ```
 
-Use the `map_id` for Java, or the debug image's `debug_id` for Apple and native frames (also pass that image as `--debug-image '<json>'`). Compare the returned `frames` entries with the expected original source. A lookup, download, or mapping error identifies the stage that failed. This check resolves one frame against one selected set; it does not reproduce Cymbal's full exception handling or release selection.
+`symbolset.bin` is the uploaded container, not an extracted `.map` file or directory. Downloading requires `--ref`; with a local file, `--ref` is optional and, if supplied, must match the frame. Use `--frame-file -` for stdin or `--frame '<raw-frame-json>'` for inline JSON. A local file avoids the symbol-set API and credentials but does not disable normal CLI telemetry.
+
+Use the `map_id` for Java, or the debug image's `debug_id` for Apple and native frames (also pass that image as `--debug-image '<json>'`). Success prints `{"frames":[...]}` with the original source, line, column, function, module, and content availability where present; addresses may expand into multiple frames. Errors exit nonzero and identify the lookup, download, decode, or mapping stage. Compare the returned frames with the expected original source. This check resolves one frame against one selected set; it does not reproduce Cymbal's full exception handling or release selection.
 
 The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload), not plain JSON. To inspect its contents, extract it with `posthog-cli`:
 
