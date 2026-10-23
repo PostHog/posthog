@@ -1,3 +1,4 @@
+import type { SuggestedReviewerEdit } from "@posthog/api-client/posthog-client";
 import {
   buildArchiveListOrdering,
   buildPriorityFilterParam,
@@ -237,7 +238,7 @@ export function useInboxReportSignals(reportId: string | null) {
   });
 }
 
-interface UpdateSuggestedReviewersVariables {
+interface UpdateSuggestedReviewersVariables extends SuggestedReviewerEdit {
   artefactId: string;
   content: SuggestedReviewerWriteEntry[];
   optimisticReviewers: SuggestedReviewer[];
@@ -253,9 +254,12 @@ export function useUpdateSuggestedReviewers(reportId: string) {
     UpdateSuggestedReviewersVariables,
     { previous: SignalReportArtefactsResponse | undefined }
   >({
-    mutationFn: ({ artefactId, content }) =>
+    mutationFn: ({ artefactId, content, action, targets }) =>
       getPostHogApiClient()
-        .updateSignalReportArtefact(reportId, artefactId, content)
+        .updateSignalReportArtefact(reportId, artefactId, content, {
+          action,
+          targets,
+        })
         .then(() => undefined),
     onMutate: async ({ artefactId, optimisticReviewers }) => {
       await queryClient.cancelQueries({ queryKey });
