@@ -4,8 +4,8 @@ description: >
   Picks the cheapest check that is enough to confirm a change works, and says when a slower one is needed.
   Use before you report a task done, before you start Storybook, the dev stack or a
   Playwright run to check your own work, and when you are unsure how much verification a diff needs.
-  Maps each kind of change (pure logic, DRF serializer or viewset, migration, kea logic, React component,
-  CSS, CI workflow, SQL or HogQL, docs or skills) to the layer that is enough and the layer that is wasted.
+  Maps each kind of change, such as pure logic, DRF serializer or viewset, migration, kea logic, React component,
+  CSS, CI workflow, SQL or HogQL, or docs and skills, to the layer that is enough and the layer that is wasted.
   `hogli verify --changed` runs the cheap layers for the current diff and names the slower ones left to run yourself.
   Trigger terms: verify, how do I test this, is this enough testing, start the stack, render it, run e2e.
 ---
@@ -15,24 +15,25 @@ description: >
 Verification has six layers, and each one costs roughly ten times the one before it.
 Start with the cheapest, and move up only when the current layer cannot see what the diff changes.
 
-| Layer | Check                        | Command                                                                                                 |
-| ----- | ---------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 1     | Lint, format, typecheck      | `hogli verify --changed` (runs it), or `ruff check`, `pnpm --filter=@posthog/frontend typescript:check` |
-| 2     | The nearest unit test        | `hogli test <file>`, `hogli test --changed`                                                             |
-| 3     | Serializer and OpenAPI regen | `hogli build:openapi` (needs `hogli up -d`), then commit the generated diff                             |
-| 4     | Storybook render             | `pnpm storybook`, open the affected story, compare before and after                                     |
-| 5     | The running stack            | `hogli up -d`, `hogli wait`, then exercise the flow                                                     |
-| 6     | Playwright or a recorded run | `hogli test playwright/<spec>.spec.ts` against a running stack                                          |
+| Layer | Check                        | Command                                                                                          |
+| ----- | ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| 1     | Lint, format, typecheck      | `hogli verify --changed`, or `ruff check` and `pnpm --filter=@posthog/frontend typescript:check` |
+| 2     | The nearest unit test        | `hogli test <file>`, `hogli test --changed`                                                      |
+| 3     | Serializer and OpenAPI regen | `hogli up -d`, `hogli build:openapi`, then commit the generated diff                             |
+| 4     | Storybook render             | `pnpm storybook`, open the affected story, compare before and after                              |
+| 5     | The running stack            | `hogli up -d`, `hogli wait`, then exercise the flow                                              |
+| 6     | Playwright or a recorded run | `hogli test playwright/<spec>.spec.ts` against a running stack                                   |
 
 `hogli verify --changed` classifies the diff against master, runs layers 1 and 2, and lists any higher layer you still have to run yourself.
-It does not report the diff as verified when a check was skipped, when a check only printed advice (mypy runs repo-wide, so it prints the command instead), or when no test covers the changed files.
+It does not report the diff as verified when a check was skipped, when a check only printed advice, or when no test covers the changed files.
+mypy is one of those advice-only checks. It runs repo-wide, so `hogli verify` prints its command instead of running it.
 Use `--plan` to see the classification without running anything.
 
 ## Decision table
 
 | Change                     | Enough                                              | Wasted                                   |
 | -------------------------- | --------------------------------------------------- | ---------------------------------------- |
-| Pure logic (Python or TS)  | 2: nearest unit test                                | 5: stack                                 |
+| Pure logic, Python or TS   | 2: nearest unit test                                | 5: stack                                 |
 | DRF serializer or viewset  | 3: OpenAPI regen, plus the endpoint test at layer 2 | 6: Playwright                            |
 | Migration                  | 2: migration test, plus `hogli migrations:check`    | 4: Storybook                             |
 | Kea logic                  | 2: logic test, plus typecheck                       | 4: Storybook                             |
@@ -47,7 +48,7 @@ A diff that mixes kinds needs the highest layer among them, and only for the fil
 
 ## Other rules still apply
 
-- The root `AGENTS.md` rule on visual work stands: reading the code does not confirm visual or UX work. A component or CSS change always needs at least a Storybook render.
+- Reading the code does not confirm visual or UX work, as the root `AGENTS.md` says. A component or CSS change always needs at least a Storybook render.
 - Layer 2 says where a test runs. Use `/writing-tests` to decide whether to add or change one. When a regression is hard to reach cheaply, extract the logic and test it at a lower layer.
 - `hogli ci:preflight` stays the pre-push check, see `/running-ci-preflight`. `hogli verify` reuses its lint and format checks, so a pass here usually means a pass there too.
 
