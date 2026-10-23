@@ -329,20 +329,18 @@ export function parseAddressList(value?: string): string[] | undefined {
 // How delivery presents a send the policy refuses. A refused sender is not listed: it fails the send.
 // The pause is logged as an error because the email did not go out, but it is policy, not a fault, so the
 // run continues without retry or abort handling.
-const POLICY_SKIP_PRESENTATION: Partial<
-    Record<
-        PolicyCode,
-        {
-            logLevel: 'info' | 'warn' | 'error'
-            metricName: 'email_suspended' | 'email_paused' | 'email_suppressed'
-            markSkipped: boolean
-        }
-    >
-> = {
+type PolicySkipPresentation = {
+    logLevel: 'info' | 'warn' | 'error'
+    metricName: 'email_suspended' | 'email_paused' | 'email_suppressed'
+    markSkipped: boolean
+}
+
+const POLICY_SKIP_PRESENTATION: Record<PolicyCode, PolicySkipPresentation | 'fail'> = {
     // One metric for both suspension causes: from the project's side sending is off either way, so the
     // cause belongs in the log line and not in a second metric name.
     sending_suspended: { logLevel: 'warn', metricName: 'email_suspended', markSkipped: false },
     template_paused: { logLevel: 'error', metricName: 'email_paused', markSkipped: true },
+    sender_not_verified: 'fail',
     recipient_suppressed: { logLevel: 'info', metricName: 'email_suppressed', markSkipped: false },
 }
 
@@ -867,7 +865,7 @@ export class EmailService {
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
         const invocation = result.invocation
         const presentation = POLICY_SKIP_PRESENTATION[decision.code]
-        if (!presentation) {
+        if (presentation === 'fail') {
             throw new Error(decision.detail)
         }
         if (decision.code === 'template_paused') {
