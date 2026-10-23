@@ -87,7 +87,10 @@ SCOUT_SKILL = "signals-scout-error-tracking"
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("case", ["eligible", "changed", "dismissed", "quota", "disabled", "runner", "repository"])
+@pytest.mark.parametrize(
+    "case",
+    ["eligible", "historical", "superseded", "changed", "dismissed", "quota", "disabled", "runner", "repository"],
+)
 def test_suspended_implementation_rechecks_current_eligibility(organization, team, case):
     organization.is_ai_data_processing_approved = True
     organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -102,6 +105,17 @@ def test_suspended_implementation_rechecks_current_eligibility(organization, tea
         implemented_at_run_count=1,
     )
     Task = apps.get_model("tasks", "Task")
+    if case == "historical":
+        previous = Task.objects.create(team=team, title="Earlier implementation", created_by=user)
+        artefact = SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            content=TaskRunArtefact(
+                task_id=str(previous.id), product="signals", type="implementation"
+            ).model_dump_json(),
+        )
+        SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() - timedelta(days=1))
     task = Task.objects.create(team=team, title="Implementation", created_by=user)
     SignalReportArtefact.objects.create(
         team=team,
@@ -109,6 +123,17 @@ def test_suspended_implementation_rechecks_current_eligibility(organization, tea
         type=SignalReportArtefact.ArtefactType.TASK_RUN,
         content=TaskRunArtefact(task_id=str(task.id), product="signals", type="implementation").model_dump_json(),
     )
+    if case == "superseded":
+        replacement = Task.objects.create(team=team, title="Replacement", created_by=user)
+        artefact = SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            content=TaskRunArtefact(
+                task_id=str(replacement.id), product="signals", type="implementation"
+            ).model_dump_json(),
+        )
+        SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() + timedelta(minutes=1))
     with (
         patch(
             "products.signals.backend.auto_start.database_sync_to_async",
@@ -143,7 +168,7 @@ def test_suspended_implementation_rechecks_current_eligibility(organization, tea
                 repository="example/changed" if case == "repository" else "example/repo",
             ),
         )
-    assert (result.status == "queued") is (case == "eligible"), result
+    assert (result.status == "queued") is (case in {"eligible", "historical"}), result
     create.assert_not_called()
 
 
