@@ -294,10 +294,11 @@ export class EmailTrackingService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
-        private emailStatus: EmailStatusWriter
+        private emailStatus: EmailStatusWriter,
+        encryptionSaltKeys: string
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
-        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
+        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, encryptionSaltKeys, allowedTopicArns)
     }
 
     public async trackMetric({

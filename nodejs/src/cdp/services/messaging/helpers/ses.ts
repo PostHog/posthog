@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 
+import { emailRecipientHashes } from '../email-recipient-hash'
 import type { StatusChange } from '../email-status.service'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
@@ -232,6 +233,20 @@ export function sendTagsOf(tags: Record<string, string[]> | undefined): Record<s
 // the route computed rather than one the webhook would derive from the SES destination.
 export const SES_RECIPIENT_HASH_TAG = 'ph_recipient_hash'
 
+// Null when the event concerns the whole message rather than some of its recipients.
+const eventRecipients = (rec: SesEventRecord): string[] | null => {
+    switch (rec.eventType) {
+        case 'Delivery':
+            return rec.delivery.recipients ?? rec.mail.destination
+        case 'Bounce':
+            return rec.bounce.bouncedRecipients.map((recipient) => recipient.emailAddress)
+        case 'Complaint':
+            return rec.complaint.complainedRecipients.map((recipient) => recipient.emailAddress)
+        default:
+            return null
+    }
+}
+
 const transactionalStatusChange = (
     rec: SesEventRecord,
     teamId: number,
@@ -440,11 +455,21 @@ export class SesWebhookHandler {
 
     constructor(
         private trackingCodeSigner: EmailTrackingCodeSigner,
+        private encryptionSaltKeys: string,
         // Empty set means no restriction (dev/test); prod is expected to configure the workflow SES
         // topic ARN.
         allowedTopicArns: string[] = []
     ) {
         this.allowedTopicArns = new Set(allowedTopicArns.map((arn) => arn.trim()).filter(Boolean))
+    }
+
+    // A status describes the `to` address the route hashed, so a cc or bcc copy's events must not move it.
+    private concernsHashedRecipient(rec: SesEventRecord, recipientHash: string): boolean {
+        const recipients = eventRecipients(rec)
+        return (
+            recipients === null ||
+            recipients.some((address) => emailRecipientHashes(address, this.encryptionSaltKeys).includes(recipientHash))
+        )
     }
 
     private isTopicAllowed(topicArn: string | undefined): boolean {
@@ -994,7 +1019,13 @@ export class SesWebhookHandler {
             const recipientHash = rec.mail.tags?.[SES_RECIPIENT_HASH_TAG]?.[0]
             const isNotSpamCorrection =
                 rec.eventType === 'Complaint' && rec.complaint.complaintFeedbackType?.toLowerCase() === 'not-spam'
-            if (suppressionAllowed && invocationId && recipientHash && !isNotSpamCorrection) {
+            if (
+                suppressionAllowed &&
+                invocationId &&
+                recipientHash &&
+                !isNotSpamCorrection &&
+                this.concernsHashedRecipient(rec, recipientHash)
+            ) {
                 const change = transactionalStatusChange(rec, parseInt(teamId, 10), invocationId, recipientHash)
                 if (change) {
                     emailStatusChanges.push(change)

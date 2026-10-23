@@ -251,7 +251,8 @@ export class CdpApi {
             services.teamWorkflowsConfigService,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             services.emailSuppressionService,
-            services.emailStatus
+            services.emailStatus,
+            config.ENCRYPTION_SALT_KEYS
         )
         this.transactionalEmailPolicy = new EmailSendPolicy(
             services.teamWorkflowsConfigService,

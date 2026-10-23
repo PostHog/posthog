@@ -14,7 +14,7 @@ const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, '
 describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
     beforeEach(() => {
-        handler = new SesWebhookHandler(signer)
+        handler = new SesWebhookHandler(signer, '')
     })
 
     // Mirrors what the sender writes: the custom header carries the full signed code (including
@@ -1055,7 +1055,7 @@ describe('SesWebhookHandler', () => {
         })
 
         it('rejects a Notification whose TopicArn is not on the allowlist', async () => {
-            const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
+            const restricted = new SesWebhookHandler(signer, '', ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
             const envelope = buildEnvelope('arn:aws:sns:us-east-1:999999999999:other-topic', {
                 eventType: 'Bounce',
                 mail: baseMail,
@@ -1071,7 +1071,7 @@ describe('SesWebhookHandler', () => {
         })
 
         it('accepts a Notification whose TopicArn matches the allowlist', async () => {
-            const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
+            const restricted = new SesWebhookHandler(signer, '', ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
             const envelope = buildEnvelope('arn:aws:sns:us-east-1:123456789012:allowed-topic', {
                 eventType: 'Bounce',
                 mail: baseMail,
@@ -1104,7 +1104,7 @@ describe('SesWebhookHandler', () => {
         })
 
         it('rejects a SubscriptionConfirmation from a disallowed topic', async () => {
-            const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
+            const restricted = new SesWebhookHandler(signer, '', ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
             const envelope = buildEnvelope(
                 'arn:aws:sns:us-east-1:999999999999:other-topic',
                 {},

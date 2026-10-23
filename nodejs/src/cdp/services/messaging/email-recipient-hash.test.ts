@@ -1,4 +1,4 @@
-import { emailRecipientHash } from './email-recipient-hash'
+import { emailRecipientHash, emailRecipientHashes } from './email-recipient-hash'
 
 describe('emailRecipientHash', () => {
     // Django hashes recipients for the lookup by recipient, so it must assert this same literal.
@@ -6,5 +6,14 @@ describe('emailRecipientHash', () => {
         expect(emailRecipientHash(address, '00beef0000beef0000beef0000beef00')).toBe(
             'e7b76d6c58afac8ef397725c6b81a97de6e27926a51b37ee79b281032c3f2aa7'
         )
+    })
+
+    it('still finds the hash of a salt key that a rotation moved down the list', () => {
+        expect(
+            emailRecipientHashes(
+                'jane.doe@example.com',
+                'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1, 00beef0000beef0000beef0000beef00'
+            )
+        ).toContain('e7b76d6c58afac8ef397725c6b81a97de6e27926a51b37ee79b281032c3f2aa7')
     })
 })

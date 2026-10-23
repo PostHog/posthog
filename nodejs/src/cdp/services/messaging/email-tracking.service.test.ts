@@ -24,6 +24,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { emailRecipientHash } from './email-recipient-hash'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
@@ -430,6 +431,7 @@ describe('EmailTrackingService', () => {
 
         describe('SES webhook transactional email status', () => {
             const messageId = new UUIDT(Date.parse('2026-10-22T07:00:00.000Z')).toString()
+            const recipientHash = emailRecipientHash('user@example.com', defaultConfig.ENCRYPTION_SALT_KEYS)!
             let verifySignatureSpy: jest.SpyInstance
 
             beforeEach(() => {
@@ -445,16 +447,19 @@ describe('EmailTrackingService', () => {
             const deliveryDetail = {
                 delivery: { timestamp: '2026-10-22T07:01:00.000Z', recipients: ['user@example.com'] },
             }
-            const bounceDetail = {
+            const bounceDetail = (emailAddress = 'User@Example.com'): Record<string, unknown> => ({
                 bounce: {
                     bounceType: 'Permanent',
-                    bouncedRecipients: [{ emailAddress: 'user@example.com' }],
+                    bouncedRecipients: [{ emailAddress }],
                     timestamp: '2026-10-22T07:02:00.000Z',
                 },
-            }
-            const complaintDetail = (complaintFeedbackType: string): Record<string, unknown> => ({
+            })
+            const complaintDetail = (
+                complaintFeedbackType: string,
+                emailAddress = 'user@example.com'
+            ): Record<string, unknown> => ({
                 complaint: {
-                    complainedRecipients: [{ emailAddress: 'user@example.com' }],
+                    complainedRecipients: [{ emailAddress }],
                     timestamp: '2026-10-22T07:03:00.000Z',
                     complaintFeedbackType,
                 },
@@ -508,7 +513,7 @@ describe('EmailTrackingService', () => {
                 [
                     'a bounce as bounced with its bounce type',
                     'Bounce',
-                    bounceDetail,
+                    bounceDetail(),
                     { status: 'bounced', status_at: '2026-10-22 07:02:00.000000', reason: 'hard' },
                 ],
                 [
@@ -524,7 +529,7 @@ describe('EmailTrackingService', () => {
                     { status: 'failed', status_at: '2026-10-22 07:00:00.500000', reason: 'rejected' },
                 ],
             ])('records %s', async (_name, eventType, detail, expected) => {
-                const res = await postSesEvent(eventType, detail, { ph_recipient_hash: ['a1b2'] })
+                const res = await postSesEvent(eventType, detail, { ph_recipient_hash: [recipientHash] })
 
                 expect(res.status).toBe(200)
                 const rows = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
@@ -534,7 +539,7 @@ describe('EmailTrackingService', () => {
                         team_id: team.id,
                         message_id: messageId,
                         created_at: '2026-10-22 07:00:00.000000',
-                        recipient_hash: 'a1b2',
+                        recipient_hash: recipientHash,
                         ...expected,
                     }),
                 ])
@@ -546,7 +551,25 @@ describe('EmailTrackingService', () => {
                     'a not-spam correction of a complaint',
                     'Complaint',
                     complaintDetail('Not-Spam'),
-                    { ph_recipient_hash: ['a1b2'] },
+                    { ph_recipient_hash: [recipientHash] },
+                ],
+                [
+                    'a delivery to a cc copy',
+                    'Delivery',
+                    { delivery: { timestamp: '2026-10-22T07:01:00.000Z', recipients: ['cc@example.com'] } },
+                    { ph_recipient_hash: [recipientHash] },
+                ],
+                [
+                    'a bounce of a bcc copy',
+                    'Bounce',
+                    bounceDetail('bcc@example.com'),
+                    { ph_recipient_hash: [recipientHash] },
+                ],
+                [
+                    'a complaint from a cc recipient',
+                    'Complaint',
+                    complaintDetail('abuse', 'cc@example.com'),
+                    { ph_recipient_hash: [recipientHash] },
                 ],
             ])('records nothing for %s', async (_name, eventType, detail, tags) => {
                 const res = await postSesEvent(eventType, detail, tags)
@@ -560,7 +583,7 @@ describe('EmailTrackingService', () => {
                     topic === KAFKA_EMAIL_STATUS ? Promise.reject(new Error('kafka is down')) : Promise.resolve()
                 )
 
-                const res = await postSesEvent('Delivery', deliveryDetail, { ph_recipient_hash: ['a1b2'] })
+                const res = await postSesEvent('Delivery', deliveryDetail, { ph_recipient_hash: [recipientHash] })
 
                 expect(res.status).toBe(500)
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)).toEqual([])

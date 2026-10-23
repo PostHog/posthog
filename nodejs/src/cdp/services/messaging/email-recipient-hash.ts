@@ -9,12 +9,20 @@ const firstSaltKey = (encryptionSaltKeys: string): string | undefined =>
 
 const hmacSha256 = (key: string | Buffer, message: string): Buffer => createHmac('sha256', key).update(message).digest()
 
+const hashUnder = (saltKey: string, address: string): string =>
+    hmacSha256(hmacSha256(saltKey, RECIPIENT_HASH_PURPOSE), address.trim().toLowerCase()).toString('hex')
+
 // Undefined without a salt key, so the caller skips only the status write and still sends.
 export function emailRecipientHash(address: string, encryptionSaltKeys: string): string | undefined {
     const saltKey = firstSaltKey(encryptionSaltKeys)
-    if (!saltKey) {
-        return undefined
-    }
-    const recipientKey = hmacSha256(saltKey, RECIPIENT_HASH_PURPOSE)
-    return hmacSha256(recipientKey, address.trim().toLowerCase()).toString('hex')
+    return saltKey ? hashUnder(saltKey, address) : undefined
+}
+
+// Every key, because an email sent before a key rotation carries the hash of a key that is no longer first.
+export function emailRecipientHashes(address: string, encryptionSaltKeys: string): string[] {
+    return encryptionSaltKeys
+        .split(',')
+        .map((saltKey) => saltKey.trim())
+        .filter(Boolean)
+        .map((saltKey) => hashUnder(saltKey, address))
 }
