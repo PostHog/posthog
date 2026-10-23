@@ -15,6 +15,7 @@ import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '
 import { maxThreadLogic } from '../maxThreadLogic'
 import { HOMEPAGE_SUGGESTION_TOPICS } from '../suggestionTopics'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
+import { MaxDiscovery } from './MaxDiscovery'
 import { SidebarQuestionInput } from './SidebarQuestionInput'
 import { SUGGESTION_CARDS_HEIGHT_PX, TopicBadges, TopicSuggestions } from './TopicBadges'
 
@@ -102,6 +103,7 @@ export function SidebarQuestionInputWithSuggestions({
                         ]}
                     />
                 )}
+                <MaxDiscovery />
             </div>
             <LemonModal
                 title="PostHog AI memory"
