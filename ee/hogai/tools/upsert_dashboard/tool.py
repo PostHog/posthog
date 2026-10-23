@@ -348,7 +348,7 @@ class UpsertDashboardTool(MaxTool):
         request = Request(http_request)
         request.user = self._user
         request.auth = None
-        request._authenticator = None
+        cast(Any, request)._authenticator = None
         serializer = DashboardSerializer(
             data={
                 "use_dashboard": source.id,
