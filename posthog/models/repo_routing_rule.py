@@ -11,7 +11,7 @@ class RepoRoutingRule(UUIDModel):
     MAX_RULE_TEXT_LENGTH = 300
     # Every add path rejects additions past this count, and prompt renderers slice to it as a
     # backstop, so accumulated rules cannot grow a prompt without bound.
-    MAX_RULES_PER_TEAM = 20
+    MAX_RULES_PER_TEAM = 50
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="repo_routing_rules")
     rule_text = models.TextField()

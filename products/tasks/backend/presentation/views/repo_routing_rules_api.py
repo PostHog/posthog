@@ -25,11 +25,11 @@ _AUTH_CLASSES: list[type[BaseAuthentication]] = [
 # The repo selection prompt truncates each rendered rule at this length, so a longer rule
 # would silently lose its distinguishing terms. The Slack `rules add` path enforces the
 # same limit.
-MAX_RULE_TEXT_LENGTH = 300
+MAX_RULE_TEXT_LENGTH = RepoRoutingRule.MAX_RULE_TEXT_LENGTH
 
 # Every rule rides in the repo selection prompt, so an unbounded set would bloat it. The cap
 # is a guardrail well above realistic use, not a product limit.
-MAX_RULES_PER_TEAM = 50
+MAX_RULES_PER_TEAM = RepoRoutingRule.MAX_RULES_PER_TEAM
 
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
