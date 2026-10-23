@@ -2,9 +2,9 @@
 
 The series `last_seen` can lag the newest sample. Capture sends the series labels on the first sample
 of each label window only, and `metric_series` takes rows only from labelled samples. So the
-overview also reads the newest sample time from `metric_service_freshness`, which takes every sample,
-and keeps the later of the two. That table has no backfill, so a service without a row in it keeps
-its series `last_seen`.
+overview also reads the newest sample time from `metric_samples`, which takes every sample, and
+keeps the later of the two. The `service_freshness_by_hour` projection answers that read without the
+timestamp arrays.
 """
 
 import datetime as dt
@@ -150,14 +150,16 @@ class MetricsOverviewQueryRunner:
 
         with tracer.start_as_current_span("metrics.overview.newest_sample") as span:
             span.set_attribute("team_id", self.team.pk)
-            # The constant bound is a primary key range on (team_id, time_bucket).
+            # The service_freshness_by_hour projection answers this query only while it groups and filters on its keys
+            # and aggregates the bare timestamp_max column. The time zone conversion stays outside max() for that reason.
+            # The constant bound is a primary key range on (team_id, time_bucket) of the projection.
             # The per-service bound only filters the rows in that range.
             query = parse_select(
                 """
                     SELECT
                         {listed_service} AS listed_service,
-                        toTimeZone(max(max_timestamp), 'UTC') AS newest_sample_at
-                    FROM posthog.metric_service_freshness
+                        toTimeZone(max(timestamp_max), 'UTC') AS newest_sample_at
+                    FROM posthog.metric_samples
                     WHERE time_bucket >= {earliest_bucket}
                       AND time_bucket >= {bucket_from}
                     GROUP BY listed_service

@@ -63,7 +63,6 @@ def truncate_metrics_tables() -> None:
         "metrics4_series",
         "metrics4_names",
         "metrics4_attributes",
-        "metrics4_service_freshness",
     ):
         sync_execute(f"TRUNCATE TABLE IF EXISTS {table}")
 

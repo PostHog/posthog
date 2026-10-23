@@ -13,8 +13,6 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
-
 from products.metrics.backend import metrics_overview_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event, truncate_metrics_tables
@@ -72,15 +70,7 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(api_row.series, 3)
         self.assertEqual(dt.datetime.fromisoformat(api_row.last_seen), anchor)
 
-    @parameterized.expand(
-        [
-            ("from_the_freshness_rollup", False, 0),
-            ("from_the_series_row_while_the_rollup_is_empty", True, 20),
-        ]
-    )
-    def test_last_seen_comes_from_the_newest_sample_not_the_series_row(
-        self, _name: str, empty_rollup: bool, expected_minutes_before_newest: int
-    ):
+    def test_last_seen_comes_from_the_newest_sample_not_the_series_row(self):
         newest = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         seed_metric(
             team_id=self.team.id,
@@ -104,50 +94,13 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             has_labels=False,
         )
 
-        if empty_rollup:
-            # The rollup table starts empty when it is created, and nothing backfills it.
-            sync_execute("TRUNCATE TABLE IF EXISTS metrics4_service_freshness")
-
         overview = MetricsOverviewQueryRunner(team=self.team).run()
-
-        expected = newest - dt.timedelta(minutes=expected_minutes_before_newest)
-        assert overview.last_seen is not None
-        self.assertEqual(dt.datetime.fromisoformat(overview.last_seen), expected)
-        self.assertEqual(
-            [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services], [("api", expected)]
-        )
-
-    def test_overview_reads_no_sample_arrays(self):
-        newest = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        seed_metric(
-            team_id=self.team.id,
-            metric_name="http.duration",
-            points=[(newest - dt.timedelta(minutes=20), 1.0)],
-            service_name="api",
-        )
-        seed_metric(
-            team_id=self.team.id,
-            metric_name="http.duration",
-            points=[(newest, 2.0)],
-            service_name="api",
-            has_labels=False,
-        )
-        printed_queries: list[str] = []
-
-        def record_printed_query(**kwargs: Any) -> HogQLQueryResponse:
-            response = execute_hogql_query(**kwargs)
-            printed_queries.append(response.clickhouse or "")
-            return response
-
-        with patch.object(metrics_overview_query_runner, "execute_hogql_query", side_effect=record_printed_query):
-            overview = MetricsOverviewQueryRunner(team=self.team).run()
 
         assert overview.last_seen is not None
         self.assertEqual(dt.datetime.fromisoformat(overview.last_seen), newest)
-        self.assertEqual(len(printed_queries), 3)
-        for printed_query in printed_queries:
-            self.assertNotIn("metrics4_samples", printed_query)
-            self.assertNotIn("timestamp_arr", printed_query)
+        self.assertEqual(
+            [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services], [("api", newest)]
+        )
 
     @parameterized.expand(
         [
@@ -203,19 +156,37 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [(name, newest - dt.timedelta(minutes=minutes)) for name, minutes in expected_services],
         )
 
-    def test_services_query_reads_the_hourly_projection(self):
+    @parameterized.expand(
+        [("services", "MetricsOverviewServicesQuery"), ("newest_sample", "MetricsOverviewNewestSampleQuery")]
+    )
+    def test_query_reads_its_hourly_projection(self, _name: str, query_type: str):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], service_name="api")
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(anchor - dt.timedelta(minutes=20), 1.0)],
+            service_name="api",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(anchor, 2.0)],
+            service_name="api",
+            has_labels=False,
+        )
 
         def force_projection(**kwargs: Any) -> HogQLQueryResponse:
-            if kwargs["query_type"] == "MetricsOverviewServicesQuery":
+            if kwargs["query_type"] == query_type:
                 kwargs["settings"] = kwargs["settings"].model_copy(update={"force_optimize_projection": True})
             return execute_hogql_query(**kwargs)
 
         with patch.object(metrics_overview_query_runner, "execute_hogql_query", side_effect=force_projection):
             overview = MetricsOverviewQueryRunner(team=self.team).run()
 
-        self.assertEqual([(s.service_name, s.series) for s in overview.services], [("api", 1)])
+        self.assertEqual(
+            [(s.service_name, s.series, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services],
+            [("api", 1, anchor)],
+        )
 
     def test_quiet_project_keeps_overall_last_seen_but_lists_no_services(self):
         stale = timezone.now().replace(microsecond=0) - dt.timedelta(days=3)
