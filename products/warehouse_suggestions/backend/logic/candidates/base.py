@@ -92,14 +92,15 @@ def monthly_cost(context: "CandidateContext", duration_ms: int, read_bytes: int)
     )
 
 
-def savings_against(
-    score_inputs: Mapping[str, float], seconds_key: str, bytes_key: str, cost_now: QueryCost
-) -> RealizedSavings | None:
+def stored_cost(score_inputs: Mapping[str, float], seconds_key: str, bytes_key: str) -> QueryCost | None:
     if seconds_key not in score_inputs or bytes_key not in score_inputs:
         return None
+    return QueryCost(seconds=score_inputs[seconds_key], read_bytes=score_inputs[bytes_key])
+
+
+def savings_between(cost_without: QueryCost, cost_now: QueryCost) -> RealizedSavings:
     return RealizedSavings(
-        seconds=score_inputs[seconds_key] - cost_now.seconds,
-        read_bytes=score_inputs[bytes_key] - cost_now.read_bytes,
+        seconds=cost_without.seconds - cost_now.seconds, read_bytes=cost_without.read_bytes - cost_now.read_bytes
     )
 
 

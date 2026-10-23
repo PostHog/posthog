@@ -1,4 +1,5 @@
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -26,7 +27,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
-from products.warehouse_suggestions.backend.logic.reads import SubjectRefreshes
+from products.warehouse_suggestions.backend.logic.reads import SubjectReads, SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
@@ -34,8 +35,16 @@ from products.warehouse_suggestions.backend.tests.factories import busy_reads, c
 from .test_accept import REPORT
 
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
-READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12}
+READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
 REFRESH_COST_BEFORE = {"refresh_seconds_per_month": 5000.0, "refresh_bytes_per_month": 5e12}
+READS_NOW = busy_reads(
+    human_reads=200,
+    human_duration_ms=100_000,
+    human_read_bytes=10**9,
+    background_duration_ms=50_000,
+    background_read_bytes=10**9,
+)
+REFRESHES_NOW = SubjectRefreshes(runs=30, duration_ms=600_000, read_bytes=10**12)
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
     WarehouseSuggestionKind.DEPRECATE: DeprecatePayload(
@@ -306,7 +315,39 @@ class TestApplyRun(BaseTest):
                 True,
                 timedelta(days=40),
                 READ_COST_BEFORE,
+                READS_NOW,
+                REFRESHES_NOW,
                 (4300.0, 5e12 - 1e12 - 10**9),
+            ),
+            (
+                "materialize_priced_at_todays_read_volume",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                READ_COST_BEFORE,
+                replace(READS_NOW, human_reads=2000, human_duration_ms=1_000_000, human_read_bytes=10 * 10**9),
+                REFRESHES_NOW,
+                (48400.0, 50e12 - 1e12 - 10 * 10**9),
+            ),
+            (
+                "materialize_nobody_reads_it",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                READ_COST_BEFORE,
+                None,
+                REFRESHES_NOW,
+                (-600.0, -1e12),
+            ),
+            (
+                "materialize_no_refresh_rows",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                READ_COST_BEFORE,
+                READS_NOW,
+                None,
+                (None, None),
             ),
             (
                 "materialize_window_holds_reads_from_before",
@@ -314,6 +355,8 @@ class TestApplyRun(BaseTest):
                 True,
                 timedelta(days=2),
                 READ_COST_BEFORE,
+                READS_NOW,
+                REFRESHES_NOW,
                 (None, None),
             ),
             (
@@ -322,6 +365,8 @@ class TestApplyRun(BaseTest):
                 True,
                 timedelta(days=40),
                 {},
+                READS_NOW,
+                REFRESHES_NOW,
                 (None, None),
             ),
             (
@@ -330,6 +375,8 @@ class TestApplyRun(BaseTest):
                 False,
                 timedelta(days=40),
                 REFRESH_COST_BEFORE,
+                READS_NOW,
+                None,
                 (4850.0, 5e12 - 2 * 10**9),
             ),
             (
@@ -338,6 +385,8 @@ class TestApplyRun(BaseTest):
                 True,
                 timedelta(days=40),
                 REFRESH_COST_BEFORE,
+                READS_NOW,
+                REFRESHES_NOW,
                 (None, None),
             ),
         ]
@@ -349,6 +398,8 @@ class TestApplyRun(BaseTest):
         materialized_now: bool,
         accepted_ago: timedelta,
         score_inputs: dict[str, float],
+        reads_now: SubjectReads | None,
+        refreshes_now: SubjectRefreshes | None,
         expected: tuple[float | None, float | None],
     ) -> None:
         view_id = uuid4()
@@ -357,16 +408,10 @@ class TestApplyRun(BaseTest):
         WarehouseSuggestion.objects.for_team(self.team.pk).update(
             status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - accepted_ago, score_inputs=score_inputs
         )
-        reads_now = busy_reads(
-            human_duration_ms=100_000,
-            human_read_bytes=10**9,
-            background_duration_ms=50_000,
-            background_read_bytes=10**9,
-        )
         later = context(
             team_reads(
-                {view_subject(view_id): reads_now},
-                refreshes={view_id: SubjectRefreshes(runs=30, duration_ms=600_000, read_bytes=10**12)},
+                {view_subject(view_id): reads_now} if reads_now else {},
+                refreshes={view_id: refreshes_now} if refreshes_now else None,
             ),
             views=[view(view_id, materializes=materialized_now)],
             team_id=self.team.pk,

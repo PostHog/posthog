@@ -266,10 +266,12 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
             "dismissal_note": {"help_text": "Free-text note left when dismissing."},
             "realized_seconds_saved_per_month": {
                 "help_text": "Query time an accepted materialize or unmaterialize suggestion saved over the last 30 "
-                "days, scaled to a month: the cost when it was scored minus the cost now. For materialize, the cost "
-                "is people's reads before and reads plus refreshes now. For unmaterialize, it is refreshes before "
-                "and all reads now. Negative when the change costs more than it saves. Null until 30 days have "
-                "passed since acceptance, and for other kinds."
+                "days, scaled to a month: what the view would cost without the change minus what it costs now. For "
+                "materialize, people's reads cost what they cost per read before acceptance, at today's read volume, "
+                "and the cost now is those reads plus refreshes. For unmaterialize, the cost without the change is "
+                "its refreshes, and the cost now is every read. Negative when the change costs more than it saves. "
+                "Null until 30 days have passed since acceptance, when a materialized view has no refresh in that "
+                "time, and for other kinds."
             },
             "realized_bytes_saved_per_month": {
                 "help_text": "Bytes read that an accepted materialize or unmaterialize suggestion saved over the "

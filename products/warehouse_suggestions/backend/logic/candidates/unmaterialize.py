@@ -35,7 +35,8 @@ from .base import (
     Rejection,
     inlining_could_deny_a_reader,
     monthly_cost,
-    savings_against,
+    savings_between,
+    stored_cost,
 )
 
 INCREMENTAL_REJECTION = "refreshes incrementally, so one refresh does not show what a full read costs"
@@ -114,9 +115,10 @@ class UnmaterializeCandidate(Candidate):
         saved_query = context.inventory.saved_queries.get(subject.id)
         if saved_query is None or saved_query.materializes:
             return None
-        return savings_against(
-            score_inputs, REFRESH_SECONDS_PER_MONTH, REFRESH_BYTES_PER_MONTH, _monthly_read_cost(context, subject)
-        )
+        refresh_cost_before = stored_cost(score_inputs, REFRESH_SECONDS_PER_MONTH, REFRESH_BYTES_PER_MONTH)
+        if refresh_cost_before is None:
+            return None
+        return savings_between(refresh_cost_before, _monthly_read_cost(context, subject))
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)

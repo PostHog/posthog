@@ -40,12 +40,14 @@ from .base import (
     RealizedSavings,
     Rejection,
     monthly_cost,
-    savings_against,
+    savings_between,
+    stored_cost,
 )
 
 SECONDS_PER_MONTH = DAYS_PER_MONTH * 24 * 60 * 60
 READ_SECONDS_PER_MONTH = "read_seconds_per_month"
 READ_BYTES_PER_MONTH = "read_bytes_per_month"
+HUMAN_READS_PER_MONTH = "human_reads_per_month"
 
 
 @frozen
@@ -119,6 +121,7 @@ class MaterializeCandidate(Candidate):
                         "bytes_saved_per_month": outcome.estimate.bytes_saved,
                         READ_SECONDS_PER_MONTH: outcome.estimate.read_seconds,
                         READ_BYTES_PER_MONTH: outcome.estimate.read_bytes,
+                        HUMAN_READS_PER_MONTH: reads.human_reads * context.month_scale,
                         "refresh_interval_seconds": outcome.estimate.interval.total_seconds(),
                     },
                 )
@@ -140,11 +143,20 @@ class MaterializeCandidate(Candidate):
         self, context: CandidateContext, subject: Subject, score_inputs: Mapping[str, float]
     ) -> RealizedSavings | None:
         saved_query = context.inventory.saved_queries.get(subject.id)
-        if saved_query is None or not saved_query.materializes:
+        refreshes = context.reads.refreshes.get(subject.id)
+        if saved_query is None or not saved_query.materializes or refreshes is None or refreshes.runs == 0:
             return None
-        return savings_against(
-            score_inputs, READ_SECONDS_PER_MONTH, READ_BYTES_PER_MONTH, _monthly_cost_after(context, subject)
+        reads = context.reads.reads_of(subject)
+        reads_per_month = (reads.human_reads if reads else 0) * context.month_scale
+        cost_without = _read_cost_before_at(score_inputs, reads_per_month)
+        if cost_without is None:
+            return None
+        cost_now = monthly_cost(
+            context,
+            duration_ms=(reads.human_duration_ms if reads else 0) + refreshes.duration_ms,
+            read_bytes=(reads.human_read_bytes if reads else 0) + refreshes.read_bytes,
         )
+        return savings_between(cost_without, cost_now)
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
@@ -302,14 +314,13 @@ def estimate_savings(
     )
 
 
-def _monthly_cost_after(context: CandidateContext, subject: Subject) -> QueryCost:
-    reads = context.reads.reads_of(subject)
-    refreshes = context.reads.refreshes.get(subject.id)
-    return monthly_cost(
-        context,
-        duration_ms=(reads.human_duration_ms if reads else 0) + (refreshes.duration_ms if refreshes else 0),
-        read_bytes=(reads.human_read_bytes if reads else 0) + (refreshes.read_bytes if refreshes else 0),
-    )
+def _read_cost_before_at(score_inputs: Mapping[str, float], reads_per_month: float) -> QueryCost | None:
+    cost_before = stored_cost(score_inputs, READ_SECONDS_PER_MONTH, READ_BYTES_PER_MONTH)
+    reads_before = score_inputs.get(HUMAN_READS_PER_MONTH)
+    if cost_before is None or not reads_before:
+        return None
+    volume = reads_per_month / reads_before
+    return QueryCost(seconds=cost_before.seconds * volume, read_bytes=cost_before.read_bytes * volume)
 
 
 def _classify_sources(
