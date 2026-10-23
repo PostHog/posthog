@@ -326,9 +326,9 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
-// How delivery presents a send the policy refuses. A refused sender is not listed: it fails the send.
-// The pause is logged as an error because the email did not go out, but it is policy, not a fault, so the
-// run continues without retry or abort handling.
+// How delivery presents a send the policy refuses. A refused sender maps to `'fail'`: delivery throws instead
+// of skipping. The pause is logged as an error because the email did not go out, but it is policy, not a
+// fault, so the run continues without retry or abort handling.
 type PolicySkipPresentation = {
     logLevel: 'info' | 'warn' | 'error'
     metricName: 'email_suspended' | 'email_paused' | 'email_suppressed'
