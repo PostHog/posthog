@@ -1,6 +1,6 @@
 import './TodayShell.scss'
 
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
@@ -15,7 +15,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
-import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
@@ -43,7 +42,6 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',

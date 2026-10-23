@@ -7,9 +7,11 @@ from parameterized import parameterized
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
-from products.ai_observability.backend.facade.api import get_evaluation_pass_filters
-from products.ai_observability.backend.facade.evaluation_signals import evaluation_output_changed
-from products.ai_observability.backend.logic.evaluations.pass_filters import PassRules, build_pass_rules
+from products.ai_observability.backend.logic.evaluations.pass_filters import (
+    PassRules,
+    build_evaluation_pass_filters,
+    build_pass_rules,
+)
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 CATEGORY_OPTIONS = [{"key": "ok", "label": "Ok"}, {"key": "bad", "label": "Bad"}]
@@ -23,7 +25,7 @@ def _evaluation(team, output_type: str = "boolean", output_config: dict | None =
 
 
 def _per_evaluation_rules(team_id: int, _evaluation_ids: list[str]) -> PassRules:
-    filters = get_evaluation_pass_filters(team_id)
+    filters = build_evaluation_pass_filters(team_id)
     return PassRules(graded=parse_expr(filters.graded), passes=parse_expr(filters.passed))
 
 
@@ -153,45 +155,3 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
         assert graded_passed_failed == {
             case: (graded, passed, graded and not passed) for case, (_, _, (graded, passed)) in cases.items()
         }
-
-
-def _save(evaluation: Evaluation, **changes: object) -> None:
-    for field, value in changes.items():
-        setattr(evaluation, field, value)
-    evaluation.save()
-
-
-def _save_name_only(evaluation: Evaluation) -> None:
-    evaluation.output_config = {"true_is_failure": True}
-    evaluation.name = "renamed"
-    evaluation.save(update_fields=["name"])
-
-
-class TestEvaluationOutputChangedSignal(BaseTest):
-    @parameterized.expand(
-        [
-            ("created", None, True),
-            ("output config changed", lambda e: _save(e, output_config={"true_is_failure": True}), True),
-            ("full save without an output change", lambda e: _save(e, name="renamed"), True),
-            ("status update", lambda e: e.set_status("paused", None), False),
-            ("output edited but only the name saved", _save_name_only, False),
-        ]
-    )
-    def test_notifies_on_saves_that_write_the_output(
-        self, _name: str, change: Callable[[Evaluation], None] | None, should_notify: bool
-    ) -> None:
-        evaluation = None if change is None else _evaluation(self.team)
-        notified: list[int] = []
-        evaluation_output_changed.connect(
-            lambda **kwargs: notified.append(kwargs["team_id"]), weak=False, dispatch_uid="test-output-changed"
-        )
-        self.addCleanup(evaluation_output_changed.disconnect, dispatch_uid="test-output-changed")
-
-        with self.captureOnCommitCallbacks(execute=True):
-            if change is None:
-                _evaluation(self.team)
-            else:
-                assert evaluation is not None
-                change(evaluation)
-
-        assert notified == ([self.team.id] if should_notify else [])
