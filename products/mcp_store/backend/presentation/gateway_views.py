@@ -1092,7 +1092,7 @@ class MCPGatewayServerViewSet(
     def _holds_live_agent_share(self, server: MCPGatewayServer, account: MCPServiceAccount | None) -> bool:
         """The share must still carry the member's own credential. Revoked members
         never get here, because `safely_get_queryset` hides the server from them."""
-        user_id = self.request.user.id
+        user_id = cast(User, self.request.user).id
         return (
             MCPServiceAccountServerAccess.objects.for_team(self.team_id)
             .filter(
