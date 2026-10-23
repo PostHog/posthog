@@ -3,16 +3,17 @@ name: investigate-metric
 description: >
   Diagnose why a product metric changed (dropped, spiked, or plateaued) by
   orchestrating breakdowns, actors, paths, lifecycle, retention, and annotations
-  queries. Use when the user reports an anomaly, asks "why did X change?", or
-  needs root-cause analysis for a trend, funnel, retention, stickiness, or
-  lifecycle metric.
+  queries. Use when the user reports an anomaly, asks "why did X change?", asks
+  to explain or walk them through a chart, or needs root-cause analysis for a
+  trend, funnel, retention, stickiness, or lifecycle metric.
 ---
 
 # Investigating a metric change
 
-For "why did X change?" questions about a saved insight, dashboard tile, or pasted query.
-Don't load this skill for plain "what is X?" questions — only when there's an observed
-change to explain.
+For "why did X change?" questions about a saved insight, dashboard tile, or pasted query,
+and for "explain this chart" or "walk me through this" when the user names no change.
+Don't load this skill for plain "what is X?" questions — only when there's a chart or an
+observed change to explain.
 
 ## Tools
 
@@ -31,6 +32,7 @@ Targets PostHog MCP v2. Typed query tools accept the query body directly — pas
 | `posthog:execute-sql`            | Existing SQL insights and custom analysis        |
 | `posthog:read-data-schema`       | Discover events, properties, sample values       |
 | `posthog:insight-get` / `-query` | Fetch a saved insight's metadata / data          |
+| `posthog:explain-chart`          | Walk the user through a trends chart (Step 5)    |
 
 Plus the standard PostHog tools the playbooks reference by name (`feature-flag-get-all`,
 `experiment-list`, `annotations-list`, `query-error-tracking-issues-list`, `query-logs`,
@@ -87,6 +89,10 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 Run the primary tool. Record baseline, current, delta (absolute and %), and the start
 of the anomaly window.
 
+When the user asked you to explain a chart and named no change, find what stands out
+first with [what-stands-out.md](./references/what-stands-out.md). Each moment it finds
+becomes its own anomaly to run through the rest of the steps, most striking first.
+
 ### 2.2 Variance check
 
 Widen to 3–4× the user's interval (or use `compareFilter: {"compare": true}` on
@@ -121,7 +127,32 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-Use the format below. Offer to save key charts via `posthog:insight-create`. If a
+For a `TrendsQuery`, when `posthog:explain-chart` is available, show the findings
+with it instead of the markdown report: it draws the chart with each moment highlighted
+and lets the user step through them. Map the report onto it:
+
+- **Anomaly** → one chapter per moment, with `start` and `end` copied exactly from the
+  chart's `days`. A chapter whose dates match no point shows without a highlight, and only a
+  direct call reports it back, so check the dates before rendering. The app works out each
+  chapter's numbers from the chart, so leave them out of `summary`.
+- **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
+- **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
+  for a commit or a deploy.
+- A **headline** of one sentence with no numbers sums up the whole chart.
+  Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the walkthrough highlights it.
+  Do the same in each `cause`.
+
+In Claude Desktop, claude.ai and Cowork, show it through `render-ui` with `tool_name`
+`explain-chart` and the chapters as `tool_input`: those hosts display the app only that
+way. Elsewhere call `posthog:explain-chart` directly.
+
+Then reply in at most three short sentences: which chapter to look at first, one caveat
+about the data if the walkthrough cannot show it, and one offer from below. The walkthrough
+already holds the chart, the chapters, their causes and their evidence, so the reply has no
+bullet points, no description of the chart and no list of the moments. If a direct call says
+a chapter's dates matched no point, fix the dates and call it again.
+
+Otherwise, use the format below. Offer to save key charts via `posthog:insight-create`. If a
 cause is found and no annotation marks it, offer `posthog:annotation-create`. See
 [common-causes.md](./references/common-causes.md) for the cause taxonomy.
 

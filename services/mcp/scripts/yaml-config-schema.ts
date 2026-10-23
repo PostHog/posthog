@@ -483,6 +483,8 @@ const CustomUiAppSchema = z
                 data_type: z.string().optional(),
                 /** Prop name that receives the host's link opener, for a view that opens links. */
                 link_prop: z.string().optional(),
+                /** Prop name that receives the host app, for a view that calls server tools. */
+                app_prop: z.string().optional(),
             })
             .strict()
             .optional(),
@@ -533,6 +535,7 @@ export interface ResolvedCustomUiApp {
         view_prop: string
         data_type?: string
         link_prop?: string
+        app_prop?: string
     }
 }
 
