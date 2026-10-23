@@ -942,14 +942,22 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.create_issue()
         self.create_exception_event()
         flush_persons_and_events()
+        clock = [100.0]
+
+        def wait(*_args: object, **_kwargs: object) -> ErrorTrackingIssueSummary | None:
+            clock[0] += 2.5
+            return waited
 
         with (
+            patch("products.error_tracking.backend.presentation.views.query.time") as view_time,
             patch(f"{SUMMARIES_FACADE}.get_issue_summary", return_value=stored),
             patch(
                 f"{SUMMARIES_FACADE}.start_issue_summary_generation", return_value=started, side_effect=start_error
             ) as start_generation,
-            patch(f"{SUMMARIES_FACADE}.wait_for_issue_summary", return_value=waited) as wait_for_summary,
+            patch(f"{SUMMARIES_FACADE}.wait_for_issue_summary", side_effect=wait) as wait_for_summary,
+            patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
         ):
+            view_time.monotonic.side_effect = lambda: clock[0]
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
                 data={"issueId": self.issue_id},
@@ -962,6 +970,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["impact"]["occurrences"] == 1
         start_generation.assert_called_once_with(self.team.id, self.issue_id)
         assert wait_for_summary.called == expect_wait
+        [read_event] = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_read"
+        ]
+        assert (read_event["facts_ms"], read_event["summary_wait_ms"]) == (0, 2500 if expect_wait else 0)
 
     def test_issue_read_succeeds_when_capture_fails(self) -> None:
         self.create_issue()
