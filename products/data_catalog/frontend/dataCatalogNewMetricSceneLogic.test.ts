@@ -122,7 +122,7 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         expect((dataCatalogMetricsApproveCreate as jest.Mock).mock.calls).toEqual(
             Array(approveCalls).fill(['1', 'monthly_active_users', { expected_updated_at: CREATED_AT }])
         )
-        expect(lemonToast.success).toHaveBeenCalledWith(toast)
+        expect((lemonToast.success as jest.Mock).mock.calls.at(-1)?.[0]).toEqual(toast)
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('monthly_active_users'))
     })
 
@@ -148,7 +148,9 @@ describe('dataCatalogNewMetricSceneLogic', () => {
 
         expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[1][1].overwrite).toBe(true)
         expect(dataCatalogMetricsApproveCreate).not.toHaveBeenCalled()
-        expect(lemonToast.success).toHaveBeenCalledWith('Metric overwritten. It needs approval.')
+        expect((lemonToast.success as jest.Mock).mock.calls.at(-1)?.[0]).toEqual(
+            'Metric overwritten. It needs approval.'
+        )
     })
 
     it('still opens the created metric when approving it fails', async () => {
@@ -158,7 +160,7 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         logic.actions.submitMetric(true)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(lemonToast.warning).toHaveBeenCalledWith(
+        expect((lemonToast.warning as jest.Mock).mock.calls.at(-1)?.[0]).toEqual(
             'Metric created, but approving it failed. Approve it from the banner.'
         )
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('monthly_active_users'))

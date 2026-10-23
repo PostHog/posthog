@@ -38,7 +38,6 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
@@ -100,13 +99,15 @@ import {
 
 import {
     existingMetricFromNameConflict,
-    METRIC_FIELD_COPY,
     MetricFormPrefill,
-    validateMetricDescription,
     validateMetricName,
 } from 'products/data_catalog/frontend/common'
 import {
-    dataCatalogMetricsCreate,
+    createMetricAsUser,
+    MetricSaveAction,
+    toastCreatedMetric,
+} from 'products/data_catalog/frontend/createMetricAsUser'
+import {
     dataCatalogMetricsPartialUpdate,
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
@@ -148,7 +149,11 @@ import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { findSelectionProblem } from './saveCandidateProblems'
-import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
+import {
+    resolveSaveCandidates as resolveSaveCandidatesPure,
+    SaveCandidates,
+    SaveTargetCycler,
+} from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import { SQLEditorPlaceholder, placeholderPreviewValues } from './sqlEditorPlaceholders'
 import {
@@ -325,6 +330,12 @@ export interface SaveAsMetricFields {
     display_name: string
     description: string
     unit: string
+}
+
+export interface SaveAsMetricModalState {
+    candidates: SaveCandidates
+    selectionProblem: string | null
+    prefill: MetricFormPrefill
 }
 
 export interface DataWarehouseAccessControlModalProps {
@@ -673,6 +684,8 @@ export interface sqlEditorLogicValues {
     queryInput: string | null
     queryModifiers: HogQLQueryModifiers | null
     rejectText: string
+    saveAsMetricModal: SaveAsMetricModalState | null
+    savingMetricAs: MetricSaveAction | null
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
     selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
@@ -877,6 +890,9 @@ export interface sqlEditorLogicActions {
     closeMaterializationModal: () => {
         value: true
     }
+    closeSaveAsMetricModal: () => {
+        value: true
+    }
     createTab: (
         query?: string,
         view?: DataWarehouseSavedQuery,
@@ -979,6 +995,9 @@ export interface sqlEditorLogicActions {
         biEditorState: BIEditorState | null
         metricName: string
     }
+    openSaveAsMetricModal: (modal: SaveAsMetricModalState) => {
+        modal: SaveAsMetricModalState
+    }
     reportAIQueryAccepted: () => {
         value: true
     }
@@ -1041,8 +1060,10 @@ export interface sqlEditorLogicActions {
     saveAsMetricSubmit: (
         fields: SaveAsMetricFields,
         queryOverride?: string,
-        overwrite?: boolean
+        overwrite?: boolean,
+        approve?: boolean
     ) => {
+        approve: boolean
         fields: SaveAsMetricFields
         overwrite: boolean
         queryOverride: string | undefined
@@ -1169,6 +1190,9 @@ export interface sqlEditorLogicActions {
     }
     setQueryModifiers: (queryModifiers: HogQLQueryModifiers | null) => {
         queryModifiers: HogQLQueryModifiers | null
+    }
+    setSavingMetricAs: (savingMetricAs: MetricSaveAction | null) => {
+        savingMetricAs: MetricSaveAction | null
     }
     setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => {
         tablesAndColumns: Record<string, Record<string, boolean>>
@@ -1428,11 +1452,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
         }),
         saveAsMetric: (queryOverride?: string) => ({ queryOverride }),
-        saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string, overwrite: boolean = false) => ({
+        saveAsMetricSubmit: (
+            fields: SaveAsMetricFields,
+            queryOverride?: string,
+            overwrite: boolean = false,
+            approve: boolean = true
+        ) => ({
             fields,
             queryOverride,
             overwrite,
+            approve,
         }),
+        openSaveAsMetricModal: (modal: SaveAsMetricModalState) => ({ modal }),
+        closeSaveAsMetricModal: true,
+        setSavingMetricAs: (savingMetricAs: MetricSaveAction | null) => ({ savingMetricAs }),
         setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
         openMetricFromUrl: (metricName: string, biEditorState: BIEditorState | null) => ({ metricName, biEditorState }),
@@ -1723,6 +1756,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as MetricFormPrefill | null,
             {
                 setMetricPrefill: (_, { metricPrefill }) => metricPrefill,
+            },
+        ],
+        saveAsMetricModal: [
+            null as SaveAsMetricModalState | null,
+            {
+                openSaveAsMetricModal: (_, { modal }) => modal,
+                closeSaveAsMetricModal: () => null,
+            },
+        ],
+        savingMetricAs: [
+            null as MetricSaveAction | null,
+            {
+                setSavingMetricAs: (_, { savingMetricAs }) => savingMetricAs,
             },
         ],
         dashboardId: [
@@ -2996,108 +3042,46 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // Reopening after a name conflict keeps the statement the user picked, not the cursor default.
                 const restoredIndex = queryOverride === undefined ? -1 : resolved.queries.indexOf(queryOverride)
                 const candidates = restoredIndex >= 0 ? { ...resolved, initialIndex: restoredIndex } : resolved
-                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
-                LemonDialog.openForm({
-                    title: 'Save as metric',
-                    initialValues: {
-                        saveTarget: candidates.initialIndex,
-                        name: '',
-                        display_name: '',
-                        description: '',
-                        unit: '',
-                        ...values.metricPrefill,
-                    },
-                    content: (
-                        <>
-                            <LemonField name="saveTarget">
-                                {({ onChange }) => (
-                                    <SaveTargetCycler
-                                        candidates={candidates}
-                                        onChange={(query, index) => {
-                                            selectedRef.current = query
-                                            onChange(index)
-                                        }}
-                                    />
-                                )}
-                            </LemonField>
-                            <LemonField name="name" label={METRIC_FIELD_COPY.name.label}>
-                                <LemonInput placeholder={METRIC_FIELD_COPY.name.placeholder} autoFocus />
-                            </LemonField>
-                            <LemonField
-                                name="display_name"
-                                label={METRIC_FIELD_COPY.displayName.label}
-                                className="mt-2"
-                            >
-                                <LemonInput placeholder={METRIC_FIELD_COPY.displayName.placeholder} />
-                            </LemonField>
-                            <LemonField name="description" label={METRIC_FIELD_COPY.description.label} className="mt-2">
-                                {/* stopPropagation keeps Enter from reaching the dialog form and submitting mid-sentence */}
-                                <LemonTextArea
-                                    placeholder={METRIC_FIELD_COPY.description.placeholder}
-                                    minRows={2}
-                                    stopPropagation
-                                />
-                            </LemonField>
-                            <LemonField name="unit" label={METRIC_FIELD_COPY.unit.label} className="mt-2">
-                                <LemonInput placeholder={METRIC_FIELD_COPY.unit.placeholder} />
-                            </LemonField>
-                        </>
-                    ),
-                    errors: {
-                        saveTarget: () => selectionProblem ?? undefined,
-                        name: (name) => validateMetricName(name?.trim() || ''),
-                        description: (description) =>
-                            !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
-                    },
-                    onSubmit: async ({ name, display_name, description, unit }) =>
-                        actions.saveAsMetricSubmit(
-                            {
-                                name: name.trim(),
-                                display_name: display_name.trim(),
-                                description: description.trim(),
-                                unit: unit.trim(),
-                            },
-                            selectedRef.current
-                        ),
-                })
+                actions.openSaveAsMetricModal({ candidates, selectionProblem, prefill: values.metricPrefill ?? {} })
             },
-            saveAsMetricSubmit: async ({ fields, queryOverride, overwrite }) => {
+            saveAsMetricSubmit: async ({ fields, queryOverride, overwrite, approve }) => {
+                if (values.savingMetricAs) {
+                    return
+                }
+                actions.setSavingMetricAs(approve ? 'approve' : 'propose')
                 const biEditorState = getActiveBIEditorState()
                 try {
                     // Blank fields are sent as blank, so an overwrite clears the old values.
-                    const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
-                        name: fields.name,
-                        display_name: fields.display_name,
-                        description: fields.description,
-                        unit: fields.unit,
-                        created_source: 'user',
-                        definition: normalizeRawQuerySource({
-                            ...(values.sourceQuery.source as HogQLQuery),
-                            query: queryOverride ?? values.queryInput ?? '',
-                        }) as unknown as Record<string, unknown>,
-                        overwrite,
-                    })
+                    const created = await createMetricAsUser(
+                        {
+                            ...fields,
+                            definition: normalizeRawQuerySource({
+                                ...(values.sourceQuery.source as HogQLQuery),
+                                query: queryOverride ?? values.queryInput ?? '',
+                            }) as unknown as Record<string, unknown>,
+                            overwrite,
+                        },
+                        approve
+                    )
                     captureBIEditorQuerySaved(biEditorState, 'metric', overwrite ? 'update' : 'create')
                     metricsLogic.findMounted()?.actions.loadMetrics()
                     actions.setMetricPrefill(null)
-                    lemonToast.success(overwrite ? 'Metric overwritten' : 'Metric created')
-                    router.actions.push(urls.dataCatalogMetric(metric.name))
+                    actions.closeSaveAsMetricModal()
+                    toastCreatedMetric(created, overwrite)
+                    router.actions.push(urls.dataCatalogMetric(created.metric.name))
                 } catch (error: any) {
                     const existing = existingMetricFromNameConflict(error)
                     if (existing) {
                         openOverwriteMetricDialog({
                             existing,
-                            onOverwrite: () => actions.saveAsMetricSubmit(fields, queryOverride, true),
-                            // The save form closed on submit, so reopen it with the typed values to pick another name.
-                            onCancel: () => {
-                                actions.setMetricPrefill(fields)
-                                actions.saveAsMetric(queryOverride)
-                            },
+                            onOverwrite: () => actions.saveAsMetricSubmit(fields, queryOverride, true, approve),
                         })
                     } else {
                         lemonToast.error(error.detail || 'Failed to create metric')
                     }
+                } finally {
+                    actions.setSavingMetricAs(null)
                 }
             },
             openMetricFromUrl: async ({ metricName, biEditorState }, breakpoint) => {
