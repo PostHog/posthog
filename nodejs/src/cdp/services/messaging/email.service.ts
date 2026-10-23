@@ -412,22 +412,19 @@ export class EmailService {
             // Single choke point for the send policy: every send path lands here, whether the invocation
             // came from a workflow action or an email destination hog function, so no upstream route can
             // bypass it. Test sends are checked too, because they hit SES and count against the tenant.
-            const decision = await this.sendPolicy.check(
-                {
-                    teamId: invocation.teamId,
-                    workflowMetadata: invocation.hogFunction.metadata,
-                    sender: integration,
-                    // With no `to` the send skips below for missing data, so a suppressed cc or bcc must not decide it.
-                    recipients: params.to?.email?.trim()
-                        ? [
-                              params.to.email.trim(),
-                              ...extractEmailsFromAddressList(params.cc),
-                              ...extractEmailsFromAddressList(params.bcc),
-                          ]
-                        : [],
-                },
-                'delivery'
-            )
+            const decision = await this.sendPolicy.check({
+                teamId: invocation.teamId,
+                workflowMetadata: invocation.hogFunction.metadata,
+                sender: integration,
+                // With no `to` the send skips below for missing data, so a suppressed cc or bcc must not decide it.
+                recipients: params.to?.email?.trim()
+                    ? [
+                          params.to.email.trim(),
+                          ...extractEmailsFromAddressList(params.cc),
+                          ...extractEmailsFromAddressList(params.bcc),
+                      ]
+                    : [],
+            })
             if (!decision.ok) {
                 return this.skipForPolicy(result, decision, isTest)
             }
