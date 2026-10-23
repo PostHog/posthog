@@ -29,14 +29,13 @@ export const emailStatusMissingRecipientHash = new Counter({
 // never replaces `delivered`. Statuses of equal rank are both final and the later one wins.
 const STATUS_RANK = {
     queued: 0,
-    waiting: 1,
-    unknown: 2,
-    skipped: 3,
-    failed: 3,
-    sent: 4,
-    delivered: 5,
-    bounced: 6,
-    complained: 7,
+    unknown: 1,
+    skipped: 2,
+    failed: 2,
+    sent: 3,
+    delivered: 4,
+    bounced: 5,
+    complained: 6,
 } as const
 
 export type EmailStatus = keyof typeof STATUS_RANK

@@ -39,8 +39,8 @@ describe('EmailStatusService', () => {
                 team_id: 2,
                 message_id: messageId,
                 status: 'bounced',
-                // bounced ranks 6: 6 * 2^48 + the status time in ms
-                version: 1690642512964392,
+                // bounced ranks 5: 5 * 2^48 + the status time in ms
+                version: 1409167536253736,
                 created_at: '2026-10-22 07:00:00.123000',
                 status_at: '2026-10-22 07:05:00.456000',
                 reason: 'hard',
