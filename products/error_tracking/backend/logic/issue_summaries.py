@@ -126,7 +126,6 @@ if held == false or held == ARGV[1] then
 end
 return held
 """
-# Deletes the key only while it holds the queued marker, so a worker's claim or a hold outcome survives.
 # Writes the outcome only while the key still holds the caller's claim. An empty TTL keeps the current one.
 SETTLE_LUA = """
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then
@@ -139,6 +138,7 @@ else
 end
 return 1
 """
+# Deletes the key only while it holds the queued marker, so a worker's claim or a hold outcome survives.
 RELEASE_QUEUED_LUA = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     return redis.call('DEL', KEYS[1])

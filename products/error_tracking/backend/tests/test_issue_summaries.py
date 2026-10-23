@@ -400,17 +400,28 @@ class TestIssueSummaryGeneration(BaseTest):
         self._release_lock()
         assert self._start() == (True, True)
 
-    def test_failure_does_not_overwrite_a_lock_this_worker_no_longer_holds(self) -> None:
-        def lose_the_lock_then_fail(**_kwargs: Any) -> MagicMock:
+    @parameterized.expand(
+        [
+            ("failure", "completions", TimeoutError("slow"), IssueSummaryOutcome.MODEL_ERROR),
+            ("hold", "build_inputs", IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.NO_EXCEPTION),
+        ]
+    )
+    def test_settle_does_not_overwrite_a_lock_this_worker_no_longer_holds(
+        self, _name: str, mock_name: str, result_after: Any, expected: IssueSummaryOutcome
+    ) -> None:
+        def lose_the_lock(*_args: Any, **_kwargs: Any) -> Any:
             issue_summaries.get_client().set(self._lock_key, issue_summaries.LOCK_QUEUED, ex=60)
-            raise TimeoutError("slow")
+            if isinstance(result_after, Exception):
+                raise result_after
+            return result_after
 
-        self.completions.side_effect = lose_the_lock_then_fail
+        getattr(self, mock_name).side_effect = lose_the_lock
 
         result = get_or_generate_issue_summary(self.team.id, self.issue.id)
 
-        assert result.outcome == IssueSummaryOutcome.MODEL_ERROR
+        assert result.outcome == expected
         assert issue_summaries.get_client().get(self._lock_key) == issue_summaries.LOCK_QUEUED.encode()
+        assert 0 < issue_summaries.get_client().ttl(self._lock_key) <= 60
 
     def test_unexpected_error_stops_start_and_still_raises(self) -> None:
         with (
