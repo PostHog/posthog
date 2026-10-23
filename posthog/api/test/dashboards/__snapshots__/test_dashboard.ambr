@@ -13369,6 +13369,8 @@
   SELECT "posthog_managedwarehousesourcelifecycle"."organization_id",
          "posthog_managedwarehousesourcelifecycle"."generation",
          "posthog_managedwarehousesourcelifecycle"."desired_active",
+         "posthog_managedwarehousesourcelifecycle"."internal_only",
+         "posthog_managedwarehousesourcelifecycle"."background_loading_enabled",
          "posthog_managedwarehousesourcelifecycle"."legacy_conversion_generation"
   FROM "posthog_managedwarehousesourcelifecycle"
   WHERE "posthog_managedwarehousesourcelifecycle"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
