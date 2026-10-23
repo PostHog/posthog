@@ -371,7 +371,13 @@ class TestSignalReportListAPI(APIBaseTest):
         art.save()
         return art
 
-    def test_list_and_retrieve_include_typed_impact_metrics_without_running_them(self) -> None:
+    @parameterized.expand([("event", None), ("hogql", "properties.$browser = 'Chrome'")])
+    def test_list_and_retrieve_include_typed_impact_metrics_without_running_them(
+        self, _name: str, expression: str | None
+    ) -> None:
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}])
+        if expression is not None:
+            query["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
         metric = {
             "metric_id": "affected-users",
             "title": "Affected users",
@@ -382,7 +388,7 @@ class TestSignalReportListAPI(APIBaseTest):
             "series": [3, 5, 9],
             "value_format": "count",
             "unit": "users",
-            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+            "query": query,
             "caption": "Unique people in the last 30 days.",
             "comparison": None,
         }
@@ -478,7 +484,10 @@ class TestSignalReportListAPI(APIBaseTest):
         assert "comparison" not in detail_metric
         assert detail_metric["query"] is None
 
-    def test_viewer_property_grant_keeps_live_query_but_hides_userless_snapshot(self) -> None:
+    @parameterized.expand([("event", None), ("hogql", "properties.secret_plan = 'enterprise'")])
+    def test_viewer_property_grant_keeps_live_query_but_hides_userless_snapshot(
+        self, _name: str, expression: str | None
+    ) -> None:
         self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
         property_definition = PropertyDefinition.objects.create(
             team=self.team,
@@ -498,6 +507,8 @@ class TestSignalReportListAPI(APIBaseTest):
             access_level=PropertyAccessLevel.READ.value,
         )
         metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        if expression is not None:
+            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
         report = self._create_report(metrics=[metric])
 
         list_response = self.client.get(self._list_url())
