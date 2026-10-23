@@ -86,8 +86,8 @@ const surveyActionsMapping: Record<
             return null
         }
 
-        const beforeQuestions = change.before as Survey['questions']
-        const afterQuestions = change.after as Survey['questions']
+        const beforeQuestions = (change.before as Survey['questions'] | null) ?? []
+        const afterQuestions = (change.after as Survey['questions'] | null) ?? []
 
         if (beforeQuestions.length !== afterQuestions.length) {
             return {
