@@ -4,6 +4,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+from openai import APIConnectionError, APIStatusError
 from parameterized import parameterized
 
 from products.subscriptions.backend.temporal.query_results_summary import (
@@ -99,3 +101,45 @@ class TestCondenseQueryResults:
     async def test_rejects_oversized_input_without_cutting_rows(self) -> None:
         with pytest.raises(ValueError, match="input limit"):
             await condense_query_results("EventsQuery", {"result": [["x" * MAX_CONDENSATION_INPUT_LENGTH]]})
+
+    @parameterized.expand(
+        [
+            ("connection", None, True, True),
+            ("rate_limit", 429, True, True),
+            ("server_error", 503, True, True),
+            ("permanent", 400, False, True),
+            ("exhausted", 503, True, False),
+        ]
+    )
+    async def test_transport_failure_budget(
+        self, _name: str, status: int | None, retryable: bool, recovers: bool
+    ) -> None:
+        request = httpx.Request("POST", "https://example.com")
+        error: APIConnectionError | APIStatusError
+        if status is None:
+            error = APIConnectionError(request=request)
+        else:
+            error = APIStatusError("Request failed", response=httpx.Response(status, request=request), body=None)
+        client = MagicMock()
+        client.__aenter__.return_value = client
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content="One example event."))]
+        )
+        client.chat.completions.create = AsyncMock(side_effect=[error, response if recovers else error])
+        with (
+            patch(
+                "products.subscriptions.backend.temporal.query_results_summary._get_async_openai_client",
+                return_value=client,
+            ),
+            patch(
+                "products.subscriptions.backend.temporal.query_results_summary.asyncio.sleep", new_callable=AsyncMock
+            ),
+        ):
+            if retryable and recovers:
+                assert (
+                    await condense_query_results("EventsQuery", {"result": [["example_event"]]}) == "One example event."
+                )
+            else:
+                with pytest.raises(type(error)):
+                    await condense_query_results("EventsQuery", {"result": [["example_event"]]})
+        assert client.chat.completions.create.call_count == (2 if retryable else 1)

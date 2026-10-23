@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from collections import Counter
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -8,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 
 import posthoganalytics
+from openai import APIConnectionError, APIStatusError
 from posthoganalytics.ai.openai import AsyncOpenAI
 
 from posthog.event_usage import groups
@@ -133,19 +135,31 @@ async def condense_query_results(
         capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
     async with _get_async_openai_client() as client:
-        for _ in range(2):
-            result = await client.chat.completions.create(
-                model="gpt-4.1-mini",
-                temperature=0,
-                max_tokens=1_200,
-                timeout=20,
-                messages=messages,
-                user=user_tag,
-                posthog_distinct_id=user_tag,
-                posthog_properties=properties,
-                posthog_privacy_mode=True,
-                **capture_kwargs,
-            )
+        for attempt in range(2):
+            try:
+                result = await client.chat.completions.create(
+                    model="gpt-4.1-mini",
+                    temperature=0,
+                    max_tokens=1_200,
+                    timeout=20,
+                    messages=messages,
+                    user=user_tag,
+                    posthog_distinct_id=user_tag,
+                    posthog_properties=properties,
+                    posthog_privacy_mode=True,
+                    **capture_kwargs,
+                )
+            except (APIConnectionError, APIStatusError) as error:
+                if (
+                    isinstance(error, APIStatusError)
+                    and error.status_code not in (408, 409, 429)
+                    and error.status_code < 500
+                ):
+                    raise
+                if attempt == 1:
+                    raise
+                await asyncio.sleep(0.5)
+                continue
             if result.choices and result.choices[0].finish_reason == "stop":
                 content = (result.choices[0].message.content or "").strip()
                 if content and len(content) <= MAX_SUMMARY_LENGTH:
