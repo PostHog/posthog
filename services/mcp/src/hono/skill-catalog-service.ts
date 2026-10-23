@@ -1,6 +1,7 @@
 import { SkillCatalog } from '@/skills/skill-catalog'
 
 import type { RedisLike } from './cache/RedisCache'
+import { hashBytes } from './cache/SharedBlobCache'
 import { SkillArchiveCache, type SkillArchiveCacheOptions } from './cache/SkillArchiveCache'
 import {
     skillArchiveEventsTotal,
@@ -16,6 +17,7 @@ const DEFAULT_WARMUP_TIMEOUT_MS = 60_000
 const DEFAULT_WARMUP_RETRY_MS = 2_000
 
 export interface SkillCatalogServiceOptions extends SkillArchiveCacheOptions {
+    expectedArchiveSha?: string
     /** Base interval between polls of the shared version key. */
     pollIntervalMs?: number
     /** Random extra per pod, so a fleet does not poll in lockstep. */
@@ -36,6 +38,7 @@ type LoadPhase = 'warmup' | 'poll'
  * bad archive keeps the last catalog that parsed.
  */
 export class SkillCatalogService {
+    private readonly expectedArchiveSha: string | undefined
     private readonly archiveCache: SkillArchiveCache
     private readonly pollIntervalMs: number
     private readonly pollJitterMs: number
@@ -49,7 +52,9 @@ export class SkillCatalogService {
     private polling = false
 
     constructor(redis: RedisLike, opts: SkillCatalogServiceOptions = {}) {
-        const { pollIntervalMs, pollJitterMs, warmupTimeoutMs, warmupRetryMs, ...cacheOptions } = opts
+        const { expectedArchiveSha, pollIntervalMs, pollJitterMs, warmupTimeoutMs, warmupRetryMs, ...cacheOptions } =
+            opts
+        this.expectedArchiveSha = expectedArchiveSha
         this.archiveCache = new SkillArchiveCache(redis, {
             ...cacheOptions,
             // Parse before the bytes can reach Redis: a release that does not parse
@@ -81,6 +86,9 @@ export class SkillCatalogService {
                 return
             } catch (error) {
                 skillArchiveEventsTotal.inc({ phase: 'warmup', result: 'error' })
+                if (this.expectedArchiveSha) {
+                    throw error
+                }
                 if (Date.now() + this.warmupRetryMs >= deadline) {
                     console.error('[SkillCatalogService] warmup failed; starting without product skills:', error)
                     return
@@ -152,6 +160,9 @@ export class SkillCatalogService {
     }
 
     private install(bytes: Uint8Array, sha: string, phase: LoadPhase): void {
+        if (this.expectedArchiveSha && hashBytes(bytes) !== this.expectedArchiveSha) {
+            throw new Error('Skill archive does not match the expected SHA-256')
+        }
         if (sha === this.archiveSha) {
             return
         }
