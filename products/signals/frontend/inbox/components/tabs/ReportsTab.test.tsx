@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { FirstReportStateApi } from '../../../generated/api.schemas'
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
@@ -28,6 +29,13 @@ jest.mock('../cards/ReportContextMenu', () => ({
 jest.mock('../shell/InboxReportFilters', () => ({ InboxReportFilters: () => null }))
 jest.mock('../shell/InboxScopeFilter', () => ({ InboxScopeFilter: () => null }))
 jest.mock('../shell/InboxBulkSelectionBar', () => ({ InboxBulkSelectionBar: () => null }))
+jest.mock('products/posthog_ai/frontend/api/readableRun', () => ({
+    ReadonlyRunSurface: (props: { taskId: string; runId: string; interaction: string }) => (
+        <div aria-label="Scout activity" data-interaction={props.interaction}>
+            {props.taskId}/{props.runId}
+        </div>
+    ),
+}))
 
 interface SectionCountStub {
     match: (params: URLSearchParams) => boolean
@@ -121,6 +129,66 @@ describe('ReportsTab', () => {
     })
 
     afterEach(cleanup)
+
+    it.each<[FirstReportStateApi['status'], string, boolean]>([
+        ['pending', 'Checking your project', true],
+        ['running', 'Looking for your first report', true],
+        ['no_data', 'Waiting for your first report', true],
+        ['no_data', 'Waiting for your first report', false],
+        ['insufficient_data', 'More data is needed', true],
+        ['no_actionable_finding', 'Your first investigation is complete', true],
+        ['incomplete', 'Your first investigation couldn’t finish', true],
+        ['report_created', 'Your first report is ready', false],
+    ])('shows %s: %s (notifications: %s)', async (status, heading, notify) => {
+        mockReportCounts([])
+        useMocks({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    variant: 'test-ui',
+                    completed_at: new Date().toISOString(),
+                    draft: null,
+                    jobs: { scout: 'started', recommendations: 'skipped' },
+                    first_report: {
+                        status,
+                        ...(['no_data', 'pending', 'incomplete'].includes(status)
+                            ? {}
+                            : { task_id: 'task-1', task_run_id: 'run-1' }),
+                    },
+                    first_report_completion_notification: true,
+                    first_report_notification_email: notify ? 'person@example.com' : null,
+                },
+                '/api/projects/:id/signals/scout/suggestions/': { status: 'idle', items: [], generated_at: null },
+                '/api/projects/:id/vision/scanners/': { results: [], next: null },
+            },
+        })
+        const { container } = render(<ReportsTab />)
+        expect(await screen.findByText(heading)).toBeVisible()
+        expect(container.querySelector('[data-attr="inbox-activation-explore"]')).toHaveAttribute(
+            'aria-expanded',
+            'true'
+        )
+        expect(screen.queryByText('Recommended for your product')).not.toBeInTheDocument()
+        if (status === 'no_data') {
+            expect(screen.queryByLabelText('Scout activity')).not.toBeInTheDocument()
+            expect(screen.getByLabelText('Example report')).toBeVisible()
+            expect(screen.getByText('Trial users cannot upgrade to Pro')).toBeVisible()
+            expect(screen.queryByText('Connect a data source')).not.toBeInTheDocument()
+        } else {
+            expect(screen.queryByLabelText('Example report')).not.toBeInTheDocument()
+            if (status !== 'pending' && status !== 'incomplete') {
+                expect(screen.getByLabelText('Scout activity')).toHaveTextContent('task-1/run-1')
+                expect(screen.getByLabelText('Scout activity')).toHaveAttribute('data-interaction', 'live')
+            }
+        }
+        if (status === 'running') {
+            expect(screen.getByText(/roughly 2½ minutes/)).toBeVisible()
+        }
+        if (notify) {
+            expect(screen.getByText(/We’ll notify you when your first report is ready/)).toBeVisible()
+        } else {
+            expect(screen.queryByText(/We’ll notify you when your first report is ready/)).not.toBeInTheDocument()
+        }
+    })
 
     // `Inbox viewed` fires once every count has settled, so it doubles as "the empty verdict is in".
     async function waitForCountsToSettle(): Promise<void> {

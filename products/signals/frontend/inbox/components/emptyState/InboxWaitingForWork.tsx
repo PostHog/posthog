@@ -10,6 +10,7 @@ import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
+import { FirstReportProgress } from './FirstReportProgress'
 import { InstallingFlowRow } from './InstallingFlowRow'
 import { ScoutFlowRow } from './ScoutFlowRow'
 import { SignalSourceFlowRow } from './SignalSourceFlowRow'
@@ -42,7 +43,7 @@ export function InboxWaitingForWork(): JSX.Element {
     const { sourceConfigs, sourceConfigsLoading, hasEmittingScanner } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
     const { isWizardRunning } = useValues(inboxOnboardingLogic)
-    const { completed } = useValues(inboxSetupLogic)
+    const { completed, savedState } = useValues(inboxSetupLogic)
     const enabledSources = [
         ...uniqueEnabledSources(sourceConfigs),
         ...(completed && hasEmittingScanner
@@ -63,14 +64,21 @@ export function InboxWaitingForWork(): JSX.Element {
 
     return (
         <div className="@container mx-auto flex w-full max-w-5xl flex-col gap-7 py-6">
-            <div className="flex flex-col items-center gap-2 text-center">
-                <h2 className="m-0 text-lg font-semibold">Your agents are working in the background</h2>
-                <p className="m-0 max-w-xl text-sm text-tertiary">
-                    {completed
-                        ? 'Your sources are listening and your scouts will run on their schedules. Reports appear here when they find something worth investigating.'
-                        : 'Your signal sources and scouts are running in the background. When they find something actionable, a pull request will appear here.'}
-                </p>
-            </div>
+            {completed && savedState?.first_report ? (
+                <FirstReportProgress
+                    result={savedState.first_report}
+                    notificationEmail={savedState.first_report_notification_email}
+                />
+            ) : (
+                <div className="flex flex-col items-center gap-2 text-center">
+                    <h2 className="m-0 text-lg font-semibold">Your agents are working in the background</h2>
+                    <p className="m-0 max-w-xl text-sm text-tertiary">
+                        {completed
+                            ? 'Your sources are listening and your scouts will run on their schedules. Reports appear here when they find something worth investigating.'
+                            : 'Your signal sources and scouts are running in the background. When they find something actionable, a pull request will appear here.'}
+                    </p>
+                </div>
+            )}
 
             <div className="grid items-start gap-8 @min-[40rem]:grid-cols-2">
                 <section className="flex flex-col">
