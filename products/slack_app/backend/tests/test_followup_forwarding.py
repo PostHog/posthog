@@ -1221,8 +1221,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @parameterized.expand(
         [
             ("allow", ThreadJoinMode.ALLOW, None, True, False, True),
-            # A creator who never picked a mode is asked once per thread.
-            ("unset", None, None, False, True, True),
+            # A creator who never picked a mode lets anyone join.
+            ("unset", None, None, True, False, True),
             ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True, True),
             ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False, True),
             ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True, True),

@@ -115,8 +115,8 @@ def _set_untagged_mode(slack_workspace_id: str, slack_user_id: str, column: str,
 def resolve_thread_join_mode(integration: Integration, slack_user_id: str | None) -> ThreadJoinMode:
     """Resolve what happens when someone else tags PostHog in a thread this Slack user started.
 
-    An absent row or empty column resolves to `ASK_PER_THREAD`, so the creator approves the first
-    person who wants to join a thread, and after that anyone can join it.
+    An absent row or empty column resolves to `ALLOW`, so anyone can join until the creator picks
+    a stricter mode.
     An unknown value resolves to `NEVER`.
     """
     if not slack_user_id:
@@ -126,7 +126,7 @@ def resolve_thread_join_mode(integration: Integration, slack_user_id: str | None
         slack_user_id,
         "thread_join_mode",
         ThreadJoinMode,
-        unset=ThreadJoinMode.ASK_PER_THREAD,
+        unset=ThreadJoinMode.ALLOW,
         unknown=ThreadJoinMode.NEVER,
     )
 
