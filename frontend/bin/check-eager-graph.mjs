@@ -172,6 +172,9 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
             'src/queries/Query/Query.tsx',
+            // esbuild splits chunks by what can reach a file, so one static import through the quill-charts
+            // barrel puts every chart type on the home load. The home sparklines load lazily instead.
+            'packages/quill/packages/charts/',
         ],
     },
     {
