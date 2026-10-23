@@ -144,6 +144,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             store: Arc::new(S3Store::new(aws_sdk_s3::Client::new(&aws))),
             rrweb_bucket: config.rrweb_bucket.clone(),
             images_bucket: config.images_bucket.clone(),
+            producer: rdkafka::ClientConfig::new()
+                .set("bootstrap.servers", &config.kafka.kafka_hosts)
+                .set("compression.codec", "lz4")
+                .set("linger.ms", "20")
+                .create()?,
+            image_fetch_topic: config.image_fetch_topic.clone(),
+            sent_urls: replay_recorder_v4::urls::sent_urls(500_000),
         })
     } else {
         tracing::info!("writes are off: the recorder stores nothing");

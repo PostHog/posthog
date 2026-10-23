@@ -14,8 +14,11 @@ pub const VIEWPORT_RESIZE: u8 = 4;
 pub const INPUT: u8 = 5;
 pub const TOUCH_MOVE: u8 = 6;
 pub const MEDIA_INTERACTION: u8 = 7;
+pub const STYLE_SHEET_RULE: u8 = 8;
 pub const DRAG: u8 = 12;
+pub const STYLE_DECLARATION: u8 = 13;
 pub const SELECTION: u8 = 14;
+pub const ADOPTED_STYLE_SHEET: u8 = 15;
 
 pub const CLICK: u8 = 2;
 pub const CONTEXT_MENU: u8 = 3;
