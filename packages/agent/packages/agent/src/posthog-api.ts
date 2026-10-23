@@ -73,9 +73,14 @@ export class PostHogAPIError extends Error {
   }
 }
 
+interface CurrentUser {
+  id?: number;
+  distinct_id?: string;
+}
+
 export class PostHogAPIClient {
   private readonly http: PostHogHttpClient;
-  private userNode: string | null | undefined;
+  private currentUser: CurrentUser | undefined;
 
   constructor(readonly config: PostHogAPIConfig) {
     this.http = new PostHogHttpClient(config, {
@@ -144,22 +149,28 @@ export class PostHogAPIClient {
    * doesn't permanently disable the spend-limit header.
    */
   async getUserNode(): Promise<string | null> {
-    if (this.userNode !== undefined) return this.userNode;
+    const user = await this.getCurrentUser();
+    if (!user) return null;
+    return user.distinct_id || (user.id != null ? `user_${user.id}` : null);
+  }
+
+  /** The id of the user the credential acts as, or null when it resolves to none. */
+  async getUserId(): Promise<number | null> {
+    return (await this.getCurrentUser())?.id ?? null;
+  }
+
+  private async getCurrentUser(): Promise<CurrentUser | null> {
+    if (this.currentUser !== undefined) return this.currentUser;
     try {
-      const user = await this.apiRequest<{
-        id?: number;
-        distinct_id?: string;
-      }>("/api/users/@me/", {
-        // Best-effort header on session start: bound the request so a stalled
+      this.currentUser = await this.apiRequest<CurrentUser>("/api/users/@me/", {
+        // Best-effort lookup on session start: bound the request so a stalled
         // socket can't hold up the run. The catch below then returns null.
         signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
       });
-      this.userNode =
-        user.distinct_id || (user.id != null ? `user_${user.id}` : null);
     } catch {
       return null;
     }
-    return this.userNode;
+    return this.currentUser;
   }
 
   async getTask(taskId: string): Promise<Task> {

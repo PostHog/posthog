@@ -3173,11 +3173,16 @@ describe("AgentServer HTTP Mode", () => {
       expect(relaySpy).toHaveBeenCalledOnce();
     });
 
+    const RUN_USER_ID = 7;
+
     function withNeedsApprovalTool(testServer: AgentServer) {
       const approveMcpTool = vi.fn(async () => {});
       const exposed = testServer as unknown as {
         mcpToolPolicies: Map<string, unknown>;
-        posthogAPI: { approveMcpTool: typeof approveMcpTool };
+        posthogAPI: {
+          approveMcpTool: typeof approveMcpTool;
+          getUserId: () => Promise<number>;
+        };
         productLaunch: { originProduct?: string };
       };
       exposed.productLaunch = {
@@ -3196,7 +3201,42 @@ describe("AgentServer HTTP Mode", () => {
         ],
       ]);
       exposed.posthogAPI.approveMcpTool = approveMcpTool;
+      exposed.posthogAPI.getUserId = async () => RUN_USER_ID;
       return approveMcpTool;
+    }
+
+    /** Raises the approval prompt and answers it through the `/command` path as `userId`. */
+    async function answerApproval(
+      testServer: ReturnType<typeof exposeCloudClient>,
+      optionId: string,
+      userId: number,
+    ) {
+      testServer.session = {
+        hasDesktopConnected: true,
+        payload: { run_id: "run-1" },
+        logWriter: { appendRawLine: vi.fn() },
+      } as never;
+      const commandServer = testServer as unknown as {
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+          caller: { user_id: number },
+        ): Promise<unknown>;
+      };
+      const { requestPermission } = testServer.createCloudClient(basePayload);
+      const result = requestPermission(
+        approvalRequestFor("mcp__metrics__get_stats"),
+      );
+      await vi.waitFor(() =>
+        expect(testServer.pendingPermissions.size).toBe(1),
+      );
+      const [requestId] = testServer.pendingPermissions.keys();
+      await commandServer.executeCommand(
+        "permission_response",
+        { requestId, optionId },
+        { user_id: userId },
+      );
+      return result;
     }
 
     function approvalRequestFor(mcpToolName: string) {
@@ -3253,22 +3293,42 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     it.each([
-      { optionId: "allow", saved: true },
-      { optionId: "reject", saved: false },
+      {
+        label: "the run's user allows",
+        optionId: "allow",
+        userId: RUN_USER_ID,
+        outcome: { outcome: "selected", optionId: "allow" },
+        saved: true,
+      },
+      {
+        label: "the run's user declines",
+        optionId: "reject",
+        userId: RUN_USER_ID,
+        outcome: { outcome: "selected", optionId: "reject" },
+        saved: false,
+      },
+      {
+        label: "a teammate allows",
+        optionId: "allow",
+        userId: RUN_USER_ID + 1,
+        outcome: { outcome: "cancelled" },
+        saved: false,
+      },
     ])(
-      "relays one labeled allow and saves the approval only for $optionId",
-      async ({ optionId, saved }) => {
+      "relays one labeled allow and saves the approval only when $label",
+      async ({ optionId, userId, outcome, saved }) => {
         const testServer = exposeCloudClient(createServer());
         const approveMcpTool = withNeedsApprovalTool(
           testServer as unknown as AgentServer,
         );
-        testServer.session = { hasDesktopConnected: true };
-        const relaySpy = vi
-          .spyOn(testServer, "relayPermissionToClient")
-          .mockResolvedValue({ outcome: { outcome: "selected", optionId } });
+        const relaySpy = vi.spyOn(
+          testServer as unknown as {
+            awaitPermissionAnswer: (params: unknown) => Promise<unknown>;
+          },
+          "awaitPermissionAnswer",
+        );
 
-        const { requestPermission } = testServer.createCloudClient(basePayload);
-        await requestPermission(approvalRequestFor("mcp__metrics__get_stats"));
+        const result = await answerApproval(testServer, optionId, userId);
 
         const relayed = relaySpy.mock.calls[0][0] as {
           options: Array<{ kind: string; name?: string }>;
@@ -3277,6 +3337,7 @@ describe("AgentServer HTTP Mode", () => {
         expect({
           relayed: relayed.options.map(({ kind, name }) => ({ kind, name })),
           persistsApproval: relayed.toolCall._meta?.persistsApproval,
+          outcome: result.outcome,
           saved: approveMcpTool.mock.calls.length > 0,
         }).toEqual({
           relayed: [
@@ -3287,6 +3348,7 @@ describe("AgentServer HTTP Mode", () => {
             { kind: "reject_once", name: undefined },
           ],
           persistsApproval: true,
+          outcome,
           saved,
         });
       },
@@ -3297,15 +3359,8 @@ describe("AgentServer HTTP Mode", () => {
       withNeedsApprovalTool(
         testServer as unknown as AgentServer,
       ).mockRejectedValue(new Error("403"));
-      testServer.session = { hasDesktopConnected: true };
-      vi.spyOn(testServer, "relayPermissionToClient").mockResolvedValue({
-        outcome: { outcome: "selected", optionId: "allow" },
-      });
 
-      const { requestPermission } = testServer.createCloudClient(basePayload);
-      const result = await requestPermission(
-        approvalRequestFor("mcp__metrics__get_stats"),
-      );
+      const result = await answerApproval(testServer, "allow", RUN_USER_ID);
 
       expect(result.outcome).toEqual({ outcome: "cancelled" });
     });
@@ -3322,12 +3377,6 @@ describe("AgentServer HTTP Mode", () => {
         mode: "interactive" as const,
         connected: false,
         originProduct: "posthog_ai",
-      },
-      {
-        label: "a workflow run that teammates can answer",
-        mode: "interactive" as const,
-        connected: true,
-        originProduct: "workflow",
       },
       {
         label: "a Slack run whose prompts are auto-answered",
