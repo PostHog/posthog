@@ -262,7 +262,7 @@ RENDERED_CONTENT_WHY = (
     "send takes all three from the template."
 )
 SEND_FIELD_WHY = {
-    "to": "PostHog sends each email to one recipient, so `to` must be one email address.",
+    "to": "`to` is one email address. Add more recipients with `cc` and `bcc`.",
     "identifiers": "PostHog records the email's engagement events against `identifiers.distinct_id`.",
     "message_data": "`message_data` fills a template's `{{ variables.* }}` placeholders, so it is an object, and "
     "content your code rendered takes none.",
