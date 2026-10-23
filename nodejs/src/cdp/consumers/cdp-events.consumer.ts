@@ -15,7 +15,7 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
@@ -185,43 +185,60 @@ export class CdpEventsConsumer<
 
         await Promise.all(
             messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                // Parked rather than dropped: a schema we cannot read today is often one a later
+                // version can.
+                const park = (error: string): boolean =>
+                    this.deadLetterService.recordMessageFailure(message, { step: 'parse', error })
 
-                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                        this.deps.teamManager.getTeam(clickHouseEvent.team_id),
-                    ])
+                const clickHouseEvent = skipIfMalformed(
+                    'Error parsing message',
+                    () => assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent),
+                    park
+                )
+                if (!clickHouseEvent) {
+                    return
+                }
 
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                        return
-                    }
-
-                    const globals = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
-                    // The one place holding both. A failure found later in the pipeline carries
-                    // these globals, and this is how it gets back to the bytes to park.
-                    this.messageByGlobals.set(globals, message)
-                    events.push(globals)
-                } catch (e) {
-                    // A dependency outage is not a poison message. Rethrowing fails the batch, so the
-                    // offsets stay put and the consumer retries, instead of dropping every event of a
-                    // team for the length of a Postgres blip.
+                // A retriable error fails the batch, so the consumer reads the batch again. Any other
+                // lookup error parks the message for a replay, because failing the batch on an error
+                // that repeats stops the partition. The loaders send the team ids of the whole batch
+                // in one query, so one failed query parks every message in it. With the dead-letter
+                // topic off, nothing keeps the message, so the error fails the batch too.
+                const lookups = await Promise.all([
+                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
+                    this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
+                    this.deps.teamManager.getTeam(clickHouseEvent.team_id),
+                ]).catch((e) => {
                     if (e?.isRetriable === true) {
                         throw e
                     }
-                    // A thrown non-Error has no `message`, and an undefined reason fails the
-                    // produce, which stalls the partition on the message this exists to keep.
-                    const error = e instanceof Error ? e.message : String(e)
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error }).inc()
-                    // Parked rather than dropped: a schema we cannot read today is often one a
-                    // later version can.
-                    this.deadLetterService.recordMessageFailure(message, {
-                        step: 'parse',
-                        error,
-                    })
+                    if (!park(e instanceof Error ? e.message : String(e))) {
+                        throw e
+                    }
+                    logger.error('Error looking up team data', e)
+                    return null
+                })
+                if (!lookups) {
+                    return
                 }
+                const [teamHogFunctions, teamHogFlows, team] = lookups
+
+                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                    return
+                }
+
+                const globals = skipIfMalformed(
+                    'Error parsing message',
+                    () => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
+                    park
+                )
+                if (!globals) {
+                    return
+                }
+                // The one place holding both. A failure found later in the pipeline carries
+                // these globals, and this is how it gets back to the bytes to park.
+                this.messageByGlobals.set(globals, message)
+                events.push(globals)
             })
         )
 

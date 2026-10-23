@@ -46,7 +46,7 @@ import {
 } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { skipIfMalformed } from './message-parsing'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
 // makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
@@ -1276,19 +1276,6 @@ function convertClickhousePersonToWakeGlobals(
             elements_chain: '',
         },
         person,
-    }
-}
-
-// If the step throws, this logs the error and counts it as a parse error. It then returns null, and the
-// caller skips the message. Wrap only a step that cannot fail for a transient reason. A lookup error must
-// fail the batch instead, so that Kafka delivers the batch again.
-function skipIfMalformed<T>(errorLog: string, step: () => T): T | null {
-    try {
-        return step()
-    } catch (e) {
-        logger.error(errorLog, e)
-        counterParseError.labels({ error: e.message }).inc()
-        return null
     }
 }
 
