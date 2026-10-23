@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import (
@@ -24,6 +24,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.uuidt import uuid7
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -130,14 +131,44 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
             0,  # just making sure the query runs
         )
 
-    def test_channel_type(self):
+    @parameterized.expand(
+        [
+            ("gad_source", {"gad_source": "1"}, "Paid Search"),
+            ("gclid_from_google", {"gclid": "abc", "$referring_domain": "www.google.com"}, "Paid Search"),
+            ("empty_gclid_is_not_a_click", {"gclid": "", "$referring_domain": "www.google.com"}, "Organic Search"),
+            ("gad_source_without_referrer", {"gad_source": "1", "$referring_domain": "$direct"}, "Paid Search"),
+            ("fbclid_without_referrer", {"fbclid": "xyz", "$referring_domain": "$direct"}, "Organic Social"),
+            (
+                "unknown_source_stripped_referrer",
+                {"utm_source": "newsletter-2026", "$referring_domain": "$direct"},
+                "Direct",
+            ),
+            ("unknown_referrer", {"$referring_domain": "blog.example.org"}, "Referral"),
+            (
+                "self_referral_with_paid_utms",
+                {"$referring_domain": "example.com", "utm_source": "google", "utm_medium": "cpc"},
+                "Paid Search",
+            ),
+            (
+                "self_referral_with_unknown_source",
+                {"$referring_domain": "example.com", "utm_source": "newsletter-2026"},
+                "Referral",
+            ),
+            (
+                "msclkid_only_in_url",
+                {"$current_url": "https://example.com/?msclkid=m1", "$referring_domain": "$direct"},
+                "Direct",
+            ),
+        ]
+    )
+    def test_channel_type(self, _name, properties, expected_channel_type):
         session_id = str(uuid7())
 
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
-            properties={"gad_source": "1", "$session_id": session_id},
+            properties={**properties, "$session_id": session_id},
         )
 
         response = self.__execute(
@@ -150,8 +181,104 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         result = (response.results or [])[0]
         self.assertEqual(
             result[0],
-            "Paid Search",
+            expected_channel_type,
         )
+
+    @parameterized.expand(
+        [
+            (
+                "utm_only_in_url",
+                [("$pageview", 0, {"$current_url": "https://example.com/?utm_source=newsletter&utm_campaign=fall"})],
+                (None, None, "Direct"),
+            ),
+            (
+                "first_event_is_not_a_pageview",
+                [
+                    ("$feature_flag_called", 0, {}),
+                    ("$pageview", 2, {"utm_source": "google", "utm_campaign": "spring"}),
+                ],
+                ("google", "spring", "Organic Search"),
+            ),
+            (
+                # entry_utm_* skip a NULL on the landing page view and take a later value, while the channel type
+                # tuple keeps the landing page view's empty values, so the two disagree for this session
+                "utm_added_on_second_pageview",
+                [
+                    ("$pageview", 0, {}),
+                    ("$pageview", 1, {"utm_source": "google", "utm_medium": "cpc", "utm_campaign": "spring"}),
+                ],
+                ("google", "spring", "Direct"),
+            ),
+            (
+                "two_campaigns_keep_the_first",
+                [
+                    ("$pageview", 0, {"utm_source": "newsletter", "utm_campaign": "A"}),
+                    ("$pageview", 30, {"utm_source": "newsletter", "utm_campaign": "B"}),
+                ],
+                ("newsletter", "A", "Direct"),
+            ),
+            (
+                "sdk_session_entry_properties_are_not_read",
+                [("$pageview", 0, {"$session_entry_utm_source": "email"})],
+                (None, None, "Direct"),
+            ),
+        ]
+    )
+    def test_entry_utm_and_channel_type_across_events(self, _name, events, expected):
+        session_id = str(uuid7("2024-03-08T00:00:00+00:00"))
+        start = datetime.fromisoformat("2024-03-08T00:00:00+00:00")
+        for event, offset_seconds, properties in events:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="d1",
+                properties={"$referring_domain": "$direct", **properties, "$session_id": session_id},
+                timestamp=start + timedelta(seconds=offset_seconds),
+            )
+
+        response = self.__execute(
+            parse_select(
+                "select $entry_utm_source, $entry_utm_campaign, $channel_type from sessions where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual((response.results or [])[0], expected)
+
+    @parameterized.expand([("replay_starts_before_first_pageview", True), ("replay_only", False)])
+    def test_replay_rows_shape_the_session(self, _name, with_pageview):
+        session_id = str(uuid7("2024-03-08T00:00:00+00:00"))
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id=session_id,
+            first_timestamp="2024-03-08T00:00:00",
+            last_timestamp="2024-03-08T00:00:00",
+            ensure_analytics_event_in_session=False,
+        )
+        if with_pageview:
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="d1",
+                properties={"$session_id": session_id, "$current_url": "https://example.com/"},
+                timestamp="2024-03-08T00:00:05",
+            )
+
+        response = self.__execute(
+            parse_select(
+                "select $start_timestamp, $session_duration, $pageview_count, $is_bounce, $has_replay_events from sessions where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        start_timestamp, duration, pageview_count, is_bounce, has_replay_events = (response.results or [])[0]
+        self.assertEqual(start_timestamp.isoformat()[:19], "2024-03-08T00:00:00")
+        self.assertTrue(has_replay_events)
+        if with_pageview:
+            self.assertEqual((duration, pageview_count, is_bounce), (5, 1, True))
+        else:
+            self.assertEqual((duration, pageview_count, is_bounce), (0, 0, None))
 
     def test_session_dot_channel_type(self):
         session_id = str(uuid7())
