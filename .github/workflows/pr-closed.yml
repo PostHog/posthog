@@ -55,6 +55,41 @@ jobs:
                           }
                       });
 
+    thank-fork-contributor:
+        name: Thank fork contributor
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: >
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.event.pull_request.merged == true &&
+            contains(github.event.pull_request.body, 'Contributed by @')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .nvmrc
+                      .github/scripts/thank-fork-contributor.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+
+            - name: Thank the contributor on the fork PR
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: node .github/scripts/thank-fork-contributor.js
+
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-24.04

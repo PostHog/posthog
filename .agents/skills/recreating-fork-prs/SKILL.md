@@ -18,14 +18,13 @@ A maintainer re-creates the reviewed change on a branch in this repository.
 
 A branch in this repository is trusted: secret-gated CI steps run with its code in control.
 Push only the commits you reviewed.
-The push, the new PR, and the comment on the fork PR all act in the user's name. Get the user's go-ahead for each one.
+The push and the new PR act in the user's name. Get the user's go-ahead for each one.
 
 ```text
 - [ ] 1. Pin the fork PR's head SHA, then review it
 - [ ] 2. Rebuild the change on a new branch
 - [ ] 3. Compare the branch with the reviewed SHA
 - [ ] 4. Open the new PR
-- [ ] 5. Close the fork PR
 ```
 
 ## 1. Pin, then review
@@ -100,7 +99,7 @@ Then add your own fixes as separate commits, so the history shows which part is 
 
 Write the body with `/writing-pr-descriptions` and the repo template. Then add:
 
-- In Problem: "Contributed by @<login> in #<n>, which cannot merge because backend CI does not run for fork PRs."
+- In Problem, this exact line: "Contributed by @<login> in #<n>, which cannot merge because backend CI does not run for fork PRs."
 - The `Closes #<issue>` line from the fork PR.
 - Screenshots linked from the fork PR, not uploaded again.
 - In Agent context: cherry-picked or squashed, and which commits are your follow-ups.
@@ -108,6 +107,6 @@ Write the body with `/writing-pr-descriptions` and the repo template. Then add:
 Do not add a `Co-authored-by` trailer.
 The merge queue squash-merges, and GitHub adds a `Co-authored-by` line for every commit author other than the PR author.
 
-## 5. Close the fork PR
-
-After the new PR exists, tell the contributor on the fork PR where their change went, link the new PR, and close the fork PR.
+When the new PR merges, the `Thank fork contributor` job in `.github/workflows/pr-closed.yml` reads the "Contributed by" line.
+It comments on the fork PR with the merged commit and the co-author credit, then closes the fork PR.
+Leave the fork PR open until then.
