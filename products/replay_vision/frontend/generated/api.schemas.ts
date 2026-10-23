@@ -3751,7 +3751,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
 
 export type VisionScannersWatchFeedRetrieveParams = {
     /**
-     * The time the first page loaded. Later pages rank as of that time: observations, views and dismissals after it are ignored, so pages do not shift under a reader who scrolls.
+     * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
     as_of?: string
     /**
@@ -3770,17 +3770,13 @@ export type VisionScannersWatchFeedRetrieveParams = {
      */
     date_to?: string
     /**
-     * The client's id for this feed load, the same one sent to `watch_feed_impressions`. Impressions recorded under it do not lower ranks within the same load.
-     */
-    feed_load_id?: string
-    /**
      * Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */
     limit?: number
     /**
-     * How many ranked items to skip. Send `as_of` and `feed_load_id` with every page after the first.
+     * How many ranked items to skip. Send `as_of` with every page after the first.
      * @minimum 0
      * @maximum 1000
      */

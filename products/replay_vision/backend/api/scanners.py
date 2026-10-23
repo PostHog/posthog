@@ -1736,20 +1736,13 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         default=0,
         min_value=0,
         max_value=WATCH_FEED_CANDIDATE_CAP,
-        help_text="How many ranked items to skip. Send `as_of` and `feed_load_id` with every page after the first.",
+        help_text="How many ranked items to skip. Send `as_of` with every page after the first.",
     )
     as_of = serializers.DateTimeField(
         required=False,
         help_text=(
-            "The time the first page loaded. Later pages rank as of that time: observations, views and "
-            "dismissals after it are ignored, so pages do not shift under a reader who scrolls."
-        ),
-    )
-    feed_load_id = serializers.UUIDField(
-        required=False,
-        help_text=(
-            "The client's id for this feed load, the same one sent to `watch_feed_impressions`. Impressions "
-            "recorded under it do not lower ranks within the same load."
+            "The time the first page loaded. Later pages rank as of that time: observations, views, "
+            "dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls."
         ),
     )
 
@@ -2685,6 +2678,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
             )
         )
+        # The flag selects one of two independent rankers; nothing is blended between them. Shadow
+        # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
+        # the hourly sweep cached. Neither arm makes a model call here. The response names the
+        # ranker that ordered it, so the shadow arm reads as weighted-score to the client, and the
+        # flag variant separately, which the client reports as the experiment's exposure.
+        variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
+        mode = ranker_mode(variant)
+        ranker = mode if mode in ("jev", "embedding") else "weighted-score"
+        # The embedding ranker reads only the stored rank, so it skips loading every row's scan result.
+        row_fields = ["id", "scanner_id", "created_at", "watch_rank", "feed_viewed"]
+        if ranker != "embedding":
+            row_fields.append("scanner_result")
         candidate_rows = list(
             candidates.annotate(
                 feed_viewed=viewed,
@@ -2695,24 +2700,16 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ),
             )
             .filter(scanner_recency_rank__lte=WATCH_FEED_PER_SCANNER_CAP)
-            .values("id", "scanner_id", "created_at", "scanner_result", "watch_rank", "feed_viewed")
+            .values(*row_fields)
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
-        # The flag selects one of two independent rankers; nothing is blended between them. Shadow
-        # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
-        # the hourly sweep cached. Neither arm makes a model call here. The response names the
-        # ranker that ordered it, so the shadow arm reads as weighted-score to the client, and the
-        # flag variant separately, which the client reports as the experiment's exposure.
-        variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
-        mode = ranker_mode(variant)
-        ranker = mode if mode in ("jev", "embedding") else "weighted-score"
         page_end = params["offset"] + params["limit"]
         if ranker == "embedding":
             impressions = feed_impression_counts(
                 team_id=self.team_id,
                 user_id=viewer_id,
                 observation_ids=[row["id"] for row in candidate_rows],
-                feed_load_id=params.get("feed_load_id"),
+                as_of=as_of,
             )
             for row in candidate_rows:
                 row["feed_impressions"] = impressions.get(row["id"], 0)

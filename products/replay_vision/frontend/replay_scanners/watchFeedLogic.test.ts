@@ -217,7 +217,6 @@ describe('watchFeedLogic', () => {
         ])
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
-        const firstUrl = new URL(feedSpy.mock.calls[0][0].request.url)
         // Hiding a card shortens the list, but the next page still starts after both served cards.
         await expectLogic(logic, () =>
             logic.actions.dismissItem(logic.values.feedItems![0], 0, null)
@@ -234,7 +233,6 @@ describe('watchFeedLogic', () => {
         const pageUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(pageUrl.searchParams.get('offset')).toBe('2')
         expect(pageUrl.searchParams.get('as_of')).toBe('T0')
-        expect(pageUrl.searchParams.get('feed_load_id')).toBe(firstUrl.searchParams.get('feed_load_id'))
         expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o2', 'o3'])
         expect(logic.values.feedLoad?.positions).toEqual({ o1: 0, o2: 1, o3: 2 })
         expect(logic.values.feedHasMore).toBe(false)

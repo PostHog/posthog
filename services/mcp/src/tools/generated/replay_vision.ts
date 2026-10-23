@@ -1694,7 +1694,6 @@ const visionScannersWatchFeed = (): ToolBase<
                 created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
-                feed_load_id: params.feed_load_id,
                 limit: params.limit,
                 offset: params.offset,
                 scanner_ids: params.scanner_ids,

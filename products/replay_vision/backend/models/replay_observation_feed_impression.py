@@ -15,7 +15,7 @@ class ReplayObservationFeedImpression(TeamScopedRootMixin, UUIDModel):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     shown_count = models.PositiveIntegerField(default=1)
     last_shown_at = models.DateTimeField()
-    # The feed load that last counted, so pages of that load rank as if it had not counted yet.
+    # The feed load that last counted, so one load counts each card once however often it reports it.
     last_feed_load_id = models.UUIDField(null=True, blank=True)
 
     class Meta:

@@ -1,6 +1,7 @@
 """Per-user counts of how often What to watch showed each observation."""
 
 from collections.abc import Sequence
+from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
@@ -16,14 +17,13 @@ def record_feed_impressions(*, team_id: int, user_id: int, observation_ids: Sequ
         return
     now = timezone.now()
     with transaction.atomic():
-        existing = ReplayObservationFeedImpression.objects.for_team(team_id).filter(
+        ReplayObservationFeedImpression.objects.for_team(team_id).filter(
             user_id=user_id, observation_id__in=observation_ids
-        )
-        existing_ids = set(existing.values_list("observation_id", flat=True))
-        existing.exclude(last_feed_load_id=feed_load_id).update(
+        ).exclude(last_feed_load_id=feed_load_id).update(
             shown_count=F("shown_count") + 1, last_shown_at=now, last_feed_load_id=feed_load_id
         )
-        # A concurrent first impression from another tab wins the race and this one is dropped, which is harmless.
+        # Rows that exist were counted above, so the conflict only skips them. A concurrent first
+        # impression from another tab wins the race the same way, which is harmless.
         ReplayObservationFeedImpression.objects.bulk_create(
             [
                 ReplayObservationFeedImpression(
@@ -34,26 +34,29 @@ def record_feed_impressions(*, team_id: int, user_id: int, observation_ids: Sequ
                     last_feed_load_id=feed_load_id,
                 )
                 for observation_id in observation_ids
-                if observation_id not in existing_ids
             ],
             ignore_conflicts=True,
         )
 
 
 def feed_impression_counts(
-    *, team_id: int, user_id: int, observation_ids: Sequence[UUID], feed_load_id: UUID | None
+    *, team_id: int, user_id: int, observation_ids: Sequence[UUID], as_of: datetime
 ) -> dict[UUID, int]:
-    """Times each observation was shown to the user, not counting the load in `feed_load_id`."""
+    """Times each observation was shown to the user as of `as_of`.
+
+    A row shown again since `as_of` counts one less, which covers the load being paged, so its own
+    impressions do not shift its later pages.
+    """
     if not observation_ids:
         return {}
     rows = (
         ReplayObservationFeedImpression.objects.for_team(team_id)
         .filter(user_id=user_id, observation_id__in=observation_ids)
-        .values_list("observation_id", "shown_count", "last_feed_load_id")
+        .values_list("observation_id", "shown_count", "last_shown_at")
     )
     counts: dict[UUID, int] = {}
-    for observation_id, shown_count, last_feed_load_id in rows:
-        count = shown_count - 1 if feed_load_id is not None and last_feed_load_id == feed_load_id else shown_count
+    for observation_id, shown_count, last_shown_at in rows:
+        count = shown_count - 1 if last_shown_at > as_of else shown_count
         if count > 0:
             counts[observation_id] = count
     return counts

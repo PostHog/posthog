@@ -2371,7 +2371,7 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe(
-            'The time the first page loaded. Later pages rank as of that time: observations, views and dismissals after it are ignored, so pages do not shift under a reader who scrolls.'
+            'The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.'
         ),
     created_by: zod
         .string()
@@ -2392,12 +2392,6 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .describe(
             'Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.'
         ),
-    feed_load_id: zod
-        .string()
-        .optional()
-        .describe(
-            "The client's id for this feed load, the same one sent to `watch_feed_impressions`. Impressions recorded under it do not lower ranks within the same load."
-        ),
     limit: zod
         .number()
         .min(1)
@@ -2411,7 +2405,7 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .min(visionScannersWatchFeedRetrieveQueryOffsetMin)
         .max(visionScannersWatchFeedRetrieveQueryOffsetMax)
         .default(visionScannersWatchFeedRetrieveQueryOffsetDefault)
-        .describe('How many ranked items to skip. Send `as_of` and `feed_load_id` with every page after the first.'),
+        .describe('How many ranked items to skip. Send `as_of` with every page after the first.'),
     scanner_ids: zod
         .string()
         .min(1)
