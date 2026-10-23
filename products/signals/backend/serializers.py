@@ -218,6 +218,23 @@ class _SourceConfigField(serializers.JSONField):
 SIGNAL_SOURCE_CONFIG_STATUSES = ["running", "completed", "failed"]
 
 
+class AdmissionRuleFieldKind(TextChoices):
+    STRING_LIST = contracts.AdmissionFieldKind.STRING_LIST.value, "List of strings"
+    STRING = contracts.AdmissionFieldKind.STRING.value, "String"
+    NUMBER = contracts.AdmissionFieldKind.NUMBER.value, "Number"
+
+
+class AdmissionRuleFieldSerializer(serializers.Serializer):
+    field = serializers.CharField(help_text="Field name an admission rule may use in its `field` key.")
+    kind = serializers.ChoiceField(
+        choices=AdmissionRuleFieldKind.choices,
+        help_text=(
+            "`string_list` takes the operators `any`, `all` and `none` with a list of strings. "
+            "`string` and `number` take `eq`, `neq` with one value and `in`, `not_in` with a list."
+        ),
+    )
+
+
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField(
         help_text=(
@@ -227,6 +244,12 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ),
     )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
+    admission_rule_fields = serializers.SerializerMethodField(
+        help_text=(
+            "Fields that `config.admission_rules` may filter on for this source, with their kinds. "
+            "Empty for a source that does not support admission rules."
+        ),
+    )
 
     class Meta:
         model = SignalSourceConfig
@@ -239,8 +262,9 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "status",
+            "admission_rule_fields",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "status"]
+        read_only_fields = ["id", "created_at", "updated_at", "status", "admission_rule_fields"]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -268,6 +292,11 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
+
+    @extend_schema_field(AdmissionRuleFieldSerializer(many=True))
+    def get_admission_rule_fields(self, obj: SignalSourceConfig) -> list[dict[str, str]]:
+        fields = ADMISSION_RULE_FIELDS.get((obj.source_product, obj.source_type), {})
+        return [{"field": name, "kind": kind.value} for name, kind in fields.items()]
 
     def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:
         """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
@@ -359,6 +388,44 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
             validated_data["config"] = config
         return super().create(validated_data)
+
+
+@extend_schema_field({"type": "object", "additionalProperties": True, "nullable": True})
+class _AdmissionRulesField(serializers.JSONField):
+    """An admission rule tree, typed as an open object. The view validates its shape against the source."""
+
+
+class SignalSourceAdmissionPreviewRequestSerializer(serializers.Serializer):
+    admission_rules = _AdmissionRulesField(
+        allow_null=True,
+        help_text=(
+            "Draft admission rule tree to preview, in the same shape as `config.admission_rules`. "
+            "Null or an empty group previews every issue the source reads today. The stored rules are not read or changed."
+        ),
+    )
+
+
+class SignalSourceAdmissionPreviewIssueSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="Issue title.")
+    url = serializers.CharField(allow_null=True, help_text="Link to the issue in its source tool, when synced.")
+    created_at = serializers.DateTimeField(allow_null=True, help_text="When the issue was created in its source.")
+
+
+class SignalSourceAdmissionPreviewSerializer(serializers.Serializer):
+    issues = SignalSourceAdmissionPreviewIssueSerializer(
+        many=True,
+        help_text=(
+            "The most recent synced issues that the next sync would admit, newest first. Uses the "
+            "source's fixed exclusions, its scope allowlist (for example `linear_team_ids`) and the draft rules."
+        ),
+    )
+    truncated = serializers.BooleanField(help_text="True when more issues match than `limit`.")
+    limit = serializers.IntegerField(help_text="The most issues one preview returns.")
+    lookback_days = serializers.IntegerField(help_text="How many days of synced issues the preview reads.")
+    tables_checked = serializers.IntegerField(help_text="How many synced warehouse tables the preview read.")
+    tables_skipped = serializers.IntegerField(
+        help_text="Synced warehouse tables over the per-preview cap. The preview did not read them."
+    )
 
 
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,

@@ -51,6 +51,8 @@ from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
+
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -124,7 +126,13 @@ from products.signals.backend.billing import (
     report_pr_is_merged,
 )
 from products.signals.backend.briefing_reports import reports_for_person
+from products.signals.backend.contracts import ADMISSION_RULE_FIELDS, ADMISSION_RULES_KEY, parse_admission_rules
 from products.signals.backend.dismissal_notes import forward_dismissal_note
+from products.signals.backend.emission.admission_preview import (
+    ADMISSION_PREVIEW_LIMIT,
+    ADMISSION_PREVIEW_LOOKBACK_DAYS,
+    preview_admission,
+)
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
@@ -263,6 +271,8 @@ from products.signals.backend.serializers import (
     SignalReportTaskActionListResponseSerializer,
     SignalReportTaskActionRunRequestSerializer,
     SignalReportTaskActionRunResponseSerializer,
+    SignalSourceAdmissionPreviewRequestSerializer,
+    SignalSourceAdmissionPreviewSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
@@ -583,6 +593,69 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.enabled and not was_enabled:
             self._trigger_data_import_sync(instance)
+
+    @validated_request(
+        request_serializer=SignalSourceAdmissionPreviewRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalSourceAdmissionPreviewSerializer),
+            400: OpenApiResponse(description="The source has no admission rules, or the draft rules are invalid."),
+            403: OpenApiResponse(description="You cannot read the synced warehouse table of this source."),
+        },
+        summary="Preview which synced issues admission rules let through",
+        description=(
+            "Run draft admission rules against the source's recently synced issues and return the most "
+            f"recent matches (at most {ADMISSION_PREVIEW_LIMIT}, from the last {ADMISSION_PREVIEW_LOOKBACK_DAYS} "
+            "days). It uses the source's fixed exclusions and its stored scope, such as `linear_team_ids`. "
+            "The query runs with your warehouse access. It makes no AI call, emits no signal and saves nothing."
+        ),
+        operation_id="signals_source_configs_admission_preview_create",
+    )
+    # POST so a draft rule tree never has to fit in a URL. Read-only, so task:read is enough.
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="admission_preview",
+        required_scopes=["task:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def admission_preview(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        source_config = cast(SignalSourceConfig, self.get_object())
+        fields = ADMISSION_RULE_FIELDS.get((source_config.source_product, source_config.source_type))
+        if fields is None:
+            raise serializers.ValidationError({ADMISSION_RULES_KEY: "This source does not support admission rules."})
+        admission_rules = request.validated_data["admission_rules"]
+        if admission_rules is not None:
+            _, problem = parse_admission_rules(admission_rules, fields)
+            if problem is not None:
+                raise serializers.ValidationError({ADMISSION_RULES_KEY: f"{ADMISSION_RULES_KEY} {problem}"})
+        try:
+            preview = preview_admission(
+                team=self.team,
+                user=cast(User, request.user),
+                source_product=source_config.source_product,
+                source_type=source_config.source_type,
+                source_config=source_config.config,
+                admission_rules=admission_rules,
+            )
+        except TableAccessDeniedError:
+            raise exceptions.PermissionDenied("You don't have access to the synced issues for this source.")
+        except QueryError:
+            capture_exception()
+            raise serializers.ValidationError(
+                {ADMISSION_RULES_KEY: "Couldn't read the synced issues for this source. Try again later."}
+            )
+        return Response(
+            SignalSourceAdmissionPreviewSerializer(
+                {
+                    "issues": preview.issues,
+                    "truncated": preview.truncated,
+                    "limit": ADMISSION_PREVIEW_LIMIT,
+                    "lookback_days": ADMISSION_PREVIEW_LOOKBACK_DAYS,
+                    "tables_checked": preview.tables_checked,
+                    "tables_skipped": preview.tables_skipped,
+                }
+            ).data
+        )
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {

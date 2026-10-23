@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
-import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconFilter, IconGear, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -17,6 +17,7 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { SOURCE_ADMISSION_RULES_KEY } from '../../admissionRules'
 import { isExternalSignalSource } from '../../externalSignalSources'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
@@ -24,6 +25,7 @@ import type { SourceProductDataStatus, SourceProductStatus } from '../../signalS
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { LinearTeamsModal } from './LinearTeamsModal'
+import { SourceAdmissionFiltersModal } from './SourceAdmissionFiltersModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceCatalogModal } from './SourceCatalogModal'
 import { SourceRecommendations } from './SourceRecommendations'
@@ -209,6 +211,8 @@ interface ExpansionProps {
     filters?: SourceFilters
     /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
     onSteer?: () => void
+    /** Opens the admission filters form. Only set for sources whose persisted row lists admission fields. */
+    onEditAdmissionFilters?: () => void
     onRetryData: () => void
 }
 
@@ -277,6 +281,7 @@ function Expansion({
     onToggleEntity,
     filters,
     onSteer,
+    onEditAdmissionFilters,
     onRetryData,
 }: ExpansionProps): JSX.Element {
     const [filter, setFilter] = useState('')
@@ -294,7 +299,10 @@ function Expansion({
     const steeringIsSet = state.steeringConfigs.some(sourceSteeringIsSet)
     // `ProductDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
     const hasProductLine = !!product && (productOff || product.dataStatus !== 'unavailable')
-    const hasMetaLine = hasProductLine || !!onSteer
+    const hasMetaLine = hasProductLine || !!onSteer || !!onEditAdmissionFilters
+    const admissionFiltersAreSet = state.steeringConfigs.some(
+        (config) => config.config?.[SOURCE_ADMISSION_RULES_KEY] != null
+    )
     const newEntityButton = agent.manageUrl ? (
         <LemonButton size="xsmall" type="secondary" to={agent.manageUrl} icon={<IconPlus />} targetBlank>
             New {agent.entityNounSingular}
@@ -352,6 +360,17 @@ function Expansion({
                                     data-attr="signal-source-steering-open"
                                 >
                                     {steeringIsSet ? 'Edit guidance' : 'Add guidance'}
+                                </LemonButton>
+                            )}
+                            {onEditAdmissionFilters && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconFilter />}
+                                    onClick={onEditAdmissionFilters}
+                                    data-attr="signal-source-admission-filters-open"
+                                >
+                                    {admissionFiltersAreSet ? 'Edit filters' : 'Add filters'}
                                 </LemonButton>
                             )}
                         </div>
@@ -461,6 +480,7 @@ interface AgentRowProps {
     onEnableProduct: (product: SourceProductStatus) => void
     filters?: SourceFilters
     onSteer?: () => void
+    onEditAdmissionFilters?: () => void
     onRetryData: () => void
 }
 
@@ -476,6 +496,7 @@ const AgentRow = memo(function AgentRow({
     onEnableProduct,
     filters,
     onSteer,
+    onEditAdmissionFilters,
     onRetryData,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
@@ -594,6 +615,7 @@ const AgentRow = memo(function AgentRow({
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     filters={filters}
                     onSteer={onSteer}
+                    onEditAdmissionFilters={onEditAdmissionFilters}
                     onRetryData={onRetryData}
                 />
             )}
@@ -664,6 +686,10 @@ export function AgentsRoster(): JSX.Element {
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
     const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
+    const [admissionFiltersTarget, setAdmissionFiltersTarget] = useState<{
+        config: SignalSourceConfig
+        label: string
+    } | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -886,6 +912,13 @@ export function AgentsRoster(): JSX.Element {
                 state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
                     ? state.steeringConfigs
                     : null
+            // Filters write to one persisted row, and the row lists the fields its rules may use.
+            const admissionConfig =
+                state.steeringConfigs.length === 1 &&
+                !state.steeringConfigs[0].id.startsWith('new_') &&
+                (state.steeringConfigs[0].admission_rule_fields?.length ?? 0) > 0
+                    ? state.steeringConfigs[0]
+                    : null
             const filters =
                 agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
                     ? {
@@ -918,6 +951,11 @@ export function AgentsRoster(): JSX.Element {
                     onSteer={
                         steeringConfigs
                             ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
+                            : undefined
+                    }
+                    onEditAdmissionFilters={
+                        admissionConfig
+                            ? () => setAdmissionFiltersTarget({ config: admissionConfig, label: agent.label })
                             : undefined
                     }
                     onRetryData={loadProductDataEvents}
@@ -1034,6 +1072,15 @@ export function AgentsRoster(): JSX.Element {
                     sourceConfigs={steeringTarget.configs}
                     sourceLabel={steeringTarget.label}
                     onClose={() => setSteeringTarget(null)}
+                />
+            )}
+
+            {admissionFiltersTarget && (
+                <SourceAdmissionFiltersModal
+                    key={admissionFiltersTarget.config.id}
+                    sourceConfig={admissionFiltersTarget.config}
+                    sourceLabel={admissionFiltersTarget.label}
+                    onClose={() => setAdmissionFiltersTarget(null)}
                 />
             )}
         </div>

@@ -93,6 +93,10 @@ class SignalSourceTableConfig(BaseModel):
     # HogQL expression for each field a team's admission rules may name. The keys must match the
     # source's allowlist in `contracts.ADMISSION_RULE_FIELDS`, which the API validates against.
     admission_fields: Mapping[str, str] = Field(default_factory=dict)
+    # HogQL expressions for the title and link of a record in the admission filter preview. A source
+    # without them has no preview.
+    admission_preview_title_field: str | None = None
+    admission_preview_url_field: str | None = None
 
     @model_validator(mode="after")
     def _validate_prompt_placeholders(self) -> SignalSourceTableConfig:
@@ -154,6 +158,15 @@ def get_signal_config(source_type: str, schema_name: str) -> SignalSourceTableCo
 
 def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
     return _registry_key(source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
+
+
+def get_signal_registrations(source_product: str, source_type: str) -> list[tuple[str, SignalSourceTableConfig]]:
+    """Every (warehouse source type, config) pair that emits as this signal source identity."""
+    return [
+        (warehouse_source_type, config)
+        for (warehouse_source_type, _), config in _SIGNAL_TABLE_CONFIGS.items()
+        if config.source_product == source_product and config.source_type == source_type
+    ]
 
 
 def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str, str] | None:

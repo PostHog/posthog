@@ -11466,6 +11466,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `string_list` - List of strings
+     * * `string` - String
+     * * `number` - Number
+     */
+    export type AdmissionRuleFieldKindEnum = typeof AdmissionRuleFieldKindEnum[keyof typeof AdmissionRuleFieldKindEnum];
+
+
+    export const AdmissionRuleFieldKindEnum = {
+      StringList: 'string_list',
+      String: 'string',
+      Number: 'number',
+    } as const;
+
+    export interface AdmissionRuleField {
+      /** Field name an admission rule may use in its `field` key. */
+      field: string;
+      /** `string_list` takes the operators `any`, `all` and `none` with a list of strings. `string` and `number` take `eq`, `neq` with one value and `in`, `not_in` with a list.
+       *
+       * * `string_list` - List of strings
+       * * `string` - String
+       * * `number` - Number */
+      kind: AdmissionRuleFieldKindEnum;
+    }
+
+    /**
      * * `yes` - Yes
      * * `no` - No
      * * `inconclusive` - Inconclusive
@@ -77390,6 +77415,8 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status: SignalSourceSyncStatusEnum | null;
+      /** Fields that `config.admission_rules` may filter on for this source, with their kinds. Empty for a source that does not support admission rules. */
+      readonly admission_rule_fields: readonly AdmissionRuleField[];
     }
 
     export interface PaginatedSignalSourceConfigList {
@@ -88623,6 +88650,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status?: SignalSourceSyncStatusEnum | null;
+      /** Fields that `config.admission_rules` may filter on for this source, with their kinds. Empty for a source that does not support admission rules. */
+      readonly admission_rule_fields?: readonly AdmissionRuleField[];
     }
 
     /**
@@ -106846,6 +106875,50 @@ export namespace Schemas {
       edited_report_ids: string[];
       /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
+    }
+
+    export interface SignalSourceAdmissionPreviewIssue {
+      /** Issue title. */
+      title: string;
+      /**
+         * Link to the issue in its source tool, when synced.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * When the issue was created in its source.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    export interface SignalSourceAdmissionPreview {
+      /** The most recent synced issues that the next sync would admit, newest first. Uses the source's fixed exclusions, its scope allowlist (for example `linear_team_ids`) and the draft rules. */
+      issues: SignalSourceAdmissionPreviewIssue[];
+      /** True when more issues match than `limit`. */
+      truncated: boolean;
+      /** The most issues one preview returns. */
+      limit: number;
+      /** How many days of synced issues the preview reads. */
+      lookback_days: number;
+      /** How many synced warehouse tables the preview read. */
+      tables_checked: number;
+      /** Synced warehouse tables over the per-preview cap. The preview did not read them. */
+      tables_skipped: number;
+    }
+
+    /**
+     * Draft admission rule tree to preview, in the same shape as `config.admission_rules`. Null or an empty group previews every issue the source reads today. The stored rules are not read or changed.
+     * @nullable
+     */
+    export type SignalSourceAdmissionPreviewRequestAdmissionRules = { [key: string]: unknown } | null;
+
+    export interface SignalSourceAdmissionPreviewRequest {
+      /**
+         * Draft admission rule tree to preview, in the same shape as `config.admission_rules`. Null or an empty group previews every issue the source reads today. The stored rules are not read or changed.
+         * @nullable
+         */
+      admission_rules: SignalSourceAdmissionPreviewRequestAdmissionRules;
     }
 
     /**

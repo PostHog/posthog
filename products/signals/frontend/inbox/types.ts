@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type AdmissionRuleFieldApi,
     type SignalReportApi,
     type ReportChartApi,
     type ReportMetricApi,
@@ -195,6 +196,8 @@ export interface SignalSourceConfig {
     created_at: string
     updated_at: string
     status: SignalSourceConfigStatus | null
+    /** Fields the source's admission rules may filter on. Absent on an optimistic row the save has not returned yet. */
+    admission_rule_fields?: AdmissionRuleFieldApi[]
 }
 
 export interface ToggleSignalSourceParams {
