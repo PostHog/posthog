@@ -129,6 +129,9 @@ patchedDependencies:
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
     # A mounted tooltip root must not keep its closed popup's detached DOM alive.
     '@base-ui/react@1.9.0': patches/@base-ui__react@1.9.0.patch
+    # A fixed visually hidden element must sit outside the viewport, or Chrome gives each one its own GPU layer.
+    # Upstream set margin 0 to fix RTL overflow (mui/base-ui#5661), which brought them back inside.
+    '@base-ui/utils@0.5.0': patches/@base-ui__utils@0.5.0.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
 allowBuilds:
