@@ -4,6 +4,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import type { GitHubReadinessStatusEnumApi } from 'products/integrations/frontend/generated/api.schemas'
 
+import { mockTeamConfig } from '../../__mocks__/inboxMocks'
 import { ConnectionsSection } from './ConnectionsSection'
 
 interface ConnectionStoryProps {
@@ -14,25 +15,11 @@ interface ConnectionStoryProps {
 function ConnectionStory({ readiness, narrow = false }: ConnectionStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/integrations/': {
-                results:
-                    readiness === 'not_connected'
-                        ? []
-                        : [
-                              {
-                                  id: 1,
-                                  kind: 'github',
-                                  display_name: 'Example organization',
-                                  config: {},
-                                  github_readiness: readiness,
-                                  created_at: '2026-01-01T00:00:00Z',
-                              },
-                          ],
-            },
+            '/api/projects/:team_id/signals/config/': { ...mockTeamConfig, github_readiness: readiness },
         },
     })
     return (
-        <div className={narrow ? 'w-96' : 'w-full max-w-4xl'}>
+        <div className={narrow ? 'w-128' : 'w-full max-w-4xl'}>
             <ConnectionsSection />
         </div>
     )
