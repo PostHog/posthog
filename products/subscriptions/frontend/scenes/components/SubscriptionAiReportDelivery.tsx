@@ -398,7 +398,7 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
     return (
         <div className="px-4 py-3 text-sm flex flex-col gap-4">
             {row.change_summary ? (
-                <div className="whitespace-pre-wrap">
+                <div>
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
                     <LemonMarkdown disableImages="all">{row.change_summary}</LemonMarkdown>
                 </div>
