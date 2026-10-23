@@ -304,7 +304,11 @@ def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwa
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
         return
-    reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+    team_id = instance.team_id
+    hog_flow_id = str(instance.id)
+    # Publish only after commit, as on delete: a worker reloading inside the transaction would cache
+    # the old row, so a pause would not stop sends until the cache refreshes.
+    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
 
 
 @receiver(post_delete, sender=HogFlow)

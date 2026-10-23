@@ -20,7 +20,8 @@ class TestHogFlow(TestCase):
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_hog_flow_saved_receiver(self, mock_reload):
-        hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
+        with self.captureOnCommitCallbacks(execute=True):
+            hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
@@ -29,10 +30,12 @@ class TestHogFlow(TestCase):
         mock_reload.reset_mock()
 
         hog_flow.draft = {"name": "Draft name"}
-        hog_flow.save(update_fields=["draft", "draft_updated_at"])
+        with self.captureOnCommitCallbacks(execute=True):
+            hog_flow.save(update_fields=["draft", "draft_updated_at"])
         mock_reload.assert_not_called()
 
-        hog_flow.save(update_fields=["draft", "name"])
+        with self.captureOnCommitCallbacks(execute=True):
+            hog_flow.save(update_fields=["draft", "name"])
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
@@ -44,7 +47,10 @@ class TestHogFlow(TestCase):
 
         hog_flow.email_sending_paused_at = timezone.now()
         hog_flow.email_sending_paused_reason = "Spam complaints reached 2%."
-        hog_flow.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason"])
+        with self.captureOnCommitCallbacks(execute=True):
+            hog_flow.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason"])
+            # A worker that reloads before commit caches the row as still active and keeps sending.
+            mock_reload.assert_not_called()
 
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
 
