@@ -398,6 +398,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert not held.changed
         assert held.reason == "tier_not_used_enough"
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 2
+        assert not ActivityLog.objects.filter(scope="Team", activity="email_sending_tier_changed").exists()
 
     @parameterized.expand([("sweep", False, "workflows_email_sending_tier_sweep"), ("admin_recompute", True, None)])
     def test_promotion_is_persisted_with_a_fresh_timestamp_and_audited(

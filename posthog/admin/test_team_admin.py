@@ -721,7 +721,7 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert len(entries) == 1
         assert entries[0].user == self.user
         detail = entries[0].detail or {}
-        assert detail["context"] == {"reason": ""}
+        assert detail["context"] == {"reason": "staff_set"}
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == expected_changes
 
     def test_tier_actions_render_without_a_nested_form(self) -> None:

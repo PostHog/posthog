@@ -824,7 +824,10 @@ function describeWorkflowEmailTierChange(logItem: ActivityLogItem): HumanizedCha
     const changes = logItem.detail?.changes || []
     const tierChange = changes.find((change) => change.field === 'email_sending_tier')
     const pinChange = changes.find((change) => change.field === 'email_sending_tier_pinned')
-    const reason = logItem.detail?.context?.reason as string | undefined
+    const contextReason = logItem.detail?.context?.reason as string | undefined
+    // A staff-set tier has no decision behind it, so the row says "set" and shows no reason.
+    const setByStaff = contextReason === 'staff_set'
+    const reason = setByStaff ? undefined : contextReason
     const pinVerb = pinChange ? (pinChange.after ? 'pinned' : 'unpinned') : null
     const target = shortIdActivityLink(logItem, urls.notebook)
     const tierMove = tierChange ? `from ${String(tierChange.before)} to ${String(tierChange.after)}` : null
@@ -832,7 +835,7 @@ function describeWorkflowEmailTierChange(logItem: ActivityLogItem): HumanizedCha
         summary: activityLogSummary(
             logItem,
             tierMove
-                ? `Moved the workflow email sending tier ${tierMove}`
+                ? `${setByStaff ? 'Set' : 'Moved'} the workflow email sending tier ${tierMove}`
                 : `${pinVerb === 'pinned' ? 'Pinned' : 'Unpinned'} the workflow email sending tier`,
             target,
             reason
@@ -842,8 +845,8 @@ function describeWorkflowEmailTierChange(logItem: ActivityLogItem): HumanizedCha
                 <ActivityLogUserName logItem={logItem} />{' '}
                 {tierMove ? (
                     <>
-                        moved the workflow email sending tier on {target} {tierMove}
-                        {pinVerb ? <> and {pinVerb} it</> : null}
+                        {setByStaff ? 'set' : 'moved'} the workflow email sending tier on {target} {tierMove}
+                        {pinVerb ? <> and {pinVerb === 'pinned' ? 'pinned it there' : 'unpinned it'}</> : null}
                     </>
                 ) : (
                     <>

@@ -376,7 +376,7 @@ def _empty_history(team_id: int) -> TeamSendingHistory:
 
 @dataclasses.dataclass(frozen=True)
 class EmailSendingTierActivityContext(ActivityContextBase):
-    # The decision reason for a computed change, empty for a tier staff set by hand.
+    # The decision reason for a computed change, or staff_set for a tier staff set by hand.
     reason: str
 
 
@@ -387,7 +387,7 @@ def log_email_sending_tier_change(
     organization_id: UUID,
     previous_tier: int,
     new_tier: int,
-    reason: str = "",
+    reason: str,
     trigger: Trigger | None = None,
     previous_pinned: bool | None = None,
     pinned: bool | None = None,
