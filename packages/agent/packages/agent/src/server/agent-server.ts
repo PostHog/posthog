@@ -25,6 +25,7 @@ import {
   isIgnoredSkillPath,
   isSkillBundleArtifactMetadata,
   type McpServerConnection,
+  type McpToolPolicy,
   mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
@@ -83,7 +84,10 @@ import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
-import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
+import {
+  type McpToolApprovals,
+  setAlwaysAskMcpServers,
+} from "../adapters/claude/mcp/tool-metadata";
 import type { InitializationPhase } from "../adapters/claude/session/initialization";
 import {
   getSessionJsonlPath,
@@ -522,6 +526,8 @@ export class AgentServer {
   private session: ActiveSession | null = null;
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
+  // Keyed by `mcp__<server>__<tool>`, the name the adapters report in permission requests.
+  private mcpToolPolicies = new Map<string, McpToolPolicy>();
   private contextSelectionAPI: PostHogAPIClient;
   private contextSelectionApiKey: string;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
@@ -636,6 +642,40 @@ export class AgentServer {
       setAlwaysAskMcpServers(names);
     }
     return this.mcpRelayServer.mcpServers;
+  }
+
+  /**
+   * Load each installed MCP tool's approval state so the adapter prompts for
+   * `needs_approval` tools. The gateway proxy rejects those calls until the
+   * tool is approved in PostHog, so an unprompted call can only fail.
+   */
+  private async loadMcpToolApprovals(): Promise<McpToolApprovals> {
+    const { policies } = await this.posthogAPI.getMcpRuntimeConfiguration(
+      this.config.mcpServers ?? [],
+    );
+    this.mcpToolPolicies = new Map(
+      policies.map((policy) => [
+        `mcp__${policy.serverName}__${policy.toolName}`,
+        policy,
+      ]),
+    );
+    return Object.fromEntries(
+      [...this.mcpToolPolicies].map(([key, policy]) => [
+        key,
+        policy.approvalState,
+      ]),
+    );
+  }
+
+  private needsApprovalMcpTool(
+    params: RequestPermissionRequest,
+  ): McpToolPolicy | undefined {
+    const descriptor = this.readPermissionMcpDescriptor(params);
+    if (!descriptor) return undefined;
+    const policy = this.mcpToolPolicies.get(
+      `mcp__${descriptor.server}__${descriptor.tool}`,
+    );
+    return policy?.approvalState === "needs_approval" ? policy : undefined;
   }
 
   private detachSseController(controller: SseController): void {
@@ -2417,6 +2457,7 @@ export class AgentServer {
     // a multi-repository workspace already has its repos on disk.
     const channelMode =
       !this.config.repositoryPath && this.taskRepositories.length === 0;
+    const mcpToolApprovals = await this.loadMcpToolApprovals();
     const sessionMeta = {
       sessionId: payload.run_id,
       taskRunId: payload.run_id,
@@ -2431,6 +2472,7 @@ export class AgentServer {
       ...(channelMode && { channelMode: true }),
       budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
+      mcpToolApprovals,
       ...(launch.originProduct && {
         taskOriginProduct: launch.originProduct,
       }),
@@ -5123,6 +5165,24 @@ export class AgentServer {
           }
         }
 
+        // The gateway proxy rejects a needs_approval tool until it is approved
+        // in PostHog, so auto-approving here would only produce a failed call.
+        const gatedMcpTool = this.needsApprovalMcpTool(params);
+        if (gatedMcpTool) {
+          if (mode !== "background" && this.hasReachableClient()) {
+            return this.relayMcpToolApproval(params, gatedMcpTool);
+          }
+          return {
+            outcome: { outcome: "cancelled" as const },
+            _meta: {
+              message:
+                `The ${gatedMcpTool.toolName} tool on ${gatedMcpTool.serverName} needs approval, ` +
+                "and no user is available to approve it. Do NOT retry; tell the user to " +
+                "approve it in PostHog under the MCP server's tool settings.",
+            },
+          };
+        }
+
         const posthogExecSubTool =
           this.matchesPostHogExecPermissionRequest(params);
         if (mode !== "background" && posthogExecSubTool) {
@@ -5802,6 +5862,38 @@ export class AgentServer {
     } catch {
       this.detachSseController(controller);
     }
+  }
+
+  /**
+   * Ask the user about a needs_approval MCP tool and, when they allow it,
+   * record the approval in PostHog first so the gateway proxy accepts the call.
+   * The proxy has no per-call approval, so "allow once" approves the tool too.
+   */
+  private async relayMcpToolApproval(
+    params: RequestPermissionRequest,
+    policy: McpToolPolicy,
+  ): Promise<RequestPermissionResponse> {
+    const response = await this.relayPermissionToClient(params);
+    const selected = params.options.find(
+      (option) => option.optionId === response.outcome.optionId,
+    );
+    if (selected?.kind !== "allow_once" && selected?.kind !== "allow_always") {
+      return response;
+    }
+    try {
+      await this.posthogAPI.approveMcpTool(
+        policy.installationId,
+        policy.toolName,
+      );
+      policy.approvalState = "approved";
+    } catch (error) {
+      this.logger.warn("Failed to record MCP tool approval", {
+        installationId: policy.installationId,
+        toolName: policy.toolName,
+        error: getErrorMessage(error),
+      });
+    }
+    return response;
   }
 
   /**

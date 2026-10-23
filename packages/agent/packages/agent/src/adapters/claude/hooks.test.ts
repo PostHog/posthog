@@ -18,6 +18,7 @@ import {
   createTaskHook,
   type EnrichedReadCache,
 } from "./hooks";
+import { setMcpToolApprovalStates } from "./mcp/tool-metadata";
 import type {
   PermissionCheckResult,
   SettingsManager,
@@ -527,6 +528,34 @@ describe("createPreToolUseHook", () => {
       hookSpecificOutput: { permissionDecision: "ask" },
     });
   });
+
+  test.each([
+    { approvalState: "needs_approval", decision: "ask" },
+    { approvalState: "approved", decision: "allow" },
+  ] as const)(
+    "returns $decision for an MCP tool in $approvalState under an allow rule",
+    async ({ approvalState, decision }) => {
+      const toolName = `mcp__metrics__${approvalState}_tool`;
+      setMcpToolApprovalStates({ [toolName]: approvalState });
+      const hook = createPreToolUseHook(
+        buildSettingsManagerStub({
+          decision: "allow",
+          rule: toolName,
+          source: "allow",
+        }),
+        logger,
+      );
+      const result = await hook(
+        buildPreToolUseHookInput(toolName, {}),
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      expect(result).toMatchObject({
+        hookSpecificOutput: { permissionDecision: decision },
+      });
+    },
+  );
 });
 
 describe("createSignedCommitGuardHook", () => {

@@ -3173,6 +3173,77 @@ describe("AgentServer HTTP Mode", () => {
       expect(relaySpy).toHaveBeenCalledOnce();
     });
 
+    function withNeedsApprovalTool(testServer: AgentServer) {
+      const approveMcpTool = vi.fn(async () => {});
+      const exposed = testServer as unknown as {
+        mcpToolPolicies: Map<string, unknown>;
+        posthogAPI: { approveMcpTool: typeof approveMcpTool };
+      };
+      exposed.mcpToolPolicies = new Map([
+        [
+          "mcp__metrics__get_stats",
+          {
+            serverName: "metrics",
+            toolName: "get_stats",
+            installationId: "installation-1",
+            approvalState: "needs_approval",
+          },
+        ],
+      ]);
+      exposed.posthogAPI.approveMcpTool = approveMcpTool;
+      return approveMcpTool;
+    }
+
+    it("records the approval before a relayed needs_approval MCP tool runs", async () => {
+      const testServer = exposeCloudClient(createServer());
+      const approveMcpTool = withNeedsApprovalTool(
+        testServer as unknown as AgentServer,
+      );
+      testServer.session = { hasDesktopConnected: true };
+      vi.spyOn(testServer, "relayPermissionToClient").mockResolvedValue({
+        outcome: { outcome: "selected", optionId: "allow_once" },
+      });
+
+      const { requestPermission } = testServer.createCloudClient(basePayload);
+      await requestPermission(permissionRequestFor("mcp__metrics__get_stats"));
+
+      expect(approveMcpTool).toHaveBeenCalledWith(
+        "installation-1",
+        "get_stats",
+      );
+    });
+
+    it.each([
+      {
+        label: "a background run",
+        mode: "background" as const,
+        connected: true,
+      },
+      {
+        label: "an interactive run with no client",
+        mode: "interactive" as const,
+        connected: false,
+      },
+    ])(
+      "cancels a needs_approval MCP tool in $label instead of auto-approving",
+      async ({ mode, connected }) => {
+        const testServer = exposeCloudClient(createServer());
+        withNeedsApprovalTool(testServer as unknown as AgentServer);
+        testServer.session = { hasDesktopConnected: connected };
+        testServer.eventStreamSender = null;
+
+        const { requestPermission } = testServer.createCloudClient({
+          ...basePayload,
+          mode,
+        });
+        const result = await requestPermission(
+          permissionRequestFor("mcp__metrics__get_stats"),
+        );
+
+        expect(result.outcome).toEqual({ outcome: "cancelled" });
+      },
+    );
+
     // Codex registers servers under sanitized keys (its name pattern rejects
     // e.g. spaces) and suffixes collisions, so the always-ask gate must match
     // both forms; missing the suffixed one auto-runs a relayed local tool.
