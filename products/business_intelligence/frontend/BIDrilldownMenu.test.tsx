@@ -76,8 +76,7 @@ describe('native result-menu links', () => {
                 act(() => logic.actions.inspect({ count: 8 }))
                 expect(screen.queryByText('Filter dashboard by this result')).not.toBeInTheDocument()
                 expect(screen.getAllByRole('menuitem')).toHaveLength(3)
-                expect(screen.getByText('· Click again to close')).toBeInTheDocument()
-                fireEvent.click(screen.getByLabelText('Close result menu'))
+                fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
                 expect(logic.values.record).toBeNull()
             } finally {
                 unmount()

@@ -17,68 +17,16 @@ const query: BIVisualizationNode = { ...buildBIQuery(config)!.node, kind: NodeKi
 describe('dashboard result exploration', () => {
     beforeEach(() => initKeaTests())
 
-    it.each([{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }])(
-        'leaves modified link clicks to the browser: %j',
-        (modifiers) => {
-            const onFilterDashboard = jest.fn()
-            const logic = biDrilldownLogic({ key: 'modified', query, onFilterDashboard })
-            const unmount = logic.mount()
-            try {
-                logic.actions.setInteraction({ x: 20, y: 30, clickCount: 1, timestamp: 100 })
-                logic.actions.inspect({ status: 'paid' })
-                const click = new MouseEvent('click', {
-                    clientX: 20,
-                    clientY: 30,
-                    detail: 1,
-                    cancelable: true,
-                    ...modifiers,
-                })
-                Object.defineProperty(click, 'timeStamp', { value: 200 })
-                document.dispatchEvent(click)
-                expect(click.defaultPrevented).toBe(false)
-                expect(onFilterDashboard).not.toHaveBeenCalled()
-            } finally {
-                unmount()
-            }
-        }
-    )
-
-    it('recognizes the second click when an edge-clamped menu covers the original chart target', () => {
-        const onFilterDashboard = jest.fn()
-        const logic = biDrilldownLogic({ key: 'edge', query, onFilterDashboard })
-        const unmount = logic.mount()
-        try {
-            logic.actions.setInteraction({ x: 20, y: 30, clickCount: 1, timestamp: 100 })
-            logic.actions.inspect({ status: 'paid' })
-            const secondClick = new MouseEvent('click', { clientX: 20, clientY: 30, detail: 1, cancelable: true })
-            Object.defineProperty(secondClick, 'timeStamp', { value: 200 })
-            document.dispatchEvent(secondClick)
-            expect(secondClick.defaultPrevented).toBe(true)
-            expect(onFilterDashboard).toHaveBeenCalledTimes(1)
-            expect(onFilterDashboard).toHaveBeenCalledWith({ status: 'paid' })
-            expect(logic.values.record).toBeNull()
-            logic.actions.inspect({ status: 'refunded' })
-            expect(onFilterDashboard).toHaveBeenCalledTimes(1)
-            expect(logic.values.record).toEqual({ status: 'refunded' })
-            document.dispatchEvent(secondClick)
-            expect(onFilterDashboard).toHaveBeenCalledTimes(1)
-        } finally {
-            unmount()
-        }
-    })
-
-    it.each([1, 2])('filters once through the menu or a double-click (click count %s)', (clickCount) => {
+    it.each([1, 2])('opens the menu before filtering (click count %s)', (clickCount) => {
         const onFilterDashboard = jest.fn()
         const logic = biDrilldownLogic({ key: 'orders', query, onFilterDashboard })
         const unmount = logic.mount()
         try {
             logic.actions.setInteraction({ x: 300, y: 250, clickCount })
             logic.actions.inspect({ status: 'paid' })
-            if (clickCount === 1) {
-                expect(onFilterDashboard).not.toHaveBeenCalled()
-                expect(logic.values.selection?.labels).toEqual([{ name: 'Status', value: 'paid' }])
-                logic.actions.filterDashboard()
-            }
+            expect(onFilterDashboard).not.toHaveBeenCalled()
+            expect(logic.values.selection?.labels).toEqual([{ name: 'Status', value: 'paid' }])
+            logic.actions.filterDashboard()
             expect(onFilterDashboard).toHaveBeenCalledTimes(1)
             expect(onFilterDashboard).toHaveBeenCalledWith({ status: 'paid' })
             expect(logic.values.record).toBeNull()
@@ -90,7 +38,7 @@ describe('dashboard result exploration', () => {
         }
     })
 
-    it('selects adjacent points directly while filtering, but still explores unsupported results', () => {
+    it('opens adjacent points in the menu while filtering', () => {
         const onFilterDashboard = jest.fn()
         const logic = biDrilldownLogic({ key: 'active', query, onFilterDashboard, dashboardFilterActive: true })
         const unmount = logic.mount()
@@ -98,13 +46,13 @@ describe('dashboard result exploration', () => {
             for (const status of ['paid', 'refunded', 'refunded']) {
                 logic.actions.setInteraction({ x: 300, y: 250, clickCount: 1 })
                 logic.actions.inspect({ status })
-                expect(onFilterDashboard).toHaveBeenLastCalledWith({ status })
-                expect(logic.values.record).toBeNull()
+                expect(onFilterDashboard).not.toHaveBeenCalled()
+                expect(logic.values.record).toEqual({ status })
             }
-            expect(onFilterDashboard).toHaveBeenCalledTimes(3)
+            expect(onFilterDashboard).not.toHaveBeenCalled()
             logic.actions.setInteraction({ x: 300, y: 250, clickCount: 1 })
             logic.actions.inspect({ count: 8 })
-            expect(onFilterDashboard).toHaveBeenCalledTimes(3)
+            expect(onFilterDashboard).not.toHaveBeenCalled()
             expect(logic.values.record).toEqual({ count: 8 })
         } finally {
             unmount()
@@ -112,7 +60,7 @@ describe('dashboard result exploration', () => {
     })
 
     it.each([{ count: 8 }, { status: 'paid', bi_comparison: 'Previous period' }])(
-        'closes unsupported results without filtering on a second click: %j',
+        'keeps unsupported results available for exploration: %j',
         (record) => {
             const onFilterDashboard = jest.fn()
             const logic = biDrilldownLogic({ key: 'unsupported', query, onFilterDashboard })
@@ -123,7 +71,7 @@ describe('dashboard result exploration', () => {
                 logic.actions.filterDashboard()
                 expect(onFilterDashboard).not.toHaveBeenCalled()
                 expect(logic.values.dashboardFilterDisabledReason).toBeTruthy()
-                expect(logic.values.record).toBeNull()
+                expect(logic.values.record).toEqual(record)
                 logic.actions.setInteraction({ x: 300, y: 250, clickCount: 1 })
                 logic.actions.inspect(record)
                 expect(logic.values.queries?.rows).toBeTruthy()

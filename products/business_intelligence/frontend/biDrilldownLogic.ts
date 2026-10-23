@@ -150,43 +150,8 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
     }),
     listeners(({ values, actions, props, cache }) => ({
         inspect: () => {
-            if (props.dashboardFilterActive && props.onFilterDashboard && !values.dashboardFilterDisabledReason) {
-                actions.filterDashboard()
-                return
-            }
-            if ((props.dashboardMenu || props.onFilterDashboard) && values.interaction?.clickCount === 2) {
-                if (props.onFilterDashboard && !values.dashboardFilterDisabledReason) {
-                    actions.filterDashboard()
-                } else {
-                    actions.close()
-                }
-                return
-            }
             if (props.dashboardMenu || props.onFilterDashboard) {
                 cache.disposables.add(() => {
-                    const interaction = values.interaction
-                    const onClick = (event: MouseEvent): void => {
-                        if (
-                            interaction?.timestamp !== undefined &&
-                            event.detail > 0 &&
-                            event.button === 0 &&
-                            !event.metaKey &&
-                            !event.ctrlKey &&
-                            !event.shiftKey &&
-                            !event.altKey &&
-                            event.timeStamp - interaction.timestamp >= 0 &&
-                            event.timeStamp - interaction.timestamp <= 500 &&
-                            Math.hypot(event.clientX - interaction.x, event.clientY - interaction.y) <= 6
-                        ) {
-                            event.preventDefault()
-                            event.stopImmediatePropagation()
-                            if (props.onFilterDashboard && !values.dashboardFilterDisabledReason) {
-                                actions.filterDashboard()
-                            } else {
-                                actions.close()
-                            }
-                        }
-                    }
                     const onScroll = (event: Event): void => {
                         if (
                             !(event.target instanceof Element && event.target.closest('[data-attr="bi-result-menu"]'))
@@ -196,11 +161,9 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
                     }
                     window.addEventListener('scroll', onScroll, true)
                     window.addEventListener('resize', actions.close)
-                    document.addEventListener('click', onClick, true)
                     return () => {
                         window.removeEventListener('scroll', onScroll, true)
                         window.removeEventListener('resize', actions.close)
-                        document.removeEventListener('click', onClick, true)
                     }
                 }, 'result-menu-position')
             }

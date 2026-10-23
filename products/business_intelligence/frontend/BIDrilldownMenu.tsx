@@ -66,7 +66,6 @@ export function BIDrilldownMenu({ logicProps }: { logicProps: BIDrilldownProps }
             caption={selection.previous ? 'Comparison period' : 'Current period'}
             interaction={interaction}
             actions={actions}
-            canFilter={canFilter}
             close={close}
         />
     )
