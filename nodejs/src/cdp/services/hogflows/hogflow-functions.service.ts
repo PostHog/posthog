@@ -1,9 +1,11 @@
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
+    AcceptedSend,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '~/cdp/types'
 
@@ -12,6 +14,27 @@ import { HogFunctionTemplateManagerService } from '../managers/hog-function-temp
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
+
+const layAcceptedSendOver = (
+    globals: HogFunctionInvocationGlobalsWithInputs,
+    send: AcceptedSend
+): HogFunctionInvocationGlobalsWithInputs => ({
+    ...globals,
+    inputs: {
+        ...globals.inputs,
+        email: {
+            ...globals.inputs.email,
+            ...(send.content && {
+                subject: send.content.subject,
+                html: send.content.html ?? '',
+                text: send.content.text ?? '',
+                preheader: '',
+            }),
+            ...(send.from && { from: { ...send.from } }),
+            ...(send.replyTo && { replyTo: send.replyTo.join(', ') }),
+        },
+    },
+})
 
 // Helper class that can turn a hog flow action into a hog function
 export class HogFlowFunctionsService {
@@ -24,7 +47,8 @@ export class HogFlowFunctionsService {
     async buildHogFunction(
         hogFlow: HogFlow,
         configuration: Action['config'],
-        actionName?: string
+        actionName?: string,
+        send?: AcceptedSend
     ): Promise<HogFunctionType> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
 
@@ -59,6 +83,7 @@ export class HogFlowFunctionsService {
                 email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
                 email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
                 email_sending_paused_by: hogFlow.email_sending_paused_by ?? null,
+                capture_engagement: send?.tracking.captureEngagement ?? null,
             },
         }
 
@@ -97,10 +122,12 @@ export class HogFlowFunctionsService {
         return values
     }
 
+    // `send` is laid over the inputs only when they are first rendered, so continuations reuse it.
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
-        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
+        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>,
+        send?: AcceptedSend
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
@@ -125,10 +152,7 @@ export class HogFlowFunctionsService {
             ...invocation,
             hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
-                    hogFunction,
-                    globalsWithSource
-                ),
+                globals: await this.buildInputsWithGlobals(hogFunction, globalsWithSource, send),
                 timings: [],
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,
@@ -139,6 +163,15 @@ export class HogFlowFunctionsService {
         }
 
         return hogFunctionInvocation
+    }
+
+    private async buildInputsWithGlobals(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals,
+        send?: AcceptedSend
+    ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        const rendered = await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        return send ? layAcceptedSendOver(rendered, send) : rendered
     }
 
     async execute(

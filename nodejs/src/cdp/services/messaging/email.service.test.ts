@@ -1832,6 +1832,25 @@ describe('EmailService', () => {
             expect(result.capturedPostHogEvents).toHaveLength(0)
         })
 
+        it.each([
+            { captureEngagement: true, teamCaptures: false, captured: 1 },
+            { captureEngagement: false, teamCaptures: true, captured: 0 },
+        ])(
+            "follows a code send's capture choice $captureEngagement over the team switch $teamCaptures",
+            async ({ captureEngagement, teamCaptures, captured }) => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(teamCaptures)
+                invocation.hogFunction.metadata = { capture_engagement: captureEngagement }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.capturedPostHogEvents).toHaveLength(captured)
+            }
+        )
+
         it('should capture a $workflows_email_failed PostHog event on failure', async () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
                 true

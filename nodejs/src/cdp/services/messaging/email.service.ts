@@ -25,6 +25,7 @@ import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
     addTrackingToEmail,
+    resolveEmailCaptureChoice,
     resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
 } from './email-tracking.service'
@@ -644,7 +645,8 @@ export class EmailService {
         if (
             distinctId &&
             !isTest &&
-            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
+            (resolveEmailCaptureChoice(invocation) ??
+                (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId)))
         ) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
@@ -1017,7 +1019,12 @@ export class EmailService {
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
         const workflowVersion = resolveEmailSendingVersion(result.invocation)
         const trackingCode = this.trackingCodeSigner.generate(
-            { ...result.invocation, distinctId, workflowVersion },
+            {
+                ...result.invocation,
+                distinctId,
+                workflowVersion,
+                captureEngagement: resolveEmailCaptureChoice(result.invocation),
+            },
             isTest
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)

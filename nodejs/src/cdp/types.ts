@@ -449,6 +449,15 @@ export type MessageOptOutRecord = {
     categoryId: string
 }
 
+// A code send accepted by the transactional email API, carried on the run so the worker delivers
+// exactly what the caller sent. It is part of the queued job format: change it only additively.
+export type AcceptedSend = Readonly<{
+    content?: Readonly<{ subject: string; html?: string; text?: string }>
+    from?: Readonly<{ integrationId: number; email?: string; name?: string }>
+    replyTo?: readonly string[]
+    tracking: Readonly<{ captureEngagement: boolean }>
+}>
+
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
@@ -562,6 +571,7 @@ export type HogFlowInvocationContext = {
     // conversions are counted by the matcher and never touch this flag.
     conversionCounted?: boolean
     variables?: Record<string, any>
+    send?: AcceptedSend
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
