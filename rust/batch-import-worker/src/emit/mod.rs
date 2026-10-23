@@ -13,7 +13,7 @@ pub mod kafka;
 pub trait Emitter: Send + Sync {
     async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error>;
 
-    /// Apply a send rate changed on the job row. Takes effect from the next transaction.
+    /// Apply a send rate changed on the job row, from the next transaction on.
     fn set_send_rate(&mut self, _send_rate: u64) {}
 }
 
@@ -24,6 +24,11 @@ pub trait Transaction<'a>: Send + Sync {
     // Commits return a delay to wait before the next commit start
     async fn commit_write(self: Box<Self>) -> Result<Duration, Error> {
         Ok(Duration::from_secs(0))
+    }
+
+    /// Discard everything emitted in this transaction. Sinks that send only on commit need nothing.
+    async fn abort(self: Box<Self>) -> Result<(), Error> {
+        Ok(())
     }
 }
 

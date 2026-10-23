@@ -51,8 +51,7 @@ pub enum JobStatus {
     Completed,
 }
 
-/// The chunk a worker is sending. Saved before the send and cleared after the sink accepts
-/// it, so a value left on the row means a worker stopped mid-commit.
+/// The chunk a worker is sending; a value left on the row means a worker stopped mid-commit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingCommit {
     pub key: String,
@@ -65,15 +64,13 @@ pub struct PendingCommit {
 pub struct RowWrite {
     /// False when the write required a running row and the row was no longer running.
     pub applied: bool,
-    /// The row status after the write. Anything other than running means an operator or a
-    /// customer changed it, and the worker must stop.
+    /// The row status after the write; anything but running means the worker must stop.
     pub status: JobStatus,
     /// The sink send rate stored on the row, if the sink has one.
     pub send_rate: Option<u64>,
 }
 
-/// A status change the worker makes on its own, such as a pause on error or completion.
-/// It applies only while the row is still running, so it never overrides an operator.
+/// A worker-made status change, applied only while the row is running.
 struct StatusChange {
     status: JobStatus,
     status_message: Option<String>,
@@ -328,9 +325,8 @@ impl JobModel {
         Ok(())
     }
 
-    /// Save worker-owned progress (offsets, pending commit, backoff and lease) without
-    /// touching the status. When `only_if_running` is set, the write applies only while the
-    /// row is still running: use it before sending a chunk, so that a stopped job sends nothing.
+    /// Save worker-owned progress without touching the status. With `only_if_running`, a stopped
+    /// row refuses the write, so use it before a send.
     pub async fn save_progress(
         &mut self,
         pool: &PgPool,
@@ -340,8 +336,7 @@ impl JobModel {
         self.write(pool, None, extend_lease, only_if_running).await
     }
 
-    /// Save progress after the sink accepted a chunk. Also clears the messages and backoff
-    /// left by earlier pauses or retries, while the row is still running.
+    /// Save progress after a sink commit, clearing backoff and stale messages while the row runs.
     pub async fn save_committed(&mut self, pool: &PgPool) -> Result<RowWrite, Error> {
         self.backoff_attempt = 0;
         self.backoff_until = None;
@@ -370,9 +365,8 @@ impl JobModel {
         Ok(())
     }
 
-    /// Pause a job that a worker left mid-commit, because nobody knows whether the chunk in
-    /// `pending_commit` reached the sink. An operator checks the sink and resumes the job,
-    /// which clears the marker. Returns true when the job was paused.
+    /// Pause a job left mid-commit for review, because its `pending_commit` chunk may not have
+    /// reached the sink, and release the lease so a resume is not blocked. Returns true when paused.
     pub async fn pause_if_interrupted_commit(
         &mut self,
         context: Arc<AppContext>,
@@ -389,7 +383,7 @@ impl JobModel {
         );
         metrics::interrupted_commit_paused();
         self.pause(
-            context,
+            context.clone(),
             format!(
                 "A worker stopped while committing part {} (offsets {} to {}). The chunk may not have reached the sink.",
                 pending.key, pending.from_offset, pending.to_offset
@@ -397,6 +391,7 @@ impl JobModel {
             Some("Job paused after an interrupted commit. Resume it to continue.".to_string()),
         )
         .await?;
+        self.release_lease(&context.db).await?;
         Ok(true)
     }
 
@@ -454,21 +449,18 @@ impl JobModel {
         Ok(())
     }
 
-    pub async fn complete(&mut self, pool: &PgPool) -> Result<(), Error> {
+    /// Mark the job completed, unless an operator changed its status. Returns the row status.
+    pub async fn complete(&mut self, pool: &PgPool) -> Result<JobStatus, Error> {
         let change = StatusChange {
             status: JobStatus::Completed,
             status_message: self.status_message.clone(),
             display_status_message: None,
         };
-        self.write(pool, Some(change), false, false).await?;
-        Ok(())
+        Ok(self.write(pool, Some(change), false, false).await?.status)
     }
 
-    /// Every worker write to the job row goes through here. The write needs this worker's
-    /// lease, and `change` applies only while the row is running, so a status that an operator
-    /// or a customer set is never overwritten. Progress always saves, unless `only_if_running`
-    /// is set and the row is no longer running. A lost lease is an error: another worker or a
-    /// resume owns the row now.
+    /// Every worker write to the job row goes through here: it needs this worker's lease, and
+    /// `change` applies only while the row is running. A lost lease is an error.
     async fn write(
         &mut self,
         pool: &PgPool,
@@ -480,8 +472,7 @@ impl JobModel {
             anyhow::bail!("Cannot write a job with no lease")
         };
 
-        // A claim leases for 30 minutes because job init can be slow. Later writes extend
-        // the lease by 5 minutes only.
+        // A claim leases for 30 minutes because job init is slow; later writes extend it by 5.
         let (new_lease, new_leased_until) = if extend_lease {
             (
                 Some(Uuid::now_v7().to_string()),
@@ -514,7 +505,7 @@ impl JobModel {
                 lease_id = $9,
                 leased_until = $10
             WHERE id = $1 AND lease_id = $11 AND (NOT $12 OR status = 'running')
-            RETURNING status, (import_config->'sink'->>'send_rate')::bigint AS send_rate
+            RETURNING status, import_config->'sink'->>'send_rate' AS send_rate
             "#,
             self.id,
             new_status,
@@ -559,13 +550,15 @@ impl JobModel {
         Ok(RowWrite {
             applied: true,
             status,
-            send_rate: row.send_rate.and_then(|rate| u64::try_from(rate).ok()),
+            send_rate: row
+                .send_rate
+                .and_then(|rate| rate.parse::<u64>().ok())
+                .filter(|rate| *rate > 0),
         })
     }
 
-    /// Find out why a lease-guarded write matched no row. A changed lease means this worker
-    /// lost the job, which is an error. Otherwise the row is no longer running, and the
-    /// returned status says what an operator or a customer set.
+    /// Explain a write that matched no row: a lost lease is an error, otherwise return the status
+    /// an operator or a customer set.
     async fn explain_missed_write(&self, pool: &PgPool, lease: &str) -> Result<JobStatus, Error> {
         let row = sqlx::query!(
             r#"SELECT status, lease_id FROM posthog_batchimport WHERE id = $1"#,
@@ -968,7 +961,9 @@ mod tests {
                     .fail(&context.db, "worker fail".to_string(), "failed".to_string())
                     .await
                     .unwrap(),
-                WorkerAction::Complete => model.complete(&context.db).await.unwrap(),
+                WorkerAction::Complete => {
+                    model.complete(&context.db).await.unwrap();
+                }
                 WorkerAction::Backoff => model
                     .schedule_backoff(
                         &context.db,
@@ -1027,6 +1022,13 @@ mod tests {
                     operator_status => operator_status.to_string(),
                 };
                 assert_eq!(stored.status, expected, "{action:?} on a {row_status} row");
+                if row_status != JobStatus::Running {
+                    assert_eq!(
+                        stored.status_message.as_deref(),
+                        Some(test_db::OPERATOR_MESSAGE),
+                        "{action:?} must keep the operator's message on a {row_status} row"
+                    );
+                }
                 if matches!(action, WorkerAction::Backoff) {
                     assert_eq!(
                         stored.backoff_until.is_some(),
@@ -1069,9 +1071,44 @@ mod tests {
                 assert!(message.contains("100 to 250"), "{message}");
                 assert!(stored.display_status_message.is_some());
                 assert_eq!(stored.pending_commit, pending);
+                assert_eq!(
+                    stored.lease_id, None,
+                    "a resume must not wait for this lease"
+                );
             } else {
                 assert_eq!(stored.status, "running");
             }
+            test_db::delete_job(&context.db, id).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_send_rate_from_the_row_is_a_positive_integer_or_nothing() {
+        let context = test_db::context().await;
+        let cases: [(&str, serde_json::Value, Option<u64>); 5] = [
+            ("integer", serde_json::json!(250), Some(250)),
+            ("zero", serde_json::json!(0), None),
+            ("decimal", serde_json::json!(1000.5), None),
+            ("beyond bigint", serde_json::json!(1e20), None),
+            ("string", serde_json::json!("fast"), None),
+        ];
+        for (name, send_rate, expected) in cases {
+            let row = test_db::JobRowFixture {
+                sink: serde_json::json!({"type": "noop", "send_rate": send_rate}),
+                ..fixture(JobStatus::Running, None)
+            };
+            let id = test_db::insert_job(&context.db, &row).await;
+            let mut model = test_db::claimed_model(id, &row);
+
+            let written = model
+                .save_progress(&context.db, true, false)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("case '{name}': a bad send rate must not fail the write: {e:#}")
+                });
+
+            assert!(written.applied, "case '{name}'");
+            assert_eq!(written.send_rate, expected, "case '{name}'");
             test_db::delete_job(&context.db, id).await;
         }
     }
