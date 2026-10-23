@@ -40035,19 +40035,6 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
     }
 
-    export interface EmailTag {
-      /**
-         * Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's.
-         * @maxLength 256
-         */
-      name: string;
-      /**
-         * Tag value: ASCII letters, numbers, `_` and `-`.
-         * @maxLength 256
-         */
-      value: string;
-    }
-
     /**
      * * `queued` - Queued
      * * `waiting` - Waiting
