@@ -5,6 +5,8 @@ from django.utils.html import format_html
 
 from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport, CommitInFlightError
 
+STATUS_CHANGED_MESSAGE = "This import changed since the page loaded. Reload it and try again."
+
 
 class BatchImportAdminForm(forms.ModelForm):
     sink_type = forms.ChoiceField(
@@ -49,8 +51,8 @@ class BatchImportAdminForm(forms.ModelForm):
         # A page rendered without hidden initial values would make every field read as changed.
         if self.instance.pk and any(self.add_initial_prefix(name) not in self.data for name in self.fields):
             raise forms.ValidationError("This page is out of date. Reload it and make your change again.")
-        if self.resumes() and self.instance.commit_in_flight():
-            raise forms.ValidationError(str(CommitInFlightError()))
+        if self.resumes():
+            self.raise_if_resume_unsafe(self.instance)
         return cleaned_data
 
     def resumes(self) -> bool:
@@ -59,6 +61,14 @@ class BatchImportAdminForm(forms.ModelForm):
             and "status" in self.changed_data
             and self.cleaned_data.get("status") == BatchImport.Status.RUNNING
         )
+
+    def raise_if_resume_unsafe(self, current: BatchImport) -> None:
+        # A resume clears the lease, so it must act on the status the operator saw, not one that a
+        # worker or a customer set since.
+        if current.status != self.data.get(self.add_initial_prefix("status")):
+            raise forms.ValidationError(STATUS_CHANGED_MESSAGE)
+        if current.commit_in_flight():
+            raise forms.ValidationError(str(CommitInFlightError()))
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -193,8 +203,10 @@ class BatchImportAdmin(admin.ModelAdmin):
         message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
         with transaction.atomic():
             # The form checked this already; the lock closes the gap until the save.
-            if BatchImport.objects.select_for_update().get(pk=obj.pk).commit_in_flight():
-                self.message_user(request, str(CommitInFlightError()), level=messages.ERROR)
+            try:
+                form.raise_if_resume_unsafe(BatchImport.objects.select_for_update().get(pk=obj.pk))
+            except forms.ValidationError as e:
+                self.message_user(request, " ".join(e.messages), level=messages.ERROR)
                 return
             update_fields.extend(obj.reset_for_resume(message))
             obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))

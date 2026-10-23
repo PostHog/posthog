@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages import get_messages
 from django.contrib.messages.middleware import MessageMiddleware
@@ -734,7 +734,43 @@ class TestBatchImportAdminChangeForm(BaseTest):
         self.assertFalse(form.is_valid())
         self.assertIn("A worker is sending a chunk", str(form.non_field_errors()))
 
-    def test_save_refuses_a_resume_when_a_send_starts_after_validation(self):
+    @parameterized.expand(
+        [
+            ("resumed_and_running", BatchImport.Status.RUNNING),
+            ("completed", BatchImport.Status.COMPLETED),
+            ("failed", BatchImport.Status.FAILED),
+        ]
+    )
+    def test_save_refuses_a_resume_when_the_status_changed_since_page_load(self, _name, current_status):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"sink": {"type": "capture", "send_rate": 5000}},
+            status=BatchImport.Status.PAUSED,
+        )
+        shown = self._form_values(batch_import)
+        BatchImport.objects.filter(id=batch_import.id).update(
+            status=current_status,
+            lease_id="live-worker-lease",
+            leased_until=datetime.now(UTC) + timedelta(minutes=5),
+        )
+
+        form = self._post_admin_form(batch_import, shown, {"status": "running"})
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("changed since the page loaded", str(form.non_field_errors()))
+
+    @parameterized.expand(
+        [
+            (
+                "send_started",
+                {"pending_commit": {"key": "day-1", "from_offset": 0, "to_offset": 10}},
+                BatchImport.Status.PAUSED,
+            ),
+            ("resumed_elsewhere", {"status": BatchImport.Status.RUNNING}, BatchImport.Status.RUNNING),
+        ]
+    )
+    def test_save_refuses_a_resume_when_the_row_changes_after_validation(self, _name, change, expected_status):
         batch_import = BatchImport.objects.create(
             team=self.team,
             created_by_id=self.user.id,
@@ -744,17 +780,16 @@ class TestBatchImportAdminChangeForm(BaseTest):
         form = self._post_admin_form(batch_import, self._form_values(batch_import), {"status": "running"})
         self.assertTrue(form.is_valid(), form.errors)
         BatchImport.objects.filter(id=batch_import.id).update(
-            lease_id="live-worker-lease",
-            leased_until=datetime.now(UTC) + timedelta(minutes=5),
-            pending_commit={"key": "day-1", "from_offset": 0, "to_offset": 10},
+            lease_id="live-worker-lease", leased_until=datetime.now(UTC) + timedelta(minutes=5), **change
         )
 
-        with patch.object(self.model_admin, "message_user"):
+        with patch.object(self.model_admin, "message_user") as message_user:
             self._save(form)
 
         batch_import.refresh_from_db()
-        self.assertEqual(batch_import.status, BatchImport.Status.PAUSED)
+        self.assertEqual(batch_import.status, expected_status)
         self.assertEqual(batch_import.lease_id, "live-worker-lease")
+        self.assertEqual(message_user.call_args.kwargs["level"], messages.ERROR)
 
     def test_save_rejects_a_page_without_initial_values(self):
         batch_import = BatchImport.objects.create(
