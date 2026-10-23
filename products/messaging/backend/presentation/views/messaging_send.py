@@ -35,6 +35,7 @@ from products.messaging.backend.presentation.views.transactional_email_api impor
     SendTransactionalEmailSerializer,
     TemplateErrorSerializer,
     TemplateRefusal,
+    TransactionalEmailIdentifiersSerializer,
     TransactionalEmailViewSetMixin,
     first_field_error,
     invalid_request,
@@ -42,7 +43,16 @@ from products.messaging.backend.presentation.views.transactional_email_api impor
 )
 
 
-class TemplateReferenceSerializer(serializers.Serializer):
+class RefusesUnknownFieldsSerializer(serializers.Serializer):
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, Mapping):
+            unknown = [field for field in data if field not in self.fields]
+            if unknown:
+                raise serializers.ValidationError({unknown[0]: "PostHog doesn't take this field on this route."})
+        return super().to_internal_value(data)
+
+
+class TemplateReferenceSerializer(RefusesUnknownFieldsSerializer):
     key = serializers.CharField(
         required=False,
         trim_whitespace=False,
@@ -68,8 +78,15 @@ class TemplateReferenceSerializer(serializers.Serializer):
 CODE_FORM_FIELDS = ("subject", "html", "text")
 
 
-class SendEmailSerializer(SendTransactionalEmailSerializer):
+class SendIdentifiersSerializer(RefusesUnknownFieldsSerializer, TransactionalEmailIdentifiersSerializer):
+    pass
+
+
+class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmailSerializer):
     to = PlainAddressField(help_text="Email address of the recipient, as `jane@example.com`.")
+    identifiers = SendIdentifiersSerializer(
+        required=False, help_text="Who the email is for, used to attribute engagement events."
+    )
     template = TemplateReferenceSerializer(
         required=False,
         help_text="The template to send, by key or by id. Leave it out to send content your code rendered, with "
@@ -118,13 +135,6 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         # `from` is a Python keyword, so the field is declared under another name.
         fields["from"] = fields.pop("from_address")
         return fields
-
-    def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, Mapping):
-            unknown = [field for field in data if field not in self.fields]
-            if unknown:
-                raise serializers.ValidationError({unknown[0]: "PostHog doesn't take this field on this route."})
-        return super().to_internal_value(data)
 
     def validate_from(self, value: str) -> str:
         _name, address = parseaddr(value)

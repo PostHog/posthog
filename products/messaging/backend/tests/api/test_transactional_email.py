@@ -305,6 +305,13 @@ class TestTransactionalEmail(APIBaseTest):
                 "template__key",
             ),
             (
+                "field_this_server_lacks",
+                {"key": "password-reset", "content_hash": f"v1:{'0' * 64}"},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_request",
+                "template__content_hash",
+            ),
+            (
                 "key_with_trailing_newline",
                 {"key": "password-reset\n"},
                 status.HTTP_400_BAD_REQUEST,
@@ -594,6 +601,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("unverified_domain", {"from": "Example <security@example.org>"}, "sender_not_verified", "from"),
             ("invalid_key", {"template_key": "welcome email"}, "invalid_template_key", "template_key"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "invalid_request", "scheduled_at"),
+            (
+                "identifier_this_server_lacks",
+                {"identifiers": {"distinct_id": "user-1", "email": "jane@example.com"}},
+                "invalid_request",
+                "identifiers__email",
+            ),
         ]
     )
     def test_refuses_a_rendered_send_it_cannot_make_with_what_to_fix(
@@ -609,7 +622,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert error["why"] and error["fix"]
         if expected_code == "invalid_request":
             # The why explains the field that failed, not what a send needs in general.
-            assert f"`{expected_attr}`" in error["why"], error["why"]
+            assert f"`{expected_attr.split('__')[0]}" in error["why"], error["why"]
         mock_post.assert_not_called()
 
     @parameterized.expand(
