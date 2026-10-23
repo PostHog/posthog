@@ -214,8 +214,7 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
                             <AITriageDetails aiTriage={aiTriage} />
                         ) : (
                             <div className="text-muted-alt text-xs">
-                                AI drafts for tickets a customer starts, a minute or two after their last message. It
-                                skips tickets your team has already replied to.
+                                No AI draft yet. AI skips tickets your team already replied to.
                             </div>
                         ),
                 },
