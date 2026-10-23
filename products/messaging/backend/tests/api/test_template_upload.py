@@ -236,7 +236,7 @@ class TestTemplateUpload(APIBaseTest):
             (
                 "long_source_path",
                 "welcome",
-                {**WELCOME, "source": {"path": "a" * 401}},
+                WELCOME | {"source": {"path": "a" * 401}},
                 "invalid_request",
                 "source__path",
                 "Fix `source__path` and upload again.",
