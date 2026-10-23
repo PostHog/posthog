@@ -53,7 +53,7 @@ const SKIP_REASONS: Record<InsightDataCheckSkipReasonEnumApi, string> = {
     time_limit: 'it took longer than it is allowed',
     memory_limit: 'it needed more memory than it is allowed',
     too_few_sampled_events: 'the sample has too few events',
-    filtered_by_traffic_type: 'this insight already filters on traffic type',
+    filtered_by_traffic_type: "this insight's filters already choose which traffic types to keep",
     hidden_property: 'a property it reads is hidden from you',
     invalid_filter: "the project's internal and test users filter cannot run",
     on_request: 'it would read a lot of data, so it runs only in a full check',
@@ -234,8 +234,25 @@ function skippedResult(check: InsightDataCheckApi): string {
     return reason ? `Not checked, because ${reason}` : 'Not checked'
 }
 
-export function dataCheckText(check: InsightDataCheckApi, filtersTestAccounts: boolean): DataCheckText {
+// The server skips the bot check whenever the insight's filters read traffic type, and cannot tell when the rule
+// comes from the project's filter.
+export function botsFilteredOut(
+    check: InsightDataCheckApi,
+    filtersTestAccounts: boolean,
+    filterRemovesBots: boolean
+): boolean {
+    return check.skip_reason === 'filtered_by_traffic_type' && filtersTestAccounts && filterRemovesBots
+}
+
+export function dataCheckText(
+    check: InsightDataCheckApi,
+    filtersTestAccounts: boolean,
+    filterRemovesBots: boolean
+): DataCheckText {
     const name = DATA_CHECK_NAMES[check.key]
+    if (botsFilteredOut(check, filtersTestAccounts, filterRemovesBots)) {
+        return { name, result: 'Filtered out' }
+    }
     if (check.level === 'skipped') {
         return { name, result: skippedResult(check) }
     }
