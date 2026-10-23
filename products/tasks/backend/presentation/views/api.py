@@ -203,6 +203,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
     TaskRunLogsQuerySerializer,
+    TaskRunLogsView,
     TaskRunPeerMessageRequestSerializer,
     TaskRunPeerMessageResponseSerializer,
     TaskRunPeersResponseSerializer,
@@ -843,6 +844,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         validated_data = dict(serializer.validated_data)
+        validated_data["state"] = {"created_on_mobile": request.headers.get("X-PostHog-Client-Platform") == "mobile"}
         start_run = validated_data.pop("start_run", False)
         run_data = validated_data.pop("run_data", {})
         origin_product = validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
@@ -1599,6 +1601,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
+        if (
+            not result.run_error
+            and result.run_id is not None
+            and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+        ):
+            tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
         response_data = TaskSerializer(result.task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
@@ -3565,7 +3573,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only "
             "the latest turns first, add before to page back through older turns, or add start to read every "
             "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
-            "with different origins do not match. A Pi run returns its full log without the X-Log headers."
+            "with different origins do not match. A Pi run returns its full log without the X-Log headers. Pass "
+            "view=thread to drop the duplicate tool response copy that a rendered conversation does not use."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
@@ -3575,14 +3584,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         timer = ServerTimingsGathered()
         with timer("mark_watched"):
             tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
-        if "tail_bytes" not in query:
-            with timer("s3_read"):
+        log_slice = None
+        with timer("s3_read"):
+            if "tail_bytes" not in query:
                 log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
-            if log_content is None:
-                raise NotFound()
-            response = HttpResponse(log_content, content_type="application/jsonl")
-        else:
-            with timer("s3_read"):
+            else:
                 log_slice = tasks_facade.read_task_run_conversation_log_slice(
                     pk,
                     task_id,
@@ -3591,20 +3597,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     before=query.get("before"),
                     start=query.get("start"),
                 )
-            if log_slice is None:
-                raise NotFound()
-            response = HttpResponse(log_slice.content, content_type="application/jsonl")
-            if log_slice.sliced:
-                response["X-Log-Offset"] = str(log_slice.offset)
-                response["X-Log-Count"] = str(log_slice.count)
-                response["X-Log-Preamble"] = str(log_slice.preamble)
-                response["X-Log-Turns-Before"] = str(log_slice.turns_before)
-                response["X-Log-Origin"] = log_slice.origin
-                # A cross-origin frontend (standalone OAuth mode) can read only exposed headers, and a page whose
-                # headers it cannot read looks like the whole log.
-                response["Access-Control-Expose-Headers"] = (
-                    "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before, X-Log-Origin"
-                )
+                log_content = log_slice.content if log_slice else None
+        if log_content is None:
+            raise NotFound()
+        if query["view"] == TaskRunLogsView.THREAD:
+            with timer("thread_view"):
+                log_content = tasks_facade.thread_view_of_log_content(log_content)
+        response = HttpResponse(log_content, content_type="application/jsonl")
+        if log_slice is not None and log_slice.sliced:
+            response["X-Log-Offset"] = str(log_slice.offset)
+            response["X-Log-Count"] = str(log_slice.count)
+            response["X-Log-Preamble"] = str(log_slice.preamble)
+            response["X-Log-Turns-Before"] = str(log_slice.turns_before)
+            response["X-Log-Origin"] = log_slice.origin
+            # A cross-origin frontend (standalone OAuth mode) can read only exposed headers, and a page whose
+            # headers it cannot read looks like the whole log.
+            response["Access-Control-Expose-Headers"] = (
+                "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before, X-Log-Origin"
+            )
 
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
@@ -3869,6 +3879,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
+            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
             # that were never warm; best-effort, since a failure only over-counts the pool until terminal.
@@ -4023,6 +4036,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
+            if (
+                success
+                and method == "permission_response"
+                and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+            ):
+                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)
@@ -4355,6 +4374,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+            tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
         return Response(TaskRunDetailSerializer(run).data)
 
     @staticmethod

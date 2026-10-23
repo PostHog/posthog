@@ -56,7 +56,7 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
             ))}
             {rule.holdout && (
                 <span className="text-xs text-muted">
-                    Holdout #{rule.holdout.id} excludes {formatPercentage(rule.holdout.exclusion_percentage)}
+                    Holdout excludes {formatPercentage(rule.holdout.exclusion_percentage)}
                 </span>
             )}
         </div>

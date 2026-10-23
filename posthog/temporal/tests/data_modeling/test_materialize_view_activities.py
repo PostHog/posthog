@@ -18,13 +18,19 @@ import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
 from temporalio.exceptions import ApplicationError
+from trino.exceptions import TrinoUserError
 
 from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseError, ClickHouseTooManySimultaneousQueriesError
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClient,
+    ClickHouseError,
+    ClickHouseTooManySimultaneousQueriesError,
+)
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -57,6 +63,7 @@ from posthog.temporal.data_modeling.activities.materialize_view_managed_warehous
     materialize_view_managed_warehouse_activity,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
@@ -151,13 +158,20 @@ class TestMaterializeViewManagedWarehouseActivity:
                 flag_enabled and target_ready
             )
         if flag_enabled:
-            is_ready.assert_called_once_with(organization_id=ateam.organization_id)
+            is_ready.assert_called_once_with(organization_id=ateam.organization_id, team_id=ateam.pk)
         else:
             is_ready.assert_not_called()
 
     @pytest.mark.parametrize(
-        "compile_fails,alias_dispatch_fails",
-        [(False, False), (True, False), (False, True)],
+        "compile_error,error_tracked,alias_dispatch_fails",
+        [
+            (None, False, False),
+            (ValueError("Trino compilation failed"), True, False),
+            (TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"), False, False),
+            (TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}), False, False),
+            (TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}), True, False),
+            (None, True, True),
+        ],
     )
     async def test_trino_shadow_records_execution_or_compilation_result(
         self,
@@ -167,7 +181,8 @@ class TestMaterializeViewManagedWarehouseActivity:
         ajob,
         adag,
         asaved_query,
-        compile_fails: bool,
+        compile_error: Exception | None,
+        error_tracked: bool,
         alias_dispatch_fails: bool,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
@@ -185,8 +200,8 @@ class TestMaterializeViewManagedWarehouseActivity:
         def execute_trino_model(**kwargs: Any) -> DuckLakeTableResult:
             kwargs["on_processed_bytes"](300)
             kwargs["on_processed_bytes"](45)
-            if compile_fails:
-                raise ValueError("Trino compilation failed")
+            if compile_error is not None:
+                raise compile_error
             return DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12)
 
         with (
@@ -205,6 +220,9 @@ class TestMaterializeViewManagedWarehouseActivity:
                 "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.prepare_executable_query",
                 side_effect=lambda saved_query: setattr(saved_query, "query", executable_query),
             ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.capture_exception"
+            ) as capture,
         ):
             result = await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
 
@@ -219,9 +237,10 @@ class TestMaterializeViewManagedWarehouseActivity:
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.bytes_read == 345
-        if compile_fails:
+        assert capture.called is error_tracked
+        if compile_error is not None:
             reconcile_aliases.assert_not_awaited()
-            assert result.error == "Trino compilation failed"
+            assert result.error == str(compile_error)
             assert ajob.status == DataModelingJobStatus.FAILED
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
@@ -870,6 +889,7 @@ class TestNodeSuspension:
             "This model has been suspended after 5 consecutive failed materializations. "
             "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
             'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
+            'TrinoQueryError(type=INTERNAL_ERROR, name=TOO_MANY_REQUESTS_FAILED, message="Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.", query_id=20261017_000000_00000_abcde)',
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -2048,6 +2068,41 @@ class _EmptyArrowClient:
 
 
 class TestHogqlTableModifiers:
+    async def test_formatter_shaped_aliases_preserve_values_and_team_scope(
+        self, ateam: Team, clickhouse_client: ClickHouseClient
+    ) -> None:
+        events, _, other_team_events = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=2,
+            count_outside_range=0,
+            count_other_team=2,
+            table="sharded_events",
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        query = r"""
+            SELECT 'quote\' backtick` slash\\ {log_comment} %(other)s' AS `{hogql_val_0}`,
+                event AS `{log_comment}`, uuid AS `{{hogql_val_0}}`
+            FROM events
+        """
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        rows = [row for table, _ in batches for row in table.to_pylist()]
+        assert len(rows) == len(events)
+        assert all(list(row) == ["{hogql_val_0}", "{log_comment}", "{{hogql_val_0}}"] for row in rows)
+        assert {row["{hogql_val_0}"] for row in rows} == {"quote' backtick` slash\\ {log_comment} %(other)s"}
+        assert {row["{{hogql_val_0}}"] for row in rows} == {event["uuid"] for event in events}
+        assert not {row["{{hogql_val_0}}"] for row in rows} & {event["uuid"] for event in other_team_events}
+
     @pytest.mark.parametrize(
         "clickhouse_type,expected_conversion",
         [

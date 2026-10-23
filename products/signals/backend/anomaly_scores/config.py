@@ -32,7 +32,6 @@ ANOMALY_SCORING_FLAG_DISTINCT_ID = "signals_anomaly_scoring"
 class IntervalScoring:
     """How one interval is scored. The detector is any registered detector config, so swapping it needs no code."""
 
-    lookback: str
     min_points: int
     detector: dict[str, Any]
 
@@ -64,10 +63,10 @@ def _zscore(window: int) -> dict[str, Any]:
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v1",
     intervals={
-        IntervalType.HOUR: IntervalScoring(lookback="-28d", min_points=336, detector=_zscore(336)),
-        IntervalType.DAY: IntervalScoring(lookback="-365d", min_points=56, detector=_zscore(56)),
-        IntervalType.WEEK: IntervalScoring(lookback="-156w", min_points=52, detector=_zscore(52)),
-        IntervalType.MONTH: IntervalScoring(lookback="-60m", min_points=24, detector=_zscore(24)),
+        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336)),
+        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56)),
+        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52)),
+        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24)),
     },
 )
 
@@ -94,13 +93,21 @@ class AnomalyScoringConfig:
     allow_team_ids: tuple[int, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     intervals: tuple[IntervalType, ...] = DEFAULT_TICK_INTERVALS
-    # The budget is scoring queries, not events. One insight is one query.
+    # Smooths the spend over the hour, so one tick cannot use the whole query budget.
     max_insights_per_tick: int = 8
     max_concurrency: int = 2
+    # Scoring queries per clock hour. One pick sends one query per series, see `scoring.query_cost`.
+    max_queries_per_hour: int = 120
+    max_queries_per_project_per_hour: int = 30
     limits: ScoringLimits = DEFAULT_LIMITS
 
 
 DISABLED = AnomalyScoringConfig()
+# The largest value a flag payload can set for each lever of the tick.
+MAX_INSIGHTS_PER_TICK = 50
+MAX_CONCURRENCY = 8
+MAX_QUERIES_PER_HOUR = 2000
+MAX_QUERIES_PER_PROJECT_PER_HOUR = 500
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -162,8 +169,17 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         allow_team_ids=_team_ids(payload.get("allow_team_ids")),
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         intervals=_intervals(payload.get("intervals")),
-        max_insights_per_tick=_positive_int(payload.get("max_insights_per_tick"), defaults.max_insights_per_tick),
-        max_concurrency=_positive_int(payload.get("max_concurrency"), defaults.max_concurrency),
+        max_insights_per_tick=min(
+            _positive_int(payload.get("max_insights_per_tick"), defaults.max_insights_per_tick), MAX_INSIGHTS_PER_TICK
+        ),
+        max_concurrency=min(_positive_int(payload.get("max_concurrency"), defaults.max_concurrency), MAX_CONCURRENCY),
+        max_queries_per_hour=min(
+            _positive_int(payload.get("max_queries_per_hour"), defaults.max_queries_per_hour), MAX_QUERIES_PER_HOUR
+        ),
+        max_queries_per_project_per_hour=min(
+            _positive_int(payload.get("max_queries_per_project_per_hour"), defaults.max_queries_per_project_per_hour),
+            MAX_QUERIES_PER_PROJECT_PER_HOUR,
+        ),
         limits=parse_limits(payload.get("limits")),
     )
 
