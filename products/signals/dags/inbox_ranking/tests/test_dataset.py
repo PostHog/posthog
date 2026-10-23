@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
+from django.apps import apps
+
 import dagster
 import pyarrow as pa
 from parameterized import parameterized
@@ -19,6 +21,8 @@ from products.signals.backend.models import (
     SignalReportAction,
     SignalReportArtefact,
     SignalReportSuggestedReviewer,
+    SignalScoutConfig,
+    SignalScoutRun,
 )
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
@@ -537,6 +541,20 @@ class TestSpineInclusion(BaseTest):
         SignalReport.objects.filter(id=report.id).update(created_at=created_at, promoted_at=promoted_at)
         return str(report.id)
 
+    def _hide_from_inbox(self, *report_ids: str) -> None:
+        config = SignalScoutConfig.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+        )
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="scout", description="d")
+        SignalScoutRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task),
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=list(report_ids),
+        )
+
     def test_spine_covers_authored_and_promoted_reports_as_of_the_cutoff(self):
         promoted = self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF)
         born_visible = self._report(SignalReport.Status.READY)
@@ -545,6 +563,10 @@ class TestSpineInclusion(BaseTest):
         self._report(SignalReport.Status.POTENTIAL)
         self._report(SignalReport.Status.SUPPRESSED)
         created_after_cutoff = self._report(SignalReport.Status.READY, created_at=AFTER_SNAPSHOT_END)
+        self._hide_from_inbox(
+            self._report(SignalReport.Status.READY),
+            self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF),
+        )
 
         in_spine = {
             str(report_id)
@@ -559,6 +581,8 @@ class TestSpineInclusion(BaseTest):
         self.organization.is_ai_training_opted_in = True
         self.organization.save()
         consenting = self._report(SignalReport.Status.READY)
+        hidden = self._report(SignalReport.Status.READY)
+        self._hide_from_inbox(hidden)
         excluded: list[str] = []
         for consent in (False, None):
             organization = Organization.objects.create(name=f"consent-{consent}", is_ai_training_opted_in=consent)
@@ -571,9 +595,9 @@ class TestSpineInclusion(BaseTest):
         with (
             patch.object(dag, "skip_unconfigured", lambda context: False),
             patch.object(dag, "_tag_dagster_queries", lambda context, query_type: None),
-            # A label event that names an opted-out report must not pull it back into the spine.
+            # A label event that names an opted-out or hidden report must not pull it back into the spine.
             patch.object(dag, "labels_team", lambda: self.team),
-            patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],)]),
+            patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],), (hidden,)]),
             patch.object(dag, "s3_client", lambda: None),
             patch.object(dag, "write_parquet", lambda client, bucket, key, table: written.update(table=table)),
             dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
