@@ -36,9 +36,9 @@ const FEED_DATE_OPTIONS = dateMapping.filter((option) => FEED_DATE_OPTION_KEYS.h
 
 function FeedSkeleton(): JSX.Element {
     return (
-        <div className="flex flex-col gap-3" aria-busy>
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-4" aria-busy>
             {[0, 1, 2].map((i) => (
-                <LemonSkeleton key={i} className="h-32 rounded" />
+                <LemonSkeleton key={i} className="h-80 rounded-lg" />
             ))}
         </div>
     )
@@ -70,7 +70,7 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
     if (feedHasMore) {
         return (
             <div ref={ref} aria-busy>
-                <LemonSkeleton className="h-32 rounded" />
+                <LemonSkeleton className="h-80 rounded-lg" />
             </div>
         )
     }
@@ -196,7 +196,7 @@ export function WatchFeedTab(): JSX.Element {
             {feedItemsLoading && feedItems === null ? (
                 <FeedSkeleton />
             ) : (
-                <div className="flex flex-col gap-3">
+                <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
                     {/* kea-loaders keeps the last value on failure, so a later filter or date change can fail
                         with cards still on screen. Show the error above them rather than replacing them. */}
                     {feedFailed && (
