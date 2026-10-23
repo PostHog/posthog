@@ -461,6 +461,18 @@ describe('sqlEditorLogic', () => {
                 .toMatchValues({ queryInput: restoredQuery, hasEditorChanges: false })
         })
 
+        it('opens a view with the query in the link as unsaved edits', async () => {
+            mountEditor()
+            await expectLogic(logic, () =>
+                router.actions.push(urls.sqlEditor({ view_id: MOCK_VIEW.id, query: 'SELECT edited' }))
+            )
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: 'SELECT edited', hasEditorChanges: true })
+            expect(logic.values.editingView?.id).toBe(MOCK_VIEW.id)
+            expect(logic.values.editingView?.query?.query).toBe(MOCK_VIEW.query.query)
+        })
+
         it.each([false, true])('refreshes a discarded draft without overwriting new edits (%s)', async (editAgain) => {
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
@@ -2198,6 +2210,40 @@ describe('sqlEditorLogic', () => {
                 expect(logic.values.suggestionPayload?.acceptText).toBe(acceptText)
             }
         )
+
+        it('reviewEditingViewUpdate builds the update from the open view, the edit and the last run', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+            })
+            logic.mount()
+
+            logic.actions.editView(MOCK_VIEW.query.query, { ...MOCK_VIEW, is_materialized: true })
+            await expectLogic(logic).toDispatchActions(['editView', 'createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 2')
+
+            // The data node is mounted by the editor's visualization in the app, and not reachable from a host.
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+            })
+            editorDataNodeLogic.mount()
+            editorDataNodeLogic.actions.loadDataSuccess({ results: [], types: [['two', 'UInt8']] } as any)
+
+            logic.actions.reviewEditingViewUpdate()
+            await expectLogic(logic)
+                .toDispatchActions([
+                    'reviewEditingViewUpdate',
+                    (action) =>
+                        action.type === logic.actionTypes.reviewViewUpdate &&
+                        action.payload.view.id === MOCK_VIEW.id &&
+                        action.payload.view.query.query === 'SELECT 2' &&
+                        action.payload.view.shouldRematerialize === true &&
+                        JSON.stringify(action.payload.view.types) === JSON.stringify([['two', 'UInt8']]),
+                ])
+                .toFinishAllListeners()
+            editorDataNodeLogic.unmount()
+        })
     })
 
     describe('inline insight metadata editing', () => {
