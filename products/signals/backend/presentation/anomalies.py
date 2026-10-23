@@ -28,14 +28,13 @@ from posthog.permissions import APIScopePermission, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import relative_date_parse
 
-from products.signals.backend.anomaly_scores.search import (
+from products.signals.backend.facade import api as signals_facade
+from products.signals.backend.facade.api import (
+    AnomalyDashboardNotFound,
     AnomalyGroupBy,
+    AnomalyHistoryFilters,
     AnomalyInterval,
-    DashboardNotFound,
-    HistoryFilters,
-    SearchFilters,
-    insight_history,
-    search,
+    AnomalySearchFilters,
 )
 
 ANOMALIES_SEARCH_FLAG = "anomalies-search"
@@ -388,7 +387,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query = request.validated_query_data
         now = timezone.now()
         date_range = self._date_range(query, now)
-        filters = SearchFilters(
+        filters = AnomalySearchFilters(
             date_from=date_range.date_from,
             date_to=date_range.date_to,
             insight_id=query.get("insight_id"),
@@ -399,8 +398,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=query["limit"],
         )
         try:
-            result = search(self.team, user, filters, now)
-        except DashboardNotFound:
+            result = signals_facade.search_anomalies(team=self.team, user=user, filters=filters, now=now)
+        except AnomalyDashboardNotFound:
             raise NotFound("Dashboard not found.")
         self._capture_read(
             request,
@@ -441,10 +440,10 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query = request.validated_query_data
         now = timezone.now()
         date_range = self._date_range(query, now)
-        history = insight_history(
-            self.team,
-            user,
-            HistoryFilters(
+        history = signals_facade.get_anomaly_insight_history(
+            team=self.team,
+            user=user,
+            filters=AnomalyHistoryFilters(
                 insight_id=query["insight_id"],
                 date_from=date_range.date_from,
                 date_to=date_range.date_to,
@@ -452,7 +451,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 include_buckets=query["include_buckets"],
                 include_warmup=query["include_warmup"],
             ),
-            now,
+            now=now,
         )
         if history is None:
             raise NotFound("Insight not found.")
