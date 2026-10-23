@@ -544,7 +544,8 @@ class TestMarketo:
                 _ok({"result": [{"id": 20}, {"id": 10}], "nextPageToken": "l2", "moreResult": True}),
                 _ok({"result": [{"id": 5}], "moreResult": False}),
                 _ok({"result": []}),
-                _ok({"result": [{"id": 1}], "nextPageToken": "t2", "moreResult": True}),
+                # A page token with no moreResult still means another page.
+                _ok({"result": [{"id": 1}], "nextPageToken": "t2"}),
                 _ok({"result": [{"id": 2}], "moreResult": False}),
                 _ok({"result": [{"id": 3}], "moreResult": False}),
             ],
@@ -643,26 +644,33 @@ class TestMarketo:
         assert {request.param("filterType") for request in members} == {"updatedAt"}
         assert members[0].param("fields") == "leadId,programId,membershipDate,updatedAt,statusName"
         assert [(row["programId"], row["leadId"]) for row in result.rows] == [(1, 1), (2, 2)]
-        assert result.saved_states == [
-            MarketoResumeConfig(parent_id=1),
-            MarketoResumeConfig(parent_id=2, window_start=format_datetime(boundary)),
-            MarketoResumeConfig(parent_id=2),
+        assert [(state.parent_id, state.window_start) for state in result.saved_states] == [
+            (1, None),
+            (2, format_datetime(boundary)),
+            (2, None),
         ]
+        assert {state.query_end for state in result.saved_states} == {members[0].param("endAt")}
         assert result.response is not None and result.response.sort_mode is None
 
-    def test_program_members_resume_from_the_saved_window(self) -> None:
+    def test_program_members_resume_inside_the_saved_window_with_the_saved_end(self) -> None:
         window_start = format_datetime((datetime.now(UTC) - timedelta(days=2)).replace(microsecond=0))
+        query_end = format_datetime((datetime.now(UTC) - timedelta(days=1)).replace(microsecond=0))
         result = _driver().run(
             "program_members",
             [
                 _token_response(),
                 _ok({"result": [{"id": 1, "createdAt": "2015-01-01T00:00:00Z+0000"}, {"id": 2}]}),
                 _ok({"result": []}),
-                _ok({"result": []}),
+                _ok({"result": [{"leadId": 7, "updatedAt": window_start}], "moreResult": False}),
             ],
-            resume_state=MarketoResumeConfig(parent_id=2, window_start=window_start),
+            resume_state=MarketoResumeConfig(
+                parent_id=2, window_start=window_start, next_page_token="p3", query_end=query_end
+            ),
         )
 
         assert result.raised is None
         assert result.paths[3:] == ["/rest/v1/programs/2/members.json"]
         assert result.params("startAt")[3:] == [window_start]
+        assert result.params("endAt")[3:] == [query_end]
+        assert result.params("nextPageToken")[3:] == ["p3"]
+        assert result.rows == [{"leadId": 7, "updatedAt": window_start, "programId": 2}]

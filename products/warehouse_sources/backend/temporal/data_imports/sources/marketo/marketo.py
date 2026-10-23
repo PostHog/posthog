@@ -76,7 +76,7 @@ class MarketoResumeConfig:
     """Cursor for whichever transport the endpoint uses.
 
     Top-level endpoints populate one of the first three. Fan-out endpoints set `parent_id` to the
-    parent the cursor is in, plus `next_page_token` or `window_start` for the position in it. With
+    parent the cursor is in, plus `next_page_token` and `window_start` for the position in it. With
     neither, that parent is finished.
     They are kept on one dataclass because the resume manager stores a single dataclass type per
     source.
@@ -86,6 +86,9 @@ class MarketoResumeConfig:
     offset: Optional[int] = None
     window_start: Optional[str] = None
     parent_id: Optional[int] = None
+    # Program members only: the end of the run's updatedAt range. A resumed run keeps it, so the
+    # programs it skips and the programs it still reads cover the same range.
+    query_end: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -141,7 +144,7 @@ def parse_datetime(value: Any) -> Optional[datetime]:
 def parse_marketo_datetime(value: Any) -> Optional[datetime]:
     """Parse a timestamp from either API. Asset timestamps add an offset after the ``Z``."""
     if isinstance(value, str):
-        value = re.sub(r"Z[+-]\d{4}$", "Z", value.strip())
+        value = re.sub(r"Z([+-]\d{4})$", r"\1", value.strip())
     return parse_datetime(value)
 
 
@@ -489,6 +492,11 @@ def _asset_offset_rows(
         resumable_source_manager.save_state(MarketoResumeConfig(offset=offset))
 
 
+def _has_more_pages(body: Mapping[str, Any]) -> bool:
+    """A page token means more pages unless the response says otherwise; some responses omit ``moreResult``."""
+    return bool(body.get("nextPageToken")) and body.get("moreResult") is not False
+
+
 def _fan_out_parents(
     client: MarketoClient,
     parent: MarketoEndpointConfig,
@@ -520,9 +528,9 @@ def _fan_out_parents(
                 break
             offset += len(rows)
         else:
-            next_token = body.get("nextPageToken")
-            if not body.get("moreResult") or not next_token:
+            if not _has_more_pages(body):
                 break
+            next_token = body.get("nextPageToken")
 
     return sorted(parents, key=lambda item: item.id)
 
@@ -551,11 +559,9 @@ def _list_member_rows(
             body = client.request_json("GET", path, params=params)
             rows = [{**row, config.parent_key: parent.id} for row in body.get("result") or []]
 
-            next_token = body.get("nextPageToken")
-            more = bool(body.get("moreResult") and next_token)
-            resumable_source_manager.save_state(
-                MarketoResumeConfig(parent_id=parent.id, next_page_token=next_token if more else None)
-            )
+            more = _has_more_pages(body)
+            next_token = body.get("nextPageToken") if more else None
+            resumable_source_manager.save_state(MarketoResumeConfig(parent_id=parent.id, next_page_token=next_token))
 
             if rows:
                 yield rows
@@ -599,28 +605,32 @@ def _program_member_rows(
     end: datetime,
 ) -> Iterator[list[dict[str, Any]]]:
     assert config.parent is not None and config.parent_key is not None
+    if resume is not None and resume.query_end is not None:
+        end = parse_datetime(resume.query_end) or end
+    query_end = format_datetime(end)
     parents = _fan_out_parents(client, MARKETO_ENDPOINTS[config.parent], resumable_source_manager)
     fields = ",".join(_program_member_fields(client))
 
     for parent in parents:
         # No member of a program can change before the program exists.
         parent_start = max(start, parent.created_at) if parent.created_at is not None else start
+        next_token: Optional[str] = None
         if resume is not None and resume.parent_id is not None and parent.id <= resume.parent_id:
             resumed_window = parse_datetime(resume.window_start)
             if parent.id < resume.parent_id or resumed_window is None:
                 continue
             parent_start = resumed_window
+            next_token = resume.next_page_token
         path = config.path.format(parent_id=parent.id)
 
         windows = bulk_windows(parent_start, end, PROGRAM_MEMBER_WINDOW_DAYS)
         if not windows:
-            resumable_source_manager.save_state(MarketoResumeConfig(parent_id=parent.id))
+            resumable_source_manager.save_state(MarketoResumeConfig(parent_id=parent.id, query_end=query_end))
             resumable_source_manager.safe_point()
             continue
 
         for index, (window_start, window_end) in enumerate(windows):
             is_last = index == len(windows) - 1
-            next_token: Optional[str] = None
             while True:
                 params: dict[str, Any] = {
                     "filterType": "updatedAt",
@@ -638,15 +648,22 @@ def _program_member_rows(
                     if _in_window(row, window_start, window_end, is_last)
                 ]
 
-                next_token = body.get("nextPageToken")
-                more = bool(body.get("moreResult") and next_token)
-                # Resume at a window boundary: a resumed window is read again from its start.
-                if not more:
-                    resumable_source_manager.save_state(
-                        MarketoResumeConfig(
-                            parent_id=parent.id, window_start=None if is_last else format_datetime(window_end)
-                        )
+                more = _has_more_pages(body)
+                next_token = body.get("nextPageToken") if more else None
+                if more:
+                    state = MarketoResumeConfig(
+                        parent_id=parent.id,
+                        window_start=format_datetime(window_start),
+                        next_page_token=next_token,
+                        query_end=query_end,
                     )
+                elif is_last:
+                    state = MarketoResumeConfig(parent_id=parent.id, query_end=query_end)
+                else:
+                    state = MarketoResumeConfig(
+                        parent_id=parent.id, window_start=format_datetime(window_end), query_end=query_end
+                    )
+                resumable_source_manager.save_state(state)
 
                 if rows:
                     yield rows
