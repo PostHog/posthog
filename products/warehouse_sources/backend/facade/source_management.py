@@ -62,7 +62,7 @@ _LAZY = {
     "build_default_schemas": "sources.common.schema",
     "build_default_sync_settings": "sources.common.schema",
     "ambiguous_masked_columns": "pipelines.core.masking",
-    "fold_column_name": "pipelines.core.masking",
+    "fold_column_name": "naming_convention",
     "masking_key_is_public": "pipelines.core.masking",
     "RowFilterValidationError": "sources.common.sql",
     "filter_dwh_columns_by_enabled_columns": "sources.common.sql",

@@ -774,7 +774,14 @@ function ColumnsAndRowFiltersSection({
                     if (!masksChanged) {
                         resyncSchema(next)
                     }
-                    lemonToast.success(resyncAfter ? 'Saved — full resync queued' : 'Saved')
+                    // The backend only stages the rebuild of a table that does not sync.
+                    lemonToast.success(
+                        !resyncAfter
+                            ? 'Saved'
+                            : masksChanged && !schema.should_sync
+                              ? 'Saved. The full resync starts when you turn syncing on.'
+                              : 'Saved — full resync queued'
+                    )
                 })
                 .catch((e: any) => {
                     lemonToast.error(e?.message || "Can't save at this time")

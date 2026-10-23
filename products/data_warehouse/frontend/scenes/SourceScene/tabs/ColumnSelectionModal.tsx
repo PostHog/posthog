@@ -142,9 +142,12 @@ function useColumnSelection(
     // A hashed primary key breaks merges and a hashed incremental field cannot order rows.
     const isMaskable = (name: string): boolean => isChecked(name) && !isAlwaysRetained(name)
 
+    // A column masked before it became a key can still be unmasked, so the rejected save can be fixed.
     const toggleMask = (name: string): void => {
-        if (isMaskable(name)) {
-            commitMasked(name, !masked.has(name))
+        if (masked.has(name)) {
+            commitMasked(name, false)
+        } else if (isMaskable(name)) {
+            commitMasked(name, true)
         }
     }
 
@@ -253,7 +256,7 @@ export function ColumnSelectionPicker({
                                     onClick={() => toggleMask(column.name)}
                                     tooltip="Replace this column's values with a one-way hash when syncing. Use it for passwords and personal data. A masked column no longer matches the same values in tables where it isn't masked."
                                     disabledReason={
-                                        isMaskable(column.name)
+                                        isMaskable(column.name) || isMasked(column.name)
                                             ? undefined
                                             : retained
                                               ? "Primary key and incremental columns can't be masked"

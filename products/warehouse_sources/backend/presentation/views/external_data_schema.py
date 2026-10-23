@@ -1597,23 +1597,25 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Rows already synced hold the old values, and the column changes type between the source
         # type and text, so a mask change rebuilds the table. CDC takes a new snapshot further down.
-        if masked_columns_changed and not is_cdc:
-            validated_data.setdefault("sync_type_config", instance.sync_type_config)
-            validated_data["sync_type_config"]["reset_pipeline"] = True
-            if should_sync if should_sync is not None else instance.should_sync:
-                trigger_refresh = True
-        elif masked_columns_changed and (should_sync if should_sync is not None else instance.should_sync):
-            # Staged in this save, so capture still finishes the reset if the hand-over after it fails.
-            stage_handed_over_reset(instance.sync_type_config)
-        elif masked_columns_changed:
-            # Capture does not read a table that does not sync, so the new snapshot is staged in this
-            # save. A self-managed publication takes no snapshot of its own when the table is turned on.
-            instance.sync_type_config["cdc_mode"] = "snapshot"
-            instance.sync_type_config["reset_pipeline"] = True
-            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
-            instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
-            instance.initial_sync_complete = False
-            validated_data["initial_sync_complete"] = False
+        if masked_columns_changed:
+            will_sync = should_sync if should_sync is not None else instance.should_sync
+            if not is_cdc:
+                validated_data.setdefault("sync_type_config", instance.sync_type_config)
+                validated_data["sync_type_config"]["reset_pipeline"] = True
+                if will_sync:
+                    trigger_refresh = True
+            elif will_sync:
+                # Staged in this save, so capture still finishes the reset if the hand-over after it fails.
+                stage_handed_over_reset(instance.sync_type_config)
+            else:
+                # Capture does not read a table that does not sync, so the new snapshot is staged in this
+                # save. A self-managed publication takes no snapshot of its own when the table is turned on.
+                instance.sync_type_config["cdc_mode"] = "snapshot"
+                instance.sync_type_config["reset_pipeline"] = True
+                instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+                instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
+                instance.initial_sync_complete = False
+                validated_data["initial_sync_complete"] = False
 
         if source.is_direct_query:
             direct_engine_adapter = get_direct_query_engine(source.direct_engine)
