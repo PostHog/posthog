@@ -81,7 +81,7 @@ export interface DataModelingJobApi {
      */
     readonly rows_expected: number | null
     /**
-     * Bytes read by this run. Managed warehouse jobs use their directly recorded measurement.
+     * Bytes read by this run, or null if it has not been measured yet.
      * @nullable
      */
     readonly read_bytes: number | null

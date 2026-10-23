@@ -28,8 +28,10 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         help_text="Whether the model is soft-deleted, or null if permanently deleted.",
     )
     engine = serializers.CharField(read_only=True, help_text="The engine that ran this materialization job.")
-    read_bytes = serializers.SerializerMethodField(
-        help_text="Bytes read by this run. Managed warehouse jobs use their directly recorded measurement."
+    read_bytes = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Bytes read by this run, or null if it has not been measured yet.",
     )
     updated_at = serializers.DateTimeField(
         read_only=True,
@@ -77,11 +79,6 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "usage_updated_at",
         ]
         read_only_fields = fields
-
-    def get_read_bytes(self, job: DataModelingJob) -> int | None:
-        if job.engine == DataModelingJobEngine.MANAGED_WAREHOUSE and job.read_bytes is None:
-            return job.bytes_read
-        return job.read_bytes
 
 
 class DataModelingJobPagination(pagination.LimitOffsetPagination):
@@ -171,7 +168,6 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             queryset.select_related("saved_query")
             .only(
                 *DATA_MODELING_JOB_LIST_FIELDS,
-                "bytes_read",
                 "saved_query__name",
                 "saved_query__deleted",
             )

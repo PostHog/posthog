@@ -81,7 +81,7 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         DataModelingJob.objects.create(**{**base, "status": "Failed"})
         DataModelingJob.objects.create(**{**base, "status": "Running"}, **measured)
         managed = DataModelingJob.objects.create(
-            **{**base, "engine": "managed_warehouse"}, read_bytes=4096, bytes_read=2048, usage_updated_at=None
+            **{**base, "engine": "managed_warehouse"}, read_bytes=4096, usage_updated_at=finished
         )
         DataModelingJob.objects.create(**{**base, "last_run_at": finished + timedelta(days=1)}, **measured)
         other_team = Team.objects.create(organization=self.organization)
