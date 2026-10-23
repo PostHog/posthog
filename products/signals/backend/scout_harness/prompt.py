@@ -204,7 +204,7 @@ _REPORT_CLOSE_OUT_STEP = _CLOSE_OUT_STEP_TEMPLATE.format(number=6, output="repor
 _REPORT_STEPS_BOTH = """4. **Search the inbox before you author.** A report you'd write may already exist. ALWAYS check first (see *Authoring vs. editing: search the inbox first*) and edit the existing one rather than minting a near-duplicate.
 5. **Author or edit.** For each issue worth surfacing, decide whether to:
    - **Edit** an existing report (`scout-edit-report`) when one already covers it. This is the default when a match exists.
-   - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see *Merge live duplicates*), then rewrite the survivor.
+   - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see **Merge live duplicates** under *Authoring vs. editing: search the inbox first*), then rewrite the survivor.
    - **Author** a fresh report (`scout-emit-report`) only when nothing in the inbox covers it, or a known issue has new evidence that changes the verdict. Set `suggested_reviewers` (see *Suggested reviewers route the report*).
    - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
    - **Skip** with a one-line note in your final summary.
@@ -222,7 +222,7 @@ _REPORT_STEPS_EMIT_ONLY = """4. **Search the inbox before you author.** A report
 _REPORT_STEPS_EDIT_ONLY = """4. **Find the report to update.** Locate the report your evidence bears on (see *Editing existing reports*). This run can update existing reports but cannot author new ones.
 5. **Edit or skip.** For each issue worth surfacing, decide whether to:
    - **Edit** the existing report (`scout-edit-report`): use `append_evidence` for a fresh observation, or `append_note` for commentary.
-   - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see *Merge live duplicates*), then rewrite the survivor.
+   - **Merge** live reports that cover the same issue (`inbox-reports-merge`, see **Merge live duplicates** under *Editing existing reports*), then rewrite the survivor.
    - **Remember** a learning so you don't redo this work next run (call `scout-scratchpad-remember`).
    - **Skip** with a one-line note in your final summary, including when nothing in the inbox matches and there's therefore nothing to update.
 
