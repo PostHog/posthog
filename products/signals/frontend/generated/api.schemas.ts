@@ -650,6 +650,17 @@ export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
  */
 export type SignalTeamConfigApiIssueTrackingConfig = { [key: string]: string }
 
+export type GitHubReadinessStatusEnumApi =
+    (typeof GitHubReadinessStatusEnumApi)[keyof typeof GitHubReadinessStatusEnumApi]
+
+export const GitHubReadinessStatusEnumApi = {
+    Ready: 'ready',
+    NotConnected: 'not_connected',
+    ReconnectRequired: 'reconnect_required',
+    NoRepositories: 'no_repositories',
+    TemporarilyUnavailable: 'temporarily_unavailable',
+} as const
+
 /**
  * * `P0` - P0
  * * `P1` - P1
@@ -674,6 +685,8 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     autostart_enabled?: boolean | null
+    /** Effective GitHub access for self-driving, including eligible organization-owner connections, based on cached installation and repository state. */
+    readonly github_readiness: GitHubReadinessStatusEnumApi
     default_autostart_priority?: AutonomyPriorityEnumApi
     /**
      * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
@@ -1471,17 +1484,6 @@ export const SignalReportStatusEnumApi = {
     Failed: 'failed',
     Deleted: 'deleted',
     Suppressed: 'suppressed',
-} as const
-
-export type GitHubReadinessStatusEnumApi =
-    (typeof GitHubReadinessStatusEnumApi)[keyof typeof GitHubReadinessStatusEnumApi]
-
-export const GitHubReadinessStatusEnumApi = {
-    Ready: 'ready',
-    NotConnected: 'not_connected',
-    ReconnectRequired: 'reconnect_required',
-    NoRepositories: 'no_repositories',
-    TemporarilyUnavailable: 'temporarily_unavailable',
 } as const
 
 /**

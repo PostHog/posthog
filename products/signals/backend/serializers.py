@@ -59,6 +59,7 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -378,6 +379,14 @@ class _AutostartBaseBranchesField(serializers.DictField):
 # singleton. Without this drf-spectacular types the response as a paginated list.
 @extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    github_readiness = serializers.SerializerMethodField(
+        help_text="Effective GitHub access for self-driving, including eligible organization-owner connections, based on cached installation and repository state."
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=GitHubReadinessStatus.choices))
+    def get_github_readiness(self, obj: SignalTeamConfig) -> str:
+        return get_team_github_readiness(obj.team_id).status
+
     scout_instructions = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -521,6 +530,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "autostart_enabled",
+            "github_readiness",
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
