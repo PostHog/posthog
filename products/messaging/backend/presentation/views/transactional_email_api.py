@@ -19,6 +19,7 @@ from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, Projec
 from products.messaging.backend.facade.contracts import TEMPLATE_KEY_MAX_LENGTH, TEMPLATE_KEY_PATTERN
 from products.messaging.backend.facade.templates import MessageTemplateRow
 from products.messaging.backend.facade.transactional_email import (
+    AcceptedSend,
     EmailSendCommand,
     Queued,
     Rejected,
@@ -237,30 +238,34 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
         data: dict[str, Any],
         *,
         usage: dict[str, str],
+        send: AcceptedSend | None = None,
         idempotency_key: str | None = None,
     ) -> Queued:
         if template.transactional_hog_flow_id:
             self._require_workflow_editor(template.transactional_hog_flow_id)
-        report: dict[str, Any] = {
-            "template_id": str(template.id),
-            **usage,
-            "has_idempotency_key": idempotency_key is not None,
-        }
+        command = EmailSendCommand(
+            team_id=self.team_id,
+            template_id=template.id,
+            to=data["to"],
+            distinct_id=self._distinct_id(data),
+            message_data=data["message_data"],
+            send=send,
+            idempotency_key=idempotency_key,
+        )
+        return self._send(request, command, report={"template_id": str(template.id), **usage})
+
+    @staticmethod
+    def _distinct_id(data: dict[str, Any]) -> str | None:
+        return (data.get("identifiers") or {}).get("distinct_id") or None
+
+    def _send(self, request: Any, command: EmailSendCommand, *, report: dict[str, str]) -> Queued:
+        properties = {**report, "has_idempotency_key": command.idempotency_key is not None}
         try:
-            outcome = send_email(
-                EmailSendCommand(
-                    team_id=self.team_id,
-                    template_id=template.id,
-                    to=data["to"],
-                    distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
-                    message_data=data["message_data"],
-                    idempotency_key=idempotency_key,
-                )
-            )
+            outcome = send_email(command)
         except Exception:
-            self._report_transactional_email_send(request, {**report, "outcome": "error"})
+            self._report_transactional_email_send(request, {**properties, "outcome": "error"})
             raise
-        self._report_transactional_email_send(request, {**report, **_usage(outcome)})
+        self._report_transactional_email_send(request, {**properties, **_usage(outcome)})
         match outcome:
             case Queued():
                 return outcome

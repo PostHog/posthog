@@ -10,6 +10,7 @@ from posthog.dataclasses import frozen
 from products.messaging.backend.facade.contracts import (
     ContentHashState,
     SenderUnavailable,
+    TemplateEditedInPostHog,
     TemplateManagedBy,
     TemplateSource,
     TemplateUpload,
@@ -72,6 +73,8 @@ def _upload(
     if template is None:
         require_workflow_create()
         return Uploaded(result=TemplateUploadResult.CREATED, template=_create(team_id, upload, user_id=user_id))
+    if upload.if_code_managed and template.managed_by != TemplateManagedBy.CODE:
+        raise TemplateEditedInPostHog(upload.key)
     if template.transactional_hog_flow_id:
         require_workflow_editor(template.transactional_hog_flow_id)
     if upload.if_not_superseded and _is_superseded(template, upload):

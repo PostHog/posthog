@@ -40,6 +40,8 @@ from products.messaging.backend.facade.api import (
 from products.messaging.backend.facade.contracts import (
     TEMPLATE_KEY_MAX_LENGTH,
     ContentHashState,
+    TemplateEditedInPostHog,
+    TemplateKeyRefused,
     TemplateManagedBy,
     TemplateManagedByCode,
     TemplateSource,
@@ -493,14 +495,18 @@ class UploadTemplateSerializer(serializers.Serializer):
         trim_whitespace=False, help_text="Email subject line. Supports Liquid, such as `{{ variables.first_name }}`."
     )
     html = serializers.CharField(
+        required=False,
+        allow_blank=True,
         trim_whitespace=False,
-        help_text="Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.",
+        help_text="Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. "
+        "Send at least one of `html` and `text`.",
     )
     text = serializers.CharField(
         required=False,
         allow_blank=True,
         trim_whitespace=False,
-        help_text="Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one.",
+        help_text="Plain-text body for email clients that can't show HTML, stored as sent. Send at least one of "
+        "`html` and `text`. Leaving it out removes the stored one.",
     )
     preheader = serializers.CharField(
         required=False,
@@ -520,6 +526,18 @@ class UploadTemplateSerializer(serializers.Serializer):
         "When newer content already replaced this content, the upload changes nothing and answers `superseded`. "
         "Leave it out to publish the content in any case, such as to roll back to earlier content.",
     )
+    if_code_managed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Set it on uploads a send makes on its own. When people edit the template with this key in "
+        "PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. Leave it out to "
+        "take the template over from PostHog.",
+    )
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        if not data.get("html") and not data.get("text"):
+            raise serializers.ValidationError({"html": "Send at least one of `html` and `text`."})
+        return data
 
 
 class UploadTemplateResponseSerializer(serializers.Serializer):
@@ -637,13 +655,20 @@ class MessageTemplatesViewSet(
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, TemplateWriteRefused):
-            managed_by_code = isinstance(exc, TemplateManagedByCode)
+            key_refused = isinstance(exc, TemplateKeyRefused)
             refusal = TemplateRefusal(
-                code=exc.code, detail=exc.detail, attr=None if managed_by_code else "key", why=exc.why, fix=exc.fix
+                code=exc.code, detail=exc.detail, attr="key" if key_refused else None, why=exc.why, fix=exc.fix
             )
-            refused_status = status.HTTP_403_FORBIDDEN if managed_by_code else status.HTTP_400_BAD_REQUEST
-            return Response(TemplateErrorSerializer(refusal).data, status=refused_status)
+            return Response(TemplateErrorSerializer(refusal).data, status=self._refused_status(exc))
         return super().handle_exception(exc)
+
+    @staticmethod
+    def _refused_status(exc: TemplateWriteRefused) -> int:
+        if isinstance(exc, TemplateManagedByCode):
+            return status.HTTP_403_FORBIDDEN
+        if isinstance(exc, TemplateEditedInPostHog):
+            return status.HTTP_409_CONFLICT
+        return status.HTTP_400_BAD_REQUEST
 
     def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
@@ -888,6 +913,11 @@ class MessageTemplatesViewSet(
                 "default sender",
             ),
             404: OpenApiResponse(description="The transactional email API is not enabled for this project"),
+            409: OpenApiResponse(
+                response=TemplateErrorSerializer,
+                description="The upload set `if_code_managed`, and people edit the template with this key in PostHog. "
+                "Nothing changed",
+            ),
             429: OpenApiResponse(description="Rate limited"),
         },
         summary="Upload a template by key",
@@ -908,7 +938,9 @@ class MessageTemplatesViewSet(
         body = UploadTemplateSerializer(data=request.data)
         if refused is None and not body.is_valid():
             refused = invalid_request(
-                body.errors, why="An upload needs a name, a subject and HTML, each as a string.", retry="upload again"
+                body.errors,
+                why="An upload needs a name, a subject, and HTML or text, each as a string.",
+                retry="upload again",
             )
         if refused is not None:
             self._report_template_upload(request, {"result": "rejected", "error_code": refused.code})
@@ -928,6 +960,9 @@ class MessageTemplatesViewSet(
         except exceptions.PermissionDenied:
             self._report_template_upload(request, {"result": "rejected", "error_code": "permission_denied"})
             raise
+        except TemplateEditedInPostHog as e:
+            self._report_template_upload(request, {"result": "rejected", "error_code": e.code})
+            raise
 
         self._report_template_upload(request, {"result": uploaded.result, "template_id": str(uploaded.template.id)})
         if uploaded.result in (TemplateUploadResult.CREATED, TemplateUploadResult.UPDATED):
@@ -945,15 +980,16 @@ class MessageTemplatesViewSet(
             key=key,
             name=data["name"],
             subject=data["subject"],
-            html=data["html"],
+            html=data.get("html", ""),
             text=data.get("text", ""),
             preheader=data.get("preheader", ""),
             # Wraps the html in one custom HTML block, so the visual editor can open the template.
-            design=build_html_wrap_design(data["html"]),
+            design=build_html_wrap_design(data.get("html", "")),
             source=TemplateSource(repository=source.get("repository"), path=source.get("path"), ref=source.get("ref"))
             if source
             else None,
             if_not_superseded=data["if_not_superseded"],
+            if_code_managed=data["if_code_managed"],
         )
 
     @staticmethod

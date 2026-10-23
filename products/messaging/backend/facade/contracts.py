@@ -60,16 +60,51 @@ class TransactionalEmailPaused(TransactionalEmailError):
     code = "transactional_email_paused"
 
 
+class SenderNotVerified(TransactionalEmailError):
+    code = "sender_not_verified"
+
+
+@frozen
+class RenderedContent:
+    """Content the caller's code rendered for one recipient. It is sent as is and never stored as a template."""
+
+    subject: str
+    html: str
+    text: str
+
+
+@frozen
+class SendFrom:
+    """A verified sender. `email` and `name` override the sender's own, on its verified domain."""
+
+    integration_id: int
+    email: str | None
+    name: str | None
+
+
+@frozen
+class AcceptedSend:
+    """What a code send sets on its own, over what its workflow's email step holds."""
+
+    content: RenderedContent | None
+    sender: SendFrom | None
+    reply_to: tuple[str, ...]
+    capture_engagement: bool
+
+
 @frozen
 class EmailSendCommand:
-    """One email to send: who it goes to, and the template and data it is made from."""
+    """One email to send: who it goes to, and the template and data it is made from. A send names exactly one of
+    `template_id` and `template_key`; a key names rendered content in `send`."""
 
     team_id: int
-    template_id: UUID
+    template_id: UUID | None
     to: str
     # The person the send is tracked against. Without one, the recipient's address is that person.
     distinct_id: str | None
     message_data: Mapping[str, Any]
+    template_key: str | None = None
+    send: AcceptedSend | None = None
     # Checked by the CDP service, so a retry with the same key queues nothing new.
     idempotency_key: str | None = None
 
@@ -162,6 +197,19 @@ class TemplateKeyRefused(TemplateWriteRefused):
     """The template can't take this key."""
 
 
+class TemplateEditedInPostHog(TemplateWriteRefused):
+    """An upload from code meets a template whose content people edit in PostHog."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(
+            code="template_edited_in_posthog",
+            detail=f"The template `{key}` is edited in PostHog, so the upload changed nothing and nothing was sent.",
+            why="An upload from code would overwrite the content people edited in PostHog.",
+            fix="Send the email under another `template_key`, or upload without `if_code_managed` to replace the "
+            "content edited in PostHog with yours.",
+        )
+
+
 @frozen
 class TemplateSource:
     """Where the uploaded file lives. A part that is None leaves the stored part as it is."""
@@ -184,3 +232,5 @@ class TemplateUpload:
     source: TemplateSource | None
     # An automatic upload sets it, so it never publishes content that newer content already replaced.
     if_not_superseded: bool
+    # A send's automatic upload sets it, so it never takes over a template people edit in PostHog.
+    if_code_managed: bool = False

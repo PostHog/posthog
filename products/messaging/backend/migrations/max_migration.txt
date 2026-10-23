@@ -1,1 +1,1 @@
-0010_messagetemplate_unique_key_per_team
+0011_transactional_email_key
