@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -47,6 +48,10 @@ export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'version
 type TemplateContent = MessageTemplate['content']
 
 /** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
+function isClaimedByUpload(error: unknown): boolean {
+    return error instanceof ApiError && error.code === 'immutable'
+}
+
 function splitDraft(template: MessageTemplate): {
     form: MessageTemplate
     draft: TemplateContent | null
@@ -158,6 +163,9 @@ export interface messageTemplateLogicActions {
         event: ResourceEditedEvent
     } // resourceEditedLogic
     autoSaveDraft: () => {
+        value: true
+    }
+    claimedByUpload: () => {
         value: true
     }
     confirmDiscardDraft: () => {
@@ -595,6 +603,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         duplicateTemplate: true,
         duplicateTemplateDone: true,
         setRefusedEdits: (edits: MessageTemplate | null) => ({ edits }),
+        claimedByUpload: true,
         duplicateWithMyChanges: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
@@ -958,9 +967,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     draft_content: content as MessageTemplateContentApi,
                 })
                 actions.saveDraftDone(content, updated.updated_at)
-            } catch {
+            } catch (error) {
                 actions.saveDraftFailed()
-                lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
+                if (isClaimedByUpload(error)) {
+                    actions.claimedByUpload()
+                } else {
+                    lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
+                }
             }
         },
         saveDraftDone: ({ updatedAt }) => {
@@ -1001,8 +1014,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     updated_at: updated.updated_at,
                 })
                 actions.resetTemplate({ ...values.template, content: published, updated_at: updated.updated_at })
-            } catch {
-                lemonToast.error("Couldn't discard your draft. Try again.")
+            } catch (error) {
+                if (isClaimedByUpload(error)) {
+                    actions.claimedByUpload()
+                } else {
+                    lemonToast.error("Couldn't discard your draft. Try again.")
+                }
             }
             actions.discardDraftDone()
             actions.replayDeferredExternalEdit()
@@ -1104,16 +1121,22 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error(errors.content.email.from.email)
             }
         },
+        claimedByUpload: () => {
+            // An upload claimed the template back for code. The page locks at once, so a failed reload
+            // can't leave it editable. Only the offered duplicate keeps the refused edits. The upload also
+            // dropped the draft, so the page shows the published content.
+            const published = values.publishedContent ?? values.originalTemplate.content
+            const claimed = { ...values.originalTemplate, content: published, managed_by: 'code' as const }
+            actions.setRefusedEdits(values.template)
+            actions.setExternallyEdited(false)
+            actions.setDraftState(null, published)
+            actions.setOriginalTemplate(claimed)
+            actions.resetTemplate(claimed)
+            actions.loadTemplate()
+        },
         saveTemplateFailure: ({ errorObject }) => {
-            if (errorObject?.code === 'immutable') {
-                // An upload claimed the template back for code. The page locks at once, so a failed reload
-                // can't leave it editable. Only the offered duplicate keeps the refused edits.
-                const claimed = { ...values.originalTemplate, managed_by: 'code' as const }
-                actions.setRefusedEdits(values.template)
-                actions.setExternallyEdited(false)
-                actions.setOriginalTemplate(claimed)
-                actions.resetTemplate(claimed)
-                actions.loadTemplate()
+            if (isClaimedByUpload(errorObject)) {
+                actions.claimedByUpload()
                 return
             }
             actions.replayDeferredExternalEdit()

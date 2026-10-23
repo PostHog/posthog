@@ -594,35 +594,72 @@ describe('messageTemplateLogic', () => {
     })
 
     describe('claimed back by an upload while editing', () => {
+        const draft = { ...CODE_MANAGED.content, email: { ...CODE_MANAGED.content.email, subject: 'Draft subject' } }
+        const claimed = { ...CODE_MANAGED, transactional_hog_flow_id: 'flow-id', draft_content: null }
         let serverTemplate: Record<string, unknown>
         let reloadStatus: number
         let createBodies: Record<string, unknown>[]
 
-        const refuseSave = async (): Promise<void> => {
-            serverTemplate = CODE_MANAGED
-            await expectLogic(logic, () => {
-                logic.actions.submitTemplate()
-            })
-                .toDispatchActions([
-                    'saveTemplateFailure',
-                    reloadStatus === 200 ? 'loadTemplateSuccess' : 'loadTemplateFailure',
-                ])
-                .toFinishAllListeners()
+        const editTemplate = (): void => {
+            logic.actions.setTemplateValue('name', 'Welcome, edited here')
+            logic.actions.setTemplateValue('content.email.subject', 'Edited subject')
+        }
+
+        const autosave = async (): Promise<void> => {
+            await jest.advanceTimersByTimeAsync(1500)
+        }
+
+        const autosaveThenClaim = async (): Promise<void> => {
+            await autosave()
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            serverTemplate = claimed
+        }
+
+        const publish = async (): Promise<void> => {
+            await autosaveThenClaim()
+            logic.actions.submitTemplate()
+        }
+
+        const discardDraft = async (): Promise<void> => {
+            await autosaveThenClaim()
+            logic.actions.confirmDiscardDraft()
+        }
+
+        const claimThenAutosave = async (): Promise<void> => {
+            serverTemplate = claimed
+            await autosave()
+        }
+
+        const refuse = async (refusal: () => Promise<void>): Promise<void> => {
+            editTemplate()
+            await refusal()
+            await jest.advanceTimersByTimeAsync(3000)
+            await expectLogic(logic).toDispatchActions([
+                reloadStatus === 200 ? 'loadTemplateSuccess' : 'loadTemplateFailure',
+            ])
         }
 
         beforeEach(async () => {
-            serverTemplate = { ...CODE_MANAGED, managed_by: 'gui' }
+            serverTemplate = { ...claimed, managed_by: 'gui', draft_content: draft }
             reloadStatus = 200
             createBodies = []
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                if (serverTemplate.managed_by === 'code') {
+                    return [
+                        403,
+                        { type: 'invalid_request', code: 'immutable', detail: 'This template is managed by code.' },
+                    ]
+                }
+                return [200, { ...serverTemplate, ...body, updated_at: '2026-01-01T00:01:00Z' }]
+            }
             useMocks({
                 get: {
                     '/api/environments/:team_id/messaging_templates/:id/': () => [reloadStatus, serverTemplate],
                 },
                 patch: {
-                    '/api/environments/:team_id/messaging_templates/:id/': () => [
-                        403,
-                        { type: 'invalid_request', code: 'immutable', detail: 'This template is managed by code.' },
-                    ],
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
                 },
                 post: {
                     '/api/environments/:team_id/messaging_templates/': async ({ request }: { request: Request }) => {
@@ -634,28 +671,37 @@ describe('messageTemplateLogic', () => {
             logic = messageTemplateLogic({ id: 'existing-id' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            jest.useFakeTimers()
+        })
 
-            logic.actions.setTemplateValue('name', 'Welcome, edited here')
-            logic.actions.setTemplateValue('content.email.subject', 'Edited subject')
+        afterEach(() => {
+            jest.useRealTimers()
         })
 
         it.each([
-            { reload: 'succeeds', status: 200 },
-            { reload: 'fails', status: 500 },
-        ])('turns read-only and offers to duplicate the unsaved edits when the reload $reload', async ({ status }) => {
-            reloadStatus = status
-            await refuseSave()
+            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'succeeds', status: 200 },
+            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'fails', status: 500 },
+            { refusal: 'a publish', refuse: publish, reload: 'succeeds', status: 200 },
+            { refusal: 'a publish', refuse: publish, reload: 'fails', status: 500 },
+            { refusal: 'a draft discard', refuse: discardDraft, reload: 'fails', status: 500 },
+        ])(
+            'turns read-only and offers to duplicate the unsaved edits when $refusal is refused and the reload $reload',
+            async ({ refuse: refusal, status }) => {
+                reloadStatus = status
+                await refuse(refusal)
 
-            await expectLogic(logic).toMatchValues({
-                isCodeManaged: true,
-                templateChanged: false,
-                refusedEdits: expect.objectContaining({ name: 'Welcome, edited here' }),
-            })
-            expect(logic.values.template.name).toBe('Welcome')
-        })
+                await expectLogic(logic).toMatchValues({
+                    isCodeManaged: true,
+                    hasDraft: false,
+                    hasUnsavedChanges: false,
+                    refusedEdits: expect.objectContaining({ name: 'Welcome, edited here' }),
+                })
+                expect(logic.values.template.name).toBe('Welcome')
+            }
+        )
 
         it('duplicates the unsaved edits without its key, ownership, source or hash', async () => {
-            await refuseSave()
+            await refuse(claimThenAutosave)
 
             await expectLogic(logic, () => {
                 logic.actions.duplicateWithMyChanges()
@@ -665,10 +711,7 @@ describe('messageTemplateLogic', () => {
                 {
                     name: 'Welcome, edited here (copy)',
                     description: 'Sent after signup',
-                    content: {
-                        ...CODE_MANAGED.content,
-                        email: { ...CODE_MANAGED.content.email, subject: 'Edited subject' },
-                    },
+                    content: { ...draft, email: { ...draft.email, subject: 'Edited subject' } },
                 },
             ])
             await expectLogic(logic).toMatchValues({ refusedEdits: null })
