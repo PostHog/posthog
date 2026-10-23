@@ -51,6 +51,11 @@ SCD2_VALID_TO_COLUMN = "valid_to"
 CDC_HISTORY_TABLE_MODES: frozenset[str] = frozenset({"cdc_only", "both"})
 
 
+def is_history_table_mode(cdc_table_mode: object) -> bool:
+    # The create payload is free-form, so a malformed mode can be stored, and a list or dict is unhashable.
+    return isinstance(cdc_table_mode, str) and cdc_table_mode in CDC_HISTORY_TABLE_MODES
+
+
 def history_column_collisions(
     column_names: Iterable[str],
     enabled_columns: list[str] | None,

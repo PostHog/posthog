@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     build_scd2_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    is_history_table_mode,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -709,6 +710,21 @@ class TestScd2TimestampType:
         assert result.schema.field(SCD2_VALID_FROM_COLUMN).type == ts
         assert result.schema.field(SCD2_VALID_TO_COLUMN).type == ts
         assert result.column(SCD2_VALID_TO_COLUMN).to_pylist()[0] is not None
+
+
+class TestIsHistoryTableMode:
+    @parameterized.expand(
+        [
+            ("cdc_only", "cdc_only", True),
+            ("both", "both", True),
+            ("consolidated", "consolidated", False),
+            ("missing", None, False),
+            ("list", [], False),
+            ("dict", {}, False),
+        ]
+    )
+    def test_reads_only_a_history_mode_string(self, _name: str, cdc_table_mode: object, expected: bool) -> None:
+        assert is_history_table_mode(cdc_table_mode) is expected
 
 
 class TestScd2ReservedColumns:

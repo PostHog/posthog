@@ -64,7 +64,6 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
-    CDC_HISTORY_TABLE_MODES,
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
     AnySource,
@@ -76,6 +75,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
     history_column_collisions,
+    is_history_table_mode,
     purge_buffer_prefix,
     repair_is_running,
     resnapshot_stays_in_buffer,
@@ -478,11 +478,11 @@ def _refuse_reserved_history_columns(
     """The history table stamps each row version with `valid_from` and `valid_to`, so a synced source
     column of the same name fails every load into it. Only a collision this request adds is refused,
     so a table that already has one can still be edited or switched back."""
-    if new_mode not in CDC_HISTORY_TABLE_MODES:
+    if not is_history_table_mode(new_mode):
         return
     columns = _source_column_names(instance)
     taken = history_column_collisions(columns, new_enabled_columns, new_primary_keys, instance.incremental_field)
-    if instance.sync_type == ExternalDataSchema.SyncType.CDC and previous_mode in CDC_HISTORY_TABLE_MODES:
+    if instance.sync_type == ExternalDataSchema.SyncType.CDC and is_history_table_mode(previous_mode):
         existing = history_column_collisions(
             columns, previous_enabled_columns, previous_primary_keys, instance.incremental_field
         )

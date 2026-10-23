@@ -29,7 +29,7 @@ _LAZY = {
     "tables_wait_for_repair": "cdc.broken",
     "purge_buffer_prefix": "cdc.buffer",
     "CDC_SEQ_COLUMN": "cdc.batcher",
-    "CDC_HISTORY_TABLE_MODES": "cdc.batcher",
+    "is_history_table_mode": "cdc.batcher",
     "history_column_collisions": "cdc.batcher",
     "BUFFER_LANE": "cdc.snapshot_lane",
     "CDC_RESET_PENDING_KEY": "cdc.snapshot_lane",

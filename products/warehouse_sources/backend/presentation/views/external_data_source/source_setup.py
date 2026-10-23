@@ -48,7 +48,6 @@ from products.warehouse_sources.backend.facade.models import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
-    CDC_HISTORY_TABLE_MODES,
     CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
@@ -71,6 +70,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     history_column_collisions,
+    is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
     sql_schema_metadata,
@@ -1461,7 +1461,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     for schema in payload_schemas
                     if schema.get("sync_type") == "cdc"
                     and schema.get("should_sync", False)
-                    and schema.get("cdc_table_mode") in CDC_HISTORY_TABLE_MODES
+                    and is_history_table_mode(schema.get("cdc_table_mode"))
                     and isinstance(schema.get("name"), str)
                     and history_column_collisions(
                         [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
