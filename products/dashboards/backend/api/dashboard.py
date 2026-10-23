@@ -5,10 +5,11 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
+from functools import partial
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -418,6 +419,10 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
+
+
+def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    return context.run(work)
 
 
 def _run_widget_query(
@@ -3983,12 +3988,15 @@ class DashboardsViewSet(
                 # access method that the metrics concurrency limits read) reach the widget query.
                 futures = {
                     executor.submit(
-                        contextvars.copy_context().run,
-                        _run_widget_query,
-                        self.team,
-                        work_item,
-                        dashboard_id=dashboard.id,
-                        distinct_id=distinct_id,
+                        _run_in_context,
+                        contextvars.copy_context(),
+                        partial(
+                            _run_widget_query,
+                            self.team,
+                            work_item,
+                            dashboard_id=dashboard.id,
+                            distinct_id=distinct_id,
+                        ),
                     ): work_item["tile_id"]
                     for work_item in query_work_items
                 }

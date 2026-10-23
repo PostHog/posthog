@@ -229,3 +229,25 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert seen_access_methods == ["personal_api_key"]
+
+    def test_a_column_average_skips_buckets_that_only_another_column_fills(self) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="pool_size",
+            points=[(self.now - dt.timedelta(minutes=10), 10.0)],
+            labels={"route": "/api/pool"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="pool_waiters",
+            points=[(self.now - dt.timedelta(minutes=40), 4.0)],
+            labels={"route": "/api/pool"},
+        )
+        columns = [
+            {"label": "Pool size", "metricName": "pool_size", "aggregation": "avg"},
+            {"label": "Waiters", "metricName": "pool_waiters", "aggregation": "avg"},
+        ]
+
+        result = self._run({"groupBy": "route", "columns": columns, "dateRange": {"date_from": "-1h"}})
+
+        assert [row["values"] for row in result["rows"]] == [[10.0, 4.0]]

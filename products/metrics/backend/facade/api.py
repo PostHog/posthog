@@ -174,6 +174,7 @@ def _assemble_series(
     clause: MetricQueryClause,
     grid: list[str],
     units_by_fingerprint: dict[int, str],
+    zero_fill: bool = True,
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
@@ -198,7 +199,7 @@ def _assemble_series(
     return [
         MetricSeries(
             labels=dict(key[0]),
-            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
+            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0 if zero_fill else None)) for time in grid),
             metric_name=clause.metric_name,
             clause=clause.name,
             unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
@@ -415,6 +416,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             clause=clause,
             grid=grid,
             units_by_fingerprint=units_by_fingerprint,
+            zero_fill=request.zero_fill,
         )
         for clause in request.clauses
     }

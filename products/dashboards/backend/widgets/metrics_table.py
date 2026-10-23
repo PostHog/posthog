@@ -107,6 +107,9 @@ def run_metrics_table_widget(
         interval=pick_metric_query_interval(
             date_from=date_from, date_to=date_to, max_buckets=METRICS_TABLE_SPARKLINE_POINTS
         ),
+        # Columns share one bucket grid, so a zero fill would pull a column's average down with the
+        # buckets that only another column has data in.
+        zero_fill=False,
     )
     with (
         tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team.pk),
