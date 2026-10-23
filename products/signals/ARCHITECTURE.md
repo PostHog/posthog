@@ -1054,6 +1054,7 @@ So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `or
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
 **Dismissal feedback.** `dismissal_reason` / `dismissal_note` on the state and bulk-state bodies persist as a stacking `dismissal` artefact on the report, which stays the record of truth.
+`wrong_assignee` records a routing error, while `wontfix_irrelevant` records that the report is not useful to the project; neither says the report analysis is incorrect.
 When the caller typed a note, that feedback is _also_ forwarded to a `SignalScoutNote` (`dismissal_notes.forward_dismissal_note`).
 The artefact alone only reaches a scout if some later run happens to search the inbox and land on that report; notes are read by name at the start of every run, which is where a "this was noise, and here is why" verdict belongs.
 "Forward" rather than "promote" because promotion in this product means the pipeline moving a report up the status ladder to `candidate` (`promoted_at`, `signals_at_run`, re-promotion), and nothing here changes a report's standing.
