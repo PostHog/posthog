@@ -5,7 +5,6 @@ import json
 import uuid
 import builtins
 from collections.abc import AsyncGenerator
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
@@ -86,6 +85,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.group_type_mapping import (
@@ -3968,23 +3968,21 @@ class DashboardsViewSet(
 
         force_refresh = str_to_bool(request.query_params.get("refresh", "false"))
 
-        if query_work_items:
-            max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(
-                        _run_widget_query,
-                        self.team,
-                        work_item,
-                        dashboard_id=dashboard.id,
-                        distinct_id=distinct_id,
-                        force_refresh=force_refresh,
-                    ): work_item["tile_id"]
-                    for work_item in query_work_items
-                }
-                for future in as_completed(futures):
-                    tile_id = futures[future]
-                    results_by_id[tile_id] = future.result()
+        # Workers close their Postgres connections on the way out, and keep the request's query tags.
+        widget_results = map_in_caller_context(
+            lambda work_item: _run_widget_query(
+                self.team,
+                work_item,
+                dashboard_id=dashboard.id,
+                distinct_id=distinct_id,
+                force_refresh=force_refresh,
+            ),
+            query_work_items,
+            max_workers=RUN_WIDGETS_QUERY_CONCURRENCY,
+            thread_name_prefix="run_widgets",
+        )
+        for work_item, widget_result in zip(query_work_items, widget_results):
+            results_by_id[work_item["tile_id"]] = widget_result
 
         results = [results_by_id[tile_id] for tile_id in tile_ids]
 
