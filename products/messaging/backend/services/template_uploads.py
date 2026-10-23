@@ -109,11 +109,21 @@ def _make_transactional(template: MessageTemplate, *, user_id: int | None) -> No
     try:
         make_transactional(template.team_id, template.id, user_id=user_id, from_integration_id=None)
     except SenderUnavailable as error:
-        raise SenderUnavailable(
-            "The project has no verified default email sender. Verify a sending domain, set it as the default "
-            "sender, and upload again."
-        ) from error
+        raise SenderUnavailable(_sender_unavailable_message(template)) from error
     template.refresh_from_db()
+
+
+def _sender_unavailable_message(template: MessageTemplate) -> str:
+    sender = ((template.content or {}).get("email") or {}).get("from")
+    if isinstance(sender, dict) and sender.get("integrationId"):
+        return (
+            "The template's email sender isn't verified. Verify its sending domain, or pick a verified sender for "
+            "the template in PostHog, and upload again."
+        )
+    return (
+        "The project has no verified default email sender. Verify a sending domain, set it as the default "
+        "sender, and upload again."
+    )
 
 
 def _write_upload(template: MessageTemplate, upload: TemplateUpload) -> None:

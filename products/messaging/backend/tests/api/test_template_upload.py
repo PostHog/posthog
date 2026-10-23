@@ -212,15 +212,61 @@ class TestTemplateUpload(APIBaseTest):
         made_in_posthog.refresh_from_db()
         assert made_in_posthog.draft_content is None
 
-    def test_without_a_verified_default_sender_an_upload_writes_nothing(self, _post, _flag, _capture):
-        self.sender.config = {"verified": False}
-        self.sender.save()
+    def _adopted_template_sending_from(self, sender: Integration) -> MessageTemplate:
+        return MessageTemplate.objects.create(
+            team=self.team,
+            name="Welcome",
+            key="welcome",
+            content={
+                "email": {
+                    "subject": "Hello",
+                    "html": "<p>Hello</p>",
+                    "from": {"integrationId": sender.id, "email": "team@example.com", "name": "Example team"},
+                }
+            },
+            type="email",
+        )
+
+    def test_an_upload_makes_an_adopted_template_without_a_workflow_send_from_its_own_sender(
+        self, _post, _flag, _capture
+    ):
+        own_sender = self._verified_sender("team@example.com")
+        adopted = self._adopted_template_sending_from(own_sender)
+
+        body = self._upload(WELCOME)
+
+        assert (body["result"], body["id"]) == ("updated", str(adopted.id))
+        assert self._sent_email(body["transactional_hog_flow_id"])["from"] == {
+            "integrationId": own_sender.id,
+            "email": "team@example.com",
+            "name": "Example team",
+        }
+
+    @parameterized.expand(
+        [
+            ("new_template_without_a_verified_default", False, "The project has no verified default email sender."),
+            ("adopted_template_with_an_unverified_sender", True, "The template's email sender isn't verified."),
+        ]
+    )
+    def test_without_a_verified_sender_an_upload_names_the_sender_and_writes_nothing(
+        self, _post, _flag, _capture, _name, adopted, expected_detail_start
+    ):
+        if adopted:
+            unverified = Integration.objects.create(
+                team=self.team, kind="email", integration_id="team@example.com", config={"verified": False}
+            )
+            self._adopted_template_sending_from(unverified)
+        else:
+            self.sender.config = {"verified": False}
+            self.sender.save()
 
         response = self.psak.put(self.url, WELCOME, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "sender_unavailable"
-        assert not MessageTemplate.objects.filter(team=self.team).exists()
+        assert response.json()["detail"].startswith(expected_detail_start)
+        stored = MessageTemplate.objects.filter(team=self.team)
+        assert [(t.managed_by, t.transactional_hog_flow_id) for t in stored] == ([(None, None)] if adopted else [])
 
     @parameterized.expand(
         [
