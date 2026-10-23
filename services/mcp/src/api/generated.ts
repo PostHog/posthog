@@ -88276,6 +88276,8 @@ export namespace Schemas {
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host?: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -93718,6 +93720,8 @@ export namespace Schemas {
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
