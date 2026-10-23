@@ -76,7 +76,7 @@ from .evaluation_llm_judge import (
     call_llm_judge,
     get_output_type_config,
 )
-from .evaluation_types import build_generation_not_found_result, build_skipped_evaluation_result
+from .evaluation_types import GENERATION_NOT_FOUND, build_generation_not_found_result, build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
     LocalEvaluationOutcome,
     backfill_verdict_timestamp,
@@ -2332,7 +2332,7 @@ class TestRunEvaluationWorkflow:
                 result = outcome.result
 
         assert result["skipped"] is True
-        assert result["skip_reason"] == "generation_not_found"
+        assert result["skip_reason"] == GENERATION_NOT_FOUND
         assert result["result_type"] == expected_result_type
         run_hog.assert_not_awaited()
         run_sentiment.assert_not_awaited()
@@ -2704,7 +2704,7 @@ class TestRunEvaluationWorkflow:
 
         assert result == {
             "skipped": True,
-            "skip_reason": "generation_not_found",
+            "skip_reason": GENERATION_NOT_FOUND,
             "evaluation_id": "eval-1",
             "evaluation_type": evaluation_type,
             "verdict": None,
