@@ -644,11 +644,6 @@ export class AgentServer {
     return this.mcpRelayServer.mcpServers;
   }
 
-  /**
-   * Load each installed MCP tool's approval state so the adapter prompts for
-   * `needs_approval` tools. The gateway proxy rejects those calls until the
-   * tool is approved in PostHog, so an unprompted call can only fail.
-   */
   private async loadMcpToolApprovals(): Promise<McpToolApprovals> {
     const { policies } = await this.posthogAPI.getMcpRuntimeConfiguration(
       this.config.mcpServers ?? [],
