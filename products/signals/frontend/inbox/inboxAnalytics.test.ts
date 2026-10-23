@@ -122,6 +122,7 @@ describe('inboxAnalytics', () => {
                     priority: 'P0',
                     signal_count: 3,
                     is_suggested_reviewer: true,
+                    implementation_pr_url: 'https://github.com/example/repo/pull/123',
                     ranking: {
                         served_key: 'report_embeddings@2026-09-30',
                         model_name: 'report_embeddings',
@@ -156,6 +157,7 @@ describe('inboxAnalytics', () => {
             sort_direction: 'desc',
             created_window: '7d',
             ranker_id: 'fixed',
+            has_pr: true,
         })
         expect(props?.impressions).toEqual([
             expect.objectContaining({
