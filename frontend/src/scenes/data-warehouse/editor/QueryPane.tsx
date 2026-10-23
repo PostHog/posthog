@@ -13,6 +13,7 @@ import { cn } from 'lib/utils/css-classes'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
+import { QueryPaneFloatingBar } from './QueryPaneFloatingBar'
 import { QueryPaneSaveBar } from './QueryPaneSaveBar'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -120,47 +121,45 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     )}
                     {props.showInlineSaveBar && !props.originalValue && <QueryPaneSaveBar />}
                     {props.originalValue && (
-                        <div
-                            className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
-                        >
-                            {!!diffShowRunButton && (
+                        <QueryPaneFloatingBar>
+                            <div className="flex gap-1 whitespace-nowrap px-1.5 py-1">
+                                {!!diffShowRunButton && (
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconCheck color="var(--success)" />}
+                                        onClick={() => {
+                                            onAcceptSuggestedQueryInput(true)
+                                        }}
+                                        tooltipPlacement="top"
+                                        size="small"
+                                    >
+                                        {acceptText} & run
+                                    </LemonButton>
+                                )}
                                 <LemonButton
-                                    type="primary"
+                                    type="tertiary"
                                     icon={<IconCheck color="var(--success)" />}
                                     onClick={() => {
-                                        onAcceptSuggestedQueryInput(true)
+                                        onAcceptSuggestedQueryInput()
                                     }}
                                     tooltipPlacement="top"
                                     size="small"
                                 >
-                                    {acceptText} & run
+                                    {acceptText}
                                 </LemonButton>
-                            )}
-                            <LemonButton
-                                type="tertiary"
-                                icon={<IconCheck color="var(--success)" />}
-                                onClick={() => {
-                                    onAcceptSuggestedQueryInput()
-                                }}
-                                tooltipPlacement="top"
-                                size="small"
-                            >
-                                {acceptText}
-                            </LemonButton>
-                            <LemonButton
-                                status="danger"
-                                icon={<IconX />}
-                                onClick={() => {
-                                    onRejectSuggestedQueryInput()
-                                }}
-                                tooltipPlacement="top"
-                                size="small"
-                            >
-                                {rejectText}
-                            </LemonButton>
-                        </div>
+                                <LemonButton
+                                    status="danger"
+                                    icon={<IconX />}
+                                    onClick={() => {
+                                        onRejectSuggestedQueryInput()
+                                    }}
+                                    tooltipPlacement="top"
+                                    size="small"
+                                >
+                                    {rejectText}
+                                </LemonButton>
+                            </div>
+                        </QueryPaneFloatingBar>
                     )}
                 </div>
                 <Resizer {...queryPaneResizerProps} />

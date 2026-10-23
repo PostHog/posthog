@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { QueryPaneFloatingBar } from './QueryPaneFloatingBar'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { updateViewLabel } from './updateViewLabel'
 import { useDiscardEditingView } from './useDiscardEditingView'
@@ -23,34 +24,31 @@ export function QueryPaneSaveBar(): JSX.Element | null {
     }
 
     return (
-        <div
-            // The 2rem keeps a gutter on both sides of a centred, absolutely positioned bar, so a
-            // narrow pane wraps the buttons rather than running them past the edge.
-            className="absolute bottom-4 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col items-center gap-1 rounded border bg-bg-light px-2 py-1.5 shadow-md"
-            data-attr="query-pane-save-bar"
-        >
-            <span className="truncate text-xs text-muted">Unsaved changes</span>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => discard()}
-                    disabledReason={discardDisabledReason}
-                    data-attr="query-pane-save-bar-discard"
-                >
-                    Discard changes
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={() => commit()}
-                    disabledReason={disabledReason}
-                    loading={loading}
-                    data-attr="query-pane-save-bar-update"
-                >
-                    {updateViewLabel(isMaterializedView)}
-                </LemonButton>
+        <QueryPaneFloatingBar>
+            <div className="flex flex-col items-center gap-1 px-2 py-1.5" data-attr="query-pane-save-bar">
+                <span className="truncate text-xs text-muted">Unsaved changes</span>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => discard()}
+                        disabledReason={discardDisabledReason}
+                        data-attr="query-pane-save-bar-discard"
+                    >
+                        Discard changes
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={() => commit()}
+                        disabledReason={disabledReason}
+                        loading={loading}
+                        data-attr="query-pane-save-bar-update"
+                    >
+                        {updateViewLabel(isMaterializedView)}
+                    </LemonButton>
+                </div>
             </div>
-        </div>
+        </QueryPaneFloatingBar>
     )
 }
