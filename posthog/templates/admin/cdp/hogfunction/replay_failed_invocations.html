@@ -34,7 +34,7 @@
 {% endblock %}
 {% block extrahead %}
     {{ block.super }}
-    {% if step == "status" and state and state.status == "queued" or step == "status" and state and state.status == "running" %}
+    {% if step == "status" and state and not can_release and state.status in "queued running" %}
         <meta http-equiv="refresh" content="3">
     {% endif %}
 {% endblock %}
@@ -84,7 +84,14 @@
                 </div>
                 {% if state.detail %}<p class="replay-note {% if state.status != 'done' or can_release %}is-bad{% endif %}">{{ state.detail }}</p>{% endif %}
                 {% if state.status == "queued" or state.status == "running" %}
-                    <p class="replay-note">The replay is sending in the background. This page refreshes every 3 seconds.</p>
+                    {% if can_release %}
+                        <p class="replay-note is-bad">
+                            This replay has not reported progress for 15 minutes, so its worker probably stopped.
+                            Some runs may still have been queued. Check them on the destinations before you allow a resend.
+                        </p>
+                    {% else %}
+                        <p class="replay-note">The replay is sending in the background. This page refreshes every 3 seconds.</p>
+                    {% endif %}
                 {% endif %}
                 {% if state.status == "done" and failed_requests and not can_release %}
                     <p class="replay-note is-bad">

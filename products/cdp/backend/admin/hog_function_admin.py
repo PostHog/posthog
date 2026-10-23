@@ -18,9 +18,10 @@ from products.cdp.backend.services.invocation_replay import (
     DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
     SKIP_REASON_LABELS,
     ReplayCriteria,
+    ReplayOverlapError,
+    can_release_replay,
     claim_replay,
     get_replay_state,
-    is_replay_claimed,
     mark_replay_failed,
     plan_replay,
     release_replay_claim,
@@ -275,7 +276,12 @@ class HogFunctionAdmin(admin.ModelAdmin):
             return respond("summary")
 
         actor = f"admin:{request.user.pk}"
-        if not claim_replay(plan, actor=actor):
+        try:
+            claimed = claim_replay(plan, actor=actor)
+        except ReplayOverlapError as error:
+            messages.error(request, f"{error} Nothing was sent.")
+            return respond("details")
+        if not claimed:
             messages.warning(request, "This plan was already sent, so it was not sent again.")
         else:
             # The send runs in a task, because a plan can need hundreds of requests and
@@ -291,11 +297,13 @@ class HogFunctionAdmin(admin.ModelAdmin):
         if not self.has_change_permission(request):
             raise PermissionDenied
         state = get_replay_state(fingerprint)
-        can_release = state is not None and state["status"] in ("done", "failed") and is_replay_claimed(fingerprint)
-        if request.method == "POST" and request.POST.get("action") == "release" and can_release:
-            release_replay_claim(fingerprint, actor=f"admin:{request.user.pk}")
-            messages.success(request, "This plan can be sent again. Preview the same filters to send it.")
+        if request.method == "POST" and request.POST.get("action") == "release":
+            if release_replay_claim(fingerprint, actor=f"admin:{request.user.pk}"):
+                messages.success(request, "This plan can be sent again. Preview the same filters to send it.")
+            else:
+                messages.error(request, "This plan is still being sent, so it cannot be released yet.")
             return redirect("admin:cdp-replay-failed-invocations-status", fingerprint=fingerprint)
+        can_release = can_release_replay(fingerprint)
         results = (state or {}).get("results", [])
         context: dict[str, Any] = {
             **self.admin_site.each_context(request),

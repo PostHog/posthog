@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -21,10 +22,12 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_invocation_results_sql import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.cdp.backend.services.invocation_replay import (
     ReplayCriteria,
+    ReplayOverlapError,
     claim_replay,
     execute_replay,
     get_replay_state,
     plan_replay,
+    release_replay_claim,
 )
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
 
@@ -333,6 +336,33 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
                 assert raised is outcome
 
         assert claim_replay(plan, actor="second") is can_resend
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_an_overlapping_plan_waits_until_the_first_surely_queued_nothing(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=400, text="{}")
+        _insert(
+            _function(self.team, "template-google-ads"), [_row("a1", "failed"), _row("a2", "failed", 60), _recovered()]
+        )
+        first = plan_replay(_criteria(window_end=IN_WINDOW + timedelta(minutes=30)))
+        overlapping = plan_replay(_criteria())
+        assert (first.invocation_count, overlapping.invocation_count) == (1, 2)
+        assert claim_replay(first, actor="first")
+
+        with self.assertRaises(ReplayOverlapError):
+            claim_replay(overlapping, actor="second")
+        execute_replay(first, actor="first")
+
+        assert claim_replay(overlapping, actor="second")
+
+    def test_staff_can_release_a_send_only_once_its_worker_stopped_reporting(self) -> None:
+        _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
+        plan = plan_replay(_criteria())
+        with time_machine.travel("2026-10-23T08:00:00Z", tick=False):
+            assert claim_replay(plan, actor="first")
+            assert not release_replay_claim(plan.fingerprint, actor="staff")
+        with time_machine.travel("2026-10-23T08:20:00Z", tick=False):
+            assert release_replay_claim(plan.fingerprint, actor="staff")
+            assert claim_replay(plan, actor="second")
 
 
 class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):

@@ -17,6 +17,7 @@ from products.cdp.backend.services.invocation_replay import (
     DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
     SKIP_REASON_LABELS,
     ReplayCriteria,
+    ReplayOverlapError,
     claim_replay,
     execute_replay,
     is_replay_claimed,
@@ -129,9 +130,13 @@ class Command(BaseCommand):
                 "The plan does not match --fingerprint, so nothing was sent. Review the plan above and use its fingerprint."
             )
 
-        if options["allow_resend"]:
-            release_replay_claim(plan.fingerprint, actor="management_command")
-        if not claim_replay(plan, actor="management_command"):
+        if options["allow_resend"] and not release_replay_claim(plan.fingerprint, actor="management_command"):
+            raise CommandError("This plan is not blocked, or it is still being sent, so nothing was sent.")
+        try:
+            claimed = claim_replay(plan, actor="management_command")
+        except ReplayOverlapError as error:
+            raise CommandError(f"{error} Nothing was sent.") from error
+        if not claimed:
             raise CommandError("This plan was already sent, so nothing was sent again.")
         results = execute_replay(plan, actor="management_command")
         for result in results:
