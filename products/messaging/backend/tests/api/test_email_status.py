@@ -13,9 +13,9 @@ from rest_framework.test import APIClient
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models import PersonalAPIKey, ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_secret
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.uuidt import UUIDT
 
 RANK = {"queued": 0, "sent": 3, "delivered": 5, "bounced": 6}
@@ -140,6 +140,38 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
             response = client.get(f"/api/projects/{self.team.id}/messaging/emails/", {"to": "jane@example.com"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("session", "by_id"),
+            ("session", "by_recipient"),
+            ("personal_api_key", "by_id"),
+            ("personal_api_key", "by_recipient"),
+        ]
+    )
+    def test_refuses_any_credential_but_a_project_secret_api_key(self, _flag, credential, read):
+        client = APIClient()
+        if credential == "session":
+            client.force_login(self.user)
+        else:
+            personal_api_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="email status",
+                user=self.user,
+                secure_value=hash_key_value(personal_api_key),
+                scopes=["hog_flow:read"],
+            )
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        if read == "by_id":
+            response = client.get(self._url(self._sent_at(datetime.now(UTC))))
+        else:
+            response = client.get(f"/api/projects/{self.team.id}/messaging/emails/", {"to": "jane@example.com"})
+        send_without_a_credential = APIClient().post(
+            f"/api/projects/{self.team.id}/messaging/send/email/", {}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+        assert response.json() == send_without_a_credential.json()
 
     def _list(self, query: dict[str, Any], scopes: list[str] | None = None) -> Any:
         return self._client(scopes or ["hog_flow:read"]).get(f"/api/projects/{self.team.id}/messaging/emails/", query)

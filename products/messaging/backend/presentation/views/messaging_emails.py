@@ -3,13 +3,14 @@ from typing import Any
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
-from rest_framework import serializers, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.dataclasses import frozen
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 
 from products.messaging.backend.facade.email_status import (
     EMAIL_STATUS_RETENTION,
@@ -133,6 +134,12 @@ class MessagingEmailsViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
     psak_allowed_actions = ["list", "retrieve"]
     throttle_classes = TRANSACTIONAL_EMAIL_THROTTLES
 
+    def _require_project_secret_api_key(self) -> None:
+        # The routing mixin adds user credentials to every route. A status row names no workflow, so a user's
+        # workflow access cannot limit what they read here.
+        if not is_authenticated_via_project_secret_api_key(self.request):
+            raise exceptions.NotAuthenticated()
+
     @extend_schema(
         parameters=[EmailLookupSerializer],
         responses={
@@ -149,6 +156,7 @@ class MessagingEmailsViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self._require_transactional_email_flag()
+        self._require_project_secret_api_key()
         lookup = EmailLookupSerializer(data=request.query_params)
         if not lookup.is_valid():
             return Response(
@@ -173,6 +181,7 @@ class MessagingEmailsViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
     )
     def retrieve(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
         self._require_transactional_email_flag()
+        self._require_project_secret_api_key()
         record = self._status(pk)
         if record is None:
             return Response(TemplateErrorSerializer(email_not_found(pk)).data, status=status.HTTP_404_NOT_FOUND)
