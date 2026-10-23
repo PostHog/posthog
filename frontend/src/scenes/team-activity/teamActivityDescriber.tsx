@@ -830,7 +830,7 @@ function describeWorkflowEmailTierChange(logItem: ActivityLogItem): HumanizedCha
     const reason = setByStaff ? undefined : contextReason
     const target = shortIdActivityLink(logItem, urls.notebook)
     const pinVerb = pinChange ? (pinChange.after ? 'pinned' : 'unpinned') : null
-    const verb = tierChange ? (setByStaff ? 'set' : 'moved') : pinVerb
+    const verb = tierChange ? (setByStaff ? 'set' : 'moved') : (pinVerb ?? 'changed')
     const tierMove = tierChange ? ` from ${String(tierChange.before)} to ${String(tierChange.after)}` : ''
     const pinSuffix = tierChange && pinVerb ? ` and ${pinVerb === 'pinned' ? 'pinned it there' : 'unpinned it'}` : ''
     const action = `${verb} the workflow email sending tier`
