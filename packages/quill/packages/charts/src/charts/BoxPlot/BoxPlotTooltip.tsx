@@ -53,13 +53,7 @@ export function BoxPlotTooltip<Meta = unknown>({
         return <>{userTooltip(ctx)}</>
     }
 
-    const entries: {
-        key: string
-        color: string
-        label: string
-        datum: BoxPlotDatum
-        seriesEntry: TooltipContext['seriesData'][number]
-    }[] = []
+    const entries: { datum: BoxPlotDatum; seriesEntry: TooltipContext['seriesData'][number] }[] = []
     for (const seriesEntry of ctx.seriesData) {
         if (seriesEntry.series.visibility?.tooltip === false) {
             continue
@@ -68,13 +62,7 @@ export function BoxPlotTooltip<Meta = unknown>({
         if (!datum) {
             continue
         }
-        entries.push({
-            key: seriesEntry.series.key,
-            color: seriesEntry.color,
-            label: seriesEntry.series.label,
-            datum,
-            seriesEntry,
-        })
+        entries.push({ datum, seriesEntry })
     }
     if (entries.length === 0) {
         return null
@@ -84,11 +72,11 @@ export function BoxPlotTooltip<Meta = unknown>({
         <TooltipSurface data-attr="hog-chart-boxplot-tooltip">
             <div className="font-semibold mb-1">{ctx.label}</div>
             {entries.map((entry, i) => (
-                <div key={entry.key} className={i > 0 ? 'mt-2' : undefined}>
+                <div key={entry.seriesEntry.series.key} className={i > 0 ? 'mt-2' : undefined}>
                     {grouped && (
                         <div className="flex items-center gap-2 mb-1">
-                            <TooltipSwatch color={entry.color} />
-                            <span className="font-semibold">{entry.label}</span>
+                            <TooltipSwatch color={entry.seriesEntry.color} />
+                            <span className="font-semibold">{entry.seriesEntry.series.label}</span>
                         </div>
                     )}
                     <table className="border-collapse">

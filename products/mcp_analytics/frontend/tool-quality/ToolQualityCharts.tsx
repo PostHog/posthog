@@ -34,7 +34,7 @@ export function maskIncompleteLatencyBox(
     boxes: (BoxPlotDatum | null)[],
     incompleteTail: boolean
 ): (BoxPlotDatum | null)[] {
-    if (!incompleteTail || boxes.length === 0) {
+    if (!incompleteTail) {
         return boxes
     }
     return boxes.map((box, i) => (i === boxes.length - 1 ? null : box))
