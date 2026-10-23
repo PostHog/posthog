@@ -26,6 +26,10 @@ class SignalEmitterOutput:
     weight: float
     extra: dict[str, Any]
     signal_id: str | None = None
+    idempotency_key: str | None = None
+    existing_source_only: bool = False
+    source_match_signal_id: str | None = None
+    source_match_report_id: str | None = None
 
 
 # Type for signal emitter functions (None if the source has not enough meaningful data)
@@ -55,6 +59,9 @@ class SignalSourceTableConfig(BaseModel):
     record_fetcher: RecordFetcher
     # Snapshot sources deduplicate only after successful emission or an intentional filter.
     record_processed_outputs: bool = False
+    # Re-emissions from the same source record must return to its existing report instead of relying
+    # on semantic matching. Use with an emitter-provided, material-version idempotency key.
+    sync_with_source: bool = False
     # Field used to filter records by time window (e.g. "created_at")
     partition_field: str
     # Columns to SELECT — only what the emitter and extra metadata need
