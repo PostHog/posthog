@@ -12607,8 +12607,18 @@ def task_mobile_push_delivery_allowed(*, task_id: str, team_id: int, user_id: in
         task_mobile_push_eligible,  # noqa: PLC0415 — keep notification helpers off the facade import path
     )
 
-    task = Task.objects.filter(id=task_id, team_id=team_id, deleted=False).filter(task_visibility_q(user_id)).first()
-    return task is not None and task_mobile_push_eligible(task, user_id)
+    task = (
+        Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
+        .filter(task_visibility_q(user_id))
+        .select_related("team")
+        .first()
+    )
+    if task is None or not task_mobile_push_eligible(task, user_id):
+        return False
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    return user is not None and UserAccessControl(user=user, team=task.team).check_access_level_for_resource(
+        "task", "viewer"
+    )
 
 
 def task_mobile_push_user_ids(*, task_id: str, team_id: int) -> set[int]:

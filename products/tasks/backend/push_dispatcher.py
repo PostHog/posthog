@@ -30,6 +30,7 @@ from posthog.models.user import User
 from posthog.push_notifications import mobile_push_preference_enabled
 from posthog.tasks.push_notifications import send_user_push
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.mobile_push import (
     enqueue_mobile_pr_outcome,
@@ -350,6 +351,7 @@ def _enqueue_user(
         return False
     if (
         not user.teams.filter(id=task.team_id).exists()
+        or not UserAccessControl(user=user, team=task.team).check_access_level_for_resource("task", "viewer")
         or not Task.objects.filter(id=task.id, team_id=task.team_id, deleted=False)
         .filter(task_visibility_q(user.id))
         .exists()

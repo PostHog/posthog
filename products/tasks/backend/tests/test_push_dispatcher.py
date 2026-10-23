@@ -10,10 +10,12 @@ from django.test import TestCase
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.awaiting_input import dispatch_awaiting_input
@@ -348,9 +350,20 @@ class TestPushDispatcher(TestCase):
         self.assertEqual(mobile_push_user_ids(self.task), {self.user.id})
         self.assertIs(self.task.state["created_on_mobile"], False)
 
+    @parameterized.expand([None, "enqueue", "delivery"])
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_mobile_pickup_fanout_is_per_user_and_refreshes_cached_task(self, mock_delay, _flag):
+    @patch("posthog.push_notifications.requests.post")
+    def test_mobile_pickup_fanout_is_per_user_and_refreshes_cached_task(
+        self, revoke_at: str | None, mock_post: Mock, mock_delay: Mock, _flag: Mock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"data": [{"status": "ok"}]}
         self.task.origin_product = Task.OriginProduct.WORKFLOW
         self.task.state = {}
         self.task.save(update_fields=["origin_product", "state"])
@@ -359,11 +372,36 @@ class TestPushDispatcher(TestCase):
         ]
         for user in picked:
             record_mobile_pickup(task_id=self.task.id, team_id=self.team.id, user_id=user.id)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="task",
+                organization_member=OrganizationMembership.objects.get(organization=self.organization, user=user),
+                access_level="viewer",
+            )
+            UserPushToken.objects.create(user=user, token=f"ExponentPushToken[picked-{user.id}]", platform="ios")
+
+        def revoke_access() -> None:
+            AccessControl.objects.filter(team=self.team, resource="task", organization_member__user=picked[0]).update(
+                access_level="none"
+            )
+
+        if revoke_at == "enqueue":
+            revoke_access()
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
             notify_task_run_completed(self.task_run)
-        self.assertEqual({call.args[0] for call in mock_delay.call_args_list}, {user.id for user in picked})
-        self.assertEqual(mock_delay.call_count, 2)
+        enqueued_users = picked[1:] if revoke_at == "enqueue" else picked
+        self.assertEqual({call.args[0] for call in mock_delay.call_args_list}, {user.id for user in enqueued_users})
+        self.assertEqual(mock_delay.call_count, len(enqueued_users))
+        if revoke_at == "delivery":
+            revoke_access()
+        for call in mock_delay.call_args_list:
+            send_user_push(*call.args)
+        delivered_users = picked if revoke_at is None else picked[1:]
+        self.assertEqual(
+            {call.kwargs["json"][0]["to"] for call in mock_post.call_args_list},
+            {f"ExponentPushToken[picked-{user.id}]" for user in delivered_users},
+        )
 
     @parameterized.expand(
         [

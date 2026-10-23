@@ -159,3 +159,4 @@ Ordinary task notifications do not require this flag.
 
 All four default to `true`.
 The delivery worker checks that the account is active, along with current preferences and access, before it sends a queued notification.
+Task notifications require current viewer access to the task resource when queued and when delivered.
