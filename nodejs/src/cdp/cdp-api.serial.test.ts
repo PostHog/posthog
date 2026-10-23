@@ -2303,7 +2303,7 @@ describe('CDP API', () => {
             ['user@exämple.com', 202],
             ['jane@example.com,john@example.com', 400],
             ['Jane <jane@example.com>', 400],
-        ])('answers a send to %s like Django does', async (to, expected) => {
+        ])('answers a send to %s by the bare-address pattern', async (to, expected) => {
             const res = await send(
                 hogFlow.id,
                 { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },

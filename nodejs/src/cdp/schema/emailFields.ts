@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
-// Django's bare-address grammar, so the worker takes every copy Django accepts and none that names a second recipient.
+// One bare address with a dotted domain. Spaces, quotes, brackets and list separators are refused, so a copy never
+// names a second recipient.
 export const BareEmailAddressSchema = z
     .string()
     .regex(/^[^\s@"<>,;:()[\]\\]+@[^\s@"<>,;:()[\]\\]+\.[^\s@"<>,;:()[\]\\]+$/)
