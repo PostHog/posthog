@@ -168,6 +168,8 @@ dependencies = [
     "zxcvbn==4.5.0",
     "pyyaml~=6.0.2",
     "chdb==4.3.0",
+    # chdb allows any chdb-core>=26.7.0, and engines before 26.9.0 accept a TLS certificate issued for another host.
+    "chdb-core==26.9.0",
     "elevenlabs~=2.1.0",
     "django-oauth-toolkit~=3.2.0",
     "azure-ai-projects~=1.0.0b11",
