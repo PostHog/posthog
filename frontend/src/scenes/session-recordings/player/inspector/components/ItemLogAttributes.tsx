@@ -53,7 +53,7 @@ export function ItemLogAttributes({ attributes, title }: ItemLogAttributesProps)
                                     iconSize="xsmall"
                                     iconPosition="start"
                                     selectable
-                                    className="gap-1 font-mono text-xs break-all"
+                                    className="gap-1 font-mono text-xs break-all !whitespace-normal"
                                 >
                                     {record.value}
                                 </CopyToClipboardInline>
