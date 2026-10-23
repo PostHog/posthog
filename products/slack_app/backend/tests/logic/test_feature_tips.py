@@ -140,6 +140,7 @@ class TestCatalog(SimpleTestCase):
     def test_every_feature_has_a_tip_and_a_unique_rank(self):
         assert set(CATALOG) == set(SlackFeature)
         assert len({tip.rank for tip in CATALOG.values()}) == len(CATALOG)
+        assert all(tip.emoji and tip.title for tip in CATALOG.values())
 
 
 class TestChooseTip(SimpleTestCase):

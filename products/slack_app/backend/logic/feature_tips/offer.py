@@ -103,15 +103,15 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
     if choice is None:
         return None
     tip = CATALOG[choice.feature]
-    text = tip.render_text(reservation.ctx)
+    body = tip.render_text(reservation.ctx)
     try:
         post_slack_ephemeral(
             SlackIntegration(integration).client,
             channel=request.channel,
             user=request.slack_user_id,
             thread_ts=request.thread_ts,
-            text=text,
-            blocks=tip_blocks(integration.id, tip, reservation.ctx, text),
+            text=f"💡 Tip: {tip.title}. {body}",
+            blocks=tip_blocks(integration.id, tip, reservation.ctx, body),
         )
     except Exception:
         logger.warning("slack_app_feature_tip_post_failed", feature=choice.feature, exc_info=True)
@@ -236,7 +236,7 @@ def _button(action_id: str, label: str, value: str, **extra: str) -> dict[str, A
     }
 
 
-def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext, text: str) -> list[dict[str, Any]]:
+def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext, body: str) -> list[dict[str, Any]]:
     # The integration id lets the cross-region interactivity router find the region that owns the click.
     value = json.dumps({"integration_id": integration_id, "feature": tip.feature.value})
     buttons: list[dict[str, Any]] = []
@@ -246,4 +246,7 @@ def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext, text: str)
         buttons.append(_button(FEATURE_TIP_CTA_ACTION_ID, cta.label, value, **extra))
     buttons.append(_button(FEATURE_TIP_DISMISS_ACTION_ID, "Not now", value))
     buttons.append(_button(FEATURE_TIP_OPT_OUT_ACTION_ID, "Don't show tips", value))
-    return [section_block(text), {"type": "actions", "elements": buttons}]
+    return [
+        section_block(f"💡 *Tip: {tip.title}*\n{tip.emoji} {body}"),
+        {"type": "actions", "elements": buttons},
+    ]

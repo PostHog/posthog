@@ -26,7 +26,7 @@ from products.slack_app.backend.services.inbox_interactivity import post_respons
 
 logger = structlog.get_logger(__name__)
 
-TIPS_OFF_TEXT = "Got it. I won't show you more tips."
+TIPS_OFF_TEXT = "👋 Got it. I won't show you more tips."
 
 
 def _tip_action(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:

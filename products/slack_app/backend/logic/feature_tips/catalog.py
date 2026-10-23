@@ -104,6 +104,8 @@ class TipFeature:
     feature: SlackFeature
     # Lower comes first when nothing in the message points at one feature.
     rank: int
+    emoji: str
+    title: str
     text: str
     choice_criteria: str
     has_action: bool = False
@@ -129,10 +131,9 @@ class ThreadFollowupTip(TipFeature):
     feature = SlackFeature.THREAD_FOLLOWUP
     rank = 10
     has_action = True
-    text = (
-        "Tip: in threads you start with me, you can reply without tagging me. "
-        "I ask before I pick up the reply, or I can always pick it up."
-    )
+    emoji = "💬"
+    title = "Reply without tagging me"
+    text = "In threads you start with me, you can reply without tagging me. I ask before I pick up the reply, or I can always pick it up."
     choice_criteria = (
         "Replying in a thread without tagging the assistant. Fits a message that continues a conversation "
         "or asks a follow-up question about an earlier answer."
@@ -152,7 +153,7 @@ class ThreadFollowupTip(TipFeature):
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
         return (
-            "Done. I'll pick up your replies in threads you start with me. "
+            "✅ Done. I'll pick up your replies in threads you start with me. "
             "You can change this in the PostHog app Home tab."
         )
 
@@ -160,10 +161,9 @@ class ThreadFollowupTip(TipFeature):
 class SubscriptionTip(TipFeature):
     feature = SlackFeature.SUBSCRIPTION
     rank = 20
-    text = (
-        "Tip: I can send you a report in Slack on a schedule. "
-        "For example: _@PostHog send me our weekly signups every Monday at 9:00_."
-    )
+    emoji = "📬"
+    title = "Get reports on a schedule"
+    text = "I can send you a report in Slack on a schedule. For example: _@PostHog send me our weekly signups every Monday at 9:00_."
     choice_criteria = (
         "Scheduled reports posted to Slack. Fits a message about a number the person checks again and again, "
         "such as weekly signups, a recurring report, or a metric they track over time."
@@ -181,9 +181,9 @@ class SubscriptionTip(TipFeature):
 class CodeChangePrTip(TipFeature):
     feature = SlackFeature.CODE_CHANGE_PR
     rank = 30
-    text = (
-        "Tip: I can also change code. Ask me to fix a bug or add an event, and I open a pull request for you to review."
-    )
+    emoji = "🛠️"
+    title = "I can change code too"
+    text = "Ask me to fix a bug or add an event, and I open a pull request for you to review."
     choice_criteria = (
         "Code changes and pull requests. Fits a message about a bug, an error, an exception, missing tracking, "
         "or anything in the product's source code."
@@ -206,9 +206,10 @@ class CodeChangePrTip(TipFeature):
 class McpToolTip(TipFeature):
     feature = SlackFeature.MCP_TOOL
     rank = 40
+    emoji = "🔌"
+    title = "Use your other tools"
     text = (
-        "Tip: I can also use your other tools, such as Linear or Notion. "
-        "Connect them in PostHog, and I use them with your own access."
+        "I can also use tools such as Linear or Notion. Connect them in PostHog, and I use them with your own access."
     )
     choice_criteria = (
         "Connecting other work tools such as Linear, Jira, Notion or Google Drive. Fits a message that mentions "
@@ -230,7 +231,9 @@ class McpToolTip(TipFeature):
 class DirectMessageTip(TipFeature):
     feature = SlackFeature.DIRECT_MESSAGE
     rank = 50
-    text = "Tip: you can also send me a direct message, for questions you want to keep to yourself."
+    emoji = "🔒"
+    title = "Ask me in private"
+    text = "You can also send me a direct message, for questions you want to keep to yourself."
     choice_criteria = (
         "Private direct messages with the assistant. Fits a message about a sensitive topic, such as one customer, "
         "revenue, salaries, or the person's own work."
@@ -256,7 +259,9 @@ class DirectMessageTip(TipFeature):
 class FileAttachmentsTip(TipFeature):
     feature = SlackFeature.FILE_ATTACHMENTS
     rank = 60
-    text = "Tip: attach a screenshot or a file to your message, and I read it together with your question."
+    emoji = "📎"
+    title = "Send me screenshots and files"
+    text = "Attach a screenshot or a file to your message, and I read it together with your question."
     choice_criteria = (
         "Sending screenshots and files to the assistant. Fits a message that describes something on screen, "
         "a design, a spreadsheet, a log file, or an error the person sees."
@@ -266,7 +271,9 @@ class FileAttachmentsTip(TipFeature):
 class FileOutputsTip(TipFeature):
     feature = SlackFeature.FILE_OUTPUTS
     rank = 70
-    text = "Tip: ask me for a CSV or a chart, and I add it to the thread as a file."
+    emoji = "📊"
+    title = "Get files back"
+    text = "Ask me for a CSV or a chart, and I add it to the thread as a file."
     choice_criteria = (
         "Files and Slack canvases made by the assistant. Fits a message that asks for an export, a list of rows, "
         "a chart to share, or a long report."
@@ -277,7 +284,9 @@ class FileOutputsTip(TipFeature):
 
     def render_text(self, ctx: TipContext) -> str:
         if has_scopes(ctx.integration, {SLACK_CANVAS_SCOPE}):
-            return "Tip: ask me for a CSV, a chart, or a long report, and I add it to the thread as a file or a Slack canvas."
+            return (
+                "Ask me for a CSV, a chart, or a long report, and I add it to the thread as a file or a Slack canvas."
+            )
         return self.text
 
 
@@ -285,7 +294,9 @@ class InboxChannelTip(TipFeature):
     feature = SlackFeature.INBOX_CHANNEL
     rank = 80
     has_action = True
-    text = "Tip: join the PostHog inbox channel to see the problems that PostHog finds in your product."
+    emoji = "📥"
+    title = "See what PostHog finds"
+    text = "Join the PostHog inbox channel to see the problems that PostHog finds in your product."
     choice_criteria = (
         "A Slack channel with reports about problems PostHog finds on its own, such as new or spiking errors. "
         "Fits a message about errors, regressions, incidents, or keeping watch on the product."
@@ -298,7 +309,7 @@ class InboxChannelTip(TipFeature):
         if ctx.inbox_channel_target is None:
             return self.text
         name = channel_name_from_target(ctx.inbox_channel_target)
-        return f"Tip: join {name} to see the problems that PostHog finds in your product, such as new errors."
+        return f"Join {name} to see the problems that PostHog finds in your product, such as new errors."
 
     def cta(self, ctx: TipContext) -> TipCta | None:
         return TipCta(label="Join the channel")
@@ -307,16 +318,15 @@ class InboxChannelTip(TipFeature):
         channel = ensure_inbox_channel(integration)
         if channel is None or not invite_user_to_inbox(integration, channel[0], slack_user_id):
             return "I couldn't add you to the channel. Try again later, or ask a Slack admin to add you."
-        return f"Done. You're in {channel[1]}."
+        return f"✅ Done. You're in {channel[1]}."
 
 
 class ProjectInMentionTip(TipFeature):
     feature = SlackFeature.PROJECT_IN_MENTION
     rank = 90
-    text = (
-        "Tip: name a project in your message, and I use it for that request. "
-        "For example: _@PostHog in the website project, why did signups drop?_"
-    )
+    emoji = "🗂️"
+    title = "Pick a project in your message"
+    text = "Name a project in your message, and I use it for that request. For example: _@PostHog in the website project, why did signups drop?_"
     choice_criteria = (
         "Choosing a PostHog project for one request by naming it. Fits a message about a specific app, site, "
         "environment, or product area that could be a separate project."
@@ -329,7 +339,9 @@ class ProjectInMentionTip(TipFeature):
 class AppHomeProjectTip(TipFeature):
     feature = SlackFeature.APP_HOME_PROJECT
     rank = 100
-    text = "Tip: you can choose your default project in the Home tab of the PostHog app."
+    emoji = "🏠"
+    title = "Choose your default project"
+    text = "You can choose your default project in the Home tab of the PostHog app."
     choice_criteria = (
         "Setting a default PostHog project. Fits a message that names a project or asks about data that "
         "could be in another project."
@@ -348,10 +360,9 @@ class AppHomeProjectTip(TipFeature):
 class ModelInMentionTip(TipFeature):
     feature = SlackFeature.MODEL_IN_MENTION
     rank = 110
-    text = (
-        "Tip: you can choose the model for one request in your message. "
-        "For example: _@PostHog use sonnet and fix the flaky checkout test_."
-    )
+    emoji = "🧠"
+    title = "Pick a model for one request"
+    text = "Name the model in your message. For example: _@PostHog use sonnet and fix the flaky checkout test_."
     choice_criteria = (
         "Choosing an AI model or effort level for one request. Fits a hard or long task, such as a deep "
         "investigation or a large code change, or a message about speed or quality of answers."
@@ -362,10 +373,9 @@ class AutoModelChoiceTip(TipFeature):
     feature = SlackFeature.AUTO_MODEL_CHOICE
     rank = 120
     has_action = True
-    text = (
-        "Tip: I can choose the model for each task you start: "
-        "a faster one for short questions and a stronger one for code changes."
-    )
+    emoji = "⚡"
+    title = "Let me pick the model"
+    text = "I can choose the model for each task you start: a faster one for short questions and a stronger one for code changes."
     choice_criteria = (
         "Letting the assistant choose the AI model for each task. Fits a message about answer speed, cost, "
         "or a mix of quick questions and large tasks."
@@ -383,15 +393,15 @@ class AutoModelChoiceTip(TipFeature):
 
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         set_auto_model_choice(integration.integration_id, slack_user_id, True)
-        return (
-            "Done. I'll choose the model for each new task you start. You can change this in the PostHog app Home tab."
-        )
+        return "✅ Done. I'll choose the model for each new task you start. You can change this in the PostHog app Home tab."
 
 
 class AppHomeTasksTip(TipFeature):
     feature = SlackFeature.APP_HOME_TASKS
     rank = 130
-    text = "Tip: the Home tab of the PostHog app lists your tasks and their status."
+    emoji = "📋"
+    title = "See all your tasks"
+    text = "The Home tab of the PostHog app lists your tasks and their status."
     choice_criteria = (
         "A list of the person's tasks and their status. Fits a message that asks about an earlier request, "
         "a pull request in progress, or what the assistant is working on."
@@ -407,7 +417,9 @@ class AppHomeTasksTip(TipFeature):
 class InsightUnfurlTip(TipFeature):
     feature = SlackFeature.INSIGHT_UNFURL
     rank = 140
-    text = "Tip: paste a link to a PostHog insight in Slack, and I show a preview of it."
+    emoji = "🔗"
+    title = "Share insight links"
+    text = "Paste a link to a PostHog insight in Slack, and I show a preview of it."
     choice_criteria = (
         "Previews of PostHog links pasted in Slack. Fits a message that shares or mentions an insight, "
         "a dashboard, or a chart with the team."
@@ -417,7 +429,9 @@ class InsightUnfurlTip(TipFeature):
 class ForkThreadTip(TipFeature):
     feature = SlackFeature.FORK_THREAD
     rank = 150
-    text = 'Tip: to continue a thread in private, use "Fork to DM" in the menu on my answer.'
+    emoji = "🍴"
+    title = "Continue in private"
+    text = 'To continue a thread in private, use "Fork to DM" in the menu on my answer.'
     choice_criteria = (
         "Moving a channel conversation into a private direct message. Fits a message in a busy channel, "
         "or about a topic the person wants to explore alone."
@@ -431,7 +445,9 @@ class UnpromptedAnswersTip(TipFeature):
     feature = SlackFeature.UNPROMPTED_ANSWERS
     rank = 160
     has_action = True
-    text = "Tip: when you ask about PostHog in a channel without tagging me, I can offer to answer."
+    emoji = "🙋"
+    title = "Ask without tagging me"
+    text = "When you ask about PostHog in a channel without tagging me, I can offer to answer."
     choice_criteria = (
         "Answers to channel questions that do not tag the assistant. Fits a message that the person could "
         "have asked the whole channel, such as a quick data question."
@@ -449,7 +465,7 @@ class UnpromptedAnswersTip(TipFeature):
     def apply_action(self, integration: Integration, slack_user_id: str) -> str:
         set_untagged_question_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
         return (
-            "Done. I'll answer your questions about PostHog in channels, also when you don't tag me. "
+            "✅ Done. I'll answer your questions about PostHog in channels, also when you don't tag me. "
             "You can change this in the PostHog app Home tab."
         )
 
@@ -457,7 +473,9 @@ class UnpromptedAnswersTip(TipFeature):
 class AnswerRatingTip(TipFeature):
     feature = SlackFeature.ANSWER_RATING
     rank = 170
-    text = "Tip: rate my answers with the 👍 and 👎 buttons under them. This helps us make the answers better."
+    emoji = "👍"
+    title = "Rate my answers"
+    text = "Use the 👍 and 👎 buttons under my answers. This helps us make them better."
     choice_criteria = (
         "Rating the assistant's answers. Fits a message that says an earlier answer was wrong, "
         "incomplete, or very helpful."
@@ -467,7 +485,9 @@ class AnswerRatingTip(TipFeature):
 class ReplySuggestionsTip(TipFeature):
     feature = SlackFeature.REPLY_SUGGESTIONS
     rank = 180
-    text = "Tip: click a suggested reply under my answer to ask the next question in one step."
+    emoji = "👆"
+    title = "Ask the next question in one click"
+    text = "Click a suggested reply under my answer to ask your next question."
     choice_criteria = (
         "Suggested follow-up replies under an answer. Fits a short follow-up question that continues an earlier answer."
     )
