@@ -215,11 +215,18 @@ def parse_custom_reports(custom_reports_json: str | None) -> dict[str, GoogleAna
         parsed = json.loads(custom_reports_json)
     except json.JSONDecodeError as e:
         raise CustomReportError(
-            "Custom reports must be valid JSON. Provide a JSON array of report objects, then try again."
+            "Custom reports must be valid JSON. Fix the JSON, or leave the field empty to sync only the built-in reports."
         ) from e
 
+    # A single report pasted without the surrounding brackets is unambiguous, so accept it.
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+
     if not isinstance(parsed, list):
-        raise CustomReportError("Custom reports must be a JSON array of report objects.")
+        raise CustomReportError(
+            "Custom reports must be a JSON array of report objects. Wrap your reports in [ ], "
+            "or leave the field empty to sync only the built-in reports."
+        )
 
     reports: dict[str, GoogleAnalyticsReportSchema] = {}
     for entry in parsed:

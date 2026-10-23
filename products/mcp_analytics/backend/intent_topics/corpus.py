@@ -9,6 +9,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.workload import Workload
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.hogql_queries.base import CONVERSATION_ID_SQL, EFFECTIVE_TOOL_SQL
@@ -76,7 +77,7 @@ def fetch_distinct_intents(
                 "offset": ast.Constant(value=len(intents)),
             },
         )
-        rows = execute_hogql_query(query=query, team=team).results or []
+        rows = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE).results or []
         intents.extend(
             DistinctIntent(
                 hash=row[0],
@@ -127,7 +128,7 @@ def fetch_seen_hashes(team: Team, hashes: Sequence[str], *, now: datetime) -> se
                 "limit": ast.Constant(value=len(chunk)),
             },
         )
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
         seen.update(row[0] for row in response.results)
     return seen
 

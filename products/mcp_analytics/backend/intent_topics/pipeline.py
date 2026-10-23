@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
@@ -72,7 +73,7 @@ def sync_window_start(team: Team, *, now: datetime) -> datetime:
     The catch-up is bounded; a longer outage drops intents older than MAX_SYNC_CATCH_UP that never recur.
     """
     last = (
-        MCPIntentClusteringRun.objects.filter(team=team, kind=Kind.SYNC, status=Status.SUCCEEDED)
+        MCPIntentClusteringRun.objects.filter(team=persist.project_team(team), kind=Kind.SYNC, status=Status.SUCCEEDED)
         .exclude(window_end=None)
         .order_by("-window_end")
         .values_list("window_end", flat=True)
@@ -143,6 +144,7 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
+            workload=Workload.OFFLINE,
         )
         n_intents, n_outliers = (
             (int(response.results[0][0]), int(response.results[0][1])) if response.results else (0, 0)
@@ -205,7 +207,7 @@ def fetch_fit_sample(team: Team, *, since: datetime, until: datetime, limit: int
             "limit": ast.Constant(value=limit),
         },
     )
-    rows = execute_hogql_query(query=query, team=team).results
+    rows = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE).results
     if not rows:
         return FitSample(hashes=[], vectors=np.zeros((0, 0), dtype=np.float32), weights=np.zeros(0), texts=[])
     return FitSample(
@@ -258,7 +260,7 @@ def _run_refit(
         persisted = persist.apply_fit(team, run=run, fit=fit, match=match, now=now)
 
         texts_by_cluster = _sample_texts_by_cluster(fit, sample)
-        labels_by_id = {str(t.pk): t.label for t in MCPIntentTopic.active.filter(team=team)}
+        labels_by_id = {str(t.pk): t.label for t in MCPIntentTopic.active.filter(team=persist.project_team(team))}
         candidates = [
             labeling.TopicLabelInput(
                 topic_id=topic_id,

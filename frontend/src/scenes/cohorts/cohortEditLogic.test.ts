@@ -56,12 +56,14 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 
 const mockUsedInResponse: CohortUsedInResponseApi = {
     feature_flags: {
-        results: [{ id: 7, key: 'my-flag', name: 'My Flag' }],
+        results: [{ id: 7, key: 'my-flag', name: 'My Flag', archived: false }],
         total: 1,
+        hidden: 0,
         has_more: false,
     },
-    insights: { results: [], total: 0, has_more: false },
-    cohorts: { results: [], total: 0, has_more: false },
+    insights: { results: [], total: 0, hidden: 0, has_more: false },
+    cohorts: { results: [], total: 0, hidden: 0, has_more: false },
+    test_account_filters: { results: [], total: 0, has_more: false },
     workflows: { results: [], total: 0, hidden: 0, has_more: false },
 }
 

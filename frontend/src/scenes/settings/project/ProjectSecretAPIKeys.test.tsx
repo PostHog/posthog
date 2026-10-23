@@ -4,6 +4,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,7 +14,11 @@ import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { initKeaTests } from '~/test/init'
 
 import { ProjectSecretAPIKeys } from './ProjectSecretAPIKeys'
-import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
+import {
+    EditingProjectKeyFormValues,
+    MAX_PROJECT_API_KEYS_PER_PROJECT,
+    projectSecretAPIKeysLogic,
+} from './projectSecretAPIKeysLogic'
 
 const createKeys = (count: number): ProjectSecretAPIKeyApi[] =>
     Array.from({ length: count }, (_, index) => ({
@@ -49,6 +56,47 @@ describe('<ProjectSecretAPIKeys />', () => {
     afterEach(() => {
         cleanup()
         logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        { scopes: ['llm_gateway:read'], expectsConfirmation: true },
+        { scopes: ['endpoint:read'], expectsConfirmation: false },
+    ])(
+        'asks to confirm a new key only when it has the AI gateway scope: $scopes',
+        async ({ scopes, expectsConfirmation }) => {
+            const create = jest.spyOn(api.projectSecretApiKeys, 'create').mockResolvedValue(createKeys(1)[0])
+            const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setEditingKeyId('new')
+            logic.actions.setEditingKeyValues({
+                label: 'Gateway',
+                scopes: scopes as EditingProjectKeyFormValues['scopes'],
+            })
+
+            await logic.asyncActions.submitEditingKey()
+
+            expect(dialog).toHaveBeenCalledTimes(expectsConfirmation ? 1 : 0)
+            expect(create).toHaveBeenCalledTimes(expectsConfirmation ? 0 : 1)
+            if (expectsConfirmation) {
+                logic.actions.confirmGatewayScope()
+                await logic.asyncActions.submitEditingKey()
+                expect(create).toHaveBeenCalledWith(expect.objectContaining({ scopes: ['llm_gateway:read'] }))
+            }
+        }
+    )
+
+    it.each([
+        { dialog: 'created', show: (key: ProjectSecretAPIKeyApi) => logic.actions.createKeySuccess(key) },
+        { dialog: 'rolled', show: (key: ProjectSecretAPIKeyApi) => logic.actions.showRollKeySuccessDialog(key) },
+    ])('hides the $dialog key value from session replay and autocapture', ({ show }) => {
+        const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const key = { ...createKeys(1)[0], value: 'phs_fixture_key_value' }
+
+        show(key)
+
+        expect(dialog).toHaveBeenCalledTimes(1)
+        render(<>{dialog.mock.calls[0][0].content}</>)
+        expect(screen.getByText(key.value).closest('.ph-no-capture')).not.toBeNull()
     })
 
     it.each([

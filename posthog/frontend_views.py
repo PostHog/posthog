@@ -7,6 +7,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
 from posthog.utils import render_template
@@ -22,6 +23,7 @@ _REGION_HOSTS = {"us.posthog.com", "eu.posthog.com"}
 class _PageMetadata:
     title: str
     description: str
+    self_hosted_description: str
 
 
 # Same share image as posthog.com, so links to the app and the website preview alike.
@@ -32,6 +34,7 @@ _PUBLIC_PAGE_METADATA: dict[str, _PageMetadata] = {
     "/login": _PageMetadata(
         title="Log in • PostHog",
         description="Log in to PostHog, the single platform for engineers to analyze, test, observe, and deploy new features.",
+        self_hosted_description="Log in to your self-hosted PostHog instance.",
     ),
     "/signup": _PageMetadata(
         title="Sign up • PostHog",
@@ -39,6 +42,7 @@ _PUBLIC_PAGE_METADATA: dict[str, _PageMetadata] = {
             "Create a free PostHog account to analyze, test, observe, and deploy new features. "
             "Every product has a monthly free tier, and no credit card is required."
         ),
+        self_hosted_description="Create an account on your self-hosted PostHog instance.",
     ),
 }
 
@@ -85,11 +89,18 @@ def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
     if metadata is None:
         return {}
     canonical_url = f"{settings.SITE_URL}{path}"
+    if not is_cloud():
+        return {
+            "page_title": metadata.title,
+            "page_description": metadata.self_hosted_description,
+            "canonical_url": canonical_url,
+        }
     return {
         "page_title": metadata.title,
         "page_description": metadata.description,
         "canonical_url": canonical_url,
         "preview_image_url": _PREVIEW_IMAGE_URL,
+        "twitter_site": "@PostHog",
         "structured_data_json": _structured_data_json(metadata, canonical_url),
     }
 

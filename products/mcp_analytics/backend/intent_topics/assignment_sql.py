@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+import numpy as np
+
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.mcp_analytics.backend.facade.clickhouse_schema import MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE
 from products.mcp_analytics.backend.intent_topics.constants import (
@@ -37,6 +39,10 @@ def embedding_table_name() -> str:
     return next(t for t in EMBEDDING_TABLES if t.model_name == EMBEDDING_MODEL).distributed_table_name()
 
 
+# Each centroid is its own constant in the SQL. A single `arrayMap` over a constant array of centroids makes
+# ClickHouse copy every embedding once per centroid and materialize the whole centroid array per row, which
+# runs out of memory at a few hundred topics. Duplicate embedding rows for one intent are not removed here:
+# they carry the same vector, so they get the same topic, and the assignments table keeps one row per intent.
 _ASSIGNMENT_INSERT_SQL = """
 INSERT INTO {target_table}
     (team_id, intent_hash, run_id, topic_id, distance, x, y, is_outlier, intent_text, calls_in_run, tool, timestamp)
@@ -46,8 +52,8 @@ SELECT
     %(run_id)s AS run_id,
     arrayElement(%(topic_ids)s, best) AS topic_id,
     toFloat32(arrayElement(dists, best)) AS distance,
-    toFloat32(arraySum(arrayMap((v, m, p) -> (v - m) * p, embedding, %(pca_mean)s, %(pca_pc1)s))) AS x,
-    toFloat32(arraySum(arrayMap((v, m, p) -> (v - m) * p, embedding, %(pca_mean)s, %(pca_pc2)s))) AS y,
+    toFloat32(dotProduct(embedding, %(pca_pc1)s) - %(pca_offset_1)s) AS x,
+    toFloat32(dotProduct(embedding, %(pca_pc2)s) - %(pca_offset_2)s) AS y,
     if(arrayElement(dists, best) > arrayElement(%(thresholds)s, best), 1, 0) AS is_outlier,
     substringUTF8(content, 1, %(max_text_length)s) AS intent_text,
     toUInt32(JSONExtractUInt(metadata, 'calls')) AS calls_in_run,
@@ -59,7 +65,7 @@ FROM (
         content,
         metadata,
         embedding,
-        arrayMap(c -> cosineDistance(embedding, c), %(centroids)s) AS dists,
+        [{distance_terms}] AS dists,
         indexOf(dists, arrayMin(dists)) AS best
     FROM {embedding_table}
     WHERE team_id = %(team_id)s
@@ -67,8 +73,6 @@ FROM (
       AND document_type = %(document_type)s
       AND timestamp >= %(window_start)s
       AND timestamp < %(window_end)s
-    ORDER BY document_id, inserted_at DESC
-    LIMIT 1 BY document_id
 )
 """
 
@@ -88,7 +92,11 @@ def build_assignment_insert(
     sql = _ASSIGNMENT_INSERT_SQL.format(
         target_table=MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE,
         embedding_table=embedding_table_name(),
+        distance_terms=", ".join(f"cosineDistance(embedding, %(centroid_{i})s)" for i in range(len(topics))),
     )
+    mean = np.asarray(pca.mean, dtype=np.float64)
+    pc1 = np.asarray(pca.pc1, dtype=np.float64)
+    pc2 = np.asarray(pca.pc2, dtype=np.float64)
     params: dict[str, Any] = {
         "team_id": team_id,
         "run_id": run_id,
@@ -97,11 +105,13 @@ def build_assignment_insert(
         "window_start": window_start,
         "window_end": window_end,
         "topic_ids": [topic.topic_id for topic in topics],
-        "centroids": [[float(v) for v in topic.centroid] for topic in topics],
         "thresholds": [float(topic.outlier_distance) for topic in topics],
-        "pca_mean": [float(v) for v in pca.mean],
-        "pca_pc1": [float(v) for v in pca.pc1],
-        "pca_pc2": [float(v) for v in pca.pc2],
+        # (v - mean) . pc == v . pc - mean . pc, so the mean term is a constant per axis.
+        "pca_pc1": pc1.tolist(),
+        "pca_pc2": pc2.tolist(),
+        "pca_offset_1": float(mean @ pc1),
+        "pca_offset_2": float(mean @ pc2),
         "max_text_length": max_text_length,
+        **{f"centroid_{i}": [float(v) for v in topic.centroid] for i, topic in enumerate(topics)},
     }
     return sql, params

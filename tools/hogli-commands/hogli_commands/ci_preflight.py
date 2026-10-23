@@ -61,6 +61,7 @@ from hogli_commands.preflight_checks import (
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
+    check_stack_depth,
     prepare_semgrep,
 )
 from hogli_commands.projections import all_outputs as projection_outputs
@@ -879,6 +880,13 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
     if not as_json:
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
         click.echo(f"       {stale_detail}")
+
+    depth_status, depth_detail = check_stack_depth()
+    failures += depth_status == "fail"
+    results.append({"check": "stack-depth", "status": depth_status, "files": 0, "detail": depth_detail})
+    if not as_json and depth_status != "skipped":
+        click.secho(f"   {_ICON[depth_status]} [stack-depth] open layers in this gh stack", fg=_COLOR[depth_status])
+        click.echo(f"       {depth_detail}")
 
     if shadow_drift_triggered:
         violations = mirror_violations(REPO_ROOT, set(files))

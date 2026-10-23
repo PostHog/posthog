@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
+    MessageLink,
 )
 from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
 from products.alerts_platform.backend.temporal.metrics import increment_root_edit_failures, safe_record
@@ -43,6 +44,8 @@ def deliver(
     announcement: EvaluationAnnouncement,
     incident_action: IncidentAction | None = None,
     source_alert_url: str | None = None,
+    source_incident_key: str | None = None,
+    project: MessageLink | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
     busy = 0
@@ -57,25 +60,6 @@ def deliver(
             channel_target=channel_target,
             transition=transition,
         )
-        if key is None:
-            _send(
-                transport=transport,
-                team_id=team_id,
-                configuration_id=configuration_id,
-                target=target,
-                destination_id=destination_id,
-                message=build_message(
-                    announcement,
-                    transition,
-                    team_id=team_id,
-                    incident_action=incident_action,
-                    source_alert_url=source_alert_url,
-                    overflowed=overflowed,
-                ),
-                in_reply_to=None,
-            )
-            continue
-
         try:
             claim = thread_store.claim(key, evaluation_key)
         except ThreadBusy:
@@ -101,6 +85,8 @@ def deliver(
                     incident_action=incident_action,
                     source_alert_url=source_alert_url,
                     overflowed=overflowed,
+                    source_incident_key=source_incident_key,
+                    project=project,
                 ),
                 in_reply_to=claim.handle,
             )
@@ -183,19 +169,19 @@ def _thread_key(
     provider: str,
     channel_target: str,
     transition: AnnouncedTransition,
-) -> ThreadKey | None:
-    """Which conversation this message belongs to, or None when it belongs to none.
+) -> ThreadKey:
+    """Which conversation this message belongs to.
 
-    A message about no firing, which is a failed or a turned-off check, continues no
-    conversation and starts none. Keying one on the absent firing would thread every such
-    message for a configuration into the first one, which is the defect the episode prevents.
+    A message about no known firing, which is a failed or a turned-off check or the resolve of a
+    firing that began before the platform recorded starts, continues no conversation. Keying one
+    on the absent firing would thread every such message for a configuration into the first one,
+    which is the defect the episode prevents. So it is keyed on its own transition: it starts a
+    conversation nothing else joins, and a retried delivery still finds its claim and sends nothing.
     """
-    if transition.episode_started_at is None:
-        return None
     return ThreadKey(
         configuration_id=configuration_id,
         grouping_key=transition.grouping_key,
         provider=provider,
         channel_target=channel_target,
-        episode_started_at=transition.episode_started_at,
+        episode_started_at=transition.episode_started_at or transition.occurred_at,
     )

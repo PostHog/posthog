@@ -12,6 +12,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="The team to move.")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Report what a real run would do, and move nothing.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id = options["team_id"]
@@ -21,10 +26,12 @@ class Command(BaseCommand):
         for alert in paths.alerts:
             if alert.choice.reason is not None:
                 self.stdout.write(f"alert={alert.alert_id} path={alert.choice.path} reason={alert.choice.reason}")
-        results = cut_over_team(team_id)
+        dry_run = options["dry_run"]
+        results = cut_over_team(team_id, dry_run=dry_run)
         for result in results:
             if result.skipped is not None:
                 self.stdout.write(f"alert={result.alert_id} skipped={result.skipped}")
         delivery = Counter(str(alert.choice.path) for alert in paths.alerts)
-        outcomes = Counter(str(result.skipped or "moved") for result in results)
+        moved = "would_move" if dry_run else "moved"
+        outcomes = Counter(str(result.skipped or moved) for result in results)
         self.stdout.write(f"team={team_id} {dict(outcomes) or 'no alerts'} paths={dict(delivery)}")
