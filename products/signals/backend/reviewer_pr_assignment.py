@@ -12,7 +12,7 @@ separate from report and PR assignment. GitHub failures must not break report wr
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from django.conf import settings
@@ -21,9 +21,10 @@ from django.db import transaction
 import structlog
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
-from posthog.models.github_integration_base import PullRequestRef
+from posthog.models.github_integration_base import MAX_PR_ASSIGNEES, PullRequestRef
 from posthog.models.integration import GitHubIntegration
 from posthog.ph_client import feature_enabled_or_false
 
@@ -73,6 +74,31 @@ ASSIGNABLE_PR_STATES = frozenset(
         SignalReportAssignment.PrState.UNKNOWN,
     }
 )
+
+FirstAssignmentStatus = Literal["assigned", "skipped"]
+
+
+@frozen
+class FirstAssignment:
+    """One attempt to copy the accepted report list onto its pull request.
+
+    Counts only, never logins: the people behind them are member PII and the report artefact
+    already holds the list. `limited` is the part of the accepted list that was eligible but fell
+    outside GitHub's assignee cap, so it is distinct from a missing account link (`unlinked`) and
+    from GitHub refusing the person in the repository (`unassignable`). The accepted list itself is
+    never changed to fit the cap.
+    """
+
+    status: FirstAssignmentStatus
+    reason: str | None = None
+    assigned: tuple[str, ...] = ()
+    unlinked: int = 0
+    unassignable: int = 0
+    limited: int = 0
+
+    @classmethod
+    def skipped(cls, reason: str, **counts: int) -> FirstAssignment:
+        return cls(status="skipped", reason=reason, **counts)
 
 
 def schedule_reviewer_pr_assignment(
@@ -496,58 +522,70 @@ def _report_assignee_logins(team: Team, snapshot: ReviewerSnapshot, *, require_o
 
 def _assign_report_reviewers(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, pr: dict[str, Any]
-) -> list[str]:
-    if pr.get("assignees") or _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
-        return []
+) -> FirstAssignment:
+    if pr.get("assignees"):
+        return FirstAssignment.skipped("already_assigned")
+    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+        return FirstAssignment.skipped("unassigned_by_hand")
 
     log = logger.bind(team_id=team_id, report_id=report_id)
     try:
         team = Team.objects.get(id=team_id)
         snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
         if snapshot.corrections.needs_review:
-            return []
+            return FirstAssignment.skipped("needs_review")
         candidates = _report_assignee_logins(team, snapshot)
-        if len(candidates) < len(snapshot.reviewers):
+        unlinked = len(snapshot.reviewers) - len(candidates)
+        if unlinked:
             log.info(
                 "signals.reviewer_pr_assignment.unavailable_accounts",
                 selected=len(snapshot.reviewers),
                 linked=len(candidates),
             )
+        # Every candidate is checked before the cap applies, so a person the cap omits is known to
+        # be eligible rather than merely unchecked, and one failed check still stops the attempt.
         assignable: list[str] = []
         for login in candidates:
             result = github.is_assignable(parsed.repository, login)
             if not result.get("success"):
                 log.warning("signals.reviewer_pr_assignment.assignable_check_failed")
-                return []
+                return FirstAssignment.skipped("assignable_check_failed", unlinked=unlinked)
             if result.get("assignable"):
                 assignable.append(login)
-        if len(assignable) < len(candidates):
+        unassignable = len(candidates) - len(assignable)
+        if unassignable:
             log.info(
                 "signals.reviewer_pr_assignment.unassignable_accounts",
                 selected=len(candidates),
                 assignable=len(assignable),
             )
+        counts = {"unlinked": unlinked, "unassignable": unassignable}
         if not assignable:
-            return []
+            return FirstAssignment.skipped("no_assignable_recipients", **counts)
+        attempted = assignable[:MAX_PR_ASSIGNEES]
+        counts["limited"] = len(assignable) - len(attempted)
 
         current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
         if current_pr is None or current_pr.get("assignees"):
-            return []
+            return FirstAssignment.skipped("pull_request_changed", **counts)
         if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
-            return []
+            return FirstAssignment.skipped("unassigned_by_hand", **counts)
         current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
         if current.state != snapshot.state or _report_assignee_logins(team, current) != candidates:
-            return []
+            return FirstAssignment.skipped("report_changed", **counts)
         if not (
             assignment_writer_enabled(team_id)
             and team_research_reviewer_selection_enabled(team_id)
             and assignment_side_effects_enabled(team_id)
         ):
-            return []
-        return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=assignable) or []
+            return FirstAssignment.skipped("delivery_disabled", **counts)
+        assigned = _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=attempted)
+        if not assigned:
+            return FirstAssignment.skipped("github_rejected", **counts)
+        return FirstAssignment(status="assigned", assigned=tuple(assigned), **counts)
     except Exception:
         log.exception("signals.reviewer_pr_assignment.report_assignment_failed")
-        return []
+        return FirstAssignment.skipped("error")
 
 
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
@@ -585,7 +623,19 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         return []
 
     if shared_assignment:
-        assigned = _assign_report_reviewers(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr)
+        first = _assign_report_reviewers(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr)
+        logger.info(
+            "signals.reviewer_pr_assignment.first_assignment",
+            team_id=team_id,
+            report_id=report_id,
+            status=first.status,
+            reason=first.reason,
+            assigned=len(first.assigned),
+            unlinked=first.unlinked,
+            unassignable=first.unassignable,
+            limited=first.limited,
+        )
+        assigned = list(first.assigned)
     elif dri_enabled:
         assigned = _assign_one_dri(
             github,

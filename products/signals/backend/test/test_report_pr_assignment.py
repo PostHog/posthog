@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from structlog.testing import capture_logs
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.organization import OrganizationMembership
@@ -137,6 +139,54 @@ class TestReportPRAssignment:
 
         assert self.assign(report, github) == []
         github.add_pull_request_assignees.assert_not_called()
+
+    @pytest.mark.parametrize("case", ["over-limit", "under-limit", "opted-out", "check-fails-late"])
+    def test_recipients_beyond_the_github_limit_are_recorded_not_dropped(self, org_and_team, case):
+        org, team = org_and_team
+        logins = [f"member-{index:02d}" for index in range(12)]
+        members = [_make_reviewer(org, login, opted_in=True) for login in logins]
+        report = _make_report(team, logins[:3])
+        editor = members[0]
+        for member in members[3:]:
+            SignalReportArtefact.append(
+                team_id=team.id,
+                report_id=str(report.id),
+                content=SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(member.uuid))]),
+                attribution=ArtefactAttribution.from_user(editor.id),
+                reviewer_edit=ReviewerEdit(action="add"),
+            )
+        github = self.github()
+        if case == "under-limit":
+            for member in members[9:]:
+                member.social_auth.all().delete()
+        elif case == "opted-out":
+            SignalUserAutonomyConfig.objects.filter(user=members[0]).update(github_assign_on_pull_request=False)
+        elif case == "check-fails-late":
+            github.is_assignable.side_effect = lambda _repo, login: (
+                {"success": False, "error": "boom"} if login == logins[10] else {"success": True, "assignable": True}
+            )
+
+        with capture_logs() as logs:
+            assigned = self.assign(report, github)
+
+        outcome = next(log for log in logs if log["event"] == "signals.reviewer_pr_assignment.first_assignment")
+        if case == "over-limit":
+            assert assigned == logins[:10]
+            github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, logins[:10])
+            assert (outcome["status"], outcome["limited"], outcome["unlinked"]) == ("assigned", 2, 0)
+        elif case == "under-limit":
+            assert assigned == logins[:9]
+            github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, logins[:9])
+            assert (outcome["status"], outcome["limited"], outcome["unlinked"]) == ("assigned", 0, 3)
+        elif case == "opted-out":
+            assert assigned == logins[1:11]
+            github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, logins[1:11])
+            assert (outcome["status"], outcome["limited"]) == ("assigned", 1)
+        else:
+            assert assigned == []
+            github.add_pull_request_assignees.assert_not_called()
+            assert (outcome["status"], outcome["reason"]) == ("skipped", "assignable_check_failed")
+        assert len(json.loads(report.artefacts.filter(type="suggested_reviewers").latest("created_at").content)) == 12
 
     def test_saved_human_edits_are_used_by_the_pr(self, org_and_team):
         org, team = org_and_team

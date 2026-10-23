@@ -295,7 +295,10 @@ The worker maps selected project members to their current personal GitHub accoun
 It assigns eligible selected people in the saved order only when their **Assign me on GitHub** setting is on.
 A missing settings row, a missing GitHub account, or lost access prevents assignment to that person. The worker does not select a replacement.
 The personal setting does not remove anyone from the report. Claims and owning teams do not change the selected list or its order.
-The report remains the source of the assignment. Logs record unavailable accounts, permission failures, and GitHub delivery failures.
+GitHub accepts at most 10 assignees on a pull request. The worker applies the personal settings and access checks before this limit.
+It assigns the first 10 eligible people in the saved order and records the rest as omitted by the limit.
+The report list keeps every member; the limit applies only to GitHub delivery and never selects replacements.
+The report remains the source of the assignment. Logs record the first-assignment outcome with counts of unavailable accounts, unassignable people, people omitted by the limit, permission failures, and GitHub delivery failures.
 
 The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
 Queued work and retries use the current personal setting.
