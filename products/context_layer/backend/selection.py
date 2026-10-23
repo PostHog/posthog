@@ -28,6 +28,8 @@ from posthog.ph_client import get_feature_flag_or_none
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
 
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
+
 if TYPE_CHECKING:
     from posthog.llm.system_one_client import SystemOneClient
 
@@ -343,6 +345,8 @@ class ContextSelector:
 
     def capture_outcome(self, reason: str, gate: float, scored: list[tuple[Candidate, float]]) -> None:
         # The gateway drops System One inputs and answers from its events, so this is the only record of decisions.
+        # Skill ids are customer-defined names, so privacy mode drops ids along with titles.
+        privacy_mode = is_privacy_mode_enabled(self.run.team)
         posthoganalytics.capture(
             distinct_id=str(self.actor.distinct_id),
             event="context selection outcome",
@@ -355,8 +359,16 @@ class ContextSelector:
                 "reason": reason,
                 "gate_probability": round(gate, 4),
                 "candidate_count": len(scored),
+                "privacy_mode": privacy_mode,
                 "candidates": [
-                    {"kind": candidate.kind, "id": candidate.id, "title": candidate.title, "score": round(score, 4)}
+                    {"kind": candidate.kind, "score": round(score, 4)}
+                    if privacy_mode
+                    else {
+                        "kind": candidate.kind,
+                        "id": candidate.id,
+                        "title": candidate.title,
+                        "score": round(score, 4),
+                    }
                     for candidate, score in sorted(scored, key=lambda pair: -pair[1])
                 ],
             },
