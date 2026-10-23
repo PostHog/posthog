@@ -33,7 +33,9 @@ class UptimeMonitor(TeamScopedRootMixin, UUIDModel):
 
     name = models.CharField(max_length=255)
     url = models.URLField(max_length=2048)
-    method = models.CharField(max_length=8, choices=Method.choices, default=Method.GET, db_default=Method.GET)
+    method = models.CharField(
+        max_length=8, choices=Method.choices, default=Method.GET.value, db_default=Method.GET.value
+    )
     interval_seconds = models.PositiveIntegerField(
         default=300,
         db_default=300,
