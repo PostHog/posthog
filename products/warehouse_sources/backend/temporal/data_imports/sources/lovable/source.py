@@ -106,6 +106,8 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
             api_version=self.resolve_api_version(inputs.api_version),
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -116,8 +118,9 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
             label="Lovable",
             caption=(
                 "Connect your Lovable account with an API key to sync workspaces, projects, "
-                "members, credit history, and security findings. Member, collaborator, credit, and "
-                "PII tables need Lovable's Enterprise plan, and security scans need Business or higher."
+                "members, groups, credit history, security findings, and website analytics. Member, "
+                "collaborator, credit, and PII tables need Lovable's Enterprise plan. Groups, security "
+                "scans, and analytics need Business or higher."
             ),
             keywords=["app builder"],
             docsUrl="https://posthog.com/docs/cdp/sources/lovable",
