@@ -1,19 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonBanner,
-    LemonCard,
-    LemonSelect,
-    LemonSkeleton,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSelect, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
+import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
+import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { engineLabel } from './utils'
 
@@ -22,25 +18,14 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     if (!check) {
         return <span className="text-muted whitespace-nowrap">Not checked</span>
     }
-    if (check.check_failed) {
-        return <LemonTag type="danger">Failed</LemonTag>
-    }
-    return check.cited ? <LemonTag type="success">Cited</LemonTag> : <LemonTag type="warning">Not cited</LemonTag>
+    return <ContentAutopilotCheckResultTag cited={check.cited} checkFailed={check.check_failed} />
 }
 
 export const ContentAutopilotPrompts = (): JSX.Element => {
-    const {
-        prompts,
-        promptsLoading,
-        promptsError,
-        promptsPage,
-        promptsTopic,
-        promptTopics,
-        promptEngines,
-        promptActiveUpdating,
-    } = useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, setPromptsPage, setPromptsTopic, setPromptActive } =
-        useActions(contentAutopilotPromptsLogic)
+    const { prompts, promptsLoading, promptsError, promptsPage, promptsTopic, promptTopics, promptEngines } =
+        useValues(contentAutopilotPromptsLogic)
+    const { loadAeoPrompts, setPromptsPage, setPromptsTopic } = useActions(contentAutopilotPromptsLogic)
+    const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
 
     if (promptsError === 'forbidden') {
         return (
@@ -123,7 +108,18 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         {
                             title: 'Prompt',
                             key: 'prompt',
-                            render: (_, prompt) => <div className="py-2 min-w-60 break-words">{prompt.prompt}</div>,
+                            render: (_, prompt) => (
+                                <div className="py-2 min-w-60 break-words">
+                                    <Link
+                                        subtle
+                                        onClick={() => openPromptDetail(prompt.id)}
+                                        className="text-left font-semibold"
+                                        data-attr="content-autopilot-prompt-open-detail"
+                                    >
+                                        {prompt.prompt}
+                                    </Link>
+                                </div>
+                            ),
                         },
                         {
                             title: 'Topic',
@@ -154,18 +150,13 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                             title: 'Active',
                             key: 'active',
                             render: (_, { id, active }) => (
-                                <LemonSwitch
-                                    checked={active}
-                                    onChange={(checked) => setPromptActive(id, checked)}
-                                    loading={!!promptActiveUpdating[id]}
-                                    aria-label={active ? 'Turn prompt off' : 'Turn prompt on'}
-                                    data-attr="content-autopilot-prompt-active-toggle"
-                                />
+                                <ContentAutopilotPromptActiveSwitch promptId={id} active={active} />
                             ),
                         },
                     ]}
                 />
             )}
+            <ContentAutopilotPromptDetail />
         </section>
     )
 }
