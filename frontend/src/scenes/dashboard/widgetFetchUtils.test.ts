@@ -46,14 +46,14 @@ describe('widgetFetchUtils', () => {
     })
 
     describe('widgetDashboardFilters', () => {
-        const METRICS_KEYS = ['date_from', 'date_to', 'metricFilters']
+        const DATE_KEYS = ['date_from', 'date_to']
 
         it.each([
             [
                 'keeps a cleared filter explicit, so it replaces the saved one',
                 {},
-                METRICS_KEYS,
-                { date_from: null, date_to: null, metricFilters: null },
+                DATE_KEYS,
+                { date_from: null, date_to: null },
             ],
             [
                 'keeps the widget keys and drops the rest',
@@ -61,15 +61,9 @@ describe('widgetFetchUtils', () => {
                     date_from: '-1h',
                     properties: [],
                     breakdown_filter: {},
-                    metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }],
+                    metricVariables: [{ name: 'window', type: 'interval', values: ['5m'], current: '5m' }],
                 },
-                METRICS_KEYS,
-                { date_from: '-1h', date_to: null, metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }] },
-            ],
-            [
-                'leaves out metric label filters for a widget that follows only the date range',
-                { date_from: '-1h', metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }] },
-                ['date_from', 'date_to'],
+                DATE_KEYS,
                 { date_from: '-1h', date_to: null },
             ],
         ])('%s', (_name, filters, keys, expected) => {
