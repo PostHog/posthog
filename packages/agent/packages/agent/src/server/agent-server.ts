@@ -259,6 +259,8 @@ const CREATOR_CONTROLLED_ORIGIN_PRODUCTS = new Set([
   POSTHOG_AI_ORIGIN_PRODUCT,
   "user_created",
 ]);
+// Approval states are best-effort; past this, tools load ungated rather than delay the run.
+const MCP_TOOL_APPROVALS_TIMEOUT_MS = 5_000;
 
 function mcpToolApprovalCancel(
   policy: McpToolPolicy,
@@ -666,11 +668,14 @@ export class AgentServer {
     return this.mcpRelayServer.mcpServers;
   }
 
-  private async loadMcpToolApprovals(
+  private async loadMcpToolPolicies(
     servers: McpServerConnection[],
-  ): Promise<McpToolApprovals> {
+  ): Promise<Map<string, McpToolPolicy>> {
     const { policies, failedServers } =
-      await this.posthogAPI.getMcpRuntimeConfiguration(servers);
+      await this.posthogAPI.getMcpRuntimeConfiguration(
+        servers,
+        AbortSignal.timeout(MCP_TOOL_APPROVALS_TIMEOUT_MS),
+      );
     if (failedServers.length > 0) {
       this.logger.warn("Failed to load MCP tool approval states", {
         servers: failedServers,
@@ -679,26 +684,30 @@ export class AgentServer {
     // Two installations whose names sanitize alike are indistinguishable to the
     // SDK, so leave them ungated rather than approve the wrong one.
     const ambiguousKeys = new Set<string>();
-    this.mcpToolPolicies = new Map();
+    const policiesByKey = new Map<string, McpToolPolicy>();
     for (const policy of policies) {
       const key = mcpToolKey({
         server: sanitizeMcpServerName(policy.serverName),
         tool: sanitizeMcpServerName(policy.toolName),
       });
-      if (this.mcpToolPolicies.has(key)) ambiguousKeys.add(key);
-      this.mcpToolPolicies.set(key, policy);
+      if (policiesByKey.has(key)) ambiguousKeys.add(key);
+      policiesByKey.set(key, policy);
     }
-    for (const key of ambiguousKeys) this.mcpToolPolicies.delete(key);
+    for (const key of ambiguousKeys) policiesByKey.delete(key);
     if (ambiguousKeys.size > 0) {
       this.logger.warn("Skipping ambiguous MCP tool approval keys", {
         keys: [...ambiguousKeys],
       });
     }
+    return policiesByKey;
+  }
+
+  private applyMcpToolPolicies(
+    policies: Map<string, McpToolPolicy>,
+  ): McpToolApprovals {
+    this.mcpToolPolicies = policies;
     return Object.fromEntries(
-      [...this.mcpToolPolicies].map(([key, policy]) => [
-        key,
-        policy.approvalState,
-      ]),
+      [...policies].map(([key, policy]) => [key, policy.approvalState]),
     );
   }
 
@@ -1940,8 +1949,10 @@ export class AgentServer {
           POSTHOG_METHODS.REFRESH_SESSION,
           {
             mcpServers: toAcpMcpServers(refreshedMcpServers),
-            mcpToolApprovals: await this.loadMcpToolApprovals(
-              mcpServers as McpServerConnection[],
+            mcpToolApprovals: this.applyMcpToolPolicies(
+              await this.loadMcpToolPolicies(
+                mcpServers as McpServerConnection[],
+              ),
             ),
           },
         );
@@ -2216,14 +2227,17 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
-    const [preTaskRun, preTask, mcpToolApprovals] =
-      await this.measureInitialization("context_fetch", () =>
+    const mcpToolPoliciesPromise = this.loadMcpToolPolicies(
+      this.config.mcpServers ?? [],
+    );
+    const [preTaskRun, preTask] = await this.measureInitialization(
+      "context_fetch",
+      () =>
         Promise.all([
           this.fetchTaskRunForSessionContext(payload.task_id, payload.run_id),
           this.fetchTaskForSessionContext(payload.task_id),
-          this.loadMcpToolApprovals(this.config.mcpServers ?? []),
         ]),
-      );
+    );
     const launchSources = {
       payload,
       task: preTask,
@@ -2509,7 +2523,6 @@ export class AgentServer {
       ...(channelMode && { channelMode: true }),
       budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
-      mcpToolApprovals,
       ...(launch.originProduct && {
         taskOriginProduct: launch.originProduct,
       }),
@@ -2541,12 +2554,8 @@ export class AgentServer {
     // `.posthog/skills/<runId>/...`, which is gitignored (untracked) in target
     // repos, so `git checkout` — which only updates tracked files — cannot
     // conflict with those writes or leave them associated with the wrong branch.
-    let effectiveSessionMeta: typeof sessionMeta & {
-      nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
-    } = sessionMeta;
-    const [nativeResume, sessionMcpServers] = await this.measureInitialization(
-      "session_dependencies",
-      async () => {
+    const [nativeResume, sessionMcpServers, mcpToolApprovals] =
+      await this.measureInitialization("session_dependencies", async () => {
         try {
           await this.installSkillBundleArtifacts(
             payload.task_id,
@@ -2568,7 +2577,11 @@ export class AgentServer {
             ...(this.config.mcpServers ?? []),
             ...(await this.startMcpRelayServer()),
           ]);
-          return [preparedNativeResume, preparedMcpServers] as const;
+          return [
+            preparedNativeResume,
+            preparedMcpServers,
+            this.applyMcpToolPolicies(await mcpToolPoliciesPromise),
+          ] as const;
         } finally {
           if (existingPrCheckoutPromise) {
             this.logExistingPrCheckoutResult(
@@ -2577,8 +2590,12 @@ export class AgentServer {
             );
           }
         }
-      },
-    );
+      });
+
+    let effectiveSessionMeta: typeof sessionMeta & {
+      mcpToolApprovals: McpToolApprovals;
+      nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
+    } = { ...sessionMeta, mcpToolApprovals };
 
     const acpSessionId = await this.measureInitialization(
       "session_create",
@@ -2615,9 +2632,12 @@ export class AgentServer {
           this.shutdownController.signal.throwIfAborted();
           const restoredNativeGoal =
             this.getNativeGoalForFreshSession(runtimeAdapter);
-          effectiveSessionMeta = restoredNativeGoal
-            ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
-            : sessionMeta;
+          if (restoredNativeGoal) {
+            effectiveSessionMeta = {
+              ...effectiveSessionMeta,
+              nativeGoal: restoredNativeGoal,
+            };
+          }
           const sessionResponse = await clientConnection.newSession({
             cwd: sessionCwd,
             mcpServers: sessionMcpServers,
@@ -5907,6 +5927,8 @@ export class AgentServer {
    * record the approval in PostHog first so the gateway proxy accepts the call.
    * The proxy has no per-call approval, and clients hide "always" options by
    * default, so the one allow option is a plain allow labeled as saving it.
+   * `persistsApproval` tells clients the answer outlives the run, so a
+   * run-scoped auto-approve mode must not answer it.
    */
   private async relayMcpToolApproval(
     params: RequestPermissionRequest,
@@ -5914,6 +5936,10 @@ export class AgentServer {
   ): Promise<RequestPermissionResponse> {
     const response = await this.relayPermissionToClient({
       ...params,
+      toolCall: {
+        ...params.toolCall,
+        _meta: { ...params.toolCall._meta, persistsApproval: true },
+      },
       options: params.options.flatMap((option) => {
         if (option.kind === "allow_always") return [];
         if (option.kind === "allow_once") {

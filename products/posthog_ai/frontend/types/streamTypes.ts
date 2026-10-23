@@ -284,6 +284,8 @@ export interface PermissionRequestRecord {
      * interactive question overlay instead of the approve/decline card, and blocks auto-approval.
      */
     questions?: AgentQuestion[]
+    /** Set when the answer is saved beyond this run, such as an MCP tool approval. */
+    persistsApproval?: boolean
 }
 
 export const SCOUT_CADENCES = ['daily', 'weekly'] as const

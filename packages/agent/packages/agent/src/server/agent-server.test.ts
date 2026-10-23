@@ -3236,9 +3236,8 @@ describe("AgentServer HTTP Mode", () => {
     ])("$label", async ({ policies, expected }) => {
       const testServer = createServer() as unknown as {
         posthogAPI: { getMcpRuntimeConfiguration: unknown };
-        loadMcpToolApprovals: (
-          servers: unknown[],
-        ) => Promise<Record<string, string>>;
+        loadMcpToolPolicies: (servers: unknown[]) => Promise<unknown>;
+        applyMcpToolPolicies: (policies: unknown) => Record<string, string>;
       };
       testServer.posthogAPI.getMcpRuntimeConfiguration = vi.fn(async () => ({
         servers: [],
@@ -3246,7 +3245,11 @@ describe("AgentServer HTTP Mode", () => {
         failedServers: [],
       }));
 
-      expect(await testServer.loadMcpToolApprovals([])).toEqual(expected);
+      expect(
+        testServer.applyMcpToolPolicies(
+          await testServer.loadMcpToolPolicies([]),
+        ),
+      ).toEqual(expected);
     });
 
     it.each([
@@ -3267,12 +3270,13 @@ describe("AgentServer HTTP Mode", () => {
         const { requestPermission } = testServer.createCloudClient(basePayload);
         await requestPermission(approvalRequestFor("mcp__metrics__get_stats"));
 
+        const relayed = relaySpy.mock.calls[0][0] as {
+          options: Array<{ kind: string; name?: string }>;
+          toolCall: { _meta?: { persistsApproval?: boolean } };
+        };
         expect({
-          relayed: (
-            relaySpy.mock.calls[0][0] as {
-              options: Array<{ kind: string; name?: string }>;
-            }
-          ).options.map(({ kind, name }) => ({ kind, name })),
+          relayed: relayed.options.map(({ kind, name }) => ({ kind, name })),
+          persistsApproval: relayed.toolCall._meta?.persistsApproval,
           saved: approveMcpTool.mock.calls.length > 0,
         }).toEqual({
           relayed: [
@@ -3282,6 +3286,7 @@ describe("AgentServer HTTP Mode", () => {
             },
             { kind: "reject_once", name: undefined },
           ],
+          persistsApproval: true,
           saved,
         });
       },

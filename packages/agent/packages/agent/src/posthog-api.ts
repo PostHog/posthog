@@ -167,7 +167,10 @@ export class PostHogAPIClient {
     return this.apiRequest<Task>(`/api/projects/${teamId}/tasks/${taskId}/`);
   }
 
-  async getMcpRuntimeConfiguration(servers: McpServerConnection[]): Promise<{
+  async getMcpRuntimeConfiguration(
+    servers: McpServerConnection[],
+    signal?: AbortSignal,
+  ): Promise<{
     servers: McpServerConnection[];
     policies: McpToolPolicy[];
     failedServers: string[];
@@ -180,7 +183,10 @@ export class PostHogAPIClient {
         }
 
         try {
-          const response = await this.getMcpInstallationTools(installationId);
+          const response = await this.getMcpInstallationTools(
+            installationId,
+            signal,
+          );
           const policies = (response.results ?? []).flatMap((tool) =>
             tool.approval_state
               ? [
@@ -212,7 +218,10 @@ export class PostHogAPIClient {
     };
   }
 
-  private async getMcpInstallationTools(installationId: string): Promise<{
+  private async getMcpInstallationTools(
+    installationId: string,
+    signal?: AbortSignal,
+  ): Promise<{
     results?: Array<{
       tool_name: string;
       approval_state?: McpToolApprovalState;
@@ -223,6 +232,7 @@ export class PostHogAPIClient {
       try {
         return await this.apiRequest(
           `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/`,
+          { signal },
         );
       } catch (error) {
         // A timeout is not retried: it already spent the full transfer budget.
