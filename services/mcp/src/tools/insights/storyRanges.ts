@@ -46,7 +46,7 @@ function naiveMs(key: string): number | null {
     )
 }
 
-/** When the bucket that starts at `key` ends, on the same naive clock. A month ends on the next calendar month. */
+/** When the bucket that starts at `key` ends, on the same naive clock. */
 function bucketEndMs(key: string, interval: string): number | null {
     const start = naiveMs(key)
     if (start === null) {
@@ -124,7 +124,6 @@ function zoneOffsetMs(timezone: string, utcMs: number): number {
     }
 }
 
-/** Whether the chart's last period has not ended yet in the chart's timezone, so its value can still change. */
 export function lastBucketInProgress(days: string[], interval: string, timezone = 'UTC', now = Date.now()): boolean {
     const last = days[days.length - 1]
     const end = last === undefined ? null : bucketEndMs(pointKey(last), interval)

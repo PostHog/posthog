@@ -229,7 +229,6 @@ export interface TrendsVisualizerProps {
     showControls?: boolean
     chartClassName?: string
     showTitle?: boolean | 'axis'
-    /** Adds a legend under a line or bar chart. */
     showLegend?: boolean
     /** Indexes of the series a line or bar chart draws in full colour, fading the rest. */
     highlightedSeries?: number[]
