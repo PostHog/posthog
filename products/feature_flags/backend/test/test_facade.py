@@ -106,7 +106,7 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
             )
 
         with patch("products.approvals.backend.coverage.scope_by_owner_enabled", return_value=scoped_by_owner):
-            assert flag_disable_requires_approval(flag) is expected
+            assert flag_disable_requires_approval(flag.id, team=self.team) is expected
 
     def test_archive_active_flag_without_disable_is_rejected(self):
         flag = self._create_flag(active=True)

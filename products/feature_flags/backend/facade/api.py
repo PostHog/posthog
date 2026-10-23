@@ -389,13 +389,14 @@ def user_can_create_flags(*, team: Team, user: User) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
-def flag_disable_requires_approval(flag: FeatureFlag) -> bool:
+def flag_disable_requires_approval(flag_id: int, *, team: Team) -> bool:
     """Whether an enabled approval policy gates disabling this flag.
 
     Reads the policy of the family that governs the flag, which follows its owner once the
     organization scopes policies by flag owner.
     """
-    return write_needs_approval(flag_owner_kind(flag), "disable", flag.team, flag.team.organization)
+    flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag_id, team=team)
+    return write_needs_approval(flag_owner_kind(flag), "disable", team, team.organization)
 
 
 def serialize_flags(flags: Any, *, context: dict) -> Any:
