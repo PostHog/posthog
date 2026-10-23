@@ -18,6 +18,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.workload import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -138,16 +139,16 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         sql, params = build_assignment_insert(
             team_id=team.pk, run_id=run.run_id, window_start=window_start, window_end=window_end, topics=topics, pca=pca
         )
-        sync_execute(sql, params)
-        rollups.rebuild_topic_daily(
-            team_id=team.pk, window_start=window_start, window_end=window_end, now=datetime.now(tz=UTC)
-        )
+        sync_execute(sql, params, team_id=team.pk, workload=Workload.OFFLINE)
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
         )
         n_intents, n_outliers = (
             (int(response.results[0][0]), int(response.results[0][1])) if response.results else (0, 0)
+        )
+        rollups.rebuild_topic_daily(
+            team_id=team.pk, window_start=window_start, window_end=window_end, now=datetime.now(tz=UTC)
         )
     except Exception as e:
         persist.finish_run(run, status=Status.FAILED, error_message=str(e)[:500])
