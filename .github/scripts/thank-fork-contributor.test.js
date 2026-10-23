@@ -9,14 +9,14 @@ const { MARKER, parseContribution, skipReason, buildComment } = thankForkContrib
 const forkPr = (overrides = {}) => ({
     state: 'OPEN',
     isCrossRepository: true,
-    author: { login: 'Indira-kumar' },
+    author: { login: 'Jane-Doe' },
     comments: { nodes: [] },
     ...overrides,
 })
 
 const MERGED_PR = {
-    body: 'Contributed by @Indira-kumar in #106575, which cannot merge.',
-    mergeCommit: { authors: { nodes: [{ user: { login: 'Indira-kumar' } }] } },
+    body: 'Contributed by @Jane-Doe in #1001, which cannot merge.',
+    mergeCommit: { authors: { nodes: [{ user: { login: 'Jane-Doe' } }] } },
 }
 
 function fakeGithub(forkPrResult) {
@@ -24,7 +24,7 @@ function fakeGithub(forkPrResult) {
     return {
         calls,
         graphql: async (query, { number }) => {
-            if (number === 106575) {
+            if (number === 1001) {
                 if (forkPrResult instanceof Error) {
                     throw forkPrResult
                 }
@@ -39,21 +39,21 @@ function fakeGithub(forkPrResult) {
     }
 }
 
-const context = { repo: { owner: 'PostHog', repo: 'posthog' }, payload: { pull_request: { number: 122491 } } }
+const context = { repo: { owner: 'PostHog', repo: 'posthog' }, payload: { pull_request: { number: 1002 } } }
 const core = { info: () => {}, warning: () => {} }
 
 test.describe('thank-fork-contributor', () => {
     for (const [body, expected] of [
         [
-            '- Contributed by @Indira-kumar in #106575, which cannot merge because backend CI does not run for fork PRs.',
-            { login: 'Indira-kumar', forkPrNumber: 106575 },
+            '- Contributed by @Jane-Doe in #1001, which cannot merge because backend CI does not run for fork PRs.',
+            { login: 'Jane-Doe', forkPrNumber: 1001 },
         ],
         [
-            'Contributed by @Indira-kumar in [select slack workspace](https://github.com/PostHog/posthog/pull/106575), which cannot merge.',
-            { login: 'Indira-kumar', forkPrNumber: 106575 },
+            'Contributed by @Jane-Doe in [fix filters](https://github.com/PostHog/posthog/pull/1001), which cannot merge.',
+            { login: 'Jane-Doe', forkPrNumber: 1001 },
         ],
-        ['Contributed by @Indira-kumar in [sdk fix](https://github.com/PostHog/posthog-js/pull/106575).', null],
-        ['Fixes the bug reported in #106575.', null],
+        ['Contributed by @Jane-Doe in [sdk fix](https://github.com/PostHog/posthog-js/pull/1001).', null],
+        ['Fixes the bug reported in #1001.', null],
         [null, null],
     ]) {
         test(`parseContribution(${JSON.stringify(body)})`, () => {
@@ -63,18 +63,18 @@ test.describe('thank-fork-contributor', () => {
 
     for (const [name, pr, expected] of [
         ['fork PR by the contributor', forkPr(), null],
-        ['login differs only in case', forkPr({ author: { login: 'indira-kumar' } }), null],
+        ['login differs only in case', forkPr({ author: { login: 'jane-doe' } }), null],
         ['missing PR', null, 'pull request not found'],
         ['same-repo PR', forkPr({ isCrossRepository: false }), 'not opened from a fork'],
-        ['fork PR by someone else', forkPr({ author: { login: 'someone' } }), 'opened by someone, not Indira-kumar'],
+        ['fork PR by someone else', forkPr({ author: { login: 'someone' } }), 'opened by someone, not Jane-Doe'],
     ]) {
         test(`skipReason: ${name}`, () => {
-            assert.equal(skipReason(pr, 'Indira-kumar'), expected)
+            assert.equal(skipReason(pr, 'Jane-Doe'), expected)
         })
     }
 
     test('buildComment claims co-author credit only when GitHub gives it', () => {
-        const args = { login: 'Indira-kumar', mergedPrNumber: 122491 }
+        const args = { login: 'Jane-Doe', mergedPrNumber: 1002 }
         assert.match(buildComment({ ...args, credited: true }), /co-author/)
         assert.doesNotMatch(buildComment({ ...args, credited: false }), /co-author/)
     })
@@ -85,16 +85,16 @@ test.describe('thank-fork-contributor', () => {
             'open fork PR gets a comment and is closed',
             forkPr(),
             [
-                ['comment', 106575],
-                ['close', 106575],
+                ['comment', 1001],
+                ['close', 1001],
             ],
         ],
         [
             'a rerun after a failed close only closes',
             forkPr({ comments: { nodes: [{ body: MARKER }] } }),
-            [['close', 106575]],
+            [['close', 1001]],
         ],
-        ['a closed fork PR only gets the comment', forkPr({ state: 'CLOSED' }), [['comment', 106575]]],
+        ['a closed fork PR only gets the comment', forkPr({ state: 'CLOSED' }), [['comment', 1001]]],
         ['a PR number that does not exist is skipped', notFound, []],
     ]) {
         test(name, async () => {
