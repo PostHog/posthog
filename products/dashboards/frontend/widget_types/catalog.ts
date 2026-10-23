@@ -8,6 +8,7 @@ import {
     IconMessage,
     IconNotebook,
     IconRewindPlay,
+    IconTrending,
     IconWarning,
 } from '@posthog/icons'
 
@@ -23,6 +24,7 @@ import {
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
+    metricsTableWidgetConfigSchema,
     notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
@@ -91,6 +93,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     logs: 'Logs',
     conversations: 'Support',
     canvas: 'Canvas',
+    metrics: 'Metrics',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -108,6 +111,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     logs: IconList,
     conversations: IconMessage,
     canvas: IconApps,
+    metrics: IconTrending,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -345,6 +349,22 @@ export const DASHBOARD_WIDGET_CATALOG = {
         sharedPlaceholder: {
             title: 'Recent logs',
             message: 'Log in to PostHog to see the latest logs from this dashboard.',
+        },
+    },
+    metrics_table: {
+        groupId: 'metrics',
+        label: 'Metrics table',
+        description: 'One row per label value, such as each endpoint, with a sparkline for each metric.',
+        headerTitle: 'Metrics table',
+        defaultConfig: metricsTableWidgetConfigSchema.parse({
+            dateRange: { date_from: '-1h' },
+        }),
+        // Full width, like a Grafana row: each row is one label value, and the columns need the room.
+        defaultLayout: { w: 12, h: 6, minW: 12, minH: 4 },
+        titleHref: urls.metrics(),
+        sharedPlaceholder: {
+            title: 'Metrics table',
+            message: 'Log in to PostHog to see the metrics in this table.',
         },
     },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>

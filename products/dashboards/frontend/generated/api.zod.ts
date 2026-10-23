@@ -474,6 +474,31 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchMax
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSavedViewIdOneMax = 12
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneGroupByOneMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemLabelMax = 40
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemMetricNameMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMin = 0
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMax = 1
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemKeyMax = 200
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemOpDefault = `eq`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemValueMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersMax = 5
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsMax = 4
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnDefault = 0
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderDirectionDefault = `DESC`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitDefault = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitMax = 100
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
@@ -708,16 +733,17 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'experiment_results',
                                     'experiments_list',
                                     'logs_list',
+                                    'metrics_table',
                                     'notebook_widget',
                                     'session_replay_list',
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                                    '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                                 ),
                             config: zod
                                 .union([
@@ -1420,6 +1446,156 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'Canvas to render in the tile. Null until the user picks one in the widget settings.'
                                             ),
                                     }),
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1M',
+                                                                '-30M',
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        groupBy: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .min(1)
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneGroupByOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Label that makes one row per value, e.g. `http.route`. Null until the user sets it.'
+                                            ),
+                                        columns: zod
+                                            .array(
+                                                zod.object({
+                                                    label: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemLabelMax
+                                                        )
+                                                        .describe('Column header, e.g. `Requests\/s`.'),
+                                                    metricName: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemMetricNameMax
+                                                        )
+                                                        .describe('Name of the metric this column reads.'),
+                                                    aggregation: zod
+                                                        .enum([
+                                                            'rate',
+                                                            'increase',
+                                                            'sum',
+                                                            'avg',
+                                                            'min',
+                                                            'max',
+                                                            'histogram_quantile',
+                                                        ])
+                                                        .describe(
+                                                            'How each time bucket of a row is computed. `rate` and `increase` read counters.'
+                                                        ),
+                                                    quantile: zod
+                                                        .union([
+                                                            zod
+                                                                .number()
+                                                                .gt(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMin
+                                                                )
+                                                                .lt(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemQuantileOneExclusiveMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional()
+                                                        .describe(
+                                                            'Required for `histogram_quantile`, e.g. 0.95 for p95.'
+                                                        ),
+                                                    filters: zod
+                                                        .array(
+                                                            zod.object({
+                                                                key: zod
+                                                                    .string()
+                                                                    .min(1)
+                                                                    .max(
+                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemKeyMax
+                                                                    )
+                                                                    .describe(
+                                                                        'Label key to filter on, e.g. `http.response.status_code`.'
+                                                                    ),
+                                                                op: zod
+                                                                    .enum(['eq', 'neq', 'regex', 'not_regex'])
+                                                                    .default(
+                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemOpDefault
+                                                                    )
+                                                                    .describe('How the label value is compared.'),
+                                                                value: zod
+                                                                    .string()
+                                                                    .max(
+                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersItemValueMax
+                                                                    )
+                                                                    .describe(
+                                                                        'Label value, or a regular expression for `regex` and `not_regex`.'
+                                                                    ),
+                                                            })
+                                                        )
+                                                        .max(
+                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsItemFiltersMax
+                                                        )
+                                                        .optional()
+                                                        .describe(
+                                                            'Label filters for this column only, e.g. 5xx status codes for an errors column.'
+                                                        ),
+                                                })
+                                            )
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneColumnsMax)
+                                            .optional()
+                                            .describe(
+                                                "One metric per column. Each row shows the column's average over the date range and a sparkline."
+                                            ),
+                                        orderByColumn: zod
+                                            .number()
+                                            .min(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnMin
+                                            )
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderByColumnDefault
+                                            )
+                                            .describe('Index of the column that sorts the rows.'),
+                                        orderDirection: zod
+                                            .enum(['ASC', 'DESC'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneOrderDirectionDefault
+                                            )
+                                            .describe('Sort direction for orderByColumn.'),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneoneLimitDefault
+                                            )
+                                            .describe('Maximum number of rows to show.'),
+                                    }),
                                 ])
                                 .optional()
                                 .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
@@ -1709,15 +1885,16 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             'experiment_results',
                             'experiments_list',
                             'logs_list',
+                            'metrics_table',
                             'notebook_widget',
                             'session_replay_list',
                             'survey_results',
                         ])
                         .describe(
-                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                         )
                         .describe(
-                            'Widget type to add. Use dashboard-widget-catalog-list to pick one.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                            'Widget type to add. Use dashboard-widget-catalog-list to pick one.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                         ),
                     config: zod
                         .record(zod.string(), zod.unknown())
@@ -1729,7 +1906,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -1775,16 +1952,17 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             'experiment_results',
                             'experiments_list',
                             'logs_list',
+                            'metrics_table',
                             'notebook_widget',
                             'session_replay_list',
                             'survey_results',
                         ])
                         .describe(
-                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
+                            '\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results'
                         )
                         .optional()
                         .describe(
-                            "The tile's widget type. It cannot be changed, so omit it or pass the current type.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results"
+                            "The tile's widget type. It cannot be changed, so omit it or pass the current type.\n\n\* `activity_events_list` - Activity Events List\n\* `canvas_app` - Canvas App\n\* `conversations_recent_tickets` - Conversations Recent Tickets\n\* `error_tracking_list` - Error Tracking List\n\* `experiment_results` - Experiment Results\n\* `experiments_list` - Experiments List\n\* `logs_list` - Logs List\n\* `metrics_table` - Metrics Table\n\* `notebook_widget` - Notebook Widget\n\* `session_replay_list` - Session Replay List\n\* `survey_results` - Survey Results"
                         ),
                     config: zod
                         .record(zod.string(), zod.unknown())

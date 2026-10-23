@@ -20,6 +20,15 @@ ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH = 4000
 LOGS_LIST_MAX_LIMIT = 100
 LOGS_LIST_DEFAULT_LIMIT = 50
 
+# Metrics table: one metrics query clause per column, and one row per value of the group-by label.
+# The metrics query keeps at most 100 series per clause, so the row limit cannot go higher.
+METRICS_TABLE_MAX_COLUMNS = 4
+METRICS_TABLE_MAX_FILTERS = 5
+METRICS_TABLE_MAX_LIMIT = 100
+METRICS_TABLE_DEFAULT_LIMIT = 25
+# Points per sparkline. Longer series are averaged into this many buckets to keep the payload small.
+METRICS_TABLE_SPARKLINE_POINTS = 60
+
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
 

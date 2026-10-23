@@ -89,6 +89,7 @@ describe('AddWidgetModal', () => {
             'Error tracking',
             'Experiments',
             'Logs',
+            'Metrics',
             'Session replay',
             'Support',
             'Surveys',
@@ -111,7 +112,7 @@ describe('AddWidgetModal', () => {
 
         await userEvent.click(within(badges).getByText('Logs'))
         await userEvent.click(within(badges).getByText('Error tracking'))
-        expect(sectionHeadings()).toHaveLength(7)
+        expect(sectionHeadings()).toHaveLength(8)
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {
