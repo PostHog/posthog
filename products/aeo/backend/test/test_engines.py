@@ -1,16 +1,21 @@
 from types import SimpleNamespace
 
-from unittest.mock import patch
+import pytest
+from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
+    GATEWAY_MAX_ATTEMPTS,
     OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
+    _SharedBackoff,
     anthropic_truncated_error,
     build_check_fields,
+    gateway_post_json,
     is_target_url,
     openai_response_error,
     parse_anthropic_citations,
@@ -350,3 +355,53 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
     # Sanitizing must not move the verdict: it runs on the recorded copy only.
     assert fields["cited"] is True
     assert fields["target_best_position"] == 1
+
+
+def _response(status: int, retry_after: str | None = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response._content = b'{"ok": true}'
+    if retry_after is not None:
+        response.headers["Retry-After"] = retry_after
+    return response
+
+
+@parameterized.expand(
+    [
+        ("throttled_then_ok", [_response(429, retry_after="7"), _response(200)], None, 2, [7.0]),
+        ("transient_until_attempts_run_out", [_response(503)] * GATEWAY_MAX_ATTEMPTS, requests.HTTPError, 3, [5, 10]),
+        ("client_error_is_not_retried", [_response(400)], requests.HTTPError, 1, []),
+    ]
+)
+def test_gateway_post_json_retries_throttling_and_transient_errors(
+    _name: str, responses: list, raises: type[Exception] | None, posts: int, sleeps: list[float]
+) -> None:
+    session = MagicMock(spec=requests.Session)
+    session.post.side_effect = responses
+
+    with (
+        patch("products.aeo.backend.engines.GATEWAY_BACKOFF", _SharedBackoff()),
+        patch("products.aeo.backend.engines.time.monotonic", return_value=100.0),
+        patch("products.aeo.backend.engines.time.sleep") as sleep,
+    ):
+        if raises is None:
+            assert gateway_post_json(session, "https://gw.test", {}, {}) == {"ok": True}
+        else:
+            with pytest.raises(raises):
+                gateway_post_json(session, "https://gw.test", {}, {})
+
+    assert session.post.call_count == posts
+    assert [call.args[0] for call in sleep.call_args_list] == sleeps
+
+
+def test_shared_backoff_keeps_the_longest_pause() -> None:
+    backoff = _SharedBackoff()
+    with (
+        patch("products.aeo.backend.engines.time.monotonic", return_value=100.0),
+        patch("products.aeo.backend.engines.time.sleep") as sleep,
+    ):
+        backoff.pause(30)
+        backoff.pause(5)
+        backoff.wait()
+
+    sleep.assert_called_once_with(30.0)
