@@ -61,6 +61,7 @@ class UpdateStatus(StrEnum):
     OK = "ok"
     FAILED = "failed"
     SKIPPED_AI_NOT_APPROVED = "skipped_ai_not_approved"
+    SKIPPED_NOT_ENROLLED = "skipped_not_enrolled"
     SKIPPED_NOT_ELIGIBLE_YET = "skipped_not_eligible_yet"
     SKIPPED_TOO_FEW_UNITS = "skipped_too_few_units"
 

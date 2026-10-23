@@ -10928,6 +10928,30 @@ snapshots:
         hash: v1.k794b7964.502a216bbc9268301578d6cebf9f46d13d3a802734f4fd7bd2707bdf8f0c9911.kpruIOz8uQ8wg26EB5QjeBVvFyLZVQV9FI4UqZ4Egsg
     scenes-app-errortracking--list-page-with-stacked-banners--light:
         hash: v1.k794b7964.7f8d251eac06e80fcd07c83ecda7fd43de79caf8f2c6bfe47fad10ab5ae094eb.OgfZFV7i9PlPfw0x6u6BbDnZ6fzWxpn6M3moLNzCBd8
+    scenes-app-errortracking-issuesummary--failed--dark:
+        hash: v1.k794b7964.e9866a862497cb43eba375b641dace5125f87cd6aa990f46169414e991308aff.LK4UTwfs9n5fwkCo_xsXWeVI4uWhOFFHsWJcuCTdtmQ
+    scenes-app-errortracking-issuesummary--failed--light:
+        hash: v1.k794b7964.9dadc3835482c9fc3cbf9c34d64d6d38d9b0b6dd7bcc29f6d6a761a5a02f2833.GGfML6hnbKuYv8EbpC9KDa1HKT9jwVfNZZBsvJlduX8
+    scenes-app-errortracking-issuesummary--generating--dark:
+        hash: v1.k794b7964.f22a879064f42e097ba9cd076b8ffe26aa4228067b58a36c404ba7273bf84178.FNRcL4Omn4dbv79qyq1XiFWrIb6gHUOQI8DnwJbd-0g
+    scenes-app-errortracking-issuesummary--generating--light:
+        hash: v1.k794b7964.55041183792769dff9d666c9db8ce9873be83b974b6383ff9fbf78b955cbfb72.6VJnh84lXDA9BHOfTvc-GoCGRtxczGc6gyoJgHeAOHM
+    scenes-app-errortracking-issuesummary--ready--dark:
+        hash: v1.k794b7964.fe6868c41309756ed8c4b534d93997abb07496dbf92209e6dc016eeb71b29e92.vn3eJyTK2iRSNJIaRCgQs2af1DkIDeykM41vy7lgzQ4
+    scenes-app-errortracking-issuesummary--ready--light:
+        hash: v1.k794b7964.f9b453712b1a95ff2bda0a627a3a30c473708a9555fa565172f5e2d72531684f.E0MgsSYePdCgBsYg0nlVnWKgHq7crSB8JSfJjBEyWjk
+    scenes-app-errortracking-issuesummary--ready-wide--dark:
+        hash: v1.k794b7964.82ad07ab5485a12668a8a0712e472df7757efc6a562fa091b72de3fe111b7ede.b4h-EVOIiCS0XANjVb2IdTPAbmv0HwfzZqnBgSBRUvo
+    scenes-app-errortracking-issuesummary--ready-wide--light:
+        hash: v1.k794b7964.1cda021cd680fb893b3eed8ff42a32143d61d4254155ab4615c49339b8000065.OAa8yZLwYrB2pIeBaeaiGLXyAdcNANY9Q3YmuotnWs4
+    scenes-app-errortracking-issuesummary--ready-without-likely-cause--dark:
+        hash: v1.k794b7964.8badd7b9a6bc79ce305f96b1b676bd3dbb707d0ea3bfcf4632a1d529170e060e.LUgab_ixIuJjiNYi-A6Z_ZuU0KnzwQGdnCDh7RIhHe0
+    scenes-app-errortracking-issuesummary--ready-without-likely-cause--light:
+        hash: v1.k794b7964.d10d73c16662e9d0818f4dbb1c2064ba9a41ad7d05a42570514f5efa02fae8f8.MywIqTJJIupufO8RbLXzWnVzc6V-6SG025VmrayQTYY
+    scenes-app-errortracking-issuesummary--timed-out--dark:
+        hash: v1.k794b7964.7b5074765f939f77ae1cc6a7c03cf1200e1b3026519d7dce36f894cfd6869554.RolH_LxxHVc2fRWfTGmaiX3ZSvkD_6QTzJ1-iCh3Dk8
+    scenes-app-errortracking-issuesummary--timed-out--light:
+        hash: v1.k794b7964.e615ea2fb7d24183d547eca386c0a670c8b047ec0d8a49af40b21331e46d5b81.ArhTQVVglfTIzFHDQImdl1fy0CL0S2MqxlKLWhh3dL0
     scenes-app-errortracking-linkedreports--fix-proposed--dark:
         hash: v1.k794b7964.1b50022f8fafb4684dacd255b966bd2969f79e84d5c7c7daeb68291772a1e36d.9uyjrwufsjMCFx9c7cjsoIyabB3A4ZBnPSVUouM0RZE
     scenes-app-errortracking-linkedreports--fix-proposed--light:
@@ -16776,6 +16800,66 @@ snapshots:
         hash: v1.k794b7964.c17be7ebf593bcdc6ad760d1ae2035be3dadad1e049d39ef6c72b9e093a03067.KVwJMpXcfhchvEMKnnqsNnyBE6EI5d9YIUWIB-08xfY
     utils-autocapture-preview-image--tab-relative-image-with-current-url--light:
         hash: v1.k794b7964.3e7d7a6fa83916bae8280f36864538241c45bd4122e167b299a046939c802b03.oW1U5X9JYmxSLcn72S6kPmgj_jxgZTKyJa0uZ1kbRJs
+    warehouse-suggestions-suggested-certifications--banner--dark:
+        hash: v1.k794b7964.b3793a018b9fc7d1019402ec5216189d26ae85000cbb9d91ede5b7ac7f6528c3.V-ICrhJc-LkfYh8MsK8Q2AoJxCcRhqLIDNvGQ0uyFug
+    warehouse-suggestions-suggested-certifications--banner--light:
+        hash: v1.k794b7964.4398ae40c8e28494481e73b72c49315fd5294380aaa8f4f579c53b120e95d2f3.qj1-k55d9dyizhho1p59SKxeUPeAKHr6ZRnFAkcZgIA
+    warehouse-suggestions-suggested-certifications--deprecate-dialog--dark:
+        hash: v1.k794b7964.379398a0bc13a5f75b341a3ea524b9ba0a640cbb3a97b0a93e4a79a9dbb980e2.xhvNtFSq3a9qkI9V2wIMnvaBeXCY3h8eXO2De84KhOU
+    warehouse-suggestions-suggested-certifications--deprecate-dialog--light:
+        hash: v1.k794b7964.966ef9d3e4d2e372c4540477ff29f30cf40cfa14fc00f8f20b3598daddb07bc2.Rtpa4Ja7OqI5c5VN5sETaXj1brjK8ejBUvxu1gsqMWQ
+    warehouse-suggestions-suggested-certifications--review-dialog--dark:
+        hash: v1.k794b7964.89802b93fe9b475b2c41505c82c562a9c805a3022fa7b0f31d792ee4e26aa356.12Jokr27QXDdzls30bzHiJBVcmY-YW7jGvpMdjl5qvs
+    warehouse-suggestions-suggested-certifications--review-dialog--light:
+        hash: v1.k794b7964.0f6fb7eb4f579c64837df55cbd4f4df7ed124b75d5d394379c2ac621e65112b1.vEB6Jtzs9i2qSzZpJ1I-oMPSP2YZvLsNeFptGLvDnIw
+    warehouse-suggestions-suggested-certifications--review-dialog-narrow--dark:
+        hash: v1.k794b7964.5f9dc23fe422a76659ed69cdf41b77dfe2270f03d6e0fd86565ba931cb552d95.OJ6su46_HVfPGBbzt_9f_PN91F0Y-4UVu_yGV8xZrFE
+    warehouse-suggestions-suggested-certifications--review-dialog-narrow--light:
+        hash: v1.k794b7964.3b5047b043fe10ce37b2e876db33158911951f7f181f76826df4703d0cf4d9c0.ZMOGZUA32lzC4cpnm9eWc99cU9xXecUWujMH99JdztY
+    warehouse-suggestions-suggested-models-strip--banner--dark:
+        hash: v1.k794b7964.5eab43c7f6811e5ca0651c1dbe3fbe44dd21387f05d24d07de36a6603a24cf8d.ouJOT_N_8rEwDbxsI92aGh8Seefi1ctVoAgMybcFsV0
+    warehouse-suggestions-suggested-models-strip--banner--light:
+        hash: v1.k794b7964.33924e399de75936e19314e3aa0eb7dc1697570862cc893bae3b4cd062e0b360.tZ8DSfGDLOGG7Xc_kXI7uC_CyU5l7vOPkwNKxNu9o6I
+    warehouse-suggestions-suggested-models-strip--banner-narrow--dark:
+        hash: v1.k794b7964.696f466f94d41f530c407436ba73a3eb523005e63e056605b3d457546d0ee045.isZjSiaKcjcu-ztNvw7lQeDodFOk4683ViotSunRT5w
+    warehouse-suggestions-suggested-models-strip--banner-narrow--light:
+        hash: v1.k794b7964.f779330a9ab26a6d5ef120c66ae00f45d956d306abcf213688582cdadf375d61.LVyCJ00Z48VEVXdT1oQwMC6y_NGbdqhXAMxK_-yG448
+    warehouse-suggestions-suggested-models-strip--load-failed--dark:
+        hash: v1.k794b7964.d93ab3575b7bebf7f869bc5b41c0a8e0581679f22bd0251c31f031b0f43ee7c0.iXXukenkQJA0ayAlRoqei_RQx1XW-b9MLaTjdhxfkoM
+    warehouse-suggestions-suggested-models-strip--load-failed--light:
+        hash: v1.k794b7964.a5b60b08e7b0a541c14bae9a0a40118fced381d13bfdd40b8e93342959f24f19.LwTgelFpFnRFgNgu3ueAFF9dCIqGgJGMgoyv53ZJe9g
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-incremental-proposal--dark:
+        hash: v1.k794b7964.74f9d19ad93bb618504d2d403e1725ce7fbe501bf78a121822d8f20ad690203e.bPzGeVdTDg_mPVKZsK_HJ0leK8dC-nlU2Ay61tXAbe4
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-incremental-proposal--light:
+        hash: v1.k794b7964.efe5a247e0cf30df05eb016b063f27bc0c6e7004a7c5346d37cd7001870e150a.n04UaOgI7AGNJC7wRti796r6i9Z4fZ488jp3EdumyaY
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-longer-schedule-unknown-sources--dark:
+        hash: v1.k794b7964.caeb876c239ab68a4910791a582803479d5c395fd32439a2bed416e1ecce46ad.W9QtU1TJIvsJukrw_k6_ZyQMeNxaGfuUYR6wuop5bOQ
+    warehouse-suggestions-suggested-models-strip--materialize-dialog-longer-schedule-unknown-sources--light:
+        hash: v1.k794b7964.5872f82618605205a3fde796088db08326f237543eae5f33711f0a30baf2cb77.lcVZNPKUrhhwlcL8UX95J6FdDkhsNmg0aLPRdTrMXk4
+    warehouse-suggestions-suggested-models-strip--not-eligible--dark:
+        hash: v1.k794b7964.b646d37c91e92fd3d0053e1407559117a50c06c45f8ff7f4bcaaed18bab1cfef.1vguAxzgXrCyuyN1v2jRBSTSGDrmsu62f3nO60GFvGc
+    warehouse-suggestions-suggested-models-strip--not-eligible--light:
+        hash: v1.k794b7964.a66ac5be916b459b6f8b15621e3bdeb12226d34c1e24feb15900940652fc238b.gzxwnKSQkZQfg5wdIMriKJO-aaxIteiXVzfSx1R7w8c
+    warehouse-suggestions-suggested-models-strip--review-dialog--dark:
+        hash: v1.k794b7964.d7a97db72786b603d2b91bc135306d9f209cb826b9a94ea60278e32a5b51c2b4.9SG-h8azE_3Dv6B0fRMypQwublXXHhEAhEtkTHy-ZPY
+    warehouse-suggestions-suggested-models-strip--review-dialog--light:
+        hash: v1.k794b7964.395fbaf1ad8d74c5063132bfeafe6a3f8f9130129e65b08687517c22b7430f79.t1FqX63N7P6Gyob_yJGn4aGFbsk_sMOJaXct-oJe98s
+    warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--dark:
+        hash: v1.k794b7964.1fb2c3524d2880a401435332be82e9d6a109699bb684e8d8a632e2c1d7262cce.E6wFW05wsOdqs4abb8a7sOrqAiSlZD_2HGrqLHw8QpA
+    warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--light:
+        hash: v1.k794b7964.c441546b521c5286469dc57b0d4a1daedcceb71a1d1b77cc13a985d24a7bc0b2.RZP2_X7ud-iKHkrc4_5kNUPdG_Y7K9g_atrRdloUv9U
+    warehouse-suggestions-suggested-models-strip--review-dialog-viewer-without-edit-access--dark:
+        hash: v1.k794b7964.78818080e410c0639744c301e983042c6c5ce24e451eabe2c716df45d2988472.v_up3Pez-pWEw5UA_54ptbBwA470-3wcjOzaBOkOGk8
+    warehouse-suggestions-suggested-models-strip--review-dialog-viewer-without-edit-access--light:
+        hash: v1.k794b7964.62361ba9d4282173b78fc84a73210eb0b4df37902b6bd49ac341fdd520c3eaba.OPI08CUPtrsmvWyrvyjiojYy0k7xfjxGqLCkwbOP4_A
+    warehouse-suggestions-suggested-models-strip--stop-materializing-dialog--dark:
+        hash: v1.k794b7964.8a797fd358479a7be6614b6d85ebd369a80c839cf2d13f66458757bbb819772e.dG-gaGw-FHj4Gc2e68Y1vaLtxC1cfsC5ViVgLmLPNjk
+    warehouse-suggestions-suggested-models-strip--stop-materializing-dialog--light:
+        hash: v1.k794b7964.3fffc0e8f8756eeeb6073e1915247aa46a925e4cee1c15ddfbf15ceb188bbd8f.Gs-ybZLuvEAOo39xjwrpGnF-c8X-Zrjstj9gmTp3e1w
+    warehouse-suggestions-suggested-models-strip--warming-up--dark:
+        hash: v1.k794b7964.860407091149fedd6c4e056cda79d92213e59dd9e00886e0cedee320fc267c48.x5QcsRUSRT66uOc237oq_n4D-eQWpY2GzsTRTC-SL6w
+    warehouse-suggestions-suggested-models-strip--warming-up--light:
+        hash: v1.k794b7964.86db938002ea2e5c707b2a5732b996bc00a3b62fa007d18be17bd16436a529cd.bd4HNKnDSFxD74paJmB86KW6DhqVz9WPJpCzjbRMt7o
     web-analytics-heatmaps-pricing-notice--empty-capture-list--dark:
         hash: v1.k794b7964.9a5b4e65070403f615b0f04b60799af6cd4d0ae75810e18bea042c54e084d945.Rc8ysk1u96jJNkCfo1DX-y__WWcmxeHyn8q6l8j3P44
     web-analytics-heatmaps-pricing-notice--empty-capture-list--light:
