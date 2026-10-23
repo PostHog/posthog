@@ -175,7 +175,12 @@ export const uptimeMonitoringSceneLogic = kea<uptimeMonitoringSceneLogicType>([
         monitors: [
             null as UptimeMonitorApi[] | null,
             {
-                loadMonitors: async () => (await uptimeMonitorsList(projectId(), { limit: LIST_LIMIT })).results,
+                loadMonitors: async (_, breakpoint) => {
+                    const response = await uptimeMonitorsList(projectId(), { limit: LIST_LIMIT })
+                    // A newer load started while this one ran, so this response may miss a monitor created since.
+                    breakpoint()
+                    return response.results
+                },
                 deleteMonitor: async (monitor: UptimeMonitorApi) => {
                     await uptimeMonitorsDestroy(projectId(), monitor.id)
                     lemonToast.success('Monitor deleted')
@@ -204,7 +209,12 @@ export const uptimeMonitoringSceneLogic = kea<uptimeMonitoringSceneLogicType>([
             }),
             submit: async (form) => {
                 const created = await uptimeMonitorsCreate(projectId(), { ...form, name: form.name.trim() })
-                actions.loadMonitorsSuccess([created, ...(values.monitors ?? [])])
+                // Without a settled list there is nothing safe to prepend to, so fetch it again.
+                if (values.monitors === null || values.monitorsLoading) {
+                    actions.loadMonitors()
+                } else {
+                    actions.loadMonitorsSuccess([created, ...values.monitors])
+                }
             },
         },
     })),
@@ -234,6 +244,12 @@ export const uptimeMonitoringSceneLogic = kea<uptimeMonitoringSceneLogicType>([
                 actions.setNewMonitorManualErrors({ [error.attr]: error.detail })
             } else {
                 lemonToast.error("Couldn't create the monitor. Try again.")
+            }
+        },
+        deleteMonitorFailure: ({ errorObject }) => {
+            // The global loader handler toasts errors that have a status, but not network failures.
+            if (errorObject?.status === undefined) {
+                lemonToast.error("Couldn't delete the monitor. Check your connection and try again.")
             }
         },
         confirmDeleteMonitor: ({ monitor }) => {

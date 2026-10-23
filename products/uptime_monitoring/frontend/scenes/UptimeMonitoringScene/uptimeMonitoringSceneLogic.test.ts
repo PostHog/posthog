@@ -79,6 +79,25 @@ describe('uptimeMonitoringSceneLogic', () => {
         expect(logic.values.isCreateModalOpen).toBe(false)
     })
 
+    it('fetches the list again after a create that follows a failed load', async () => {
+        featureFlagLogic.mount()
+        setUptimeFlag(true)
+        const created = { ...EXISTING, id: '01900000-0000-7000-8000-000000000002', name: 'API' }
+        listSpy
+            .mockRejectedValueOnce(new ApiError('Server error', 500))
+            .mockResolvedValueOnce({ count: 2, results: [created, EXISTING] })
+        createSpy.mockResolvedValue(created)
+        const logic = uptimeMonitoringSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.monitors).toBeNull()
+
+        logic.actions.setNewMonitorValues({ name: 'API', url: 'https://api.example.com' })
+        await expectLogic(logic, () => logic.actions.submitNewMonitor()).toFinishAllListeners()
+
+        expect(logic.values.monitors?.map((m) => m.id)).toEqual([created.id, EXISTING.id])
+    })
+
     it('shows a server validation error on its field and keeps the modal open', async () => {
         createSpy.mockRejectedValue(
             new ApiError('Bad request', 400, undefined, { attr: 'url', detail: 'Enter a valid URL.' })

@@ -14,7 +14,7 @@ export function CreateUptimeMonitorModal(): JSX.Element {
     const { closeCreateModal } = useActions(uptimeMonitoringSceneLogic)
 
     return (
-        <LemonModal isOpen={isCreateModalOpen} onClose={closeCreateModal} simple>
+        <LemonModal isOpen={isCreateModalOpen} onClose={isNewMonitorSubmitting ? undefined : closeCreateModal} simple>
             <Form
                 logic={uptimeMonitoringSceneLogic}
                 formKey="newMonitor"
@@ -39,6 +39,7 @@ export function CreateUptimeMonitorModal(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         onClick={closeCreateModal}
+                        disabledReason={isNewMonitorSubmitting ? 'Creating the monitor' : undefined}
                         data-attr="uptime-monitoring-create-cancel"
                     >
                         Cancel
