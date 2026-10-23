@@ -13,7 +13,7 @@ from products.replay_vision.backend.watch_rank import (
     duplicate_root,
     rank_watch_feed_by_embedding,
 )
-from products.replay_vision.backend.watch_rank_backfill import _rank_scanner
+from products.replay_vision.backend.watch_rank_backfill import _rank_scanner, _RecentVectors
 
 _NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
 
@@ -113,6 +113,22 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
         # Collapsed copies, even those below the cutoff, must not come back as filler.
         assert {"dup-root", "dup-low"}.isdisjoint(entry.observation_id for entry in ranked)
 
+    def test_a_viewed_pick_still_stands_for_its_group_over_a_copy_below_the_cutoff(self) -> None:
+        rows = [
+            _row("seen-top", 0.9, viewed=True),
+            _row("other-top", 0.8, minutes_ago=1),
+            _row("mid-copy", 0.7, duplicate_of="seen-top", minutes_ago=2),
+            *[_row(f"a-{index}", 0.01 * index, minutes_ago=index + 3) for index in range(7)],
+        ]
+
+        ranked = rank_watch_feed_by_embedding(rows)
+
+        picks = {
+            str(entry.observation_id): entry.reason for entry in ranked if entry.reason["kind"] == "embedding_pick"
+        }
+        assert picks["seen-top"]["similar_count"] == 1
+        assert "mid-copy" not in {entry.observation_id for entry in ranked}
+
     def test_rows_without_a_rank_fall_back_to_the_filler_floor(self) -> None:
         rows = [_row(f"row-{index}", None, minutes_ago=index, viewed=index == 0) for index in range(20)]
 
@@ -140,7 +156,12 @@ class TestBackfillRankScanner(SimpleTestCase):
         ]
         vectors = {"ranked": error, "copy": error, "stale": error, "calm": np.array([0.0, 0.0, 1.0])}
 
-        written = _rank_scanner(rows, vectors, anchors)
+        # Two batches that share the recent vectors, as the backfill runs them.
+        recent = _RecentVectors()
+        written = {
+            **_rank_scanner(rows[:2], vectors, anchors, recent),
+            **_rank_scanner(rows[2:], vectors, anchors, recent),
+        }
 
         assert set(written) == {"copy", "stale", "calm"}
         assert written["copy"]["duplicate_of"] == "root"

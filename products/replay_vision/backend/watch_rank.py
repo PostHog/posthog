@@ -8,6 +8,7 @@ errors all the time does not fill the feed.
 """
 
 import asyncio
+import weakref
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -20,6 +21,7 @@ from posthog.api.embedding_worker import async_generate_embedding
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
@@ -113,6 +115,8 @@ def normalize(matrix: np.ndarray) -> np.ndarray:
 
 # The anchors never change within a version, so each process keeps them after the first read.
 _anchors_in_process: dict[str, dict[WatchCategory, np.ndarray]] = {}
+# One lock per event loop, because an asyncio lock cannot be shared across loops.
+_anchor_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
 
 
 async def anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
@@ -124,6 +128,15 @@ async def anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
     key = _anchor_cache_key()
     if (in_process := _anchors_in_process.get(key)) is not None:
         return in_process
+    lock = _anchor_locks.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+    # Concurrent scans on a cold cache wait for one embedding pass rather than each starting their own.
+    async with lock:
+        if (in_process := _anchors_in_process.get(key)) is not None:
+            return in_process
+        return await _load_anchor_vectors(key, team_id)
+
+
+async def _load_anchor_vectors(key: str, team_id: int) -> dict[WatchCategory, np.ndarray]:
     vectors: dict[WatchCategory, list[list[float]]] | None = await cache.aget(key)
     if vectors is None:
         team = await Team.objects.aget(id=team_id)
@@ -156,7 +169,7 @@ def classify(vector: list[float] | np.ndarray, anchors: dict[WatchCategory, np.n
 
 
 # Caps the vectors one duplicate lookup reads to the scanner's newest rows, so a busy scanner stays cheap.
-_DUPLICATE_CANDIDATE_ROWS = 5_000
+DUPLICATE_CANDIDATE_ROWS = 5_000
 
 
 def nearest_earlier_observation(
@@ -193,12 +206,13 @@ def nearest_earlier_observation(
                 "embedding": vector,
                 "since": now - DUPLICATE_LOOKBACK,
                 "observation_id": observation_id,
-                "candidate_cap": _DUPLICATE_CANDIDATE_ROWS,
+                "candidate_cap": DUPLICATE_CANDIDATE_ROWS,
             },
             team_id=team_id,
             readonly=True,
             ch_user=ClickHouseUser.REPLAY_VISION,
             settings={"max_execution_time": _DUPLICATE_QUERY_TIMEOUT_S},
+            workload=Workload.OFFLINE,
         )
     if not rows:
         return None
@@ -255,7 +269,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     filler, trimmed to the same floor as the other rankers.
     """
     percentiles = _scanner_percentiles(rows)
-    best_in_group: dict[str, tuple[float, float, dict[str, Any]]] = {}
+    best_in_group: dict[str, tuple[float, dict[str, Any]]] = {}
     group_members: dict[str, list[str]] = {}
     for row in rows:
         rank = current_rank(row)
@@ -266,16 +280,18 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         # Group before the cutoff, so duplicates below it still count toward the group and never return as filler.
         group = rank.get("duplicate_of") or observation_id
         group_members.setdefault(group, []).append(observation_id)
+        # Only a member above the cutoff can stand for the group, so the seen penalty never disqualifies it.
+        if percentile < WATCH_PICK_MIN_PERCENTILE:
+            continue
         score = percentile * CATEGORY_WEIGHT[rank["category"]]
         if row.get("feed_viewed"):
             score -= WATCH_PICK_SEEN_PENALTY
         if group not in best_in_group or score > best_in_group[group][0]:
-            best_in_group[group] = (score, percentile, row)
-    best_in_group = {group: best for group, best in best_in_group.items() if best[1] >= WATCH_PICK_MIN_PERCENTILE}
+            best_in_group[group] = (score, row)
     grouped_ids = {member for group in best_in_group for member in group_members[group]}
 
     picks: list[tuple[float, Any, Any, WatchFeedEntry]] = []
-    for group, (score, _, row) in best_in_group.items():
+    for group, (score, row) in best_in_group.items():
         rank = row["watch_rank"]
         reason = {
             "kind": "embedding_pick",
