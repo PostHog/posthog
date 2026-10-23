@@ -347,7 +347,7 @@ def _spend_by_distinct_id(team: Team) -> dict[str, tuple[Decimal, Decimal, Decim
 
 
 def _activity(team_id: int, since: datetime, rows: list[DevGatewayToken]) -> list[DevTokenActivity]:
-    """The audit log, with each token's owner, client and cap filled in from its row; a revoke entry records none."""
+    """A revoke entry records no owner, client or cap, so those come from the token row."""
     by_id = {str(row.id): row for row in rows}
     entries = (
         ActivityLog.objects.filter(team_id=team_id, scope="DevGatewayToken", created_at__gte=since)

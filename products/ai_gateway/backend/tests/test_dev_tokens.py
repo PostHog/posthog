@@ -429,7 +429,6 @@ class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
             1,
             Decimal("25"),
         )
-        # A user with spend but no row in the window still appears, as does spend no user owns.
         assert rows[other.distinct_id]["email"] == "other@posthog.com"
         assert rows[other.distinct_id]["tokens_minted_30d"] == 0
         assert rows["orphan-distinct-id"]["user_id"] is None
@@ -444,7 +443,6 @@ class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
         activity = self.client.get(f"{URL}team_usage/").json()["activity"]
 
         assert [(a["activity"], a["actor_email"], a["owner_email"], a["client"], a["cap_usd"]) for a in activity] == [
-            # The revoke entry records no client or cap; they come from the token row.
             ("revoked", self.user.email, self.user.email, "web", "25.00"),
             ("minted", self.user.email, self.user.email, "web", "25.00"),
         ]

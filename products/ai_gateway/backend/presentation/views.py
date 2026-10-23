@@ -78,8 +78,8 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         return super().get_throttles()
 
     def get_authenticators(self) -> list[BaseAuthentication]:
-        # The exchange is authenticated by the PKCE verifier and token_status by the bearer, not a
-        # session; DRF resolves authenticators before `self.action` is set, so match on the path.
+        # The PKCE verifier or the bearer authenticates these; DRF resolves authenticators before
+        # `self.action` is set, so match on the path.
         if self.request is not None and self.request.path.rstrip("/").endswith(("/cli_exchange", "/token_status")):
             return []
         return super().get_authenticators()
