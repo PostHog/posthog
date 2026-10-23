@@ -155,6 +155,7 @@ describe('api-error', () => {
             ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
+            ['a 400 while experiment exposures compute', { status: 400, code: 'exposures_not_ready' }, false],
             // A route the backend does not serve stays reportable here. Only a caller that already
             // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],
