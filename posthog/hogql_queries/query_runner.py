@@ -524,6 +524,12 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     )
 
 
+def _organization_plan(team: Team) -> str:
+    if team.organization.has_active_subscription is None:
+        return "unknown"
+    return "paid" if team.organization.has_active_subscription else "free"
+
+
 def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
     org_id = str(team.organization_id)
     try:
@@ -532,6 +538,7 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
                 API_QUERIES_BUDGET_ENFORCEMENT_FLAG,
                 org_id,
                 groups={"organization": org_id},
+                person_properties={"organization_plan": _organization_plan(team)},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -606,6 +613,7 @@ def enforce_api_queries_budget(team: Team) -> None:
                 {
                     "outcome": outcome,
                     "team_id": team.pk,
+                    "organization_plan": _organization_plan(team),
                     "bytes_per_hour": status.spec.bytes_per_hour,
                     "remaining_bytes": status.remaining_bytes,
                     "retry_after_seconds": status.retry_after_seconds,
