@@ -196,6 +196,10 @@ class TestBuildCompatibilityHint:
                 "replaceRegexpAll(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), '^\"|\"$', '')",
             ),
             ("resolved_name", "events__person.properties___email"),
+            (
+                "long_unaliased_expression",
+                "multiIf(" + ", ".join(f"events.event = 'step_{i}', {i}" for i in range(24)) + ", 0)",
+            ),
         ]
     )
     def test_not_an_aggregate_on_a_non_hogql_name_gives_the_generic_rewrite(self, _name: str, column: str) -> None:
