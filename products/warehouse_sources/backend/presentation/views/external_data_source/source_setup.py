@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -2022,6 +2023,33 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if secret_ref_response is not None:
             return secret_ref_response
 
+        return self._setup_source(
+            request,
+            source_type=source_type,
+            payload=payload,
+            build_schemas=lambda source_schemas, permission_errors: build_default_schemas(
+                source_schemas, permission_errors=permission_errors
+            ),
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+        )
+
+    def _setup_source(
+        self,
+        request: Request,
+        *,
+        source_type: str,
+        payload: dict,
+        build_schemas: Callable[[list[SourceSchema], Mapping[str, str | None]], list[dict]],
+        prefix: str | None,
+        description: str | None,
+        created_via: str,
+        direct_query_enabled: bool = False,
+        destination_ids: list | None = None,
+    ) -> Response:
+        """Validate a payload, discover its tables, and create the source with `build_schemas(tables, permission_errors)`."""
         resolved = self._resolve_stored_credential(source_type, payload)
         if resolved.error_response is not None:
             return resolved.error_response
@@ -2098,18 +2126,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Build the schemas array server-side so the caller never has to. We've already validated
         # config + credentials above, so `_create_external_data_source` skips that second gate
         # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
-        payload["schemas"] = build_default_schemas(source_schemas, permission_errors=setup_permissions)
+        payload["schemas"] = build_schemas(source_schemas, setup_permissions)
 
         response = self._create_external_data_source(
             request,
             source_type=source_type,
             payload=payload,
-            prefix=serializer.validated_data.get("prefix"),
-            description=serializer.validated_data.get("description"),
+            prefix=prefix,
+            description=description,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
-            created_via=ExternalDataSource.CreatedVia.MCP,
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            created_via=created_via,
+            direct_query_enabled=direct_query_enabled,
             skip_credential_validation=True,
+            destination_ids=destination_ids,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:

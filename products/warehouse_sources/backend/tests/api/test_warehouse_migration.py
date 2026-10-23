@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -8,7 +9,10 @@ import requests_mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL
+from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema
+from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource, PendingSourceCredential
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VIEWS = "products.warehouse_sources.backend.presentation.views.warehouse_migration"
 
@@ -104,3 +108,117 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             team_id=other_team.pk, provider=WarehouseMigration.Provider.FIVETRAN
         )
         assert self.client.get(f"{self.url}{migration.id}/").status_code == 404
+
+
+_STRIPE_VALID = patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+    return_value=(True, None),
+)
+_NO_PERSON_JOIN = patch(
+    "products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join"
+)
+_NO_VIEW_SYNC = patch(
+    "products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views"
+)
+_APPLY_FLAG = "products.warehouse_sources.backend.presentation.views.external_data_source.migration_apply.is_migration_import_enabled"
+
+
+class TestApplyMigrationItem(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        for patcher in (patch(_APPLY_FLAG, return_value=True), _STRIPE_VALID, _NO_PERSON_JOIN, _NO_VIEW_SYNC):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.url = f"/api/projects/{self.team.pk}/external_data_sources/apply_migration_item/"
+        migration = WarehouseMigration.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, provider=WarehouseMigration.Provider.FIVETRAN, status=WarehouseMigration.Status.READY
+        )
+        self.item = WarehouseMigrationItem.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            migration=migration,
+            vendor_connection_id="conn_stripe",
+            vendor_service="stripe",
+            name="stripe_main",
+            verdict=WarehouseMigrationItem.Verdict.CAVEATS,
+            caveats=["planned caveat"],
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.STRIPE,
+                prefix="stripe_main",
+                prefill={},
+                schemas=(
+                    ProposedSchema(name="Customer", should_sync=True, sync_type=None),
+                    ProposedSchema(name="NotAStripeTable", should_sync=True, sync_type=None),
+                ),
+                sync_frequency="1hour",
+                sync_time_of_day=None,
+                destination=None,
+            ).to_json(),
+        )
+
+    def _credential(self, user: Any = None) -> PendingSourceCredential:
+        return PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team,
+            source_type="Stripe",
+            created_by=user or self.user,
+            payload={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_stored"}},
+        )
+
+    def _apply(self, credential: PendingSourceCredential) -> Any:
+        return self.client.post(self.url, {"item_id": str(self.item.id), "credential_id": str(credential.id)})
+
+    def test_creates_the_planned_source_once(self) -> None:
+        credential = self._credential()
+        response = self._apply(credential)
+        assert response.status_code == 201, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["source_id"])
+        assert source.prefix == "stripe_main"
+        synced = ExternalDataSchema.objects.filter(source=source, should_sync=True)
+        assert [schema.name for schema in synced] == ["Customer"]
+        assert synced.get().sync_frequency_interval == timedelta(hours=1)
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.APPLIED
+        assert self.item.external_data_source_id == source.id
+        assert self.item.caveats[0] == "planned caveat"
+        assert any("`NotAStripeTable`" in caveat for caveat in self.item.caveats)
+
+        assert self._apply(self._credential()).status_code == 400
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+
+    def test_another_users_credential_fails_the_item(self) -> None:
+        other_user = self._create_user("other@example.com")
+        response = self._apply(self._credential(user=other_user))
+
+        assert response.status_code == 400
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.FAILED
+        assert "not found or expired" in self.item.error
+
+    def test_flag_off_hides_the_action(self) -> None:
+        with patch(_APPLY_FLAG, return_value=False):
+            assert self._apply(self._credential()).status_code == 404
+
+    def test_connect_link_carries_the_item_for_prefill(self) -> None:
+        url = f"/api/projects/{self.team.pk}/external_data_sources/connect_link/"
+        response = self.client.get(url, {"source_type": "Stripe", "migration_item_id": str(self.item.id)})
+        assert response.status_code == 200, response.json()
+        assert (
+            f"migration_id={self.item.migration_id}&migration_item_id={self.item.id}" in response.json()["connect_url"]
+        )
+
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_item = WarehouseMigrationItem.objects.for_team(other_team.pk).create(
+            team_id=other_team.pk,
+            migration=WarehouseMigration.objects.for_team(other_team.pk).create(
+                team_id=other_team.pk, provider="fivetran"
+            ),
+            vendor_connection_id="conn_other",
+            vendor_service="stripe",
+            name="other",
+            verdict=WarehouseMigrationItem.Verdict.AS_IS,
+        )
+        response = self.client.get(url, {"source_type": "Stripe", "migration_item_id": str(other_item.id)})
+        assert response.status_code == 400
