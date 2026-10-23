@@ -21,6 +21,8 @@ from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run
 from .reads import ReadWindow, RollupDays, TeamReads, read_rollup_days, read_team_reads
 from .rules import RULES, EligibilityRules, Rules
 
+MAINTAINED_STATUSES = (WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED)
+
 
 class TeamRunStatus(StrEnum):
     DISABLED = "disabled"
@@ -110,12 +112,17 @@ def _recent_flip_accepts(team_id: int, rules: Rules, now: datetime) -> dict[Ware
     return {kind: frozenset(ids) for kind, ids in subject_ids.items()}
 
 
-def _has_suggestions_to_maintain(team_id: int) -> bool:
-    return (
-        WarehouseSuggestion.objects.for_team(team_id)
-        .filter(status__in=[WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED])
-        .exists()
+def team_ids_with_suggestions_to_maintain() -> set[int]:
+    return set(
+        WarehouseSuggestion.objects.unscoped()
+        .filter(status__in=MAINTAINED_STATUSES)
+        .values_list("team_id", flat=True)
+        .distinct()
     )
+
+
+def _has_suggestions_to_maintain(team_id: int) -> bool:
+    return WarehouseSuggestion.objects.for_team(team_id).filter(status__in=MAINTAINED_STATUSES).exists()
 
 
 def _locked_config(team_id: int) -> WarehouseSuggestionTeamConfig:
