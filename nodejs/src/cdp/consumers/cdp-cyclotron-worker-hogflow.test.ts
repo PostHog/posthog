@@ -409,7 +409,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .build()
             )
             const invocation = createSerializedHogFlowInvocation(transactional, {
-                event: { distinct_id: 'distinct_A_1', properties: { to: 'a@example.com' } } as any,
+                event: {
+                    event: '$transactional_email',
+                    distinct_id: 'distinct_A_1',
+                    properties: { to: 'a@example.com' },
+                } as any,
             })
 
             const results = (await processor.processInvocations([
@@ -524,6 +528,15 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(actions.find((action) => action.type === 'function_email')?.config).toMatchObject({
                 sensitive: expectedSensitive,
             })
+            const refreshed = await results[0].invocation.refreshPerson!()
+            const personProperties = [
+                results[0].invocation.person?.properties,
+                results[0].invocation.filterGlobals.person?.properties,
+                refreshed.person?.properties,
+                refreshed.filterGlobals.person?.properties,
+            ]
+            const transactional = event === '$transactional_email'
+            expect(personProperties).toEqual(Array(4).fill(transactional ? {} : { name: 'Person A 1' }))
         })
 
         it('should make minimal calls to the person manager', async () => {

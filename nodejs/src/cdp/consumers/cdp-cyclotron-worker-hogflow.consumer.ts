@@ -28,12 +28,13 @@ type LoadHogFlowsResult = {
 
 // A transactional email's caller holds only a send key, which grants no access to person data, so its
 // template never sees person properties, or the display name derived from them. The person stays attached
-// so the send is recorded against them.
-function personForFlow(
-    hogFlow: HogFlow,
+// so the send is recorded against them. The run's own event decides, because a later edit can change the
+// workflow's trigger but never the event a queued run carries.
+function personForRun(
+    state: CyclotronJobInvocationHogFlow['state'],
     person: CyclotronPerson | null | undefined
 ): CyclotronPerson | null | undefined {
-    return person && hogFlow.trigger?.type === 'api' ? { ...person, properties: {}, name: '' } : person
+    return person && state.event?.event === TRANSACTIONAL_EMAIL_EVENT ? { ...person, properties: {}, name: '' } : person
 }
 
 const counterPinnedVersionMissing = new Counter({
@@ -169,7 +170,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // these flows. Explicitly skip the person lookup rather than relying on
                 // event.distinct_id being empty so future changes to the synthetic event shape don't
                 // accidentally re-enable the lookup.
-                const isRowScoped = isRowScopedTrigger(hogFlow.trigger)
+                const isRowScoped = isRowScopedTrigger(runnableHogFlow.trigger)
                 // Account-audience batch invocations carry the account's group key as
                 // event.distinct_id; resolving it as a person distinct_id would attach an
                 // unrelated person to the run. Accounts have no person — skip the lookup.
@@ -178,7 +179,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // as a fallback for jobs enqueued before the stamp existed.
                 const isAccountAudience =
                     hogFlowInvocationState.accountAudience === true ||
-                    (hogFlow.trigger?.type === 'batch' && hogFlow.trigger.filters?.audience_type === 'accounts')
+                    (runnableHogFlow.trigger?.type === 'batch' &&
+                        runnableHogFlow.trigger.filters?.audience_type === 'accounts')
                 // The matcher wrote this job's personId anchor: a merge repointed the distinct_id onto a
                 // survivor, or the distinct_id acquired its first person. Resolve by that personId so the step
                 // reads the right person — resolving by the distinct_id would hit its stale ~1min cache entry
@@ -219,9 +221,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     ),
                 ])
 
-                const person = personForFlow(hogFlow, resolvedPerson)
+                const person = personForRun(hogFlowInvocationState, resolvedPerson)
 
-                if (!person && hogFlow.trigger?.type === 'event') {
+                if (!person && runnableHogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
                         hogFlowId: hogFlow.id,
                         distinctId: hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId,
@@ -263,8 +265,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 if (personIdOrDistinctId) {
                     loaded.refreshPerson = async () => {
-                        const fresh = personForFlow(
-                            hogFlow,
+                        const fresh = personForRun(
+                            hogFlowInvocationState,
                             await this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
                                 forceFresh: true,
                             })
