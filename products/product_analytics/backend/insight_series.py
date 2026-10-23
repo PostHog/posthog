@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import date
 from typing import Any
 
@@ -6,7 +7,15 @@ from pydantic import BaseModel
 
 from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.result_series import (
+    get_action_names,
+    get_result_series,
+    get_result_series_index,
+    get_series_custom_name,
+    get_series_key,
+)
 from posthog.models import Team, User
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.week_start_day import WeekStartDay
 
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
@@ -57,10 +66,10 @@ def _run(
     return response.model_dump() if isinstance(response, BaseModel) else response
 
 
-def _value_key(result: dict[str, Any], position: int) -> str:
-    order = (result.get("action") or {}).get("order")
+def _value_key(query: dict[str, Any], result: dict[str, Any], position: int) -> str:
+    index = get_result_series_index(query, result)
     payload: dict[str, Any] = {
-        "series": order if isinstance(order, int) else f"formula{position + 1}" if position else "formula"
+        "series": index if index is not None else f"formula{position + 1}" if position else "formula"
     }
     if "breakdown_value" in result:
         breakdown = result["breakdown_value"]
@@ -68,18 +77,20 @@ def _value_key(result: dict[str, Any], position: int) -> str:
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
 
-def _visible(trends: dict[str, Any], results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _visible(query: dict[str, Any], results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    trends = query.get("trendsFilter") or {}
     customizations = trends.get("resultCustomizations") or {}
     if not customizations:
         return results
     by_position = trends.get("resultCustomizationBy") == "position"
-    ranked = sorted(range(len(results)), key=lambda i: (results[i].get("action") or {}).get("order") or 0)
+    ranked = sorted(range(len(results)), key=lambda i: get_result_series_index(query, results[i]) or 0)
     positions = {index: rank for rank, index in enumerate(ranked)}
     return [
         result
         for index, result in enumerate(results)
         if not (
-            customizations.get(str(positions[index]) if by_position else _value_key(result, positions[index])) or {}
+            customizations.get(str(positions[index]) if by_position else _value_key(query, result, positions[index]))
+            or {}
         ).get("hidden")
     ]
 
@@ -232,18 +243,23 @@ def insight_series(
     response = _run(team, user, bounded, filters, variables, blocking)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
+    # `_run` executes the upgraded query, which stamps `kind` on series saved without one.
+    series_source = upgrade(deepcopy(source))
+    action_names = get_action_names(team, series_source)
     series: dict[str, list[tuple[date, float]]] = {}
     averaged: list[str] = []
-    for result in _visible(trends, response.get("results") or []):
+    for result in _visible(series_source, response.get("results") or []):
         if not result.get("days"):
             continue
-        action = result.get("action") or {}
+        node = get_result_series(series_source, result)
         shown = str(result.get("label") or "Series")
-        label = str(action.get("custom_name") or action.get("name") or shown)
+        series_label = (get_series_key(node, action_names) or "All events") if node is not None else None
+        custom_name = get_series_custom_name(node, action_names) if node is not None else None
+        label = str(custom_name or series_label or shown)
         breakdown = result.get("breakdown_value")
         if breakdown not in (None, ""):
-            if action:
-                value = shown.removeprefix(f"{action.get('name')} - ") if several else shown
+            if series_label is not None:
+                value = shown.removeprefix(f"{series_label} - ") if several else shown
             else:
                 value = ", ".join(str(b) for b in breakdown) if isinstance(breakdown, list) else str(breakdown)
             label = f"{label} · {value}" if several else value
@@ -252,7 +268,7 @@ def insight_series(
         series[label] = [
             (date.fromisoformat(str(d)[:10]), float(v or 0)) for d, v in zip(result["days"], result["data"])
         ]
-        if formula or (action.get("math") or "total") not in ADDITIVE_MATH:
+        if formula or ((node or {}).get("math") or "total") not in ADDITIVE_MATH:
             averaged.append(label)
     if not series:
         return None
