@@ -84,7 +84,8 @@ fn first_sight_in_window(
     now: Instant,
 ) -> bool {
     let mut seen = seen_map();
-    // The team is part of the key: one project's probe must not hide another's for the window.
+    // The team is part of the key so that a sighting for one project does not suppress the
+    // line for another.
     let key = (guard, team_id, host.to_owned());
     if let Some(at) = seen.get(&key) {
         if now.duration_since(*at) < DEDUPE_WINDOW {
@@ -119,7 +120,7 @@ pub fn note_oob_domain(host: &str, guard: &'static str, team_id: Option<i32>) {
         return;
     }
     // `Option` records the inner value and omits the field for `None`, so a line either names a
-    // team or has no `team_id` at all - never `team_id=None`.
+    // team or carries no `team_id` field at all.
     info!(team_id, host, domain, guard, "security.oob_domain_seen");
 }
 
@@ -166,8 +167,8 @@ mod tests {
         let now = Instant::now();
         let host = "one-team-does-not-dedupe.oast.me";
         assert!(first_sight_in_window("g", Some(1), host, now));
-        // One actor probes several projects with the same host, so a key without the team would
-        // report the first project and hide the rest for the whole window.
+        // An actor can probe several projects with the same host, so a key without the team
+        // would report the first project and hide the rest for the window.
         assert!(first_sight_in_window("g", Some(2), host, now));
         assert!(first_sight_in_window("g", None, host, now));
         assert!(!first_sight_in_window("g", Some(1), host, now));

@@ -718,8 +718,6 @@ impl S3SourceConfig {
         ))
     }
 
-    // The four staging parameters already take this to seven. Grouping them is a wider change
-    // than the team id that pushed it over.
     #[allow(clippy::too_many_arguments)]
     pub async fn create_gzip_source(
         &self,
