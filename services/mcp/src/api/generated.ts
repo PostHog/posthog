@@ -42389,6 +42389,43 @@ export namespace Schemas {
       success: boolean;
     }
 
+    export interface ErrorTrackingStoredIssueSummary {
+      /** What the exception is and where it happens. */
+      what_happened: string;
+      /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
+      likely_cause: string;
+      /** Which users, sessions or environments see the issue. */
+      who_is_affected: string;
+      /** One concrete step to investigate or fix the issue. */
+      suggested_next_step: string;
+      /** Broad source of the issue, or null when the category model did not answer.
+       *
+       * * `own_code` - Own Code
+       * * `third_party` - Third Party
+       * * `network` - Network
+       * * `bots` - Bots
+       * * `expected` - Expected
+       * * `unclear` - Unclear */
+      category: IssueSummaryCategoryEnum | null;
+      /** Model that wrote the summary. */
+      model: string;
+      /** When the summary was written. */
+      generated_at: string;
+      /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+      checked_at: string;
+    }
+
+    export interface ErrorTrackingIssueSummaryResponse {
+      /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `unavailable` - Unavailable */
+      status: IssueSummaryStatusEnum;
+      /** The stored summary, or null when none exists yet. */
+      summary: ErrorTrackingStoredIssueSummary | null;
+    }
+
     export interface ErrorTrackingIssueValue {
       /** One distinct value of the requested property. */
       name: string;
