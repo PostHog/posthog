@@ -30,7 +30,7 @@ Import only from Today's facade:
 
 - `facade/contracts.py`: `HighlightCandidate`, `HighlightFindings`, `HighlightContext`, `HighlightSource`, `HighlightMetric`, `DailyValueNotReady`
 - `facade/enums.py`: `HighlightLabel`, `HighlightUnit`, `HighlightInterval`
-- `facade/highlight_helpers.py`: number and text formatting, `uses_product`, and trend detection
+- `facade/highlight_helpers.py`: number and text formatting, `uses_product`, routines (`routine_days_for`, `viewed_days`), and trend detection
 
 `HighlightContext.daily()` caches one value per team, property restrictions and day, so every viewer with the same restrictions shares it.
 Never compute a per-viewer value there without the user id in its name.
