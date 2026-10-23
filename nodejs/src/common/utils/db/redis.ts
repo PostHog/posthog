@@ -79,8 +79,6 @@ export class RedisPoolComponent {
             await pool.drain()
             await pool.clear()
         }
-        // A process that cannot reach Redis must fail here, before a consumer joins its group and takes
-        // partitions it cannot process.
         try {
             await pool.release(await pool.acquire())
         } catch (error) {

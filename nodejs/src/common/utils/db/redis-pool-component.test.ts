@@ -2,7 +2,6 @@ import { RedisPoolComponent } from './redis'
 
 describe('RedisPoolComponent', () => {
     it('fails to start when Redis is unreachable', async () => {
-        // A non-fatal client gives up after commandTimeout instead of killing the test process.
         const component = new RedisPoolComponent({
             connection: {
                 url: '127.0.0.1',
