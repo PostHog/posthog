@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
 
 from products.aeo.backend.facade.contracts import PROMPT_TOPIC_MAX_LENGTH, PROMPT_VERSION_DESCRIPTION_MAX_LENGTH
 
@@ -86,7 +86,7 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
         return f"[{self.prompt_source}] {self.prompt[:60]}"
 
 
-class AEOPromptVersion(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
+class AEOPromptVersion(TeamScopedRootMixin, CreatedMetaFields, UUIDModel):
     """
     One wording of an AEO prompt. Rows are immutable: an edit to the text adds the
     next version, and AEOPrompt.current_version points at the one in use, so a
