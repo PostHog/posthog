@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db.models import Case, IntegerField, Value, When
 
 from posthog.egress.limiter.policies import Priority
@@ -12,6 +14,13 @@ from posthog.models.integration.github_readiness import (
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+GITHUB_RECOVERY_WINDOW = timedelta(days=7)
+GITHUB_RECONNECT_REQUIRED_STATUSES = (
+    GitHubReadinessStatus.NOT_CONNECTED,
+    GitHubReadinessStatus.RECONNECT_REQUIRED,
+    GitHubReadinessStatus.NO_REPOSITORIES,
+)
 
 
 def get_team_github_readiness(team_id: int, *, verify: bool = False, team_only: bool = False) -> GitHubReadiness:
