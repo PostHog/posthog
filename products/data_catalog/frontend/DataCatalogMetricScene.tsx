@@ -162,6 +162,9 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
             primaryButton: {
                 children: 'Save and approve',
                 onClick: () => updateMetric(patch, true),
+                disabledReason: metric.is_drifted
+                    ? 'This metric has drifted from its source insight. Refresh it before approving.'
+                    : undefined,
                 'data-attr': 'data-catalog-metric-save-and-approve',
             },
             secondaryButton: {

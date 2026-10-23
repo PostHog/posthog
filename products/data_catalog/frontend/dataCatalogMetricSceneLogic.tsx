@@ -596,13 +596,18 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             actions.setMutating(true)
             try {
-                actions.setMetric(await dataCatalogMetricsPartialUpdate(projectId(), props.name, patch))
+                const saved = await dataCatalogMetricsPartialUpdate(projectId(), props.name, patch)
+                actions.setMetric(saved)
                 if (!approve) {
                     lemonToast.success('Metric saved')
                     return
                 }
                 try {
-                    actions.setMetric(await dataCatalogMetricsApproveCreate(projectId(), props.name))
+                    actions.setMetric(
+                        await dataCatalogMetricsApproveCreate(projectId(), props.name, {
+                            expected_updated_at: saved.updated_at ?? undefined,
+                        })
+                    )
                     lemonToast.success('Metric saved and approved')
                 } catch {
                     lemonToast.warning('Metric saved, but approving it failed. Approve it from the banner.')
