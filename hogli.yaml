@@ -912,6 +912,9 @@ auth:
     metabase:cookie:
         click: hogli_commands.metabase:metabase_cookie
         description: Print the cached Metabase cookie header
+    gateway:token:
+        click: hogli_commands.gateway:gateway_token
+        description: Get a short-lived AI gateway token for PostHog staff, approved in your browser
 tools:
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases

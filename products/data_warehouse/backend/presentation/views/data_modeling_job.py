@@ -1,16 +1,20 @@
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import is_service_auth
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
+    engine = serializers.CharField(read_only=True, help_text="The engine that ran this materialization job.")
     updated_at = serializers.DateTimeField(
         read_only=True,
         help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
@@ -37,6 +41,7 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "id",
             "saved_query_id",
             "status",
+            "engine",
             "run_mode",
             "full_refresh_reason",
             "rows_materialized",
@@ -47,6 +52,11 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "workflow_id",
             "workflow_run_id",
             "rows_expected",
+            "read_bytes",
+            "read_rows",
+            "cpu_microseconds",
+            "query_count",
+            "usage_updated_at",
         ]
         read_only_fields = fields
 
@@ -56,6 +66,19 @@ class DataModelingJobPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="all_engines",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Include jobs from every materialization engine. Defaults to ClickHouse jobs only.",
+            )
+        ]
+    )
+)
 class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List data modeling jobs which are "runs" for our saved queries.
@@ -71,11 +94,21 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     ordering_fields = ["created_at"]
     ordering = "-created_at"
 
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(
-            team_id=self.team_id,
-            engine=DataModelingJobEngine.CLICKHOUSE,
-        ).order_by("-created_at")
+    def safely_get_queryset(self, queryset: QuerySet[DataModelingJob]) -> QuerySet[DataModelingJob]:
+        all_engines = serializers.BooleanField(required=False, default=False).run_validation(
+            self.request.query_params.get("all_engines", False)
+        )
+        queryset = queryset.filter(team_id=self.team_id)
+        if not all_engines:
+            queryset = queryset.filter(engine=DataModelingJobEngine.CLICKHOUSE)
+
+        if not is_service_auth(self.request):
+            accessible_saved_queries = self.user_access_control.filter_queryset_by_access_level(
+                DataWarehouseSavedQuery.objects.filter(team_id=self.team_id), resource="warehouse_view"
+            )
+            queryset = queryset.filter(saved_query_id__in=accessible_saved_queries.values("id"))
+
+        return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

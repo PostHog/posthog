@@ -400,6 +400,10 @@ function InsightCardInternal(
                 cachedResults={insight}
                 context={{
                     insightProps: insightLogicProps,
+                    dataVisualizationTableVirtualized:
+                        renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
+                    // Small tables keep natural column widths because their full row count is cheap to render.
+                    dataVisualizationTableVirtualizationCellThreshold: 100,
                 }}
                 readOnly
                 embedded
@@ -408,7 +412,7 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
-    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement, renderVizWhenMounted])
 
     const vizContent = shouldRenderViz ? (
         <div className="InsightCard__viz">

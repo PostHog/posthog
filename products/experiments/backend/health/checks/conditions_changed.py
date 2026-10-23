@@ -37,7 +37,6 @@ from products.experiments.backend.health.condition_changes import (
     conditions_net_effect,
 )
 from products.experiments.backend.health.context import (
-    ConditionsChange,
     FlagHistory,
     FlagHistoryNotChecked,
     HealthContext,
@@ -53,6 +52,7 @@ from products.experiments.backend.health.pinned_share import (
     pinned_share_severity,
 )
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import ConditionsChange
 
 _TITLE = "The release conditions changed after launch"
 _OVERRIDE_TITLE = "A variant override was removed after launch"

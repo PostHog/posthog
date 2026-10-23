@@ -22,6 +22,7 @@ impl RequestId {
 #[derive(Debug)]
 pub struct SentMessage {
     pub partition: i32,
+    pub generation: u64,
     pub offset: i64,
     pub keyed: bool,
 }
@@ -30,6 +31,7 @@ impl SentMessage {
     fn of(message: &SerializedKafkaMessage) -> Self {
         Self {
             partition: message.partition,
+            generation: message.generation,
             offset: message.offset,
             keyed: message.key.is_some(),
         }
