@@ -203,12 +203,17 @@ def score_insight(
 
     timezone = team.timezone_info
     series: list[ScoredSeries] = []
+    key_counts: dict[str, int] = {}
     for result in cast(list[dict[str, Any]], calculation.result)[: limits.max_series]:
         buckets = [_parse_bucket(day, timezone) for day in result.get("days") or []]
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
+        key = series_key(insight.pk, _series_definition(scoring_query, result), breakdown_value)
+        repeats = key_counts.get(key, 0)
+        key_counts[key] = repeats + 1
         series.append(
             ScoredSeries(
-                series_key=series_key(insight.pk, _series_definition(scoring_query, result), breakdown_value),
+                # Lines that differ only by name share a key. Event uuids come from the key, so each repeat needs its own.
+                series_key=key if repeats == 0 else _short_hash({"key": key, "repeat": repeats}),
                 label=str(result.get("label") or ""),
                 breakdown_value=breakdown_value,
                 points=score_series(
