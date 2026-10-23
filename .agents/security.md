@@ -212,8 +212,12 @@ The email guard always has a team.
 The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch and a recording export's stylesheet fetch do, and logs `team_id: null` for any other caller.
 `noteOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
 
-The Rust guards call `common_dns::oob_domains::note_oob_domain` and emit `security.oob_domain_seen` under the guard names `cymbal_sourcemap` and `batch_import_s3_endpoint`.
-Both take the team from their caller, so those lines name a project.
+The Rust guards call `common_dns::oob_domains::note_oob_domain` and emit `security.oob_domain_seen` under three guard names.
+They read the hand-written mirror in `rust/common/dns/src/oob_domains.rs`, which a parity test holds against the JSON.
+`note_oob_domain` takes the team as an `Option`, logs one line per host, team and guard every 15 minutes, and omits the `team_id` field rather than printing an empty one.
+`cymbal_sourcemap` names the team on the source and sourcemap fetches, and omits it on a redirect hop, because one HTTP client serves every team.
+`batch_import_s3_endpoint` always names the team, which the job model carries.
+`common_dns_resolver` never names one: it fires inside the shared reqwest and Smithy resolvers, which no caller passes a team to.
 
 Every check runs on cloud only, and each runs before its guard's own DNS resolution, because the lookup alone confirms the path to whoever runs the collaborator.
 

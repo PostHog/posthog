@@ -82,7 +82,7 @@ impl Resolve for PublicIPv4Resolver {
     fn resolve(&self, name: Name) -> Resolving {
         // The last net before the lookup leaves the process. A caller that reaches this resolver
         // through no host guard, such as the batch import url list, is still recorded here.
-        oob_domains::note_oob_domain(name.as_str(), "common_dns_resolver");
+        oob_domains::note_oob_domain(name.as_str(), "common_dns_resolver", None);
 
         // Closure to call the system's resolver (blocking call) through the ToSocketAddrs trait.
         let resolve_host = move || (name.as_str(), 0).to_socket_addrs();
@@ -138,7 +138,7 @@ impl aws_smithy_runtime_api::client::dns::ResolveDns for PublicIPv4SmithyResolve
         use aws_smithy_runtime_api::client::dns::{DnsFuture, ResolveDnsError};
 
         // Same net as the reqwest resolver above, for the S3 client path.
-        oob_domains::note_oob_domain(name, "common_dns_resolver");
+        oob_domains::note_oob_domain(name, "common_dns_resolver", None);
 
         let name = name.to_string();
         DnsFuture::new(async move {

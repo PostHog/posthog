@@ -57,9 +57,13 @@ const MAX_REDIRECTS: usize = 10;
 ///
 /// An out-of-band interaction domain is logged on the way past. That check is detection only,
 /// and it sits above the escape hatch below so a probe is recorded in every environment.
-fn ensure_fetchable_host(url: &Url, allow_internal_ips: bool) -> Result<(), JsResolveErr> {
+fn ensure_fetchable_host(
+    url: &Url,
+    allow_internal_ips: bool,
+    team_id: Option<i32>,
+) -> Result<(), JsResolveErr> {
     if let Some(host) = url.host_str() {
-        common_dns::oob_domains::note_oob_domain(host, "cymbal_sourcemap");
+        common_dns::oob_domains::note_oob_domain(host, "cymbal_sourcemap", team_id);
     }
 
     if allow_internal_ips {
@@ -344,7 +348,8 @@ impl SourcemapProvider {
                     "exceeded {MAX_REDIRECTS} redirects"
                 )));
             }
-            match ensure_fetchable_host(attempt.url(), allow_internal_ips) {
+            // One client serves every team, so a redirect hop cannot name a project.
+            match ensure_fetchable_host(attempt.url(), allow_internal_ips, None) {
                 Ok(()) => attempt.follow(),
                 Err(e) => attempt.error(e),
             }
@@ -399,6 +404,7 @@ impl Fetcher for SourcemapProvider {
             r,
             self.max_response_bytes,
             self.allow_internal_ips,
+            team_id,
         )
         .await?;
 
@@ -423,6 +429,7 @@ impl Fetcher for SourcemapProvider {
                     sourcemap_url.clone(),
                     self.max_response_bytes,
                     self.allow_internal_ips,
+                    team_id,
                 )
                 .await?
             }
@@ -556,11 +563,12 @@ async fn find_sourcemap_url(
     start: Url,
     max_response_bytes: usize,
     allow_internal_ips: bool,
+    team_id: i32,
 ) -> Result<JsSourcePeek, ResolveError> {
     // The frame's source url comes straight off an ingested event, so vet it before we connect.
     // Every other url in here is derived from the response, and so keeps this validated host,
     // except an absolute sourcemap url - `fetch_source_map` vets that one itself.
-    ensure_fetchable_host(&start, allow_internal_ips)?;
+    ensure_fetchable_host(&start, allow_internal_ips, Some(team_id))?;
 
     debug!("Fetching script source from {}", start);
 
@@ -666,10 +674,11 @@ async fn fetch_source_map(
     url: Url,
     max_response_bytes: usize,
     allow_internal_ips: bool,
+    team_id: i32,
 ) -> Result<String, ResolveError> {
     // A `SourceMap` header or `//# sourceMappingURL=` comment can name an absolute url on any
     // host, so this needs vetting independently of the source url it came from.
-    ensure_fetchable_host(&url, allow_internal_ips)?;
+    ensure_fetchable_host(&url, allow_internal_ips, Some(team_id))?;
 
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
@@ -951,7 +960,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -980,7 +989,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1008,7 +1017,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1036,7 +1045,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1063,7 +1072,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1089,7 +1098,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/js/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1119,7 +1128,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = source_server.url("/static/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1344,7 +1353,7 @@ mod test {
             .url("/static/inline_sourcemap_example.js")
             .parse()
             .unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1409,17 +1418,27 @@ mod test {
 
             // The check sits above the internal-ip escape hatch, so it runs under both values.
             for allow_internal_ips in [false, true] {
-                let logs = capture_oob_logs(|| {
-                    assert!(
-                        ensure_fetchable_host(&url, allow_internal_ips).is_ok(),
-                        "detection must not refuse {raw}"
-                    );
-                });
-                let seen =
-                    logs.contains("security.oob_domain_seen") && logs.contains("cymbal_sourcemap");
-                assert_eq!(seen, listed, "unexpected log for {raw}: {logs}");
-                if listed {
-                    assert!(logs.contains(host), "the log line names the host: {logs}");
+                // A redirect hop passes None, so both shapes have to render correctly.
+                for team_id in [Some(4242), None] {
+                    let logs = capture_oob_logs(|| {
+                        assert!(
+                            ensure_fetchable_host(&url, allow_internal_ips, team_id).is_ok(),
+                            "detection must not refuse {raw}"
+                        );
+                    });
+                    let seen = logs.contains("security.oob_domain_seen")
+                        && logs.contains("cymbal_sourcemap");
+                    assert_eq!(seen, listed, "unexpected log for {raw}: {logs}");
+                    if listed {
+                        assert!(logs.contains(host), "the log line names the host: {logs}");
+                        assert_eq!(
+                            logs.contains("team_id=4242"),
+                            team_id.is_some(),
+                            "the log line names the team it was given: {logs}"
+                        );
+                        // An absent team drops the field rather than printing a Rust Option.
+                        assert!(!logs.contains("team_id=None"), "{logs}");
+                    }
                 }
             }
         }
@@ -1446,14 +1465,14 @@ mod test {
             let url: Url = raw.parse().unwrap();
             assert!(
                 matches!(
-                    ensure_fetchable_host(&url, false),
+                    ensure_fetchable_host(&url, false, None),
                     Err(JsResolveErr::BlockedUrl(_))
                 ),
                 "expected {raw} to be blocked"
             );
             // The local-development escape hatch still lets these through.
             assert!(
-                ensure_fetchable_host(&url, true).is_ok(),
+                ensure_fetchable_host(&url, true, None).is_ok(),
                 "expected {raw} to be allowed when internal IPs are permitted"
             );
         }
@@ -1471,7 +1490,7 @@ mod test {
             );
             assert!(
                 matches!(
-                    ensure_fetchable_host(&url, false),
+                    ensure_fetchable_host(&url, false, None),
                     Err(JsResolveErr::BlockedUrl(_))
                 ),
                 "expected {raw} to be blocked, normalized to {url}"
@@ -1489,7 +1508,7 @@ mod test {
         for raw in allowed {
             let url: Url = raw.parse().unwrap();
             assert!(
-                ensure_fetchable_host(&url, false).is_ok(),
+                ensure_fetchable_host(&url, false, None).is_ok(),
                 "expected {raw} to pass the guard"
             );
         }

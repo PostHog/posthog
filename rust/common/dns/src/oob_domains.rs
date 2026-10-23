@@ -55,12 +55,12 @@ fn is_cloud() -> bool {
         .unwrap_or(false)
 }
 
-/// One line per host and guard in this window. A resolver sees a host once per connection, so an
-/// undeduped count tracks traffic rather than probing.
+/// One line per host, team and guard in this window. A resolver sees a host once per
+/// connection, so an undeduped count tracks traffic rather than probing.
 const DEDUPE_WINDOW: Duration = Duration::from_secs(15 * 60);
 const DEDUPE_MAX_ENTRIES: usize = 10_000;
 
-type SeenMap = HashMap<(&'static str, String), Instant>;
+type SeenMap = HashMap<(&'static str, Option<i32>, String), Instant>;
 static SEEN: OnceLock<Mutex<SeenMap>> = OnceLock::new();
 
 fn seen_map() -> std::sync::MutexGuard<'static, SeenMap> {
@@ -77,9 +77,15 @@ pub fn reset_dedupe() {
     seen_map().clear();
 }
 
-fn first_sight_in_window(guard: &'static str, host: &str, now: Instant) -> bool {
+fn first_sight_in_window(
+    guard: &'static str,
+    team_id: Option<i32>,
+    host: &str,
+    now: Instant,
+) -> bool {
     let mut seen = seen_map();
-    let key = (guard, host.to_owned());
+    // The team is part of the key: one project's probe must not hide another's for the window.
+    let key = (guard, team_id, host.to_owned());
     if let Some(at) = seen.get(&key) {
         if now.duration_since(*at) < DEDUPE_WINDOW {
             return false;
@@ -97,7 +103,10 @@ fn first_sight_in_window(guard: &'static str, host: &str, now: Instant) -> bool 
 }
 
 /// Log that a guard holds a listed host. Detection only: the caller still proceeds.
-pub fn note_oob_domain(host: &str, guard: &'static str) {
+///
+/// A guard that knows the project passes its id. The shared resolvers and a redirect hop do not
+/// have one, so they pass `None` and the line carries no `team_id`.
+pub fn note_oob_domain(host: &str, guard: &'static str, team_id: Option<i32>) {
     // Match first: almost every host misses, and the miss costs a few string comparisons, which
     // keeps the environment read and the lock off the common path.
     let Some(domain) = matched_oob_domain(host) else {
@@ -106,10 +115,12 @@ pub fn note_oob_domain(host: &str, guard: &'static str) {
     if !is_cloud() {
         return;
     }
-    if !first_sight_in_window(guard, host, Instant::now()) {
+    if !first_sight_in_window(guard, team_id, host, Instant::now()) {
         return;
     }
-    info!(host, domain, guard, "security.oob_domain_seen");
+    // `Option` records the inner value and omits the field for `None`, so a line either names a
+    // team or has no `team_id` at all - never `team_id=None`.
+    info!(team_id, host, domain, guard, "security.oob_domain_seen");
 }
 
 /// Whether the host is the domain itself, or sits under it on a label boundary. A plain suffix
@@ -124,7 +135,8 @@ fn is_same_or_subdomain(host: &str, domain: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::matched_oob_domain;
+    use super::{first_sight_in_window, matched_oob_domain};
+    use std::time::Instant;
 
     #[test]
     fn matches_a_listed_domain_exactly_or_on_a_label_boundary() {
@@ -147,5 +159,17 @@ mod tests {
         ] {
             assert_eq!(matched_oob_domain(host), expected, "host: {host}");
         }
+    }
+
+    #[test]
+    fn one_team_does_not_dedupe_another_teams_sighting() {
+        let now = Instant::now();
+        let host = "one-team-does-not-dedupe.oast.me";
+        assert!(first_sight_in_window("g", Some(1), host, now));
+        // One actor probes several projects with the same host, so a key without the team would
+        // report the first project and hide the rest for the whole window.
+        assert!(first_sight_in_window("g", Some(2), host, now));
+        assert!(first_sight_in_window("g", None, host, now));
+        assert!(!first_sight_in_window("g", Some(1), host, now));
     }
 }
