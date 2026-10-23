@@ -657,6 +657,9 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
 
     launched_context = launch.call_args.args[1]
     assert launched_context.interaction_origin == expected_origin
+    assert launched_context.system_prompt == (
+        dict(base.PromptService.build()) if expected_origin == "posthog_ai" else None
+    )
     assert ctx.demo_data.make_context.call_args.kwargs["disable_bundled_skills"] == (delivery == "exec")
     if has_original:
         assert setup.call_args.args[0].interaction_origin == expected_origin

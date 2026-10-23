@@ -528,9 +528,10 @@ inbox-reports-set-state
   that pairing means "fixed by something else, might recur", so the report comes back.
 - `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
   into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
-- `dismissal_reason` must be one of nine server-validated canonical codes — `already_fixed`,
-  `report_unclear`, `analysis_wrong`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`,
-  `fixed_outside_posthog`, `pr_merged`, `other` — an unlisted value returns `400`. Reach for `other` plus a
+- `dismissal_reason` must be one of the server-validated canonical codes — `already_fixed`,
+  `report_unclear`, `analysis_wrong`, `wrong_assignee`, `wrong_repo`, `wontfix_intentional`,
+  `wontfix_irrelevant`, `fixed_outside_posthog`, `no_action_needed`, `pr_merged`, `other` — an
+  unlisted value returns `400`. Reach for `other` plus a
   `dismissal_note` for anything that doesn't fit a specific code. `dismissal_note` is free-form
   (≤ 4000 chars). Both persist as a DISMISSAL
   artefact, so the rationale survives later transitions — **always include them**, on a resolve too,
@@ -541,6 +542,8 @@ inbox-reports-set-state
   selection for the project, and when the named repository is connected to the project it also
   becomes this report's own next selection. Without a usable correction the report's selection is
   cleared instead, so a restored report re-selects rather than reusing the rejected repository.
+- `wrong_assignee` means the report reached the wrong person or team. It is routing feedback, not a
+  verdict that the report itself was wrong.
 - On a dismiss, snooze, or restore, the `dismissal_note` is also forwarded as a steering note to the
   scout that filed the report, which every scout run reads at cold start, so what you write there is
   what stops the same report being filed again. Write it for that reader: name the evidence that

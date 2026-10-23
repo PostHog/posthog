@@ -395,11 +395,13 @@ class AdhocEventDeletesDictionary(Dictionary):
 
 @dagster.op(out=dagster.Out(dagster.Nothing))
 def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
-    """Fail this run when another run of the same job, or any squash run, is executing.
+    """Fail this run when a deletes run, an old events cleanup run, or a squash run is executing.
 
     Concurrent deletes runs share their dictionary names, so each run's delete mutations read
     whichever contents the other run loaded last, and mark_deletions_verified then claims
-    deletions the sweep may not have performed. Any other executing run blocks, deliberately
+    deletions the sweep may not have performed. The old events cleanup mutates the same events
+    tables, which reject new mutations while others are unfinished, so a cleanup run and a
+    deletes run must not overlap either. Any other executing run blocks, deliberately
     without an election: ranking by creation time lets a run that was queued early and started
     late outrank a run already past this guard, and two runs then proceed together. Two racing
     starts can both fail here, which is safe and visible; the run-queue limit named on the job's
@@ -413,14 +415,19 @@ def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> Non
     # A queued run has done nothing yet. Its own guard sees this run once it starts.
     blockers = describe_runs(
         context.instance,
-        (context.job_name, squash_person_overrides.name),
+        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name),
         statuses=EXECUTING_RUN_STATUSES,
         exclude_run_id=context.run_id,
     )
     if blockers:
+        restart = (
+            "start a new run through manual_deletes_job"
+            if context.job_name == deletes_job.name
+            else f"start a new {context.job_name} run"
+        )
         raise dagster.Failure(
             description="This run yields to: " + "; ".join(blockers) + ". "
-            "Wait for them to finish or cancel them, then start a new run through manual_deletes_job."
+            f"Wait for them to finish or cancel them, then {restart}."
         )
 
 
@@ -1309,13 +1316,14 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     A concurrent deletes_job run is the collision the in-job guard exists for; failing here
     reports it before a run is even launched. A squash run means the weekly chain is already in
     motion and will launch deletes_job itself on success, so starting one by hand now would race
-    it. Another manual trigger means someone else already asked for a run.
+    it. An old events cleanup run would make the launched run fail its in-job guard. Another
+    manual trigger means someone else already asked for a run.
     """
     # Unlike the in-job guard, queued and not-started runs count here. This check asks whether
     # launching another run would collide, not which of two started runs came first.
     blockers = describe_runs(
         context.instance,
-        (deletes_job.name, squash_person_overrides.name, context.job_name),
+        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name, context.job_name),
         exclude_run_id=context.run_id,
     )
     if blockers:
@@ -1330,8 +1338,8 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
 def manual_deletes_job():
     """Start a deletes_job run the way the weekly chain does.
 
-    Launch this instead of deletes_job itself. It checks that no deletes_job or squash run is in
-    flight, and its success makes run_deletes_after_manual_trigger request a real deletes_job run
+    Launch this instead of deletes_job itself. It checks that no deletes_job, old events cleanup
+    or squash run is in flight, and its success makes run_deletes_after_manual_trigger request a real deletes_job run
     with DELETES_RUN_CONFIG. Launching deletes_job directly skips both: the launchpad defaults
     carry none of that config, and nothing checks the weekly chain before the in-job guard fails
     the run mid-flight.
@@ -1353,7 +1361,7 @@ def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) ->
     return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=DELETES_RUN_CONFIG)
 
 
-@dagster.op
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def plan_old_events_cleanup(
     context: dagster.OpExecutionContext,
     config: MonthlyCleanupConfig,
@@ -1494,7 +1502,7 @@ def cleanup_old_events_by_partition(
 )
 def monthly_old_events_cleanup_job():
     """Delete events past each team's events retention set in Django admin, a whole month at a time."""
-    cleanup_old_events_by_partition(plan_old_events_cleanup())
+    cleanup_old_events_by_partition(plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run()))
 
 
 @dagster.schedule(

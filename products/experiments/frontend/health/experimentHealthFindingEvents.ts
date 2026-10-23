@@ -31,6 +31,7 @@ export type ExperimentHealthFindingCode =
     | 'bucketing_changed_mid_run'
     | 'release_conditions_changed_mid_run'
     | 'new_flag_no_traffic'
+    | 'early_significance'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode

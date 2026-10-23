@@ -125,24 +125,6 @@ const endpointLogs = (): ToolBase<ReturnType<typeof EndpointLogsSchema>, unknown
     },
 })
 
-const EndpointMaterializationConditionsSchema = () => z.object({})
-
-const endpointMaterializationConditions = (): ToolBase<
-    ReturnType<typeof EndpointMaterializationConditionsSchema>,
-    Schemas.EndpointMaterializationConditions
-> => ({
-    name: 'endpoint-materialization-conditions',
-    schema: EndpointMaterializationConditionsSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof EndpointMaterializationConditionsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EndpointMaterializationConditions>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/materialization_conditions/`,
-        })
-        return result
-    },
-})
-
 const EndpointMaterializationStatusSchema = () => {
     const EndpointsMaterializationStatusRetrieveParams = orvalSchemas.EndpointsMaterializationStatusRetrieveParams()
     const EndpointsMaterializationStatusRetrieveQueryParams =
@@ -168,35 +150,6 @@ const endpointMaterializationStatus = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
-    },
-})
-
-const EndpointMaterializationSuggestionSchema = () => {
-    const EndpointsMaterializationSuggestionCreateBody = orvalSchemas.EndpointsMaterializationSuggestionCreateBody()
-    const EndpointsMaterializationSuggestionCreateParams = orvalSchemas.EndpointsMaterializationSuggestionCreateParams()
-    return EndpointsMaterializationSuggestionCreateParams.omit({ project_id: true }).extend(
-        EndpointsMaterializationSuggestionCreateBody.shape
-    )
-}
-
-const endpointMaterializationSuggestion = (): ToolBase<
-    ReturnType<typeof EndpointMaterializationSuggestionSchema>,
-    WithPostHogUrl<Schemas.EndpointMaterializationSuggestion>
-> => ({
-    name: 'endpoint-materialization-suggestion',
-    schema: EndpointMaterializationSuggestionSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof EndpointMaterializationSuggestionSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.version !== undefined) {
-            body['version'] = params.version
-        }
-        const result = await context.api.request<Schemas.EndpointMaterializationSuggestion>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_suggestion/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/endpoints/${params.name}`)
     },
 })
 
@@ -458,9 +411,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-delete': endpointDelete,
     'endpoint-get': endpointGet,
     'endpoint-logs': endpointLogs,
-    'endpoint-materialization-conditions': endpointMaterializationConditions,
     'endpoint-materialization-status': endpointMaterializationStatus,
-    'endpoint-materialization-suggestion': endpointMaterializationSuggestion,
     'endpoint-openapi-spec': endpointOpenapiSpec,
     'endpoint-run': endpointRun,
     'endpoint-update': endpointUpdate,

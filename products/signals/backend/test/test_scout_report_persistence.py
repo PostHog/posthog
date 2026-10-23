@@ -1,6 +1,6 @@
 import json
 from contextlib import AbstractContextManager, nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -46,6 +46,7 @@ from products.signals.backend.scout_report import (
     append_report_note,
     create_scout_report,
     record_content_revision,
+    scout_report_tags_in_use,
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
@@ -1124,3 +1125,24 @@ class TestScoutReportSuggestedPrompts(BaseTest):
             )
         with team_scope(other_team.id):
             assert self._stored(other_report.report_id) == []
+
+
+class TestScoutReportTagsInUse(BaseTest):
+    def test_lists_the_team_s_live_tags_most_used_first(self) -> None:
+        for tags in (["billing", "api"], ["api"], ["web"], []):
+            SignalReport.objects.create(team=self.team, tags=tags)
+        SignalReport.objects.create(team=self.team, tags=["deleted-only"], status=SignalReport.Status.DELETED)
+        SignalReport.objects.create(team=self.team, tags=["unsafe-only"], status=SignalReport.Status.SUPPRESSED)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        SignalReport.objects.create(team=other_team, tags=["theirs"])
+
+        assert scout_report_tags_in_use(team_id=self.team.id) == ["api", "billing", "web"]
+
+    def test_reads_only_the_newest_reports_tagged_or_not(self) -> None:
+        now = timezone.now()
+        for days_ago, tags in ((3, ["old"]), (2, ["new"]), (1, []), (0, [])):
+            report = SignalReport.objects.create(team=self.team, tags=tags)
+            SignalReport.objects.filter(id=report.id).update(created_at=now - timedelta(days=days_ago))
+
+        with patch("products.signals.backend.scout_report.persistence._TAGS_IN_USE_REPORT_SAMPLE", 3):
+            assert scout_report_tags_in_use(team_id=self.team.id) == ["new"]
