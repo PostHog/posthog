@@ -557,7 +557,6 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     # Keep the full answer being graded outside the sampled context.
     context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
-    # boffin: Repair after sampling because its character cutoff can split a surrogate pair.
     user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
 
     return call_llm_judge(

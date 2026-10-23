@@ -131,7 +131,6 @@ def build_tagger_user_prompt(input_data: str, output_data: str) -> str:
     # Budget each side separately, because sampling the joined text can drop a short output at its end.
     output_data = truncate_by_line_sampling(output_data, max(budget // 2, budget - len(input_data)))
     input_data = truncate_by_line_sampling(input_data, budget - len(output_data))
-    # boffin: Repair after sampling because its character cutoff can split a surrogate pair.
     return sanitize_surrogates(_render_tagger_user_prompt(input_data, output_data))
 
 
