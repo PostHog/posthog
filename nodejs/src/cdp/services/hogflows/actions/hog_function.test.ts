@@ -1,3 +1,4 @@
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
@@ -6,13 +7,17 @@ import { register } from 'prom-client'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -23,6 +28,7 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailStatusService } from '../../messaging/email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
@@ -551,6 +557,58 @@ describe('HogFunctionHandler', () => {
             ])
         }
     )
+
+    it.each([
+        ['on the suppression list', 'recipient_suppressed'],
+        ['opted out', 'recipient_opted_out'],
+        ['predicted to bounce', 'invalid_recipient'],
+        ['at the frequency cap', 'frequency_capped'],
+    ])('records a transactional email to a recipient %s as skipped', async (skip, reason) => {
+        if (reason === 'recipient_suppressed' || reason === 'recipient_opted_out') {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(
+                reason === 'recipient_suppressed' ? 'suppressed' : 'opted_out'
+            )
+        } else if (reason === 'invalid_recipient') {
+            ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(`Skipping send: ${skip}.`)
+        } else {
+            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+        }
+        mockProducerObserver.resetKafkaProducer()
+        const emailStatus = new EmailStatusService(
+            createCdpOutputsRegistry().build(createCdpConsumerDeps(hub).cdpProducerRegistry, hub)
+        )
+        const handler = new HogFunctionHandler(
+            mockHogFlowFunctionsService,
+            mockRecipientPreferencesService,
+            mockEmailValidationService,
+            'email',
+            undefined,
+            { emailStatus }
+        )
+        invocation.state.event = { ...invocation.state.event, event: TRANSACTIONAL_EMAIL_EVENT }
+        invocation.state.emailRecipientHash = 'a1b2'
+
+        await handler.execute({
+            invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(
+            mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS).map((row) => row.value)
+        ).toEqual([
+            expect.objectContaining({
+                team_id: team.id,
+                message_id: invocation.id,
+                status: 'skipped',
+                recipient_hash: 'a1b2',
+                reason,
+            }),
+        ])
+    })
 
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation

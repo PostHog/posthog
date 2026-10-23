@@ -1,25 +1,32 @@
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
+import { EmailStatusService, emailStatusMissingRecipientHash } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -497,6 +504,121 @@ describe('EmailService', () => {
                 expect(result.metrics).toEqual(
                     expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
                 )
+            })
+        })
+
+        describe('transactional email status', () => {
+            let statusService: EmailService
+            let statusSendSpy: jest.SpyInstance
+
+            const statusRows = (): Record<string, any>[] =>
+                mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS).map((row) => row.value)
+            const recordedStatuses = (): [string, string][] => statusRows().map((row) => [row.status, row.reason])
+
+            beforeEach(() => {
+                mockProducerObserver.resetKafkaProducer()
+                statusService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    null,
+                    null,
+                    new EmailStatusService(
+                        createCdpOutputsRegistry().build(createCdpConsumerDeps(hub).cdpProducerRegistry, hub)
+                    )
+                )
+                statusSendSpy = jest.spyOn(statusService.sesV2Client!, 'send') as any
+                statusSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.id = new UUIDT().toString()
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.emailRecipientHash = 'a1b2'
+            })
+
+            it('records the send as sent and tags it for the SES webhook', async () => {
+                await statusService.executeSendEmail(invocation)
+
+                const sentCommand = statusSendSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.EmailTags).toContainEqual({ Name: 'ph_recipient_hash', Value: 'a1b2' })
+
+                expect(statusRows()).toEqual([
+                    expect.objectContaining({
+                        team_id: team.id,
+                        message_id: invocation.id,
+                        status: 'sent',
+                        reason: '',
+                        recipient_hash: 'a1b2',
+                    }),
+                ])
+            })
+
+            it.each<[string, () => void, [string, string][]]>([
+                [
+                    'a provider error as failed',
+                    () =>
+                        statusSendSpy.mockRejectedValueOnce(
+                            new MessageRejected({ $metadata: {}, message: 'rejected' })
+                        ),
+                    [['failed', 'provider_error']],
+                ],
+                [
+                    'a policy skip as skipped with the policy code',
+                    () => {
+                        invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
+                    },
+                    [['skipped', 'template_paused']],
+                ],
+                [
+                    'nothing for a throttle, because the retry sends it',
+                    () =>
+                        statusSendSpy.mockRejectedValueOnce(
+                            new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                        ),
+                    [],
+                ],
+            ])('records %s', async (_name, arrange, expected) => {
+                arrange()
+
+                await statusService.executeSendEmail(invocation)
+
+                expect(recordedStatuses()).toEqual(expected)
+            })
+
+            it('sends a run queued before it carried the recipient hash once, writes no status, and counts it', async () => {
+                const missingHashCount = async (): Promise<number> =>
+                    (await emailStatusMissingRecipientHash.get()).values.find((v) => v.labels.source === 'worker')
+                        ?.value ?? 0
+                const missingBefore = await missingHashCount()
+                delete invocation.state.emailRecipientHash
+
+                const result = await statusService.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(statusSendSpy).toHaveBeenCalledTimes(1)
+                expect(statusRows()).toEqual([])
+                expect(await missingHashCount()).toEqual(missingBefore + 1)
+            })
+
+            it('sends the email once when the status write fails', async () => {
+                mockProducerObserver.produceSpy.mockRejectedValue(new Error('kafka is down'))
+
+                const result = await statusService.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(statusSendSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_sent'])
             })
         })
 
@@ -989,6 +1111,26 @@ describe('EmailService', () => {
                 to: [{ address: 'test@example.com', name: 'Test User' }],
             })
         })
+        it("should send a code send's headers", async () => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                headers: [
+                    { name: 'X-Entity-Ref-ID', value: 'order-123' },
+                    { name: 'key', value: 'invoice' },
+                    { name: 'value', value: '123' },
+                ],
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const emails = await mailDevAPI.getEmails()
+            expect(emails[0].headers).toMatchObject({
+                'x-entity-ref-id': 'order-123',
+                key: 'invoice',
+                value: '123',
+                'auto-submitted': 'auto-generated',
+            })
+        })
         it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
@@ -1121,15 +1263,19 @@ describe('EmailService', () => {
 
         // A person without an email property renders an empty `to`. Counting that as email_failed
         // lets one project's data trip the platform send failure rate alert.
+        // A suppressed cc or bcc must not turn the missing-recipient skip into a suppression.
         it.each([
-            ['an empty string', ''],
-            ['only whitespace', '   '],
-            ['no value', undefined],
-        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            ['an empty string', '', undefined],
+            ['only whitespace', '   ', undefined],
+            ['no value', undefined, undefined],
+            ['an empty string beside a suppressed cc', '', 'suppressed@example.com'],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email, cc) => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 to: { email: email as string, name: 'Test User' },
+                cc,
             })
+            jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
@@ -1532,6 +1678,91 @@ describe('EmailService', () => {
             }
         )
 
+        it("sends a code send's headers beside PostHog's own and its tags beside PostHog's tags", async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.queueParameters = createEmailParams({
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                tags: [{ name: 'category', value: 'password_reset' }],
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)).toEqual([
+                'X-Entity-Ref-ID',
+                'X-PostHog-Tracking-Code',
+                'Auto-Submitted',
+            ])
+            expect(sentCommand.input.Content.Simple.Headers[0]).toEqual({ Name: 'X-Entity-Ref-ID', Value: 'order-123' })
+            expect(sentCommand.input.EmailTags.map((t: { Name: string }) => t.Name)).toEqual(['ph_id', 'category'])
+            expect(sentCommand.input.EmailTags[1]).toEqual({ Name: 'category', Value: 'password_reset' })
+        })
+
+        it("sends a code send's attachments beside its recipients and PostHog's headers", async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const invite = 'BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n'
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                attachments: [
+                    {
+                        filename: 'invite.ics',
+                        content: Buffer.from(invite).toString('base64'),
+                        contentType: 'text/calendar; method=REQUEST',
+                    },
+                    { filename: 'logo.png', content: Buffer.from('png').toString('base64'), contentId: 'logo' },
+                ],
+            }
+            invocation.queueParameters = createEmailParams({
+                html: '<p>Hi</p><img src="cid:logo">',
+                cc: 'jane@example.com',
+                bcc: 'audit@example.com',
+                replyTo: 'help@example.com',
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                tags: [{ name: 'category', value: 'invite' }],
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const { input } = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(input).toMatchObject({
+                FromEmailAddress: '"Test User" <test@posthog-test.com>',
+                Destination: {
+                    ToAddresses: ['"Test User" <test@example.com>'],
+                    CcAddresses: ['jane@example.com'],
+                    BccAddresses: ['audit@example.com'],
+                },
+                ReplyToAddresses: ['help@example.com'],
+                TenantName: `team-${team.id}`,
+            })
+            expect(input.EmailTags.map((t: { Name: string }) => t.Name)).toEqual(['ph_id', 'category'])
+            expect(input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)).toEqual([
+                'X-Entity-Ref-ID',
+                'X-PostHog-Tracking-Code',
+                'Auto-Submitted',
+            ])
+            expect(input.Content.Simple.Attachments).toEqual([
+                {
+                    FileName: 'invite.ics',
+                    RawContent: Buffer.from(invite),
+                    ContentType: 'text/calendar; method=REQUEST',
+                    ContentId: undefined,
+                    ContentDisposition: 'ATTACHMENT',
+                    ContentTransferEncoding: 'BASE64',
+                },
+                {
+                    FileName: 'logo.png',
+                    RawContent: Buffer.from('png'),
+                    ContentType: undefined,
+                    ContentId: 'logo',
+                    ContentDisposition: 'INLINE',
+                    ContentTransferEncoding: 'BASE64',
+                },
+            ])
+        })
+
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
@@ -1790,17 +2021,22 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', {}],
+            ['a sensitive template', { sensitive: true }, undefined, {}],
+            ['a code send with tags', {}, 'Test Subject', { tags: [{ name: 'category', value: 'password_reset' }] }],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            async (_name, extraMetadata, subject, extraParams) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                invocation.queueParameters = {
+                    ...invocation.queueParameters!,
+                    ...extraParams,
+                } as typeof invocation.queueParameters
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -1817,6 +2053,9 @@ describe('EmailService', () => {
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+                expect(result.capturedPostHogEvents[0].properties.$email_tags).toEqual(
+                    'tags' in extraParams ? { category: 'password_reset' } : undefined
+                )
             }
         )
 
@@ -1827,6 +2066,25 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(result.capturedPostHogEvents).toHaveLength(0)
         })
+
+        it.each([
+            { captureEngagement: true, teamCaptures: false, captured: 1 },
+            { captureEngagement: false, teamCaptures: true, captured: 0 },
+        ])(
+            "follows a code send's capture choice $captureEngagement over the team switch $teamCaptures",
+            async ({ captureEngagement, teamCaptures, captured }) => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(teamCaptures)
+                invocation.hogFunction.metadata = { capture_engagement: captureEngagement }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.capturedPostHogEvents).toHaveLength(captured)
+            }
+        )
 
         it('should capture a $workflows_email_failed PostHog event on failure', async () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(

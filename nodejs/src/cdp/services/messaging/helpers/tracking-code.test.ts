@@ -244,6 +244,51 @@ describe('email tracking code', () => {
                 },
             },
             {
+                name: 'roundtrips the capture choice of a code send alongside a colon-bearing distinctId',
+                encoded: signer.generate(
+                    {
+                        functionId: 'fn-1',
+                        id: 'inv-2',
+                        teamId: 3,
+                        state: { actionId: 'act-5' },
+                        distinctId: 'urn:user:42',
+                        workflowVersion: 3,
+                        captureEngagement: false,
+                    },
+                    false,
+                    true,
+                    true
+                ),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: undefined,
+                    isTest: false,
+                    distinctId: 'urn:user:42',
+                    workflowVersion: 3,
+                    captureEngagement: false,
+                    format: 'signed',
+                },
+            },
+            {
+                name: 'ignores a capture choice on an unsigned (forged) code',
+                encoded: encodeRaw('v3:fn-1:inv-2:3:act-5:batch-4::9:1:attacker-distinct-id'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: false,
+                    distinctId: undefined,
+                    workflowVersion: undefined,
+                    captureEngagement: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
                 name: 'returns null when the encoded string is empty',
                 encoded: '',
                 expected: null,
@@ -254,13 +299,26 @@ describe('email tracking code', () => {
     })
 
     describe('versioned payload rollout', () => {
-        it('emits the marker so the version reaches the engagement webhook', () => {
+        it.each([
+            { name: 'a send without a capture choice', captureEngagement: undefined, emitV3: true, marker: 'v2' },
+            { name: 'a code send before v3 is switched on', captureEngagement: true, emitV3: undefined, marker: 'v2' },
+            { name: 'a code send that captures engagement', captureEngagement: true, emitV3: true, marker: 'v3' },
+            { name: 'a code send that skips engagement', captureEngagement: false, emitV3: true, marker: 'v3' },
+        ])('mints $marker for $name', ({ captureEngagement, emitV3, marker }) => {
             // The marker carries the sending version to an open, click or bounce arriving days later.
-            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 })
+            const code = signer.generate(
+                { functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3, captureEngagement },
+                false,
+                true,
+                emitV3
+            )
             const decoded = Buffer.from(code.split('.')[0], 'base64').toString('utf8')
 
-            expect(decoded.startsWith('v2:fn-1:')).toBe(true)
-            expect(signer.parse(code)?.workflowVersion).toBe(3)
+            expect(decoded.startsWith(`${marker}:fn-1:`)).toBe(true)
+            expect(signer.parse(code)).toMatchObject({
+                workflowVersion: 3,
+                captureEngagement: marker === 'v3' ? captureEngagement : undefined,
+            })
         })
 
         it('leaves the version empty for a send that has none, so hog functions are unchanged', () => {

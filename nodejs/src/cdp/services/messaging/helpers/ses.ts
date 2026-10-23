@@ -2,11 +2,13 @@ import crypto from 'node:crypto'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { RESERVED_EMAIL_TAG_PREFIX } from '~/cdp/schema/emailFields'
 import { MinimalAppMetric } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 
+import type { StatusChange } from '../email-status.service'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
 /**
@@ -216,6 +218,48 @@ export const SES_LINK_INDEX_TAG = 'phl'
 // reset token, so its events keep no subject and only each clicked link's origin. `$link_index` still
 // tells the links apart.
 export const SES_SENSITIVE_TAG = 'ph_sensitive'
+
+// The tags a code send set on its email. PostHog's own tags start with `ph_`, and SES adds its own as `ses:…`.
+export function sendTagsOf(tags: Record<string, string[]> | undefined): Record<string, string> | undefined {
+    const sendTags = Object.entries(tags ?? {}).filter(
+        ([name, values]) =>
+            !name.toLowerCase().startsWith(RESERVED_EMAIL_TAG_PREFIX) && !name.includes(':') && values[0] !== undefined
+    )
+    return sendTags.length ? Object.fromEntries(sendTags.map(([name, values]) => [name, values[0]])) : undefined
+}
+
+// Set at send time on transactional emails only, so its presence marks one, and it carries the hash
+// the route computed rather than one the webhook would derive from the SES destination.
+export const SES_RECIPIENT_HASH_TAG = 'ph_recipient_hash'
+
+const transactionalStatusChange = (
+    rec: SesEventRecord,
+    teamId: number,
+    messageId: string,
+    recipientHash: string
+): StatusChange | null => {
+    const change = { teamId, messageId, recipientHash }
+    switch (rec.eventType) {
+        case 'Delivery':
+            return { ...change, status: 'delivered', at: new Date(rec.delivery.timestamp) }
+        case 'Bounce':
+            return {
+                ...change,
+                status: 'bounced',
+                at: new Date(rec.bounce.timestamp),
+                reason: BOUNCE_TYPE_TO_EVENT_PROPERTY[rec.bounce.bounceType],
+            }
+        case 'Complaint':
+            return {
+                ...change,
+                status: 'complained',
+                at: new Date(rec.complaint.timestamp),
+                reason: rec.complaint.complaintFeedbackType,
+            }
+        default:
+            return null
+    }
+}
 
 const sensitiveLinkOrigin = (link: string): string => {
     try {
@@ -573,6 +617,7 @@ export class SesWebhookHandler {
             properties?: Record<string, any>
             timestamp?: string
             workflowVersion?: number
+            captureEngagement?: boolean
         }[]
         logEntries?: {
             functionId?: string
@@ -612,6 +657,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[]
+        emailStatusChanges?: StatusChange[]
     }> {
         // Payloads carry recipients and clicked links, including reset links from sensitive emails,
         // so the logs keep identifiers only.
@@ -684,6 +730,7 @@ export class SesWebhookHandler {
             properties?: Record<string, any>
             timestamp?: string
             workflowVersion?: number
+            captureEngagement?: boolean
         }[] = []
         const logEntries: {
             functionId?: string
@@ -714,6 +761,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[] = []
+        const emailStatusChanges: StatusChange[] = []
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', {
@@ -732,8 +780,17 @@ export class SesWebhookHandler {
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }
-            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId, isTest, workflowVersion } =
-                parsedCode || {}
+            const {
+                functionId,
+                invocationId,
+                teamId,
+                actionId,
+                parentRunId,
+                distinctId,
+                isTest,
+                workflowVersion,
+                captureEngagement,
+            } = parsedCode || {}
 
             if (!functionId && !invocationId) {
                 // A present but unparseable code is a different incident from a wholly absent one, so
@@ -754,9 +811,11 @@ export class SesWebhookHandler {
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
             if (metricName && !isTest) {
                 const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
+                const sendTags = sendTagsOf(rec.mail.tags)
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
+                    ...(sendTags ? { $email_tags: sendTags } : {}),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -805,6 +864,7 @@ export class SesWebhookHandler {
                     properties,
                     timestamp,
                     workflowVersion,
+                    captureEngagement,
                 })
 
                 // Per-link companion row for the workflow Metrics tab's link breakdown. Emitted only
@@ -830,6 +890,7 @@ export class SesWebhookHandler {
                         ),
                         timestamp,
                         workflowVersion,
+                        captureEngagement,
                     })
                 }
 
@@ -850,6 +911,7 @@ export class SesWebhookHandler {
                         properties,
                         timestamp,
                         workflowVersion,
+                        captureEngagement,
                     })
                 }
             }
@@ -926,6 +988,16 @@ export class SesWebhookHandler {
                     deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
                 }
             }
+
+            const recipientHash = rec.mail.tags?.[SES_RECIPIENT_HASH_TAG]?.[0]
+            const isNotSpamCorrection =
+                rec.eventType === 'Complaint' && rec.complaint.complaintFeedbackType?.toLowerCase() === 'not-spam'
+            if (suppressionAllowed && invocationId && recipientHash && !isNotSpamCorrection) {
+                const change = transactionalStatusChange(rec, parseInt(teamId, 10), invocationId, recipientHash)
+                if (change) {
+                    emailStatusChanges.push(change)
+                }
+            }
         }
 
         return {
@@ -937,6 +1009,7 @@ export class SesWebhookHandler {
             hardBounceRecipients,
             complainedRecipients,
             deliveredRecipients,
+            emailStatusChanges,
         }
     }
 }

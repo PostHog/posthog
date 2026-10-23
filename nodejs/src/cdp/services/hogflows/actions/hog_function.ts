@@ -18,6 +18,7 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
+import { EmailStatusWriter, recordSkippedTransactionalEmail } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
@@ -163,7 +164,7 @@ export class HogFunctionHandler implements ActionHandler {
         private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: HogFlowActionBillingType,
         private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
-        private options: { awaitedStepsEnabled?: boolean } = {}
+        private options: { awaitedStepsEnabled?: boolean; emailStatus?: EmailStatusWriter } = {}
     ) {}
 
     async execute({
@@ -239,6 +240,11 @@ export class HogFunctionHandler implements ActionHandler {
                 action.config.template_id,
                 functionResult.invocation.state.globals?.inputs
             )
+        }
+
+        // The email service records the statuses of a send it runs. These skips happen before it runs.
+        if (functionResult.skipReason && this.options.emailStatus && !hogExecutorOptions?.isTest) {
+            await recordSkippedTransactionalEmail(this.options.emailStatus, invocation, functionResult.skipReason)
         }
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
@@ -402,7 +408,10 @@ export class HogFunctionHandler implements ActionHandler {
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
+    ): Promise<
+        CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean; skipReason?: string }
+    > {
+        const send = action.type === 'function_email' ? invocation.state.send : undefined
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
@@ -410,12 +419,17 @@ export class HogFunctionHandler implements ActionHandler {
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
-                this.hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
-                    event: invocation.state.event,
-                    person: invocation.person,
-                    groups: invocation.groups,
-                    variables: invocation.state.variables,
-                })
+                this.hogFlowFunctionsService.buildHogFunctionInvocation(
+                    invocation,
+                    hogFunction,
+                    {
+                        event: invocation.state.event,
+                        person: invocation.person,
+                        groups: invocation.groups,
+                        variables: invocation.state.variables,
+                    },
+                    send
+                )
         )
 
         const skipReason = await instrumentFn(
@@ -452,6 +466,7 @@ export class HogFunctionHandler implements ActionHandler {
             return {
                 finished: true,
                 skipped: true,
+                skipReason: skipReason === 'suppressed' ? 'recipient_suppressed' : 'recipient_opted_out',
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message }],
                 metrics,
@@ -473,6 +488,7 @@ export class HogFunctionHandler implements ActionHandler {
             return {
                 finished: true,
                 skipped: true,
+                skipReason: 'invalid_recipient',
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message: emailSkipReason }],
                 metrics: [
@@ -501,6 +517,7 @@ export class HogFunctionHandler implements ActionHandler {
             return {
                 finished: true,
                 skipped: true,
+                skipReason: 'frequency_capped',
                 invocation: hogFunctionInvocation,
                 logs: [
                     {

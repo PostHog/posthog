@@ -8,6 +8,213 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `queued` - Queued
+ * * `waiting` - Waiting
+ * * `unknown` - Unknown
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailStatusEnumApi = (typeof EmailStatusEnumApi)[keyof typeof EmailStatusEnumApi]
+
+export const EmailStatusEnumApi = {
+    Queued: 'queued',
+    Waiting: 'waiting',
+    Unknown: 'unknown',
+    Skipped: 'skipped',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export interface EmailStatusApi {
+    /** The email's `message_id`, as the send answered it. */
+    id: string
+    /** Where the email is. A status never moves back: a late `sent` never replaces `delivered`.
+     *
+     * * `queued` - Queued
+     * * `waiting` - Waiting
+     * * `unknown` - Unknown
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailStatusEnumApi
+    /** When PostHog accepted the send. */
+    created_at: string
+    /** When the email reached its status. */
+    status_at: string
+    /** Why the email is `skipped`, `failed`, `bounced` or `complained`, such as `recipient_suppressed`, `provider_error` or `hard`. Absent for the other statuses. */
+    reason?: string
+}
+
+export interface EmailStatusPageApi {
+    /** The recipient's emails, newest first. */
+    results: EmailStatusApi[]
+    /**
+     * Pass this as `cursor` to read the next page. Null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
+export interface TemplateErrorApi {
+    /** Error class, such as `invalid_request`. */
+    type: string
+    /** Stable error code to branch on, such as `invalid_template_key`. */
+    code: string
+    /** What went wrong. */
+    detail: string
+    /**
+     * The request field the error is about, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Why PostHog refuses the request. */
+    why?: string
+    /** What to change before you retry. */
+    fix?: string
+    /** Documentation for this error code. */
+    docs_url?: string
+}
+
+/**
+ * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+ */
+export type SendEmailApiMessageData = { [key: string]: unknown }
+
+/**
+ * Extra email headers by name, such as `X-Entity-Ref-ID` or `List-Unsubscribe`, at most 10. Values are printable ASCII up to 870 characters. Headers PostHog sets itself, such as `From`, `Subject` and `Content-Type`, are refused. Not with `template.id`.
+ */
+export type SendEmailApiHeaders = { [key: string]: string }
+
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
+export interface TemplateReferenceApi {
+    /** Key of the template, as uploaded with `PUT /api/projects/@current/messaging_templates/by_key/{key}/`. Give either `key` or `id`. */
+    key?: string
+    /** Content hash of the template you hold, as `v1:` and 64 hex characters. When PostHog never published that content, the send answers `template_outdated` and sends nothing. Only with `key`. */
+    hash?: string
+    /** ID of the template, for templates made in PostHog. Give either `key` or `id`. */
+    id?: string
+}
+
+export interface EmailTagApi {
+    /**
+     * Tag name: ASCII letters, numbers, `_` and `-`. Names starting with `ph_` are PostHog's.
+     * @maxLength 256
+     */
+    name: string
+    /**
+     * Tag value: ASCII letters, numbers, `_` and `-`.
+     * @maxLength 256
+     */
+    value: string
+}
+
+export interface EmailAttachmentApi {
+    /**
+     * File name the recipient sees, such as `invite.ics`. No paths, and no file types mailbox providers block, such as `.exe`.
+     * @maxLength 255
+     */
+    filename: string
+    /** The file content, Base64 encoded. */
+    content: string
+    /**
+     * MIME type with its parameters, such as `text/calendar; method=REQUEST`. Without it, the type follows the file name.
+     * @maxLength 255
+     */
+    content_type?: string
+    /**
+     * Shows the file inline: reference it in `html` as `<img src="cid:logo">` with `content_id` `logo`.
+     * @maxLength 128
+     */
+    content_id?: string
+}
+
+export interface SendEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendEmailApiMessageData
+    /** The template to send, by key or by id. Leave it out to send content your code rendered, with `template_key`. */
+    template?: TemplateReferenceApi
+    /** Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Send it with `subject` and `html` or `text`, instead of `template`. PostHog sends the content as is and never stores it as a template. */
+    template_key?: string
+    /** Subject of the rendered email. Only with `template_key`. */
+    subject?: string
+    /** HTML body of the rendered email. Only with `template_key`. */
+    html?: string
+    /** Plain text body of the rendered email. Only with `template_key`. Without it, PostHog derives the text from `html`. */
+    text?: string
+    /**
+     * Addresses replies go to. Not with `template.id`.
+     * @maxItems 10
+     */
+    reply_to?: string[]
+    /**
+     * Addresses that get a visible copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.
+     * @maxItems 10
+     */
+    cc?: string[]
+    /**
+     * Addresses that get a hidden copy, at most 10. Each one is checked against the suppression list, and one suppressed address stops the send. Not with `template.id`.
+     * @maxItems 10
+     */
+    bcc?: string[]
+    /** Extra email headers by name, such as `X-Entity-Ref-ID` or `List-Unsubscribe`, at most 10. Values are printable ASCII up to 870 characters. Headers PostHog sets itself, such as `From`, `Subject` and `Content-Type`, are refused. Not with `template.id`. */
+    headers?: SendEmailApiHeaders
+    /**
+     * Name and value pairs, at most 10, that PostHog adds to the email's engagement events as `$email_tags`. Not with `template.id`.
+     * @maxItems 10
+     */
+    tags?: EmailTagApi[]
+    /**
+     * Files to attach, at most 10 and 512KB in total after decoding. Not with `template.id`.
+     * @maxItems 10
+     */
+    attachments?: EmailAttachmentApi[]
+    /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. They count as analytics events. Defaults to on for `template_key` and `template.key` sends, and to the project's setting for `template.id` sends. */
+    capture_engagement?: boolean
+    /** Sender, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, rendered content goes out from the project's default sender, and a template from its own sender. Not with `template.id`. */
+    from?: string
+}
+
+export interface SendEmailWarningApi {
+    /** Stable warning code to branch on, such as `template_superseded`. */
+    code: string
+    /** What happened. */
+    detail: string
+    /** What you can change, if the warning is not what you want. */
+    fix: string
+}
+
+export interface SendEmailResponseApi {
+    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+    message_id: string
+    /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
+    replayed: boolean
+    /** Things to know about the queued email. Empty in the normal case. */
+    warnings: SendEmailWarningApi[]
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
@@ -387,6 +594,17 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * * `gui` - GUI
+ * * `code` - Code
+ */
+export type TemplateManagedByEnumApi = (typeof TemplateManagedByEnumApi)[keyof typeof TemplateManagedByEnumApi]
+
+export const TemplateManagedByEnumApi = {
+    Gui: 'gui',
+    Code: 'code',
+} as const
+
 export interface MessageTemplateApi {
     readonly id: string
     /**
@@ -428,6 +646,36 @@ export interface MessageTemplateApi {
     readonly transactional_hog_flow_id: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /**
+     * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key. Set once, by the first upload or by a PATCH whose only field is `key`.
+     * @nullable
+     */
+    readonly key: string | null
+    /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
+     *
+     * * `gui` - GUI
+     * * `code` - Code */
+    readonly managed_by: TemplateManagedByEnumApi | null
+    /**
+     * Repository the template was last uploaded from, such as `github.com/example/app`.
+     * @nullable
+     */
+    readonly source_repository: string | null
+    /**
+     * Path of the template file in the source repository.
+     * @nullable
+     */
+    readonly source_path: string | null
+    /**
+     * Commit or branch the template was last uploaded from.
+     * @nullable
+     */
+    readonly source_ref: string | null
+    /**
+     * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+     * @nullable
+     */
+    readonly content_hash: string | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -439,7 +687,17 @@ export interface PaginatedMessageTemplateListApi {
     results: MessageTemplateApi[]
 }
 
-export interface PatchedMessageTemplateApi {
+/**
+ * * `gui` - GUI
+ */
+export type MessageTemplateUpdateManagedByEnumApi =
+    (typeof MessageTemplateUpdateManagedByEnumApi)[keyof typeof MessageTemplateUpdateManagedByEnumApi]
+
+export const MessageTemplateUpdateManagedByEnumApi = {
+    Gui: 'gui',
+} as const
+
+export interface PatchedMessageTemplateUpdateApi {
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -480,6 +738,35 @@ export interface PatchedMessageTemplateApi {
     readonly transactional_hog_flow_id?: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /**
+     * Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.
+     * @maxLength 400
+     */
+    key?: string
+    /** Send `gui` as the only field to stop managing a template in code, so it can be edited in PostHog. It keeps its key, so the next upload under that key manages it in code again.
+     *
+     * * `gui` - GUI */
+    managed_by?: MessageTemplateUpdateManagedByEnumApi
+    /**
+     * Repository the template was last uploaded from, such as `github.com/example/app`.
+     * @nullable
+     */
+    readonly source_repository?: string | null
+    /**
+     * Path of the template file in the source repository.
+     * @nullable
+     */
+    readonly source_path?: string | null
+    /**
+     * Commit or branch the template was last uploaded from.
+     * @nullable
+     */
+    readonly source_ref?: string | null
+    /**
+     * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+     * @nullable
+     */
+    readonly content_hash?: string | null
 }
 
 /**
@@ -553,15 +840,6 @@ export interface MakeTransactionalApi {
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
-export interface TransactionalEmailIdentifiersApi {
-    /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
-     * @maxLength 400
-     * @nullable
-     */
-    distinct_id?: string | null
-}
-
 export interface SendTransactionalEmailApi {
     /** Email address of the recipient. */
     to: string
@@ -576,6 +854,107 @@ export interface SendTransactionalEmailResponseApi {
     message_id: string
     /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
     replayed: boolean
+}
+
+export interface TemplateSourceApi {
+    /**
+     * Host and path of the repository the file is in, such as `github.com/example/app`.
+     * @maxLength 400
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * Path of the template file in the repository, such as `emails/welcome.html`.
+     * @maxLength 400
+     * @nullable
+     */
+    path?: string | null
+    /**
+     * Commit or branch the file was uploaded from.
+     * @maxLength 400
+     * @nullable
+     */
+    ref?: string | null
+}
+
+export interface UploadTemplateApi {
+    /**
+     * Template name shown in the template library.
+     * @maxLength 400
+     */
+    name: string
+    /** Email subject line. Supports Liquid, such as `{{ variables.first_name }}`. */
+    subject: string
+    /** Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. Send at least one of `html` and `text`. */
+    html?: string
+    /** Plain-text body for email clients that can't show HTML, stored as sent. Send at least one of `html` and `text`. Leaving it out removes the stored one. */
+    text?: string
+    /** Inbox preview text shown after the subject. Leaving it out removes the stored one. */
+    preheader?: string
+    /** Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored. */
+    source?: TemplateSourceApi
+    /** Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content. */
+    if_not_superseded?: boolean
+    /** Set it on uploads a send makes on its own. When people edit the template with this key in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. Leave it out to take the template over from PostHog. */
+    if_code_managed?: boolean
+}
+
+/**
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `unchanged` - Unchanged
+ * * `superseded` - Superseded
+ */
+export type TemplateUploadResultEnumApi = (typeof TemplateUploadResultEnumApi)[keyof typeof TemplateUploadResultEnumApi]
+
+export const TemplateUploadResultEnumApi = {
+    Created: 'created',
+    Updated: 'updated',
+    Unchanged: 'unchanged',
+    Superseded: 'superseded',
+} as const
+
+export interface UploadTemplateResponseApi {
+    /** ID of the template. */
+    id: string
+    /** Key of the template. */
+    key: string
+    /** `created`: the upload made a new template. `updated`: it published the uploaded content. `unchanged`: the template already had this content, so nothing was published. `superseded`: the upload set `if_not_superseded` and newer content already replaced this content, so nothing was published.
+     *
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `unchanged` - Unchanged
+     * * `superseded` - Superseded */
+    result: TemplateUploadResultEnumApi
+    /** Hash of the published content, as `v1:` and 64 hex characters. Send it with an email to check PostHog holds the content you hold. After `superseded` it is the hash of the newer content. */
+    content_hash: string
+    /** `code` after every upload except `superseded`, which changes nothing.
+     *
+     * * `gui` - GUI
+     * * `code` - Code */
+    managed_by: TemplateManagedByEnumApi
+    /** Where the template file lives, as stored after the upload. */
+    source: TemplateSourceApi
+    /** The workflow that sends this template. Each upload that changes the content writes a new version of it. */
+    transactional_hog_flow_id: string
+}
+
+export type MessagingEmailsListParams = {
+    /**
+     * The `next_cursor` of the previous page. Leave it out to read the first page.
+     */
+    cursor?: string
+    /**
+     * How many emails a page holds, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * The recipient's address. Case and the spaces around it do not matter. A send's `cc` and `bcc` copies are not looked up.
+     * @minLength 1
+     */
+    to: string
 }
 
 export type MessagingCategoriesListParams = {

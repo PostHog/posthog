@@ -1,8 +1,11 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -426,6 +429,55 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(refreshed.person).toMatchObject({ properties: {}, name: '' })
         })
 
+        it.each([
+            ['a transactional email runs the version it was accepted at', 'api', 'accepted'],
+            ['an event workflow runs its live version', 'event', 'edited'],
+        ] as const)('%s', async (_desc, trigger, expectedReason) => {
+            const flowWithExit = (reason: string): HogFlow =>
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: { type: trigger, filters: {} } as any },
+                            exit: { type: 'exit', config: { reason } },
+                        },
+                        edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                    })
+                    .build()
+            const accepted = await insertHogFlow(hub.postgres, { ...flowWithExit('accepted'), version: 1 })
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_hogflowrevision (id, team_id, hog_flow_id, version, content, created_at)
+                 VALUES ($1, $2, $3, 1, $4, NOW())`,
+                [
+                    new UUIDT().toString(),
+                    team.id,
+                    accepted.id,
+                    JSON.stringify({ actions: accepted.actions, edges: accepted.edges, trigger: accepted.trigger }),
+                ],
+                'insert-revision'
+            )
+            const invocation = createSerializedHogFlowInvocation(accepted, {
+                flowVersion: 1,
+                event: { distinct_id: 'distinct_A_1', properties: { to: 'a@example.com' } } as any,
+            })
+            // The template is edited after the send was accepted, which publishes version 2.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 2, actions = $1 WHERE id = $2`,
+                [JSON.stringify(flowWithExit('edited').actions), accepted.id],
+                'edit-flow'
+            )
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            const exit = results[0].invocation.hogFlow.actions.find((action) => action.type === 'exit')
+            expect(exit?.config).toEqual({ reason: expectedReason })
+        })
+
         it('should make minimal calls to the person manager', async () => {
             const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
             await processor.processInvocations(invocations)
@@ -646,6 +698,35 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // terminal lifecycle row off its presence, so without it the row keys `hog_function`,
             // never collapses the `running` row, and the run stays stuck at `running` in the UI.
             expect((results2[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
+        })
+
+        it('records a transactional email whose workflow stopped before it ran as skipped', async () => {
+            const hogFlow = hogFlows[0]
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET status = 'archived' WHERE id = $1`,
+                [hogFlow.id],
+                'disableHogFlow'
+            )
+            processor['hogFlowManager']['onHogFlowsReloaded'](hogFlow.team_id, [hogFlow.id])
+            mockProducerObserver.resetKafkaProducer()
+            const invocation = createSerializedHogFlowInvocation(hogFlow, {
+                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_person_1', properties: {} } as any,
+                emailRecipientHash: 'a1b2',
+            })
+
+            await processor.processInvocations([invocation])
+
+            expect(
+                mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS).map((row) => row.value)
+            ).toEqual([
+                expect.objectContaining({
+                    message_id: invocation.id,
+                    status: 'skipped',
+                    recipient_hash: 'a1b2',
+                    reason: 'workflow_inactive',
+                }),
+            ])
         })
 
         it('attaches the live flow to a cancel-requested run so the terminal row keys as hog_flow', async () => {

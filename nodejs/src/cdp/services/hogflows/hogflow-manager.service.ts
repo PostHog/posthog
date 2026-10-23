@@ -48,9 +48,12 @@ const HOG_FLOW_FIELDS = [
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 
+type HogFlowRevisionSteps = Pick<HogFlow, 'actions' | 'edges'>
+
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
+    private revisionStepsLoader: LazyLoader<HogFlowRevisionSteps>
 
     constructor(
         private postgres: PostgresRouter,
@@ -81,6 +84,13 @@ export class HogFlowManagerService {
             name: 'hog_flow_manager',
             ...cacheOptions,
             loader: async (ids) => await this.fetchHogFlows(ids),
+        })
+
+        // A revision never changes, so it needs no reload.
+        this.revisionStepsLoader = new LazyLoader({
+            name: 'hog_flow_revision_steps',
+            loaderRetry: DEFAULT_LOADER_RETRY,
+            loader: async (keys) => await this.fetchRevisionSteps(keys),
         })
 
         this.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
@@ -143,6 +153,37 @@ export class HogFlowManagerService {
 
     public async getHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
         return await this.lazyLoader.getMany(ids)
+    }
+
+    /**
+     * The flow with the steps it had when it was published as `version`, or null when no revision holds that
+     * version. Everything else, such as its status and email pause, stays live. Revisions hold no secret
+     * inputs, so only use it for flows whose steps have none.
+     */
+    public async getHogFlowAtVersion(hogFlow: HogFlow, version: number): Promise<HogFlow | null> {
+        const steps = await this.revisionStepsLoader.get(revisionKey(hogFlow.id, version))
+        return steps ? { ...hogFlow, ...steps, version } : null
+    }
+
+    private async fetchRevisionSteps(keys: string[]): Promise<Record<string, HogFlowRevisionSteps | undefined>> {
+        const revisions = keys.map(parseRevisionKey)
+        const response = await this.postgres.query<{ hog_flow_id: string; version: number; content: HogFlow }>(
+            PostgresUse.COMMON_READ,
+            `SELECT r.hog_flow_id, r.version, r.content
+             FROM workflows_hogflowrevision r
+             JOIN unnest($1::uuid[], $2::int[]) AS k(hog_flow_id, version)
+               ON r.hog_flow_id = k.hog_flow_id AND r.version = k.version`,
+            [revisions.map((r) => r.hogFlowId), revisions.map((r) => r.version)],
+            'fetchHogFlowRevisionSteps'
+        )
+        const steps: Record<string, HogFlowRevisionSteps | undefined> = {}
+        for (const row of response.rows) {
+            steps[revisionKey(row.hog_flow_id, row.version)] = {
+                actions: row.content.actions,
+                edges: row.content.edges,
+            }
+        }
+        return steps
     }
 
     private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
@@ -262,4 +303,11 @@ export class HogFlowManagerService {
             }
         }
     }
+}
+
+const revisionKey = (hogFlowId: HogFlow['id'], version: number): string => `${hogFlowId}:${version}`
+
+const parseRevisionKey = (key: string): { hogFlowId: string; version: number } => {
+    const separator = key.lastIndexOf(':')
+    return { hogFlowId: key.slice(0, separator), version: Number(key.slice(separator + 1)) }
 }

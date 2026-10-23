@@ -13,6 +13,8 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    EmailStatusApi,
+    EmailStatusPageApi,
     GenerateLinkRequestApi,
     MakeTransactionalApi,
     MessageCategoryApi,
@@ -20,6 +22,7 @@ import type {
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingEmailsListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
@@ -30,11 +33,15 @@ import type {
     PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
-    PatchedMessageTemplateApi,
+    PatchedMessageTemplateUpdateApi,
     PreferencesLinkApi,
     RemoveOptOutRequestApi,
+    SendEmailApi,
+    SendEmailResponseApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    UploadTemplateApi,
+    UploadTemplateResponseApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -54,6 +61,77 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getMessagingEmailsListUrl = (projectId: string, params: MessagingEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/emails/`
+}
+
+/**
+ * Read the status of each email sent to an address in the last 30 days, newest first. Use it when you did not keep the `message_id` a send answered.
+ * @summary List a recipient's transactional emails
+ */
+export const messagingEmailsList = async (
+    projectId: string,
+    params: MessagingEmailsListParams,
+    options?: RequestInit
+): Promise<EmailStatusPageApi> => {
+    return apiMutator<EmailStatusPageApi>(getMessagingEmailsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Read where an email sent with `POST /api/projects/@current/messaging/send/email/` is, by the `message_id` the send answered.
+ * @summary Get a transactional email's status
+ */
+export const messagingEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingSendEmailCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/email/`
+}
+
+/**
+ * Send one transactional email to one recipient, in one of two forms. A template named by its key or id: `message_data` fills its `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: a key or content it doesn't hold sends nothing and answers `template_outdated`, and content that newer content replaced sends the current content with a `template_superseded` warning. Or content your code rendered, named by `template_key`: PostHog sends it as is and never stores it. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * @summary Send a transactional email
+ */
+export const messagingSendEmailCreate = async (
+    projectId: string,
+    sendEmailApi: SendEmailApi,
+    options?: RequestInit
+): Promise<SendEmailResponseApi> => {
+    return apiMutator<SendEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendEmailApi),
+    })
+}
 
 export const getMessagingCategoriesListUrl = (projectId: string, params?: MessagingCategoriesListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -610,6 +688,9 @@ export const getMessagingTemplatesListUrl = (projectId: string, params?: Messagi
         : `/api/projects/${projectId}/messaging_templates/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesList = async (
     projectId: string,
     params?: MessagingTemplatesListParams,
@@ -625,6 +706,9 @@ export const getMessagingTemplatesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_templates/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesCreate = async (
     projectId: string,
     messageTemplateApi: NonReadonly<MessageTemplateApi>,
@@ -642,6 +726,9 @@ export const getMessagingTemplatesRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesRetrieve = async (
     projectId: string,
     id: string,
@@ -657,6 +744,9 @@ export const getMessagingTemplatesUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesUpdate = async (
     projectId: string,
     id: string,
@@ -675,17 +765,20 @@ export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMessageTemplateApi?: NonReadonly<PatchedMessageTemplateApi>,
+    patchedMessageTemplateUpdateApi?: NonReadonly<PatchedMessageTemplateUpdateApi>,
     options?: RequestInit
 ): Promise<MessageTemplateApi> => {
     return apiMutator<MessageTemplateApi>(getMessagingTemplatesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedMessageTemplateApi),
+        body: JSON.stringify(patchedMessageTemplateUpdateApi),
     })
 }
 
@@ -711,6 +804,9 @@ export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/messaging_templates/${id}/design/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesDesignPartialUpdate = async (
     projectId: string,
     id: string,
@@ -766,5 +862,27 @@ export const messagingTemplatesSendCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendTransactionalEmailApi),
+    })
+}
+
+export const getMessagingTemplatesByKeyUpdateUrl = (projectId: string, key: string) => {
+    return `/api/projects/${projectId}/messaging_templates/by_key/${key}/`
+}
+
+/**
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that newer content already replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused template back on.
+ * @summary Upload a template by key
+ */
+export const messagingTemplatesByKeyUpdate = async (
+    projectId: string,
+    key: string,
+    uploadTemplateApi: UploadTemplateApi,
+    options?: RequestInit
+): Promise<UploadTemplateResponseApi> => {
+    return apiMutator<UploadTemplateResponseApi>(getMessagingTemplatesByKeyUpdateUrl(projectId, key), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uploadTemplateApi),
     })
 }

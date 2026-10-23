@@ -50,5 +50,23 @@ describe('cyclotron schema', () => {
 
             expect(CyclotronInvocationQueueParametersEmailSchema.shape.from.safeParse(from).success).toBe(false)
         })
+
+        it.each([
+            {
+                name: 'a header the caller may set',
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                ok: true,
+            },
+            { name: 'a header PostHog sets', headers: [{ name: 'bcc', value: 'a@example.com' }], ok: false },
+            { name: 'a header in a family PostHog sets', headers: [{ name: 'Content-Type', value: 'x' }], ok: false },
+            {
+                name: 'a line break in a value',
+                headers: [{ name: 'X-Ref', value: '1\r\nBcc: a@example.com' }],
+                ok: false,
+            },
+            { name: 'a colon in a name', headers: [{ name: 'X-Ref: 1\r\nBcc', value: 'a' }], ok: false },
+        ])('sends $name only when it is safe: $ok', ({ headers, ok }) => {
+            expect(CyclotronInvocationQueueParametersEmailSchema.shape.headers.safeParse(headers).success).toBe(ok)
+        })
     })
 })
