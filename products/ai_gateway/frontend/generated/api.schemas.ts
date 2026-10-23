@@ -119,21 +119,6 @@ export interface DevUserUsageApi {
     last_minted_at: string | null
 }
 
-export interface DevTeamUsageApi {
-    /** Project whose wallet pays for developer mode tokens. */
-    paying_team_id: number
-    /** One row per user with tokens or spend, highest spend first. */
-    users: DevUserUsageApi[]
-}
-
-export interface DevTokenStatusRequestApi {
-    /**
-     * The phe_ bearer to look up. Only its sha256 is compared.
-     * @pattern ^phe_[A-Za-z0-9_-]{1,252}$
-     */
-    token: string
-}
-
 /**
  * * `web` - Web
  * * `cli` - CLI
@@ -144,6 +129,51 @@ export const DevTokenClientEnumApi = {
     Web: 'web',
     Cli: 'cli',
 } as const
+
+export interface DevTokenActivityApi {
+    /** When the action happened. */
+    at: string
+    /** What happened to the token: minted or revoked. */
+    activity: string
+    /**
+     * Who did it. Null when the user was deleted.
+     * @nullable
+     */
+    actor_email: string | null
+    /**
+     * Whose token it is. Null when the token row is gone, e.g. a refused mint.
+     * @nullable
+     */
+    owner_email: string | null
+    /** Where the token was minted.
+     *
+     * * `web` - Web
+     * * `cli` - CLI */
+    client: DevTokenClientEnumApi | null
+    /**
+     * Most the token can spend, in USD.
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    cap_usd: string | null
+}
+
+export interface DevTeamUsageApi {
+    /** Project whose wallet pays for developer mode tokens. */
+    paying_team_id: number
+    /** One row per user with tokens or spend, highest spend first. */
+    users: DevUserUsageApi[]
+    /** Mints and revokes in the last 30 days, newest first, at most 1000. */
+    activity: DevTokenActivityApi[]
+}
+
+export interface DevTokenStatusRequestApi {
+    /**
+     * The phe_ bearer to look up. Only its sha256 is compared.
+     * @pattern ^phe_[A-Za-z0-9_-]{1,252}$
+     */
+    token: string
+}
 
 /**
  * * `live` - Live

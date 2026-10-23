@@ -36801,13 +36801,6 @@ export namespace Schemas {
       last_minted_at: string | null;
     }
 
-    export interface DevTeamUsage {
-      /** Project whose wallet pays for developer mode tokens. */
-      paying_team_id: number;
-      /** One row per user with tokens or spend, highest spend first. */
-      users: DevUserUsage[];
-    }
-
     /**
      * * `web` - Web
      * * `cli` - CLI
@@ -36819,6 +36812,43 @@ export namespace Schemas {
       Web: 'web',
       Cli: 'cli',
     } as const;
+
+    export interface DevTokenActivity {
+      /** When the action happened. */
+      at: string;
+      /** What happened to the token: minted or revoked. */
+      activity: string;
+      /**
+         * Who did it. Null when the user was deleted.
+         * @nullable
+         */
+      actor_email: string | null;
+      /**
+         * Whose token it is. Null when the token row is gone, e.g. a refused mint.
+         * @nullable
+         */
+      owner_email: string | null;
+      /** Where the token was minted.
+       *
+       * * `web` - Web
+       * * `cli` - CLI */
+      client: DevTokenClientEnum | null;
+      /**
+         * Most the token can spend, in USD.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string | null;
+    }
+
+    export interface DevTeamUsage {
+      /** Project whose wallet pays for developer mode tokens. */
+      paying_team_id: number;
+      /** One row per user with tokens or spend, highest spend first. */
+      users: DevUserUsage[];
+      /** Mints and revokes in the last 30 days, newest first, at most 1000. */
+      activity: DevTokenActivity[];
+    }
 
     /**
      * * `live` - Live

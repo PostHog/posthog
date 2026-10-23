@@ -63,9 +63,20 @@ class DevUserUsage:
 
 
 @dataclass(frozen=True)
+class DevTokenActivity:
+    at: datetime
+    activity: str
+    actor_email: str | None
+    owner_email: str | None
+    client: DevTokenClient | None
+    cap_usd: Decimal | None
+
+
+@dataclass(frozen=True)
 class DevTeamUsage:
     paying_team_id: int
     users: list[DevUserUsage]
+    activity: list[DevTokenActivity]
 
 
 class DevTokenRefused(Exception):

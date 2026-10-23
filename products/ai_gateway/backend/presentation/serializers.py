@@ -68,9 +68,27 @@ class DevUserUsageSerializer(serializers.Serializer):
     last_minted_at = serializers.DateTimeField(allow_null=True, help_text="When the user last minted a token.")
 
 
+class DevTokenActivitySerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When the action happened.")
+    activity = serializers.CharField(help_text="What happened to the token: minted or revoked.")
+    actor_email = serializers.CharField(allow_null=True, help_text="Who did it. Null when the user was deleted.")
+    owner_email = serializers.CharField(
+        allow_null=True, help_text="Whose token it is. Null when the token row is gone, e.g. a refused mint."
+    )
+    client = serializers.ChoiceField(
+        choices=DevTokenClient.choices, allow_null=True, help_text="Where the token was minted."
+    )
+    cap_usd = serializers.DecimalField(
+        max_digits=10, decimal_places=2, allow_null=True, help_text="Most the token can spend, in USD."
+    )
+
+
 class DevTeamUsageSerializer(serializers.Serializer):
     paying_team_id = serializers.IntegerField(help_text="Project whose wallet pays for developer mode tokens.")
     users = DevUserUsageSerializer(many=True, help_text="One row per user with tokens or spend, highest spend first.")
+    activity = DevTokenActivitySerializer(
+        many=True, help_text="Mints and revokes in the last 30 days, newest first, at most 1000."
+    )
 
 
 class MintedDevTokenSerializer(serializers.Serializer):

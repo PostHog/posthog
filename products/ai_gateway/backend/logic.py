@@ -27,14 +27,22 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
-from .facade.contracts import DevTeamUsage, DevToken, DevTokenRefused, DevTokenUsage, DevUserUsage, MintedDevToken
+from .facade.contracts import (
+    DevTeamUsage,
+    DevToken,
+    DevTokenActivity,
+    DevTokenRefused,
+    DevTokenUsage,
+    DevUserUsage,
+    MintedDevToken,
+)
 from .facade.enums import DevTokenClient, DevTokenStatus
 from .models import DevGatewayToken
 
@@ -294,6 +302,7 @@ def token_status(token: str) -> DevToken:
 
 
 TEAM_USAGE_DAYS = 30
+TEAM_ACTIVITY_LIMIT = 1000
 
 # `$ai_product_source = 'pinned'` keeps out calls that only set an X-PostHog-Product header.
 _SPEND_QUERY = """
@@ -337,6 +346,30 @@ def _spend_by_distinct_id(team: Team) -> dict[str, tuple[Decimal, Decimal, Decim
     }
 
 
+def _activity(team_id: int, since: datetime, rows: list[DevGatewayToken]) -> list[DevTokenActivity]:
+    """The audit log, with each token's owner, client and cap filled in from its row; a revoke entry records none."""
+    by_id = {str(row.id): row for row in rows}
+    entries = (
+        ActivityLog.objects.filter(team_id=team_id, scope="DevGatewayToken", created_at__gte=since)
+        .select_related("user")
+        .order_by("-created_at")[:TEAM_ACTIVITY_LIMIT]
+    )
+    result: list[DevTokenActivity] = []
+    for entry in entries:
+        row = by_id.get(entry.item_id or "")
+        result.append(
+            DevTokenActivity(
+                at=entry.created_at,
+                activity=entry.activity,
+                actor_email=entry.user.email if entry.user else None,
+                owner_email=row.user.email if row else None,
+                client=DevTokenClient(row.client) if row else None,
+                cap_usd=row.cap_usd if row else None,
+            )
+        )
+    return result
+
+
 def team_usage(viewer: User) -> DevTeamUsage:
     refusal = team_usage_refusal(viewer)
     if refusal is not None:
@@ -345,10 +378,9 @@ def team_usage(viewer: User) -> DevTeamUsage:
     day_ago = now - timedelta(days=1)
     team = Team.objects.get(pk=settings.DEV_GATEWAY_TEAM_ID)
     with team_scope(team.pk):
+        since = now - timedelta(days=TEAM_USAGE_DAYS)
         rows = list(
-            DevGatewayToken.objects.filter(
-                token_hash__isnull=False, created_at__gte=now - timedelta(days=TEAM_USAGE_DAYS)
-            ).select_related("user")
+            DevGatewayToken.objects.filter(token_hash__isnull=False, created_at__gte=since).select_related("user")
         )
     spend = _spend_by_distinct_id(team)
     users = {row.user_id: row.user for row in rows}
@@ -395,7 +427,7 @@ def team_usage(viewer: User) -> DevTeamUsage:
             )
         )
     result.sort(key=lambda u: (u.spend_usd_30d, u.tokens_minted_30d), reverse=True)
-    return DevTeamUsage(paying_team_id=team.pk, users=result)
+    return DevTeamUsage(paying_team_id=team.pk, users=result, activity=_activity(team.pk, since, rows))
 
 
 def revoke(user: User, token_id: str | None) -> int:

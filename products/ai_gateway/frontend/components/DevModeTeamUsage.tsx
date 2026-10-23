@@ -1,22 +1,26 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { ActivityScope } from '~/types'
-
-import type { DevUserUsageApi } from '../generated/api.schemas'
-import { devModeTeamUsageLogic } from '../logics/devModeTeamUsageLogic'
+import type { DevTokenActivityApi, DevUserUsageApi } from '../generated/api.schemas'
+import { PAGE_SIZE_OPTIONS, devModeTeamUsageLogic } from '../logics/devModeTeamUsageLogic'
 
 // Four places, because single calls cost fractions of a cent.
 function usd(value: string): JSX.Element {
     return <span translate="no">${Number(value).toFixed(4)}</span>
 }
 
+const ACTIVITY_TAG: Record<string, { label: string; type: 'success' | 'danger' | 'default' }> = {
+    minted: { label: 'Minted', type: 'success' },
+    revoked: { label: 'Revoked', type: 'danger' },
+}
+
 export function DevModeTeamUsage(): JSX.Element {
-    const { teamUsage, teamUsageLoading, refusal, isPayingTeam } = useValues(devModeTeamUsageLogic)
+    const { teamUsageLoading, teamUsage, refusal, isPayingTeam, search, pageSize, filteredUsers, filteredActivity } =
+        useValues(devModeTeamUsageLogic)
+    const { setSearch, setPageSize } = useActions(devModeTeamUsageLogic)
 
     if (refusal && !teamUsage) {
         return <LemonBanner type="warning">{refusal}</LemonBanner>
@@ -36,10 +40,22 @@ export function DevModeTeamUsage(): JSX.Element {
                 Spend is settled gateway cost for calls made with developer mode tokens. Reserved is the sum of token
                 caps minted in the last 24 hours, which counts against each user's daily limit.
             </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <LemonInput type="search" placeholder="Search by email" value={search} onChange={setSearch} />
+                <LemonSelect
+                    value={pageSize}
+                    onChange={(value) => setPageSize(value)}
+                    options={PAGE_SIZE_OPTIONS.map((size) => ({ value: size, label: `Show ${size}` }))}
+                    size="small"
+                />
+            </div>
             <LemonTable<DevUserUsageApi>
-                dataSource={teamUsage?.users ?? []}
+                dataSource={filteredUsers}
                 loading={teamUsageLoading}
-                emptyState="No developer mode tokens or spend in the last 30 days"
+                pagination={{ pageSize }}
+                emptyState={
+                    search ? 'No users match this search' : 'No developer mode tokens or spend in the last 30 days'
+                }
                 rowKey="distinct_id"
                 columns={[
                     {
@@ -94,7 +110,54 @@ export function DevModeTeamUsage(): JSX.Element {
                     },
                 ]}
             />
-            {isPayingTeam ? <ActivityLog scope={ActivityScope.DEV_GATEWAY_TOKEN} /> : null}
+            <h3 className="mb-0">Activity</h3>
+            <LemonTable<DevTokenActivityApi>
+                dataSource={filteredActivity}
+                loading={teamUsageLoading}
+                pagination={{ pageSize }}
+                emptyState={search ? 'No activity matches this search' : 'No mints or revokes in the last 30 days'}
+                columns={[
+                    {
+                        title: 'When',
+                        key: 'at',
+                        render: (_, entry) => <TZLabel time={entry.at} />,
+                    },
+                    {
+                        title: 'Action',
+                        key: 'activity',
+                        render: (_, entry) => {
+                            const tag = ACTIVITY_TAG[entry.activity] ?? { label: entry.activity, type: 'default' }
+                            return <LemonTag type={tag.type}>{tag.label}</LemonTag>
+                        },
+                    },
+                    {
+                        title: 'Token owner',
+                        key: 'owner_email',
+                        render: (_, entry) => entry.owner_email ?? <span className="text-secondary">Unknown</span>,
+                    },
+                    {
+                        title: 'By',
+                        key: 'actor_email',
+                        render: (_, entry) =>
+                            entry.actor_email && entry.actor_email !== entry.owner_email ? (
+                                entry.actor_email
+                            ) : (
+                                <span className="text-secondary">Owner</span>
+                            ),
+                    },
+                    {
+                        title: 'Source',
+                        key: 'client',
+                        render: (_, entry) =>
+                            entry.client ? <LemonTag>{entry.client === 'cli' ? 'CLI' : 'Web'}</LemonTag> : null,
+                    },
+                    {
+                        title: 'Spend limit',
+                        key: 'cap_usd',
+                        render: (_, entry) => (entry.cap_usd ? <span translate="no">${entry.cap_usd}</span> : null),
+                    },
+                ]}
+            />
         </div>
     )
 }
