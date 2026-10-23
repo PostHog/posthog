@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("signals", "0196_signalreport_tags")]
+    dependencies = [("signals", "0197_signalscratchpad_trgm_fastupdate_off")]
 
     operations = [
         migrations.SeparateDatabaseAndState(

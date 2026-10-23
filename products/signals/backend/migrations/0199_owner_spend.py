@@ -10,7 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1400_file_system_view_days"),
-        ("signals", "0197_spend_source_compatibility"),
+        ("signals", "0198_spend_source_compatibility"),
     ]
 
     operations = [

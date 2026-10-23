@@ -103,5 +103,5 @@ def backfill_owner_spend(apps, schema_editor):
 
 class Migration(migrations.Migration):
     atomic = False
-    dependencies = [("signals", "0198_owner_spend"), ("tasks", "0121_squash_2026_09_07_finalize_fks")]
+    dependencies = [("signals", "0199_owner_spend"), ("tasks", "0121_squash_2026_09_07_finalize_fks")]
     operations = [migrations.RunPython(backfill_owner_spend, reverse_code=migrations.RunPython.noop)]
