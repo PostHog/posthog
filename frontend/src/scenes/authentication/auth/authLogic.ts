@@ -135,7 +135,7 @@ export interface authLogicMeta {
             panel: number,
             pendingInvite: PendingInvite | null
         ) => AuthPageStep
-        canSignUpWithEmail: (precheckResponse: any, preflight: PreflightStatus | null) => boolean
+        canSignUpWithEmail: (precheckResponse: PrecheckResponseType, preflight: PreflightStatus | null) => boolean
         isEmailSubmitting: (awaitingPrecheckFor: string | null, isSignupEmailChecking: boolean) => boolean
         emailError: (emailValidationError: string | null, signupEmailError: string | null) => string | null
     }
