@@ -122,10 +122,12 @@ MODEL_SPECIFIC_SHARDED_TABLE_SQL = (
     + """
     PARTITION BY toMonday(timestamp)
     ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))
-    TTL timestamp + INTERVAL 3 MONTH
+    TTL timestamp + INTERVAL {ttl}
     SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
     """
 )
+
+DEFAULT_EMBEDDING_TTL = "3 MONTH"
 
 # SQL template for materialized view that reads from buffer table and filters by model_name
 MODEL_SPECIFIC_MV_SQL = """
@@ -218,14 +220,19 @@ EMBEDDING_MODELS_1 = [
     "text-embedding-3-large-3072",
 ]
 
+# High-volume short documents (MCP intents): no vector index, since it must sit in memory, and a shorter TTL.
+SMALL_256_MODEL_NAME = "text-embedding-3-small-256"
+EMBEDDING_MODELS_2 = [SMALL_256_MODEL_NAME]
+
 # If you want to add a new model or dimensionality you need to:
 # - Add the new models to a new list like the one above
 # - Create a new list like EMBEDDING_TABLES_1
 # - Add that new list to EMBEDDING_TABLES full-list, so all the HOGQL modelling is automatically updated
-# And then write a migration (similar to 0187_model_specific_embedding_tables) that:
-# - Drop the buffer-table-filling MV
+# And then write a migration (similar to 0360_embedding_model_small_256) that:
+# - Drop the buffer-table-filling MV (in deployed cloud, also the WarpStream MV, to pause the consumer)
 # - Create the new tables and MVs for the new model-specific tables
-# - Re-creates the buffer-table-filling MV
+# - Replaces the union view
+# - Re-creates the buffer-table-filling MV from the Kafka table that is live in that deployment
 
 
 # Helper functions for pausing/resuming the entire embedding system
@@ -234,8 +241,11 @@ def drop_kafka_to_buffer_mv_sql() -> str:
     return f"DROP TABLE IF EXISTS {KAFKA_TO_BUFFER_MV} "
 
 
-def KAFKA_TO_BUFFER_MV_SQL() -> str:
-    """Create the Kafka-to-buffer MV to resume embedding consumption."""
+def KAFKA_TO_BUFFER_MV_SQL(kafka_table: str | None = None) -> str:
+    """Create the Kafka-to-buffer MV to resume embedding consumption.
+
+    Deployed cloud has no MSK Kafka table since migration 0248, so cloud migrations pass the WarpStream one.
+    """
     from products.error_tracking.backend.embedding import KAFKA_DOCUMENT_EMBEDDINGS
 
     return """
@@ -260,14 +270,23 @@ FROM {database}.{kafka_table}
 """.format(
         mv_name=KAFKA_TO_BUFFER_MV,
         target_table=DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE,
-        kafka_table=KAFKA_DOCUMENT_EMBEDDINGS,
+        kafka_table=kafka_table or KAFKA_DOCUMENT_EMBEDDINGS,
         database=settings.CLICKHOUSE_DATABASE,
     )
 
 
 class ModelTableDefinitions:
-    def __init__(self, model_name: str, dimension: Optional[int] = None):
+    def __init__(
+        self,
+        model_name: str,
+        dimension: Optional[int] = None,
+        *,
+        ttl: str = DEFAULT_EMBEDDING_TTL,
+        vector_index: bool = True,
+    ):
         self.model_name = model_name
+        self.ttl = ttl
+        self.vector_index = vector_index
 
         # Parse dimension from model name if not provided
         if dimension is None:
@@ -303,6 +322,7 @@ class ModelTableDefinitions:
         return MODEL_SPECIFIC_SHARDED_TABLE_SQL.format(
             table_name=self.sharded_table_name(),
             dimension=self.dimension,
+            ttl=self.ttl,
             engine=ReplacingMergeTree(
                 self.sharded_table_name(), ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
             ),
@@ -360,6 +380,8 @@ class ModelTableDefinitions:
 
     def add_vector_index_sql(self) -> list[str]:
         """SQL to add vector similarity indexes to the sharded table after creation."""
+        if not self.vector_index:
+            return []
         # Create two indexes - one for L2 distance and one for cosine distance
         # This allows callers to use either distance function efficiently
         return [
@@ -370,22 +392,35 @@ class ModelTableDefinitions:
 
 # Create table definition objects for each model
 EMBEDDING_TABLES_1 = [ModelTableDefinitions(model_name) for model_name in EMBEDDING_MODELS_1]
+EMBEDDING_TABLES_2 = [
+    ModelTableDefinitions(model_name, ttl="1 MONTH", vector_index=False) for model_name in EMBEDDING_MODELS_2
+]
 
 # Unified list of all embedding tables (using spread pattern for future additions)
 EMBEDDING_TABLES = [
     *EMBEDDING_TABLES_1,
-    # Future: *EMBEDDING_TABLES_2, etc.
+    *EMBEDDING_TABLES_2,
+    # Future: *EMBEDDING_TABLES_3, etc.
 ]
 
 
+DOCUMENT_EMBEDDINGS_UNION_VIEW = "posthog_document_embeddings_union_view"
+
+
 # Union view that combines all model-specific tables and adds model_name column back
-def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL() -> str:
+def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(
+    model_tables: list[ModelTableDefinitions] | None = None, *, replace: bool = False
+) -> str:
     """
-    Create a UNION ALL view combining all model-specific distributed tables.
+    Create a UNION ALL view combining the model-specific distributed tables, all of them by default.
     Adds model_name column back for backward compatibility with queries.
+
+    A migration passes the model set that exists when it runs, so replaying it on a fresh database
+    never references a table a later migration creates. A migration that adds a model table passes
+    replace=True, so the view changes in one statement and readers never see it missing.
     """
     union_parts = []
-    for model_table in EMBEDDING_TABLES:
+    for model_table in model_tables if model_tables is not None else EMBEDDING_TABLES:
         model_name = model_table.model_name
         distributed_table = model_table.distributed_table_name()
 
@@ -408,7 +443,8 @@ def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL() -> str:
             '{model_name}' AS model_name
         FROM {distributed_table}""")
 
-    view_sql = f"""CREATE VIEW IF NOT EXISTS posthog_document_embeddings_union_view
+    create_clause = "CREATE OR REPLACE VIEW" if replace else "CREATE VIEW IF NOT EXISTS"
+    view_sql = f"""{create_clause} {DOCUMENT_EMBEDDINGS_UNION_VIEW}
 AS {" UNION ALL ".join(union_parts)}"""
 
     return view_sql
