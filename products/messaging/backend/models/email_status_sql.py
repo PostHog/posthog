@@ -89,10 +89,10 @@ SETTINGS kafka_skip_broken_messages = 100,
 )
 
 
-EMAIL_STATUS_MV_SQL = lambda target_table=EMAIL_STATUS_DATA_TABLE: (
+EMAIL_STATUS_MV_SQL = lambda: (
     f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {EMAIL_STATUS_MV_TABLE}
-TO {target_table}
+TO {EMAIL_STATUS_DATA_TABLE}
 AS SELECT
     team_id,
     message_id,
