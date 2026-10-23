@@ -238,6 +238,13 @@ class TestWrapClickhouseQueryError:
                 "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
             ),
             (
+                "with_file_uri_text_in_row",
+                "DB::Exception: Expected end of line: (at row 7)\n: Row 6: (in file/uri private-row-value) "
+                "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat.",
+                "A row in a CSV file backing this table is malformed at row 7 of example-bucket/data/export.csv. "
+                "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+            ),
+            (
                 "without_location",
                 "DB::Exception: Expected end of line: private-row-value",
                 "A row in a CSV file backing this table is malformed. "

@@ -86,6 +86,7 @@ def clickhouse_error_type(e: Exception) -> str:
 
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row (\d+)\)")
 _ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
@@ -93,7 +94,6 @@ BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
 )
 
-CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row (\d+)\)")
 BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check function parameters and type conversions."
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
@@ -117,10 +117,10 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalformedCsvRow":
     row_match = CSV_ROW_NUMBER_PATTERN.search(err.message)
-    file_match = STORAGE_FILE_URI_PATTERN.search(err.message)
+    file_uris = STORAGE_FILE_URI_PATTERN.findall(err.message)
     location = f" at row {row_match.group(1)}" if row_match else ""
-    if file_match:
-        location += f" of {file_match.group(1)}"
+    if file_uris:
+        location += f" of {file_uris[-1]}"
     return CHQueryErrorMalformedCsvRow(
         f"A row in a CSV file backing this table is malformed{location}. "
         "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
