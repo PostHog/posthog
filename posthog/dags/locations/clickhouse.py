@@ -7,6 +7,7 @@ from posthog.dags import (
     clickhouse_cleanup,
     create_materialized_column,
     data_deletion_requests,
+    data_modeling_job_bytes_read,
     deletes,
     drop_materialized_column,
     export_query_log_archive_to_s3,
@@ -36,6 +37,7 @@ defs = dagster.Definitions(
         add_index_to_materialized_column.add_index_to_materialized_column,
         clickhouse_cleanup.clickhouse_deletion_sweep_job,
         create_materialized_column.create_materialized_column,
+        data_modeling_job_bytes_read.data_modeling_job_bytes_read_job,
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         deletes.manual_deletes_job,
@@ -59,6 +61,7 @@ defs = dagster.Definitions(
         warehouse_object_reads_daily.warehouse_object_reads_daily_job,
     ],
     schedules=[
+        data_modeling_job_bytes_read.data_modeling_job_bytes_read_schedule,
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
         person_overrides.squash_schedule,
         person_pg_cleanup_drain.person_pg_cleanup_drain_schedule,
