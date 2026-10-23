@@ -84,7 +84,7 @@ it.each([undefined, 0] as const)(
     }
 )
 
-it('filters a normal insight from the center link and clears on the same datapoint', () => {
+it('filters a normal insight from the context menu and clears on the same datapoint', () => {
     const request: OpenPersonsModalProps = {
         title: 'US',
         query: {
@@ -113,6 +113,8 @@ it('filters a normal insight from the center link and clears on the same datapoi
         fireEvent.click(center)
         expect(logic.values.selection?.query.source).toMatchObject({ day: '2026-01-02', breakdown: 'US' })
         fireEvent.click(screen.getByText('Chart point'))
+        expect(logic.values.selection).not.toBeNull()
+        fireEvent.click(screen.getByText('Filter dashboard by this result'))
         expect(logic.values.selection).toBeNull()
         expect(openedModal).not.toHaveBeenCalled()
     } finally {

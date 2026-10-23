@@ -128,15 +128,6 @@ export function DashboardInsightResultMenu({
                 }
                 capturePersonsModalForClick((request) => {
                     captured.current = true
-                    const selection = getSelection(request)
-                    if (selection && (dashboardSelection || event.detail === 2)) {
-                        filterResult(selection)
-                        return
-                    }
-                    if (event.detail === 2) {
-                        close()
-                        return
-                    }
                     setActors(request)
                     setPosition(point)
                 })
@@ -153,7 +144,7 @@ export function DashboardInsightResultMenu({
                 ) {
                     return
                 }
-                if (position || event.detail === 2) {
+                if (position) {
                     close()
                     return
                 }
@@ -170,7 +161,6 @@ export function DashboardInsightResultMenu({
                     caption={actors ? insight.name || 'Insight result' : 'Dashboard insight'}
                     interaction={position}
                     close={close}
-                    canFilter={!!selectedFilter}
                     actions={[
                         ...(selectedFilter
                             ? [
