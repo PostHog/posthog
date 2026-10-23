@@ -56,6 +56,17 @@ pub async fn handle_stored_request(
     if request.models.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
+    if !fits_in_kafka_message(&context, &request) {
+        counter!(
+            DROPPED_REQUESTS,
+            labels.and([("cause", "too_large")]).render()
+        )
+        .increment(1);
+        warn!(
+            "Stored embedding request for team {team_id} rejected: document too large to publish"
+        );
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
 
     let mut results = Vec::with_capacity(request.models.len());
     for model in &request.models {
@@ -83,6 +94,22 @@ pub async fn handle_stored_request(
     Ok(Json(StoredEmbeddingResponse {
         results: response.results,
     }))
+}
+
+// Upper bound on one JSON-encoded 3072-dimension vector, which the published messages add to the request.
+const VECTOR_JSON_BYTES: usize = 96 * 1024;
+// librdkafka's default `message.max.bytes`.
+const DEFAULT_KAFKA_MESSAGE_MAX_BYTES: usize = 1_000_000;
+
+// Rejects up front a document whose messages Kafka would refuse, so the caller does not retry paid embedding work.
+fn fits_in_kafka_message(context: &AppContext, request: &EmbeddingRequest) -> bool {
+    let max_bytes = context
+        .config
+        .kafka
+        .kafka_producer_message_max_bytes
+        .map_or(DEFAULT_KAFKA_MESSAGE_MAX_BYTES, |v| v as usize);
+    let request_bytes = serde_json::to_vec(request).map_or(usize::MAX, |b| b.len());
+    request_bytes.saturating_add(request.models.len() * VECTOR_JSON_BYTES) <= max_bytes
 }
 
 async fn emit<T: Serialize>(
