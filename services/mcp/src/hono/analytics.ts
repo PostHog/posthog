@@ -359,7 +359,7 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isGatewayToolName(toolName)) {
         return false
     }
-    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
+    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME || toolName === 'mcp-events-preview') {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {

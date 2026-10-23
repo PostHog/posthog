@@ -7,6 +7,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     getAdvertisedOAuthScopes,
+    EVENT_SUBSCRIPTION_SCOPES,
     getFlagGatedTools,
     getToolDefinitions,
     getRequiredFeatureFlags,
@@ -692,8 +693,8 @@ describe('getAdvertisedOAuthScopes', () => {
         }
     })
 
-    it('covers every grantable scope the tool catalog requires', () => {
-        const required = new Set<string>()
+    it('covers every grantable scope tools and event subscriptions require', () => {
+        const required = new Set<string>(EVENT_SUBSCRIPTION_SCOPES)
         for (const def of Object.values(getToolDefinitions())) {
             for (const scope of def.required_scopes) {
                 required.add(scope)
@@ -1173,8 +1174,9 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
+        expect(flags).toContain('mcp-events')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(35)
+        expect(flags).toHaveLength(36)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
