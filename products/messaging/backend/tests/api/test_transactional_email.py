@@ -238,7 +238,7 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_rejects_a_send_it_cannot_make(
-        self, mock_post, _flag, _capture, case, addressed_by, expected_code, expected_detail
+        self, mock_post, _flag, capture, case, addressed_by, expected_code, expected_detail
     ):
         body, headers = dict(self.body), {}
         if case == "workflow_archived":
@@ -268,6 +268,8 @@ class TestTransactionalEmail(APIBaseTest):
         error = response.json()
         assert (error["type"], error["code"], error["detail"]) == ("invalid_request", expected_code, expected_detail)
         mock_post.assert_not_called()
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["outcome"], reported["error_code"]) == ("rejected", expected_code)
 
     @parameterized.expand(
         [
@@ -355,7 +357,7 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_a_send_the_pipeline_does_not_confirm_is_unavailable(
-        self, mock_post, _flag, _capture, _name, addressed_by, outcome
+        self, mock_post, _flag, capture, _name, addressed_by, outcome
     ):
         if isinstance(outcome, Exception):
             mock_post.side_effect = outcome
@@ -367,6 +369,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
+        assert capture.call_args.kwargs["properties"]["outcome"] == "unavailable"
 
     @parameterized.expand(
         [
@@ -430,7 +433,7 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(
-        self, mock_post, _flag, _capture, _name, addressed_by, status_code, code
+        self, mock_post, _flag, capture, _name, addressed_by, status_code, code
     ):
         mock_post.return_value = MagicMock(status_code=status_code, json=lambda: {"error": code})
         url, body = self._send_request(addressed_by, self.body)
@@ -447,6 +450,8 @@ class TestTransactionalEmail(APIBaseTest):
                 "idempotency_key_reused": "This Idempotency-Key was already used for a different request. Use a new key for a new email.",
             }[code]
         )
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["outcome"], reported["error_code"]) == ("rejected", code)
 
     @parameterized.expand(
         [
