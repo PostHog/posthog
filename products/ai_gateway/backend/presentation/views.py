@@ -30,6 +30,7 @@ from .serializers import (
     CliAuthorizedSerializer,
     CliAuthorizeSerializer,
     CliExchangeSerializer,
+    DevTeamUsageSerializer,
     DevTokenRefusalSerializer,
     DevTokenRevokedSerializer,
     DevTokenRevokeSerializer,
@@ -64,7 +65,7 @@ def _refusal(refused: DevTokenRefused) -> Response:
 class DevGatewayTokenViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
-    time_sensitive_exclude_actions = ["revoke", "usage"]
+    time_sensitive_exclude_actions = ["revoke", "usage", "team_usage"]
     scope_object = "INTERNAL"
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -101,6 +102,22 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         if refused is not None:
             return _refusal(refused)
         return Response(DevTokenUsageSerializer(api.dev_token_usage(cast(User, request.user))).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=DevTeamUsageSerializer), 403: _REFUSAL, 503: _REFUSAL},
+        summary="Developer mode minting and spend per user over the last 30 days",
+    )
+    @action(detail=False, methods=["get"], url_path="team_usage")
+    def team_usage(self, request: Request) -> Response:
+        if is_impersonated(request):
+            return _refusal(
+                DevTokenRefused("impersonated", "Developer mode isn't available while impersonating a user.", 403)
+            )
+        try:
+            usage = api.dev_team_usage(cast(User, request.user))
+        except DevTokenRefused as e:
+            return _refusal(e)
+        return Response(DevTeamUsageSerializer(usage).data)
 
     @validated_request(
         responses={

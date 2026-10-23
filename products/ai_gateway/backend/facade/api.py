@@ -27,6 +27,10 @@ def dev_token_usage(user: User) -> contracts.DevTokenUsage:
     return logic.usage(user)
 
 
+def dev_team_usage(user: User) -> contracts.DevTeamUsage:
+    return logic.team_usage(user)
+
+
 def revoke_dev_tokens(user: User, token_id: str | None) -> int:
     return logic.revoke(user, token_id)
 

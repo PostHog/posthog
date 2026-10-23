@@ -23,13 +23,18 @@ import requests
 import structlog
 from urllib3.exceptions import NewConnectionError
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
-from .facade.contracts import DevToken, DevTokenRefused, DevTokenUsage, MintedDevToken
+from .facade.contracts import DevTeamUsage, DevToken, DevTokenRefused, DevTokenUsage, DevUserUsage, MintedDevToken
 from .facade.enums import DevTokenClient, DevTokenStatus
 from .models import DevGatewayToken
 
@@ -85,7 +90,7 @@ def _used_usd(user_id: int) -> Decimal:
     return used or Decimal("0")
 
 
-def _to_dto(row: DevGatewayToken) -> DevToken:
+def _to_dto(row: DevGatewayToken, remaining: dict[str, Decimal] | None = None) -> DevToken:
     return DevToken(
         id=row.id,
         client=DevTokenClient(row.client),
@@ -100,6 +105,7 @@ def _to_dto(row: DevGatewayToken) -> DevToken:
             if row.expires_at and row.expires_at <= timezone.now()
             else DevTokenStatus.LIVE
         ),
+        remaining_usd=(remaining or {}).get(row.token_hash or ""),
     )
 
 
@@ -232,13 +238,38 @@ def mint(user: User, client: DevTokenClient) -> MintedDevToken:
     )
 
 
+def _remaining_by_hash(hashes: list[str]) -> dict[str, Decimal]:
+    """Best effort: the settings table still renders without remaining amounts."""
+    if not hashes:
+        return {}
+    try:
+        response = _gateway_post("/v1/tokens/status", {"token_hashes": hashes})
+    except requests.RequestException:
+        logger.warning("ai_gateway_dev_status_unreachable", exc_info=True)
+        return {}
+    if response.status_code != 200:
+        logger.warning("ai_gateway_dev_status_refused", status=response.status_code)
+        return {}
+    try:
+        return {item["token_hash"]: Decimal(item["remaining_usd"]) for item in response.json()["tokens"]}
+    except (ValueError, KeyError, TypeError, ArithmeticError):
+        logger.warning("ai_gateway_dev_status_unreadable")
+        return {}
+
+
 def usage(user: User) -> DevTokenUsage:
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         # Every token that counts against the daily limit, including revoked and expired ones.
         recent = DevGatewayToken.objects.filter(
             user_id=user.pk, token_hash__isnull=False, created_at__gte=_window_start()
         ).order_by("-created_at")
-        tokens = [_to_dto(row) for row in recent]
+        live_hashes = [
+            row.token_hash
+            for row in recent
+            if row.token_hash and not row.revoked_at and row.expires_at and row.expires_at > timezone.now()
+        ]
+        remaining = _remaining_by_hash(live_hashes)
+        tokens = [_to_dto(row, remaining) for row in recent]
         used = _used_usd(user.pk)
     return DevTokenUsage(
         daily_cap_usd=daily_cap_usd(),
@@ -247,6 +278,111 @@ def usage(user: User) -> DevTokenUsage:
         ttl_seconds=settings.DEV_GATEWAY_TOKEN_TTL_SECONDS,
         tokens=tokens,
     )
+
+
+TEAM_USAGE_DAYS = 30
+
+# `$ai_product_source = 'pinned'` keeps out calls that only set an X-PostHog-Product header.
+_SPEND_QUERY = """
+SELECT
+    properties.$ai_user AS ai_user,
+    sumIf(toFloat(properties.$ai_total_cost_usd), timestamp > now() - INTERVAL 1 DAY),
+    sumIf(toFloat(properties.$ai_total_cost_usd), timestamp > now() - INTERVAL 7 DAY),
+    sum(toFloat(properties.$ai_total_cost_usd))
+FROM events
+WHERE event = '$ai_generation'
+    AND timestamp > now() - INTERVAL 30 DAY
+    AND properties.$ai_product = {product}
+    AND properties.$ai_product_source = 'pinned'
+GROUP BY ai_user
+LIMIT 1000
+"""
+
+
+def team_usage_refusal(user: User) -> DevTokenRefused | None:
+    refusal = eligibility_refusal(user)
+    if refusal is not None:
+        return refusal
+    team = Team.objects.only("organization_id").get(pk=settings.DEV_GATEWAY_TEAM_ID)
+    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
+        return DevTokenRefused("not_member", "Team usage is only shown to members of the paying project.", 403)
+    return None
+
+
+def _spend_by_distinct_id(team: Team) -> dict[str, tuple[Decimal, Decimal, Decimal]]:
+    with tags_context(product=Product.LLM_ANALYTICS):
+        response = execute_hogql_query(
+            _SPEND_QUERY,
+            placeholders={"product": ast.Constant(value=DEV_PRODUCT)},
+            team=team,
+            query_type="ai_gateway_dev_team_spend",
+        )
+    return {
+        str(distinct_id): (Decimal(str(day or 0)), Decimal(str(week or 0)), Decimal(str(month or 0)))
+        for distinct_id, day, week, month in response.results or []
+        if distinct_id
+    }
+
+
+def team_usage(viewer: User) -> DevTeamUsage:
+    refusal = team_usage_refusal(viewer)
+    if refusal is not None:
+        raise refusal
+    now = timezone.now()
+    day_ago = now - timedelta(days=1)
+    team = Team.objects.get(pk=settings.DEV_GATEWAY_TEAM_ID)
+    with team_scope(team.pk):
+        rows = list(
+            DevGatewayToken.objects.filter(
+                token_hash__isnull=False, created_at__gte=now - timedelta(days=TEAM_USAGE_DAYS)
+            ).select_related("user")
+        )
+    spend = _spend_by_distinct_id(team)
+    users = {row.user_id: row.user for row in rows}
+    known_distinct_ids = {user.distinct_id for user in users.values() if user.distinct_id}
+    for user in User.objects.filter(distinct_id__in=set(spend) - known_distinct_ids):
+        users[user.pk] = user
+    zero = (Decimal("0"), Decimal("0"), Decimal("0"))
+    result: list[DevUserUsage] = []
+    for user in users.values():
+        mine = [row for row in rows if row.user_id == user.pk]
+        day, week, month = spend.pop(user.distinct_id or "", zero)
+        result.append(
+            DevUserUsage(
+                user_id=user.pk,
+                email=user.email,
+                distinct_id=user.distinct_id or "",
+                tokens_minted_24h=sum(1 for row in mine if row.created_at >= day_ago),
+                tokens_minted_30d=len(mine),
+                live_tokens=sum(1 for row in mine if not row.revoked_at and row.expires_at and row.expires_at > now),
+                revoked_30d=sum(1 for row in mine if row.revoked_at),
+                reserved_usd_24h=sum((row.cap_usd for row in mine if row.created_at >= day_ago), Decimal("0")),
+                spend_usd_24h=day,
+                spend_usd_7d=week,
+                spend_usd_30d=month,
+                last_minted_at=max((row.created_at for row in mine), default=None),
+            )
+        )
+    # Spend whose $ai_user matches no PostHog user still shows, so totals reconcile.
+    for distinct_id, (day, week, month) in spend.items():
+        result.append(
+            DevUserUsage(
+                user_id=None,
+                email=None,
+                distinct_id=distinct_id,
+                tokens_minted_24h=0,
+                tokens_minted_30d=0,
+                live_tokens=0,
+                revoked_30d=0,
+                reserved_usd_24h=Decimal("0"),
+                spend_usd_24h=day,
+                spend_usd_7d=week,
+                spend_usd_30d=month,
+                last_minted_at=None,
+            )
+        )
+    result.sort(key=lambda u: (u.spend_usd_30d, u.tokens_minted_30d), reverse=True)
+    return DevTeamUsage(paying_team_id=team.pk, users=result)
 
 
 def revoke(user: User, token_id: str | None) -> int:

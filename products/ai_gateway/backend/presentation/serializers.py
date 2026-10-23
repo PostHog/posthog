@@ -16,6 +16,12 @@ class DevTokenSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=DevTokenStatus.choices, help_text="Whether the token still works: live, revoked or expired."
     )
+    remaining_usd = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=6,
+        allow_null=True,
+        help_text="Budget left on a live token, net of in-flight requests, in USD. Null when not live or unknown.",
+    )
 
 
 class DevTokenUsageSerializer(serializers.Serializer):
@@ -33,6 +39,38 @@ class DevTokenUsageSerializer(serializers.Serializer):
         many=True,
         help_text="Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones.",
     )
+
+
+class DevUserUsageSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(
+        allow_null=True, help_text="PostHog user id. Null when no user has this distinct_id."
+    )
+    email = serializers.CharField(
+        allow_null=True, help_text="The user's email. Null when no user has this distinct_id."
+    )
+    distinct_id = serializers.CharField(help_text="distinct_id pinned on the user's tokens as $ai_user.")
+    tokens_minted_24h = serializers.IntegerField(help_text="Tokens minted in the last 24 hours.")
+    tokens_minted_30d = serializers.IntegerField(help_text="Tokens minted in the last 30 days.")
+    live_tokens = serializers.IntegerField(help_text="Tokens that are neither revoked nor expired.")
+    revoked_30d = serializers.IntegerField(help_text="Tokens minted in the last 30 days that were revoked.")
+    reserved_usd_24h = serializers.DecimalField(
+        max_digits=10, decimal_places=2, help_text="Token caps minted in the last 24 hours, in USD."
+    )
+    spend_usd_24h = serializers.DecimalField(
+        max_digits=12, decimal_places=6, help_text="Settled gateway spend in the last 24 hours, in USD."
+    )
+    spend_usd_7d = serializers.DecimalField(
+        max_digits=12, decimal_places=6, help_text="Settled gateway spend in the last 7 days, in USD."
+    )
+    spend_usd_30d = serializers.DecimalField(
+        max_digits=12, decimal_places=6, help_text="Settled gateway spend in the last 30 days, in USD."
+    )
+    last_minted_at = serializers.DateTimeField(allow_null=True, help_text="When the user last minted a token.")
+
+
+class DevTeamUsageSerializer(serializers.Serializer):
+    paying_team_id = serializers.IntegerField(help_text="Project whose wallet pays for developer mode tokens.")
+    users = DevUserUsageSerializer(many=True, help_text="One row per user with tokens or spend, highest spend first.")
 
 
 class MintedDevTokenSerializer(serializers.Serializer):

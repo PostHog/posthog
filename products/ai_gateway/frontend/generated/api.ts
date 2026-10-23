@@ -12,6 +12,7 @@ import type {
     CliAuthorizeApi,
     CliAuthorizedApi,
     CliExchangeApi,
+    DevTeamUsageApi,
     DevTokenRevokeApi,
     DevTokenRevokedApi,
     DevTokenUsageApi,
@@ -86,6 +87,20 @@ export const aiGatewayDevTokensRevokeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(devTokenRevokeApi),
+    })
+}
+
+export const getAiGatewayDevTokensTeamUsageRetrieveUrl = () => {
+    return `/api/ai_gateway/dev_tokens/team_usage/`
+}
+
+/**
+ * @summary Developer mode minting and spend per user over the last 30 days
+ */
+export const aiGatewayDevTokensTeamUsageRetrieve = async (options?: RequestInit): Promise<DevTeamUsageApi> => {
+    return apiMutator<DevTeamUsageApi>(getAiGatewayDevTokensTeamUsageRetrieveUrl(), {
+        ...options,
+        method: 'GET',
     })
 }
 

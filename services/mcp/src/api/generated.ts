@@ -36753,6 +36753,61 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
+    export interface DevUserUsage {
+      /**
+         * PostHog user id. Null when no user has this distinct_id.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * The user's email. Null when no user has this distinct_id.
+         * @nullable
+         */
+      email: string | null;
+      /** distinct_id pinned on the user's tokens as $ai_user. */
+      distinct_id: string;
+      /** Tokens minted in the last 24 hours. */
+      tokens_minted_24h: number;
+      /** Tokens minted in the last 30 days. */
+      tokens_minted_30d: number;
+      /** Tokens that are neither revoked nor expired. */
+      live_tokens: number;
+      /** Tokens minted in the last 30 days that were revoked. */
+      revoked_30d: number;
+      /**
+         * Token caps minted in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      reserved_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 7 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_7d: string;
+      /**
+         * Settled gateway spend in the last 30 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_30d: string;
+      /**
+         * When the user last minted a token.
+         * @nullable
+         */
+      last_minted_at: string | null;
+    }
+
+    export interface DevTeamUsage {
+      /** Project whose wallet pays for developer mode tokens. */
+      paying_team_id: number;
+      /** One row per user with tokens or spend, highest spend first. */
+      users: DevUserUsage[];
+    }
+
     /**
      * * `web` - Web
      * * `cli` - CLI
@@ -36810,6 +36865,12 @@ export namespace Schemas {
        * * `revoked` - Revoked
        * * `expired` - Expired */
       status: DevTokenStatusEnum;
+      /**
+         * Budget left on a live token, net of in-flight requests, in USD. Null when not live or unknown.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      remaining_usd: string | null;
     }
 
     export interface DevTokenRefusal {
