@@ -1,12 +1,13 @@
 import './Navigation.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { ReactNode, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
+import { retryImport } from 'lib/utils/retryImport'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
@@ -14,11 +15,7 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
-import { TodayContextPanelFloating } from '~/layout/today/TodayContextPanelFloating'
-import { TodayShell } from '~/layout/today/TodayShell'
 import { TODAY_RAIL_WIDTH, todayShellLogic } from '~/layout/today/todayShellLogic'
-import { TodaySidePanel } from '~/layout/today/TodaySidePanel'
-import { TodayTopBar } from '~/layout/today/TodayTopBar'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
@@ -30,6 +27,22 @@ import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
+
+// The Today layout renders only behind the today-rail-nav flag, and its quill UI would otherwise load on every logged-in page.
+const TodayContextPanelFloating = lazy(() =>
+    retryImport(() =>
+        import('~/layout/today/TodayContextPanelFloating').then((m) => ({ default: m.TodayContextPanelFloating }))
+    )
+)
+const TodayShell = lazy(() =>
+    retryImport(() => import('~/layout/today/TodayShell').then((m) => ({ default: m.TodayShell })))
+)
+const TodaySidePanel = lazy(() =>
+    retryImport(() => import('~/layout/today/TodaySidePanel').then((m) => ({ default: m.TodaySidePanel })))
+)
+const TodayTopBar = lazy(() =>
+    retryImport(() => import('~/layout/today/TodayTopBar').then((m) => ({ default: m.TodayTopBar })))
+)
 
 export function Navigation({
     children,
@@ -201,8 +214,18 @@ export function Navigation({
                 }
             >
                 <ProjectDragAndDropProvider>
-                    {todayFramed && <TodayTopBar />}
-                    {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
+                    {todayFramed && (
+                        <Suspense fallback={null}>
+                            <TodayTopBar />
+                        </Suspense>
+                    )}
+                    {todayRail ? (
+                        <Suspense fallback={null}>
+                            <TodayShell className="left-nav" />
+                        </Suspense>
+                    ) : (
+                        <PanelLayout className="left-nav" />
+                    )}
                     {todayFramed && <div aria-hidden className="TodayAppLayout__shadow" />}
                     {todayFramed && (
                         // The chrome token exists only inside a quill scope, so the backdrop that fills the gap above the frame carries data-quill.
@@ -330,9 +353,17 @@ export function Navigation({
                                 </div>
                             </>
                         )}
-                        {todayFramed && !todayOnAiPage && <TodayContextPanelFloating />}
+                        {todayFramed && !todayOnAiPage && (
+                            <Suspense fallback={null}>
+                                <TodayContextPanelFloating />
+                            </Suspense>
+                        )}
                     </div>
-                    {todayFramed && <TodaySidePanel />}
+                    {todayFramed && (
+                        <Suspense fallback={null}>
+                            <TodaySidePanel />
+                        </Suspense>
+                    )}
                 </ProjectDragAndDropProvider>
             </div>
         </>
