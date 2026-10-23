@@ -47,6 +47,7 @@ import * as tasksApi from 'products/tasks/frontend/generated/api'
 import { TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { EnhancedToolCall, MESSAGE_TOO_LONG, TOOL_DEFINITIONS } from './max-constants'
+import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -709,6 +710,27 @@ describe('maxThreadLogic', () => {
                 expect.any(Object)
             )
         })
+    })
+
+    describe('billing context', () => {
+        it.each([
+            { flagEnabled: false, mountsBillingContext: false },
+            { flagEnabled: true, mountsBillingContext: true },
+        ])(
+            'mounts the billing context only behind its flag (flag on: $flagEnabled)',
+            async ({ flagEnabled, mountsBillingContext }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MAX_BILLING_CONTEXT]: flagEnabled })
+                const threadLogic = maxThreadLogic({ conversationId: 'billing-context-thread', panelId: 'test' })
+                threadLogic.mount()
+                await import('./maxBillingContextLogic')
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(maxBillingContextLogic.isMounted()).toBe(mountsBillingContext)
+
+                threadLogic.unmount()
+                expect(maxBillingContextLogic.isMounted()).toBe(false)
+            }
+        )
     })
 
     describe('queueing', () => {

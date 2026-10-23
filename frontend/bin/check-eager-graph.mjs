@@ -193,6 +193,9 @@ const ROOTS = [
             // waits for an answer, and notebook code only when a notebook update arrives.
             'products/posthog_ai/frontend/api/primitives.ts',
             'src/scenes/notebooks/Notebook/notebookLogic.ts',
+            // The thread loads billing context only for flagged organizations. A hit means the thread logic
+            // imports it statically again, and every home load sends the billing usage and spend requests.
+            'src/scenes/max/maxBillingContextLogic.tsx',
         ],
     },
     {
