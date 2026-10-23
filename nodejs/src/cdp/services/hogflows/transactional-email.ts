@@ -3,27 +3,35 @@ import { z } from 'zod'
 
 import { BareEmailAddressSchema } from '~/cdp/schema/emailFields'
 
-export const AcceptedSendSchema = z.object({
-    // Absent when the send uses a local template, whose own content renders as usual.
-    content: z
-        .object({
-            subject: z.string().min(1),
-            html: z.string().optional(),
-            // Absent when the HTML has no text to derive, such as a single image.
-            text: z.string().optional(),
-        })
-        .refine((content) => !!content.html || !!content.text, { message: 'content needs html or text' })
-        .optional(),
-    from: z
-        .object({
-            integrationId: z.number().int(),
-            email: z.string().optional(),
-            name: z.string().optional(),
-        })
-        .optional(),
-    replyTo: z.array(z.string()).optional(),
-    tracking: z.object({ captureEngagement: z.boolean() }),
-})
+export const AcceptedSendSchema = z
+    .object({
+        // Absent when the send uses a local template, whose own content renders as usual.
+        content: z
+            .object({
+                subject: z.string().min(1),
+                html: z.string().optional(),
+                // Absent when the HTML has no text to derive, such as a single image.
+                text: z.string().optional(),
+            })
+            .readonly()
+            .refine((content) => !!content.html || !!content.text, { message: 'content needs html or text' })
+            .optional(),
+        from: z
+            .object({
+                integrationId: z.number().int(),
+                email: z.string().optional(),
+                name: z.string().optional(),
+            })
+            .readonly()
+            .optional(),
+        replyTo: z.array(z.string()).readonly().optional(),
+        tracking: z.object({ captureEngagement: z.boolean() }).readonly(),
+    })
+    .readonly()
+
+// A code send accepted by the transactional email API, carried on the run so the worker delivers
+// exactly what the caller sent. It is part of the queued job format: change it only additively.
+export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({

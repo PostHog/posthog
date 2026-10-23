@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { AcceptedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
@@ -448,15 +449,6 @@ export type MessageOptOutRecord = {
     // A message category id, or '$all' for all marketing messages.
     categoryId: string
 }
-
-// A code send accepted by the transactional email API, carried on the run so the worker delivers
-// exactly what the caller sent. It is part of the queued job format: change it only additively.
-export type AcceptedSend = Readonly<{
-    content?: Readonly<{ subject: string; html?: string; text?: string }>
-    from?: Readonly<{ integrationId: number; email?: string; name?: string }>
-    replyTo?: readonly string[]
-    tracking: Readonly<{ captureEngagement: boolean }>
-}>
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']

@@ -1,6 +1,5 @@
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
-    AcceptedSend,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -11,6 +10,7 @@ import {
 
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { AcceptedSend } from './transactional-email'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
