@@ -65,7 +65,7 @@ pub async fn handle_batch(
             let mut results = vec![];
             for model in &request.models {
                 let (model, embedding) =
-                    handle_single(ctx.clone(), *model, request.clone()).await?;
+                    handle_single(ctx.clone(), *model, &request, "kafka").await?;
                 results.push(ModelResult {
                     model,
                     outcome: EmbeddingResult::Success { embedding },
@@ -111,14 +111,16 @@ pub async fn record_recently_seen(
         .increment(seen.len() as u64);
 }
 
+/// Embeds one request with one model. `from` names the path the request came in on, for metrics.
 pub async fn handle_single(
     context: Arc<AppContext>,
     model: EmbeddingModel,
-    request: EmbeddingRequest,
+    request: &EmbeddingRequest,
+    from: &'static str,
 ) -> Result<(EmbeddingModel, Vec<f64>)> {
-    let labels = RequestLabels::from(&request)
+    let labels = RequestLabels::from(request)
         .and_model(model)
-        .and([("from", "kafka")]);
+        .and([("from", from)]);
 
     counter!(MESSAGES_RECEIVED, labels.render()).increment(1);
     let (embedding, _) = match generate_embedding(context, model, &request.content, &labels).await {

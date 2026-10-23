@@ -13,10 +13,8 @@ use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
-    generate_embedding,
-    metrics_utils::{
-        RequestLabels, DROPPED_REQUESTS, EMBEDDINGS_GENERATED, EMBEDDING_FAILED, MESSAGES_RECEIVED,
-    },
+    handle_single,
+    metrics_utils::{RequestLabels, DROPPED_REQUESTS},
     organization::apply_ai_opt_in,
     record_recently_seen,
 };
@@ -61,22 +59,16 @@ pub async fn handle_stored_request(
 
     let mut results = Vec::with_capacity(request.models.len());
     for model in &request.models {
-        let model_labels = labels.clone().and_model(*model);
-        counter!(MESSAGES_RECEIVED, model_labels.render()).increment(1);
-        match generate_embedding(context.clone(), *model, &request.content, &model_labels).await {
-            Ok((embedding, _)) => {
-                counter!(EMBEDDINGS_GENERATED, model_labels.render()).increment(1);
-                results.push(ModelResult {
-                    model: *model,
-                    outcome: EmbeddingResult::Success { embedding },
-                });
-            }
-            Err(e) => {
-                counter!(EMBEDDING_FAILED, model_labels.render()).increment(1);
+        let (model, embedding) = handle_single(context.clone(), *model, &request, "api_stored")
+            .await
+            .map_err(|e| {
                 error!("Stored embedding request for team {team_id} failed: {e:?}");
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        }
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        results.push(ModelResult {
+            model,
+            outcome: EmbeddingResult::Success { embedding },
+        });
     }
 
     let response = EmbeddingResponse { request, results };
