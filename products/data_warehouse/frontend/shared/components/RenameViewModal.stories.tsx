@@ -7,7 +7,7 @@ const meta: Meta<typeof RenameViewModal> = {
     component: RenameViewModal,
     decorators: [
         (Story) => (
-            <div className="min-h-1 min-w-1">
+            <div className="bg-default p-4">
                 <Story />
             </div>
         ),
@@ -31,6 +31,7 @@ export const WithKnownReferences: Story = {
         ],
         referencesLoading: false,
         referencesError: false,
+        inline: true,
         onNameChange: () => undefined,
         onClose: () => undefined,
         onSubmit: () => undefined,

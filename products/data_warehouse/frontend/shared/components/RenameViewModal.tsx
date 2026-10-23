@@ -20,6 +20,7 @@ export interface RenameViewModalProps {
     references: RenameViewReference[]
     referencesLoading: boolean
     referencesError: boolean
+    inline?: boolean
     onNameChange: (name: string) => void
     onClose: () => void
     onSubmit: () => void
@@ -51,6 +52,7 @@ export function RenameViewModal({
     references,
     referencesLoading,
     referencesError,
+    inline,
     onNameChange,
     onClose,
     onSubmit,
@@ -65,6 +67,7 @@ export function RenameViewModal({
     return (
         <LemonModal
             isOpen
+            inline={inline}
             onClose={onClose}
             closable={!isSaving}
             title="Rename view"
