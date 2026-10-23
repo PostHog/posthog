@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
-import { chapterFacts, overviewFacts } from 'products/product_analytics/mcp/apps/explainChart/storyFacts'
+import {
+    anchorOf,
+    chapterFacts,
+    dateLabel,
+    overviewFacts,
+} from 'products/product_analytics/mcp/apps/explainChart/storyFacts'
 import { placeMarkers } from 'products/product_analytics/mcp/apps/explainChart/storyMarkerPlacement'
 import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
 import { buildStoryPages } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
@@ -58,7 +63,7 @@ describe('explain chart walkthrough', () => {
             formatValue: String,
         })
 
-        expect(facts).not.toContain('no activity')
+        expect(facts).not.toContain('every value is zero')
     })
 
     it.each([
@@ -166,22 +171,63 @@ describe('explain chart walkthrough', () => {
             }
         }
     })
-    it.each([
-        ['a marked name in another case', 'Germany', 'Sign-ups from **germany** rose.', true],
-        ['a name written out without marks', 'United Kingdom', 'United States and United Kingdom held steady.', true],
-        ['one value of a multi-breakdown series', 'signed_up - Germany::Chrome', 'Most of it came from Chrome.', true],
-        ['a referrer with a symbol', '$direct', '$direct went from 80 to 160.', true],
-        ['a marked name with a number, in another case', 'Windows 11', 'Sign-ups from **windows 11** rose.', true],
+    it.each<[string, string[], string, boolean]>([
+        ['a marked name in another case', ['Germany'], 'Sign-ups from **germany** rose.', true],
+        ['a name written out without marks', ['United Kingdom'], 'United States and United Kingdom held steady.', true],
         [
-            'a marked value that holds the label separator',
-            'signup - US - East',
+            'one value of a multi-breakdown series',
+            ['Germany::Chrome', 'Germany', 'Chrome'],
+            'Most of it came from Chrome.',
+            true,
+        ],
+        ['a referrer with a symbol', ['$direct'], '$direct went from 80 to 160.', true],
+        ['a marked name with a number, in another case', ['Windows 11'], 'Sign-ups from **windows 11** rose.', true],
+        [
+            'a marked value that holds a dash',
+            ['signup - US - East', 'US - East'],
             'Most of it came from **us - east**.',
             true,
         ],
-        ['a short value inside an ordinary word', 'US', 'Let us look at the step up.', false],
-        ['a value in another case that is not marked', 'Other', 'Every other country stayed flat.', false],
-        ['a value inside a longer name', 'India', 'Indiana stayed flat.', false],
-    ])('matches a series to the evidence that names it, for %s', (_, label, text, expected) => {
-        expect(isSeriesNamedIn(label, text)).toBe(expected)
+        [
+            'another value that ends the same way',
+            ['signup - US - East', 'US - East'],
+            'It came from **Europe - East**.',
+            false,
+        ],
+        ['a short value inside an ordinary word', ['US'], 'Let us look at the step up.', false],
+        ['a short value inside an identifier', ['US'], 'US_East increased.', false],
+        ['a value in another case that is not marked', ['Other'], 'Every other country stayed flat.', false],
+        ['a value inside a longer name', ['India'], 'Indiana stayed flat.', false],
+    ])('matches a series to the evidence that names it, for %s', (_, names, text, expected) => {
+        expect(isSeriesNamedIn(names, text)).toBe(expected)
+    })
+
+    it('compares a stretch of a sparse chart by its non-zero points, as it does the rest of the chart', () => {
+        const days = Array.from({ length: 8 }, (_, index) => `2026-10-0${index + 1}`)
+
+        const facts = chapterFacts([0, 0, 100, 100, 0, 0, 100, 100], days, [0, 3], {
+            interval: 'day',
+            lastPointInProgress: false,
+            formatValue: String,
+        })
+
+        expect(facts).toContain('in line with')
+    })
+
+    it('keeps the marker off an unfinished last point when the chapter has complete ones', () => {
+        const anchor = anchorOf([100, 100, 100, 100, 150, 150, 150, 1], [4, 7], {
+            interval: 'day',
+            lastPointInProgress: true,
+            formatValue: String,
+        })
+
+        expect(anchor).toBe(4)
+    })
+
+    it.each([
+        ['quarter', '2026-04-01', 'Q2 2026'],
+        ['year', '2024-01-01', '2024'],
+    ])('names a %s by its period, with the year', (interval, day, expected) => {
+        expect(dateLabel(day, interval)).toBe(expected)
     })
 })

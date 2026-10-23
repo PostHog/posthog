@@ -70,6 +70,10 @@ export function dateLabel(day: string, interval: string): string {
             return `the week of ${monthName} ${Number(date)}`
         case 'month':
             return `${monthName} ${year}`
+        case 'quarter':
+            return `Q${Math.floor((Number(month) - 1) / 3) + 1} ${year}`
+        case 'year':
+            return year
         default:
             return `${monthName} ${Number(date)}`
     }
@@ -120,9 +124,11 @@ function baselineAround(data: number[], [start, end]: [number, number], options:
 /** The point a chapter's marker sits on: the one furthest from the rest of the chart. */
 export function anchorOf(data: number[], range: [number, number], options: StoryFactsOptions): number {
     const [start, end] = range
-    const typical = baselineAround(data, range, options)?.typical ?? median(data)
+    // An unfinished last point reads low, so it takes the marker only when it is the whole chapter.
+    const last = options.lastPointInProgress && end === data.length - 1 && end > start ? end - 1 : end
+    const typical = baselineAround(data, range, options)?.typical ?? median(completeValues(data, options))
     let anchor = start
-    for (let index = start; index <= end; index++) {
+    for (let index = start; index <= last; index++) {
         if (Math.abs(data[index]! - typical) > Math.abs(data[anchor]! - typical)) {
             anchor = index
         }
@@ -142,7 +148,7 @@ export function overviewFacts(data: number[], options: StoryFactsOptions): strin
     if (base.sparse) {
         const active = values.filter((value) => value !== 0).length
         sentences.push(
-            `Only ${mark('value', `${active} of ${values.length} ${unit}s`)} have any activity. A typical active ${unit} is ${mark('value', formatValue(level(base.typical)))}.`
+            `Only ${mark('value', `${active} of ${values.length} ${unit}s`)} are not zero. A typical non-zero ${unit} is ${mark('value', formatValue(level(base.typical)))}.`
         )
     } else {
         sentences.push(`A typical ${unit} is ${mark('value', formatValue(level(base.typical)))}.`)
@@ -179,7 +185,7 @@ function pointFacts(data: number[], days: string[], index: number, options: Stor
         return `${value} so far ${when}. This ${unit} is not over yet, so the number can still change.`
     }
     const base = baselineAround(data, [index, index], options)
-    const typicalUnit = `a typical ${base?.sparse ? 'active ' : ''}${unit}`
+    const typicalUnit = `a typical ${base?.sparse ? 'non-zero ' : ''}${unit}`
     const compared =
         base && base.typical > 0
             ? comparison(data[index]!, base.typical, `${typicalUnit} (${options.formatValue(level(base.typical))})`)
@@ -199,19 +205,22 @@ function stretchFacts(data: number[], days: string[], range: [number, number], o
         return pointFacts(data, days, end, options)
     }
     if (data.slice(start, end + 1).every((value) => value === 0)) {
-        return `From ${from} to ${to} there is no activity at all.${ongoing}`
+        return `From ${from} to ${to} every value is zero.${ongoing}`
     }
-    const typical = median(values)
     const base = baselineAround(data, range, options)
+    // A sparse chart is judged by its non-zero points, so the stretch leaves out its zeros as well.
+    const nonZero = values.filter((value) => value !== 0)
+    const typical = median(base?.sparse && nonZero.length ? nonZero : values)
+    const typicalUnit = `a typical ${base?.sparse ? 'non-zero ' : ''}${unit}`
     const compared =
         base && base.typical > 0
             ? comparison(
                   typical,
                   base.typical,
-                  `the rest of the chart (${options.formatValue(level(base.typical))} a ${unit})`
+                  `the rest of the chart (${options.formatValue(level(base.typical))} on ${typicalUnit})`
               )
             : ''
-    return `From ${from} to ${to}, a typical ${unit} is ${mark('value', options.formatValue(level(typical)))}${compared ? `, ${compared}` : ''}.${ongoing}`
+    return `From ${from} to ${to}, ${typicalUnit} is ${mark('value', options.formatValue(level(typical)))}${compared ? `, ${compared}` : ''}.${ongoing}`
 }
 
 export function chapterFacts(
