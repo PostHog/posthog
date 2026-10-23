@@ -166,6 +166,14 @@ describe('certificationsLogic', () => {
         expect(logic.values.isCreatingCertification).toBe(false)
     })
 
+    it('refreshes the shared schema after a suggestion is accepted so trust badges update', () => {
+        mockLoadDatabase.mockClear()
+
+        logic.actions.suggestionAccepted()
+
+        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+    })
+
     it('opens the page that holds a highlighted certification once it loads, with the filters and sort cleared', () => {
         logic.actions.setFilters({ status: 'proposed', search: 'stripe' })
         router.actions.replace(router.values.location.pathname, {

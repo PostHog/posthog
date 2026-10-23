@@ -50,6 +50,7 @@ export function CertificationsTab(): JSX.Element {
     const {
         setFilters,
         loadCertifications,
+        suggestionAccepted,
         openNewCertificationModal,
         certifyCertification,
         deprecateCertification,
@@ -168,7 +169,7 @@ export function CertificationsTab(): JSX.Element {
         <div className="flex flex-col gap-4">
             {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
                 <SuggestedCertificationsTable
-                    onAccepted={() => loadCertifications()}
+                    onAccepted={() => suggestionAccepted()}
                     onViewAccepted={(suggestion) => {
                         const certificationId = suggestion.created_asset?.certification_id
                         if (typeof certificationId === 'string') {
