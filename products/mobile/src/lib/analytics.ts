@@ -1,5 +1,7 @@
 export type AnalyticsEvent =
     | 'mobile_signed_in'
+    | 'mobile_session_handoff_started'
+    | 'mobile_session_handoff_received'
     | 'mobile_sign_in_started'
     | 'mobile_sign_in_failed'
     | 'mobile_sign_in_region_changed'

@@ -1,8 +1,8 @@
 import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
-
+import { Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
+import { openPostHogUrl } from '@/lib/sessionHandoff'
 import { useNow } from '@/lib/useNow'
 import type { BrowseRow, InsightSnapshot, PinDisplayMode, PinView, RecentView, ViewEntry } from '@/model/views'
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
@@ -210,7 +210,7 @@ function ViewsBody(): ReactElement {
         const url = viewWebUrl(scope, pin.href)
         if (url) {
             trackViewOpenedInWeb({ viewType: pin.kind, reason: 'web_only' })
-            Linking.openURL(url).catch(() => undefined)
+            openPostHogUrl(url).catch(() => undefined)
         }
     }, [])
     const openView = useCallback((view: ListView, entry: ViewEntry) => {
@@ -236,7 +236,7 @@ function ViewsBody(): ReactElement {
         const url = recordingsWebUrl(scope)
         if (url) {
             trackViewOpenedInWeb({ viewType: 'recordings', reason: 'web_only' })
-            Linking.openURL(url).catch(() => undefined)
+            openPostHogUrl(url).catch(() => undefined)
         }
     }, [])
     // A Chart pin reads the saved range, so its Point sheet follows the same cache entry as the pin.

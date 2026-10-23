@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, ScrollView, Text, useWindowDimensions, View } from 'react-native'
+import { ScrollView, Text, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import { openPostHogUrl } from '@/lib/sessionHandoff'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -95,7 +96,7 @@ function AboutBody({
             return
         }
         trackViewOpenedInWeb({ viewType: 'insight', reason: 'action' })
-        Linking.openURL(safe).catch(() => undefined)
+        openPostHogUrl(safe).catch(() => undefined)
     }
 
     return (

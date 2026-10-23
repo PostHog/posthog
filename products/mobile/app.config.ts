@@ -74,6 +74,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             },
             infoPlist: {
                 ITSAppUsesNonExemptEncryption: false,
+                'com.posthog.posthog.CAPTURE_PUSH_NOTIFICATION_OPENED': false,
             },
             // Expo merges these into the template's manifest, which already declares the reasons React Native needs.
             privacyManifests: {

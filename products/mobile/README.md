@@ -61,6 +61,8 @@ A build made with `APP_VARIANT=development` or `preview` uses the `posthog-dev:/
 | Variable | Use |
 | --- | --- |
 | `EXPO_PUBLIC_POSTHOG_KEY` | Project API key for the app's own usage analytics. Analytics are off when it is not set. |
+| `EXPO_PUBLIC_POSTHOG_REPLAY` | `1` opts an internal native build into masked demo-only recording. Requires a rebuilt native binary and recording enabled in the analytics project. |
+| `EXPO_PUBLIC_POSTHOG_HANDOFF` | `1` enables internal-build handoff correlation and preserves the native SDK session across app restarts within SDK timeouts. The receiving web app must enable `mobile-session-handoff`. |
 | `EXPO_PUBLIC_POSTHOG_HOST` | Host for those analytics, for example `https://us.i.posthog.com`. |
 | `EXPO_PUBLIC_DEMO_MODE` | `1` starts a development bundle in demo mode. Release bundles ignore it, so **Try the demo** is the only way into demo mode there. |
 | `EXPO_PUBLIC_SIGNUP_LINK` | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. The `production` profile in `eas.json` and `pnpm update:production` set it, so store builds hide the link. |

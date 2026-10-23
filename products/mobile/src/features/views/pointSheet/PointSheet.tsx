@@ -1,9 +1,9 @@
 import * as Clipboard from 'expo-clipboard'
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
-
 import { ACTORS_LIMIT } from '@/api/actors'
+import { openPostHogUrl } from '@/lib/sessionHandoff'
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ActorRow, InsightSnapshot } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -51,7 +51,7 @@ function openLink(url: string | undefined, viewType: 'insight' | 'recordings' | 
         return
     }
     trackViewOpenedInWeb({ viewType, reason: 'action' })
-    Linking.openURL(safe).catch(() => undefined)
+    openPostHogUrl(safe).catch(() => undefined)
 }
 
 /**

@@ -1,5 +1,6 @@
 import { type ReactElement, useEffect } from 'react'
-import { Linking, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
+import { openPostHogUrl } from '@/lib/sessionHandoff'
 
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ViewKind } from '@/model/views'
@@ -44,7 +45,7 @@ export function ViewMoreSheet({ visible, onClose, webUrl, viewType }: ViewMoreSh
                             return
                         }
                         trackViewOpenedInWeb({ viewType, reason: 'action' })
-                        Linking.openURL(safe).catch(() => undefined)
+                        openPostHogUrl(safe).catch(() => undefined)
                         onClose()
                     }}
                     disabled={!safe}
