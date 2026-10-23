@@ -87,7 +87,7 @@ export const ExactFit: Story = {
 
 // Current page near the start → only a trailing ellipsis before the last page.
 export const RightEllipsis: Story = {
-    render: () => <PaginationDemo pageCount={20} initialPage={1} />,
+    render: () => <PaginationDemo pageCount={20258} initialPage={1} />,
 }
 
 // Current page in the middle of a long range → ellipses on both sides.
