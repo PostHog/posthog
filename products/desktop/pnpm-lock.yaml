@@ -546,8 +546,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0(supports-color@8.1.1))(@react-native/metro-config@0.86.0(@babel/core@7.29.0(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.17)(react@19.2.6)(supports-color@8.1.1))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0(supports-color@8.1.1))(@react-native/metro-config@0.86.0(@babel/core@7.29.0(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.17)(react@19.2.6)(supports-color@8.1.1))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.81.10
-        version: 4.81.10(7f9b9eac940620dd64b56959abca1524)
+        specifier: ^4.83.0
+        version: 4.83.0(7f9b9eac940620dd64b56959abca1524)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -13949,8 +13949,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.81.10:
-    resolution: {integrity: sha512-vUX1uHDwOJB7EJ/j8N105A9lQ5xdiSjpaonWyqd6rTdDNjUsuqApKGDWQEfhCMhJfeVmdNM2sM65gnXkf3No3A==}
+  posthog-react-native@4.83.0:
+    resolution: {integrity: sha512-VQltdXgh4tR4pAx5HIpr3IxKgWGGmc+H1Qpl9akwNsyJ7UeobstCOqtFryTTEzyQoT0qvu7aJ6JopxSYvi5g7w==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.9.3'
@@ -30771,9 +30771,9 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       rxjs: 7.8.2
 
-  posthog-react-native@4.81.10(7f9b9eac940620dd64b56959abca1524):
+  posthog-react-native@4.83.0(7f9b9eac940620dd64b56959abca1524):
     dependencies:
-      '@posthog/core': 1.59.4
+      '@posthog/core': 1.60.1
       '@posthog/types': 1.416.0
     optionalDependencies:
       '@posthog/react-native-plugin': 2.12.6(react-native@0.86.0(@babel/core@7.29.0(supports-color@8.1.1))(@react-native/metro-config@0.86.0(@babel/core@7.29.0(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.17)(react@19.2.6)(supports-color@8.1.1))(react@19.2.6)
