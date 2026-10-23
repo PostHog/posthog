@@ -5010,11 +5010,13 @@ export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryRes
     filters?: MetricsQueryFilter[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size; auto-picked from the range when omitted */
+    /** Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window`
+     * pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w).
+     * Variable intervals that exceed 500 buckets require a larger value or shorter date range. */
     interval?: string
     /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
     unit?: string
-    /** Values of the dashboard variables that the filters refer to as `$name`. */
+    /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -5111,13 +5113,17 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     sql?: string
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+    /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week;
+     * auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets.
+     * A dashboard variable reference such as `$window` pins the interval to its single duration value
+     * (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require
+     * a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
     interval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
     display?: MetricsDisplaySettings
-    /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+    /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -7149,19 +7155,6 @@ export interface LLMDetectorConfig {
      * @maxLength 2000
      */
     instructions?: string
-    /**
-     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
-     * @minimum 0
-     * @maximum 1
-     */
-    threshold?: number
-    /**
-     * How many recent points the model is shown (default: 90)
-     * @asType integer
-     * @minimum 5
-     * @maximum 400
-     */
-    window?: number
 }
 
 export enum EnsembleOperator {
@@ -9103,7 +9096,7 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
 }
 
 export interface CustomerAnalyticsPinnedProperty {
-    kind: 'custom_property' | 'relationship'
+    kind: 'custom_property' | 'relationship' | 'account_field'
     id: string
 }
 

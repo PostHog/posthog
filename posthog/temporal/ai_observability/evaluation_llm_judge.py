@@ -84,11 +84,16 @@ from products.ai_observability.backend.llm.providers.openai_decisions import Ope
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
+    BooleanOutputConfig,
     CategoricalOutputConfig,
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    EVENT_TEXT_MAX_CHARS,
+    sanitize_surrogates,
+    truncate_by_line_sampling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -560,7 +565,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     # Keep the full answer being graded outside the sampled context.
     context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
-    user_prompt = f"Input: {context}{output_section}"
+    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
 
     return call_llm_judge(
         evaluation=evaluation,
@@ -792,13 +797,16 @@ def call_llm_judge(
                 if not isinstance(verdict_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
                 probability = verdict_answer.probability
+                configured_threshold = BooleanOutputConfig.model_validate(output_config).decision_threshold
+                # Zero is a valid cutoff.
+                threshold = configured_threshold if configured_threshold is not None else 0.5
                 parsed = (
                     BooleanWithNAEvalResult(
                         reasoning="",
-                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+                        outcome="not_applicable" if not applicable else "pass" if probability >= threshold else "fail",
                     )
                     if allows_na
-                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+                    else BooleanEvalResult(reasoning="", verdict=probability >= threshold)
                 )
             response = CompletionResponse(
                 content="",

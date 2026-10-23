@@ -1,4 +1,5 @@
 from collections.abc import Callable, Sequence
+from typing import assert_never
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -10,117 +11,93 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckStatus,
     ExperimentHealthFinding,
 )
-from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded, bias_risk_skip
+from products.experiments.backend.health.checks.bias_risk import bias_risk_multiple_excluded
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
-from products.experiments.backend.health.checks.exposure_criteria import (
-    exposure_criteria_cannot_match,
-    exposure_criteria_skip,
-)
-from products.experiments.backend.health.checks.flag_change_findings import (
-    flag_change_skip,
-    flag_history_not_readable,
-    flag_history_skip,
-)
-from products.experiments.backend.health.checks.flag_state import flag_state, flag_state_skip
-from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch, flag_variants_skip
-from products.experiments.backend.health.checks.forced_variant import (
-    forced_variant_release_condition,
-    forced_variant_skip,
-)
-from products.experiments.backend.health.checks.metric_event_not_ingested import (
-    metric_event_not_ingested,
-    metric_event_not_ingested_skip,
-)
-from products.experiments.backend.health.checks.multiple_variants import (
-    multiple_variants_share,
-    multiple_variants_share_skip,
-)
-from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic, new_flag_no_traffic_skip
-from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_skip
+from products.experiments.backend.health.checks.early_significance import early_significance
+from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
+from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
+from products.experiments.backend.health.checks.flag_state import flag_state
+from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
+from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
+from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
+from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
+from products.experiments.backend.health.checks.no_metric import no_metric
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.checks.srm import srm, srm_skip
-from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_skip
+from products.experiments.backend.health.checks.srm import srm
+from products.experiments.backend.health.checks.zero_exposures import zero_exposures
 from products.experiments.backend.health.context import HealthContext
-from products.experiments.backend.health.skips import CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 
 
 @frozen
 class HealthCheck:
     key: ExperimentHealthCheckKey
     name: str
-    # Returns None when it finds no problem, and also when the context lacks an input it reads.
-    find: Callable[[HealthContext], ExperimentHealthFinding | None]
-    # Why the check does not look, or None when it looks. Keep in step with the guards of `find`.
-    skip: Callable[[HealthContext], CheckSkip | None]
+    run: Callable[[HealthContext], CheckOutcome]
 
 
 EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_STATE,
         name="Feature flag rollout",
-        find=flag_state,
-        skip=flag_state_skip,
+        run=flag_state,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_HISTORY,
         name="Feature flag history",
-        find=flag_history_not_readable,
-        skip=flag_history_skip,
+        run=flag_history_not_readable,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.SPLIT_CHANGED_MID_RUN,
         name="Variant split changes since launch",
-        find=split_changed_mid_run,
-        skip=flag_change_skip,
+        run=split_changed_mid_run,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.BUCKETING_CHANGED_MID_RUN,
         name="Flag key and bucketing changes since launch",
-        find=bucketing_changed_mid_run,
-        skip=flag_change_skip,
+        run=bucketing_changed_mid_run,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.RELEASE_CONDITIONS_CHANGED_MID_RUN,
         name="Release condition changes since launch",
-        find=release_conditions_changed_mid_run,
-        skip=flag_change_skip,
+        run=release_conditions_changed_mid_run,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_VARIANTS_MISMATCH,
         name="Feature flag variants",
-        find=flag_variants_mismatch,
-        skip=flag_variants_skip,
+        run=flag_variants_mismatch,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FORCED_VARIANT_RELEASE_CONDITION,
         name="Release conditions that force a variant",
-        find=forced_variant_release_condition,
-        skip=forced_variant_skip,
+        run=forced_variant_release_condition,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.NEW_FLAG_NO_TRAFFIC,
         name="Feature flag traffic",
-        find=new_flag_no_traffic,
-        skip=new_flag_no_traffic_skip,
+        run=new_flag_no_traffic,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.NO_METRIC,
         name="Metrics",
-        find=no_metric,
-        skip=no_metric_skip,
+        run=no_metric,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_EVENT_NOT_INGESTED,
         name="Metric events",
-        find=metric_event_not_ingested,
-        skip=metric_event_not_ingested_skip,
+        run=metric_event_not_ingested,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
         name="Exposure criteria",
-        find=exposure_criteria_cannot_match,
-        skip=exposure_criteria_skip,
+        run=exposure_criteria_cannot_match,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,
+        name="Sample size behind significant results",
+        run=early_significance,
     ),
 )
 
@@ -130,26 +107,22 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
         name="Exposures",
-        find=zero_exposures,
-        skip=zero_exposures_skip,
+        run=zero_exposures,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.SRM,
         name="Split of users across variants",
-        find=srm,
-        skip=srm_skip,
+        run=srm,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.BIAS_RISK_MULTIPLE_EXCLUDED,
         name="Bias from an uneven split",
-        find=bias_risk_multiple_excluded,
-        skip=bias_risk_skip,
+        run=bias_risk_multiple_excluded,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.MULTIPLE_VARIANTS_SHARE,
         name="Users exposed to multiple variants",
-        find=multiple_variants_share,
-        skip=multiple_variants_share_skip,
+        run=multiple_variants_share,
     ),
 )
 
@@ -162,23 +135,23 @@ def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHea
     results: list[ExperimentHealthCheckResult] = []
     for check in checks:
         try:
-            # Every check runs whatever its skip says, so a skip that is out of step with the check's guards can't
-            # hide a finding. The skip is read only without a finding, so a failing skip can't hide one either.
-            finding = check.find(ctx)
-            skip = check.skip(ctx) if finding is None else None
+            outcome = check.run(ctx)
         except Exception as error:
             # The findings ride on the health action, the exposure answer and `experiment launched`, so one
             # failing check must not fail them or hide the findings of the other checks.
             capture_exception(error)
             results.append(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, _CHECK_FAILED))
             continue
-        if finding is not None:
-            findings.append(finding)
-            results.append(_result(check, ExperimentHealthCheckStatus.FINDING, None))
-        elif skip is not None:
-            results.append(_result(check, skip.status, skip.reason))
-        else:
-            results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None))
+        match outcome:
+            case CheckSkip(status=status, reason=reason):
+                results.append(_result(check, status, reason))
+            case ExperimentHealthFinding():
+                findings.append(outcome)
+                results.append(_result(check, ExperimentHealthCheckStatus.FINDING, None))
+            case None:
+                results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None))
+            case _:
+                assert_never(outcome)
     return ExperimentHealth(findings=tuple(findings), checks=tuple(results))
 
 

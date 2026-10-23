@@ -18,12 +18,13 @@ GENERATION_NOT_FOUND_MAX_ATTEMPTS = 3
 GENERATION_NOT_FOUND_RETRY_DELAY = timedelta(seconds=15)
 
 
-class GenerationNotFoundError(ApplicationError):
+class GenerationNotFoundError(NonReportableApplicationError):
     """The last miss on a reference that has no ingestion to wait for.
 
     Only a backfill sends such a reference, and it selects candidates from `events`, which keeps
     rows longer than `ai_events`. So the row most likely aged out of `ai_events`. An evaluation
-    catches this and records a skip. A caller that does not catch it fails the run and reports the error.
+    catches this and records a skip. A caller that does not catch it fails the run, and the error
+    stays out of error tracking.
     """
 
 
@@ -101,7 +102,6 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
     )
     if event is None:
         if temporalio.activity.in_activity() and temporalio.activity.info().attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
-            # Only the last miss reaches error tracking: an earlier one is usually the lag above.
             raise NonReportableApplicationError(
                 "Generation not found",
                 type=GENERATION_NOT_FOUND,

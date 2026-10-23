@@ -3,11 +3,12 @@ import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'li
 
 import type { MetricsAggregation, MetricsQuery, MetricsQueryClause } from '~/queries/schema/schema-general'
 
+import { ownValue, referencedNames } from '../components/dashboardVariables/metricVariables'
 import type { MetricsChartSeries } from '../components/metricsSeries'
 
 export type MetricsPartialBucketQuery = Pick<
     MetricsQuery,
-    'clauses' | 'formula' | 'language' | 'dateRange' | 'interval'
+    'clauses' | 'formula' | 'language' | 'dateRange' | 'interval' | 'variables'
 >
 
 /** Below this share of the bucket, scaling up a few samples is mostly noise, so the real value stays. */
@@ -16,17 +17,17 @@ export const MIN_EXTRAPOLATION_FRACTION = 0.1
 const DEFAULT_DATE_FROM = '-24h'
 const MINUTE_MS = 60_000
 /** Mirrors `_INTERVAL_LADDER`, `_TARGET_BUCKET_COUNT` and `_MAX_BUCKET_COUNT` in backend/metric_query_runner.py. */
-const INTERVAL_LADDER: [string, number][] = [
-    ['second_15', 15_000],
-    ['second_30', 30_000],
-    ['minute', MINUTE_MS],
-    ['minute_5', 5 * MINUTE_MS],
-    ['minute_15', 15 * MINUTE_MS],
-    ['minute_30', 30 * MINUTE_MS],
-    ['hour', 60 * MINUTE_MS],
-    ['hour_6', 360 * MINUTE_MS],
-    ['day', 1440 * MINUTE_MS],
-    ['week', 10080 * MINUTE_MS],
+const INTERVAL_LADDER: [string, number, string][] = [
+    ['second_15', 15_000, '15s'],
+    ['second_30', 30_000, '30s'],
+    ['minute', MINUTE_MS, '1m'],
+    ['minute_5', 5 * MINUTE_MS, '5m'],
+    ['minute_15', 15 * MINUTE_MS, '15m'],
+    ['minute_30', 30 * MINUTE_MS, '30m'],
+    ['hour', 60 * MINUTE_MS, '1h'],
+    ['hour_6', 360 * MINUTE_MS, '6h'],
+    ['day', 1440 * MINUTE_MS, '1d'],
+    ['week', 10080 * MINUTE_MS, '1w'],
 ]
 const TARGET_BUCKET_COUNT = 60
 const MAX_BUCKET_COUNT = 500
@@ -41,6 +42,14 @@ function resolveDateFrom(dateFrom: string, now: dayjs.Dayjs, timezone: string): 
 }
 
 function resolvedIntervalMs(query: MetricsPartialBucketQuery, now: dayjs.Dayjs, timezone: string): number | null {
+    const [variableName] = referencedNames(query.interval)
+    if (variableName) {
+        const variable = ownValue(query.variables ?? {}, variableName)
+        if (!variable || variable.all || variable.values.length !== 1) {
+            return null
+        }
+        return INTERVAL_LADDER.find(([, , duration]) => duration === variable.values[0])?.[1] ?? null
+    }
     const from = resolveDateFrom(query.dateRange?.date_from ?? DEFAULT_DATE_FROM, now, timezone)
     if (!from) {
         return null

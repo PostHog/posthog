@@ -7,8 +7,9 @@ firing; this module decides whether that fire may spend a run, and dispatches it
 Two deliberate properties. A trigger is additive to the schedule: it never stamps `last_run_at`, so
 fires can't mark a cron slot fulfilled or starve an interval scout's patrol. And it is not a health
 signal: its failures don't feed the failure-streak breaker, whose threshold is sized on the
-schedule's cadence. The run is a pure kick — no content from the triggering event reaches it, so
-the prompt is identical to a scheduled run's.
+schedule's cadence. The only content from the triggering event that reaches the run is the step's
+optional note, which renders in its own fenced prompt section. Without a note, the prompt is
+identical to a scheduled run's.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def _rejected(kind: ScoutRunRejectionKind, reason: str, detail: str) -> Workflow
 
 
 def start_workflow_scout_run(
-    *, team_id: int, skill_name: str, workflow_origin_key: str | None = None
+    *, team_id: int, skill_name: str, workflow_origin_key: str | None = None, run_note: str | None = None
 ) -> WorkflowScoutRunStarted:
     """Start one workflow-triggered run of `skill_name`, or raise `WorkflowScoutRunRejected`.
 
@@ -63,6 +64,8 @@ def start_workflow_scout_run(
     human credential here to re-authorize a child environment against it.
 
     `workflow_origin_key` is the calling step's dispatch key; when set, the run wakes that step at the end.
+
+    `run_note` is the note the step rendered from its triggering event. Blank is no note.
 
     Rejection kinds are chosen so the step reads them correctly. `NOT_FOUND` means the node names a
     scout that cannot run (a typo, a deleted skill) and surfaces as a step failure the author
@@ -134,7 +137,11 @@ def start_workflow_scout_run(
     workflow_id = workflow_triggered_run_workflow_id(team_id, skill_name)
     try:
         start_workflow_signals_scout_run(
-            sync_connect(), team_id=team_id, skill_name=skill_name, workflow_origin_key=workflow_origin_key
+            sync_connect(),
+            team_id=team_id,
+            skill_name=skill_name,
+            workflow_origin_key=workflow_origin_key,
+            run_note=(run_note or "").strip() or None,
         )
     except WorkflowAlreadyStartedError:
         # A run was dispatched between the in-flight check and the start call. The endpoint's
@@ -147,5 +154,6 @@ def start_workflow_scout_run(
         team_id=team_id,
         skill_name=skill_name,
         workflow_id=workflow_id,
+        has_run_note=bool((run_note or "").strip()),
     )
     return WorkflowScoutRunStarted(skill_name=skill_name, workflow_id=workflow_id)

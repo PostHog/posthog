@@ -195,8 +195,8 @@ def citation_inputs() -> list[PurePosixPath]:
     return [PurePosixPath(path.resolve().relative_to(root).as_posix()) for path in paths]
 
 
-@pytest.mark.parametrize("workflow", [".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"])
-def test_repo_checks_runs_when_a_citation_input_changes(workflow: str) -> None:
+def test_repo_checks_runs_when_a_citation_input_changes() -> None:
+    workflow = ".depot/workflows/ci-backend.yml"
     globs = repo_invariants_filter(workflow)
     # full_match keeps `*` inside one path segment, as picomatch in the paths-filter action does.
     # fnmatch lets `*` cross `/`, so it would pass a glob that the action never fires on.

@@ -117,7 +117,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -881,8 +881,9 @@ jobs:
         runs-on: ubuntu-24.04
         # PRs run as many selective shards as the tests reachable from the changed
         # files need under the file limit in .github/scripts/jest-select.js. The
-        # merge queue runs the full four-shard fanout.
-        timeout-minutes: 20
+        # merge queue runs the full four-shard fanout. A copy of the repository lands
+        # on a slower GitHub-hosted runner pool, so it gets a longer budget.
+        timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 20 || 30 }}
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on the
         # merge queue's run and on master pushes, and a skipped need would otherwise

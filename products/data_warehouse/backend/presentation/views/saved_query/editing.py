@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import extend_schema_field
@@ -528,6 +529,7 @@ class DataWarehouseSavedQuerySerializer(
 
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
+                validated_data["query_updated_at"] = timezone.now()
 
             if frequency_changed:
                 # The node target is the only store of frequency intent. The interval column
