@@ -61,6 +61,33 @@ database "posthog" {
       default = "today() + toIntervalDay(7)"
     }
   }
+  table "_email_status_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient_hash" {
+      type = "String"
+    }
+  }
   table "_experiment_metric_events_preaggregated_columns" {
     abstract = true
     column "team_id" {
@@ -1158,30 +1185,7 @@ database "posthog" {
     }
   }
   table "email_status" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "message_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "LowCardinality(String)"
-    }
-    column "version" {
-      type = "UInt64"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "status_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "reason" {
-      type = "String"
-    }
-    column "recipient_hash" {
-      type = "String"
-    }
+    extend = "_email_status_columns"
     column "_timestamp" {
       type = "DateTime"
     }
