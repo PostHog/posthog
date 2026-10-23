@@ -461,11 +461,13 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 p50=float(row[3] or 0),
                 p95=float(row[4] or 0),
                 p99=float(row[5] or 0),
-                min=float(row[6] or 0),
-                p25=float(row[7] or 0),
-                mean=float(row[8] or 0),
-                p75=float(row[9] or 0),
-                max=float(row[10] or 0),
+                # None (not 0) when every duration in the bucket is missing, so the box plot
+                # skips the bucket instead of drawing a flat line at zero.
+                min=None if row[6] is None else float(row[6]),
+                p25=None if row[7] is None else float(row[7]),
+                mean=None if row[8] is None else float(row[8]),
+                p75=None if row[9] is None else float(row[9]),
+                max=None if row[10] is None else float(row[10]),
             )
             for row in (response.results or [])
         ]

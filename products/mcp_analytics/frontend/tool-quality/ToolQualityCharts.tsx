@@ -4,6 +4,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     BoxPlot,
     type BoxPlotConfig,
+    type BoxPlotDatum,
     type BoxPlotSeries,
     ChartLegend,
     type ChartTheme,
@@ -27,6 +28,18 @@ function formatCompactPercentage(value: number): string {
     return formatPercentage(value, { compact: true })
 }
 
+// BoxPlotDatum has no partial style like the line series' `stroke.partial`, so a still-collecting
+// bucket is dropped outright rather than drawn as a settled box.
+export function maskIncompleteLatencyBox(
+    boxes: (BoxPlotDatum | null)[],
+    incompleteTail: boolean
+): (BoxPlotDatum | null)[] {
+    if (!incompleteTail || boxes.length === 0) {
+        return boxes
+    }
+    return boxes.map((box, i) => (i === boxes.length - 1 ? null : box))
+}
+
 function buildConfig(
     timezone: string,
     interval: TimeInterval,
@@ -42,6 +55,12 @@ function buildConfig(
         xAxis: { interval, timezone },
         tooltip: { placement: 'cursor' },
     }
+}
+
+const CHART_VIEW_ARIA_LABELS: Record<ChartViewChange['chart'], string> = {
+    calls: 'Calls and errors chart view',
+    successRate: 'Success rate chart view',
+    latency: 'Latency chart view',
 }
 
 function ChartViewToggle<C extends ChartViewChange>({
@@ -64,7 +83,7 @@ function ChartViewToggle<C extends ChartViewChange>({
                     onChange({ chart, view: picked.value } as C)
                 }
             }}
-            aria-label="Chart view"
+            aria-label={CHART_VIEW_ARIA_LABELS[chart]}
         >
             {options.map(({ value, label }) => (
                 <ToggleGroupItem
@@ -185,9 +204,13 @@ export function ToolQualityCharts({
         ],
         [data, theme, partialStroke]
     )
+    const latencyBoxes = useMemo(
+        () => maskIncompleteLatencyBox(data.latencyBoxes, incompleteTail),
+        [data.latencyBoxes, incompleteTail]
+    )
     const latencyBoxSeries = useMemo<BoxPlotSeries[]>(
-        () => [{ key: 'latency', label: 'Latency', color: theme.colors[0], data: data.latencyBoxes }],
-        [data, theme]
+        () => [{ key: 'latency', label: 'Latency', color: theme.colors[0], data: latencyBoxes }],
+        [latencyBoxes, theme]
     )
 
     const countsConfig = useChartConfig(() => buildConfig(timezone, interval), [timezone, interval])
