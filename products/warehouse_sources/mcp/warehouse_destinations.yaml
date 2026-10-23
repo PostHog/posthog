@@ -1,5 +1,4 @@
-# MCP tool definitions for warehouse destinations. They live apart from tools.yaml because enrich_url
-# links build on url_prefix, and destinations have their own scene.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
 # List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product warehouse_sources
 # Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product warehouse_sources --file ../../products/warehouse_sources/mcp/warehouse_destinations.yaml
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
@@ -8,6 +7,66 @@ feature: warehouse_sources
 url_prefix: /data-management/warehouse-destinations
 ui_apps: {}
 tools:
+    external-data-destinations-add-sources:
+        operation: external_data_destinations_add_sources_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: ?destination={params.id}
+        title: Attach sources to a warehouse destination
+        description: >
+            Attach up to 50 existing sources to a destination, so every table on each source also syncs there. Sources
+            already attached, or already at the destination limit, come back in skipped with a reason. An attached
+            source sends only rows from its next syncs, so the destination holds no history until those tables are
+            resynced. Set resync=true to start a full resync of every enabled table now, but tell the user first: a
+            resync re-reads every row and bills every destination the source writes to.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-connect-link:
+        operation: external_data_destinations_connect_link_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a secure connect link for a destination
+        description: >
+            First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure
+            Blob). Returns a browser link where the user enters the destination's credentials in PostHog, so secrets
+            never pass through the chat. The page saves an integration and shows its id; it does not create the
+            destination. Share connect_url with the user and wait until they say they are done. Then find the new
+            integration with integrations-list (filter by the returned integration_kind, newest first) or ask the user
+            for the id the page showed, and call external-data-destinations-create with that integration id. For S3,
+            pass integration_kind='s3-compatible' for MinIO, Wasabi, R2 or GCS; AWS is the default. Never ask the user
+            to paste passwords, keys or tokens into the chat.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-create:
+        operation: external_data_destinations_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: ?destination={id}
+        title: Create a warehouse destination
+        description: >
+            Create a place where warehouse sources write synced rows, from an integration that holds the credentials.
+            Get the integration id with external-data-destinations-connect-link first. Pass type, a name, the
+            integration id and the target config for the type: Postgres and Redshift take database and schema; Snowflake
+            takes database, schema, warehouse and optional role; BigQuery takes dataset and optional project; Databricks
+            takes http_path, catalog, schema and volume; S3 takes bucket, region and optional prefix and compression;
+            Azure Blob takes container_name and optional prefix and compression. Creating tests the connection, and a
+            failed test returns a 400 that names the field to fix. The target cannot change after creation, so confirm
+            it with the user first. A new destination receives nothing until a source is attached with
+            external-data-destinations-add-sources.
+        feature_flag: warehouse-multi-destination
     external-data-destinations-list:
         operation: external_data_destinations_list
         enabled: true
@@ -31,71 +90,11 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '?destination={id}'
+        enrich_url: ?destination={id}
         title: Get a warehouse destination
         description: >
             Read one warehouse destination, including the target database or schema it writes to. Credentials live on
             the linked integration and are never returned here.
-        feature_flag: warehouse-multi-destination
-    external-data-destinations-connect-link:
-        operation: external_data_destinations_connect_link_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a secure connect link for a destination
-        description: >
-            First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure
-            Blob). Returns a browser link where the user enters the destination's credentials in PostHog, so secrets never
-            pass through the chat. The page saves an integration and shows its id; it does not create the destination.
-            Share connect_url with the user and wait until they say they are done. Then find the new integration with
-            integrations-list (filter by the returned integration_kind, newest first) or ask the user for the id the page
-            showed, and call external-data-destinations-create with that integration id. For S3, pass
-            integration_kind='s3-compatible' for MinIO, Wasabi, R2 or GCS; AWS is the default. Never ask the user to paste
-            passwords, keys or tokens into the chat.
-        feature_flag: warehouse-multi-destination
-    external-data-destinations-create:
-        operation: external_data_destinations_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '?destination={id}'
-        title: Create a warehouse destination
-        description: >
-            Create a place where warehouse sources write synced rows, from an integration that holds the credentials.
-            Get the integration id with external-data-destinations-connect-link first. Pass type, a name, the integration
-            id and the target config for the type: Postgres and Redshift take database and schema; Snowflake takes
-            database, schema, warehouse and optional role; BigQuery takes dataset and optional project; Databricks
-            takes http_path, catalog, schema and volume; S3 takes bucket, region and optional prefix and compression;
-            Azure Blob takes container_name and optional prefix and compression. Creating tests the connection, and a
-            failed test returns a 400 that names the field to fix. The target cannot change after creation, so confirm
-            it with the user first. A new destination receives nothing until a source is attached with
-            external-data-destinations-add-sources.
-        feature_flag: warehouse-multi-destination
-    external-data-destinations-add-sources:
-        operation: external_data_destinations_add_sources_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '?destination={params.id}'
-        title: Attach sources to a warehouse destination
-        description: >
-            Attach up to 50 existing sources to a destination, so every table on each source also syncs there. Sources
-            already attached, or already at the destination limit, come back in skipped with a reason. An attached
-            source sends only rows from its next syncs, so the destination holds no history until those tables are
-            resynced. Set resync=true to start a full resync of every enabled table now, but tell the user first: a
-            resync re-reads every row and bills every destination the source writes to.
         feature_flag: warehouse-multi-destination
     external-data-destinations-test-connection:
         operation: external_data_destinations_test_connection_create
