@@ -34,8 +34,13 @@ import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogF
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { HogFunctionTemplateType, UserBasicType } from '../../../../../frontend/src/types'
-import type { IntegrationType, TeamPublicType, TeamType } from '../../../../../frontend/src/types'
+import type {
+    HogFunctionTemplateType,
+    IntegrationType,
+    TeamPublicType,
+    TeamType,
+    UserBasicType,
+} from '../../../../../frontend/src/types'
 import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
@@ -51,6 +56,9 @@ import {
     TOP_HANDLE_POSITION,
 } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
+import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
+import type { UtmTagValues } from './steps/components/UtmTagFields'
+import type { UtmTagKey } from './steps/components/UtmTagFields'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
 import { isWorkflowTreeComplete } from './tree/workflowTree'
@@ -804,6 +812,9 @@ export interface hogFlowEditorLogicActions {
                                           utm_medium?: string | undefined
                                           utm_source?: string | undefined
                                       }
+                                    | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
                                     | undefined
                                 utm_tags_enabled?: boolean | undefined
                             }
@@ -1688,6 +1699,9 @@ export interface hogFlowEditorLogicActions {
                                           utm_source?: string | undefined
                                       }
                                     | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
+                                    | undefined
                                 utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
@@ -2136,6 +2150,13 @@ export interface hogFlowEditorLogicActions {
             timezone: string
         }
     }
+    markUtmSavedAsTeamDefault: (
+        actionId: string,
+        saved: UtmTagValues
+    ) => {
+        actionId: string
+        saved: Partial<Record<UtmTagKey, string>>
+    }
     moveNodeToEdge: (
         movingNodeId: string,
         targetEdge: HogFlowEdge,
@@ -2346,6 +2367,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             joinEdges,
         }),
         duplicateNodeBelow: (actionId: string) => ({ actionId }),
+        markUtmSavedAsTeamDefault: (actionId: string, saved: UtmTagValues) => ({ actionId, saved }),
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -2878,6 +2900,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
+                    // A copied email keeps its own UTM choice. Without the team loaded the UTM keys stay out, so
+                    // the API copies the team defaults on save.
+                    if (
+                        !isHogFlowActionNode &&
+                        partialNewAction.type === 'function_email' &&
+                        !('utm_tags_enabled' in config) &&
+                        values.currentTeam
+                    ) {
+                        config = {
+                            ...config,
+                            ...newEmailUtmConfig(getTeamUtmDefaults(values.currentTeam.workflows_config)),
+                        }
+                    }
+
                     if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
                         const emailInput = config.inputs?.email
                         const team = values.currentTeam
@@ -3144,6 +3180,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 actions.setWorkflowInfo({ actions: values.workflow.actions, edges: newEdges })
                 actions.setSelectedNodeId(movingNodeId)
+            },
+            markUtmSavedAsTeamDefault: ({ actionId, saved }) => {
+                // The save takes a round trip, so start from the step as it is now to keep edits made meanwhile.
+                const latest = values.workflow.actions.find((action) => action.id === actionId)
+                if (!latest || latest.type !== 'function_email') {
+                    return
+                }
+                actions.setWorkflowAction(actionId, {
+                    ...latest,
+                    config: {
+                        ...latest.config,
+                        utm_params_from_default: utmKeysFollowingSavedDefault(latest.config.utm_params ?? {}, saved),
+                    },
+                })
             },
             duplicateNodeBelow: ({ actionId }) => {
                 const action = values.workflow.actions.find((action) => action.id === actionId)

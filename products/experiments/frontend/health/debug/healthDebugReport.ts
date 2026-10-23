@@ -309,7 +309,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     }
 
     return [
-        exposureCheck('zero_exposures', ['experiment', 'exposures'], null),
+        exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
         exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
         exposureCheck(
