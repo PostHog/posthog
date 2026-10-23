@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team, User
@@ -261,6 +261,7 @@ class TestRunInsight(SimpleTestCase):
         [
             ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
             ("access_denied", TableAccessDeniedError("no access"), "access_denied"),
+            ("unknown_table", QueryError("Unknown table `deleted_table`."), "broken_query"),
             ("unsupported", UnsupportedInsightError("not trends"), "unsupported"),
         ]
     )
@@ -278,6 +279,7 @@ class TestRunInsight(SimpleTestCase):
     @parameterized.expand(
         [
             ("cluster_memory", ClickHouseClusterMemoryLimitExceeded()),
+            ("internal_resolver", ResolutionError("Type already resolved for Field (FieldType). Can't run again.")),
             ("unknown", RuntimeError("boom")),
         ]
     )
