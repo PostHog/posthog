@@ -24,7 +24,7 @@ Neither vendor documents any of what follows. It comes from running one job grap
 | Hard failure                               | `failure`          | `failure`                   | `failure`            | `failure`          |
 | `if: always()` gate over all of the above  | `success`          | `success`                   | `success`            | `success`          |
 
-The engines agree everywhere except the empty matrix. Depot posted one check for a whole matrix job until its [2026-09-23 change](https://depot.dev/changelog/2026-09-23-accurate-github-checks), which gives each cell its own check.
+The engines agree everywhere except the empty matrix.
 
 ## Two cases where the check disagrees with the run
 
@@ -45,7 +45,7 @@ The engines agree everywhere except the empty matrix. Depot posted one check for
       --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks'
   ```
 
-  A check run from any other app does not satisfy a context pinned to `github-actions`, even when the name matches exactly. A required context for a check that Depot posts must stay on "Any source", because Depot posts the same check name from any of three apps.
+  A check run from any other app does not satisfy a context pinned to `github-actions`, even when the name matches exactly.
 
 - Trunk merge queue takes its required list from GitHub branch protection by default, and can override it from the Trunk UI or from `merge.required_statuses` in `.trunk/trunk.yaml`. The trunk.yaml form matches on **name only**, with no app pinning, so a repo that sets both can have Trunk and GitHub disagree about which app's check counts. This repo sets no `merge:` block, so branch protection is the source.
 
@@ -59,11 +59,11 @@ Depot's [GitHub checks page](https://depot.dev/docs/ci/observability/github-chec
 | Depot Checks 2    | `depot-checks-2`    | `4968192` |
 | Depot Code Access | `depot-code-access` | `219785`  |
 
-PostHog connected Depot Checks on 2026-10-20. Depot uses the Depot Checks apps first and falls back to Depot Code Access. A check stays with the app that created it. On 2026-10-21, every Depot check on the heads of open pull requests came from `depot-checks`. On 2026-10-23, all 221 Depot checks on the newest 10 master commits did too.
+Depot uses the Depot Checks apps first and falls back to Depot Code Access. A check stays with the app that created it.
 
-Match a Depot check by its name, or by its `details_url`, which holds the Depot workflow ID. Never match it by one app ID. Where a query can only filter by app, as GitHub's GraphQL `checkSuites(filterBy: {appId})` does, read all three.
+A required context for a check that Depot posts must use "Any source", as [Depot's GitHub checks page](https://depot.dev/docs/ci/observability/github-checks#update-required-check-sources) says. Match a Depot check by its name, or by its `details_url`, which holds the Depot workflow ID. Never match it by one app ID. GitHub's GraphQL `checkSuites` takes `filterBy: {checkName}`, which matches a suite from any app.
 
-A check that a Depot job posts itself through the REST API comes from the app whose token the step used. `Backend CI on Depot / Test results` uses a PostHog tests app token, so it comes from `tests-posthog`.
+A check that a Depot job posts itself through the REST API comes from the app whose token the step used, so its required context can stay pinned to that app. `Backend CI on Depot / Test results` is one.
 
 ## Naming
 
@@ -166,7 +166,7 @@ Depot CI checks out the pull request merge ref (`refs/pull/<n>/merge`) and posts
 From Depot's [compatibility page](https://depot.dev/docs/ci/compatibility), not measured here:
 
 - Depot does not run fork pull requests. After review, a maintainer re-creates the pull request in the main repository. See [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
-- `environment:` is unsupported. A `uses:` call to a workflow in another repository works since [2026-10-05](https://depot.dev/changelog/2026-10-05-external-reusable-workflows) when it pins a full commit SHA or a version tag. See `github-actions-compatibility.md`.
+- `environment:` is unsupported. For a `uses:` call to a workflow in another repository, see `github-actions-compatibility.md`.
 - `secrets.GITHUB_TOKEN` is a GitHub App installation token, not the Actions token. GitHub Packages rejects it. The rate limit it draws on is the app installation's pool, which is shared across repos and is not the per-repo Actions bucket that `monitor-github-rate-limit.yml` watches.
 - Non-Depot `runs-on` labels are treated as `depot-ubuntu-latest`.
 - Secrets and variables live in Depot's own store (`depot ci secrets`, `depot ci vars`), not in GitHub's.
