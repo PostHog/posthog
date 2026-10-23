@@ -491,6 +491,10 @@ const meta: Meta = {
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
                 '/api/environments/:team_id/error_tracking/issues/:id/': [200, STORY_ISSUE],
+                '/api/projects/:team_id/error_tracking/issues/:id/summary/': [
+                    200,
+                    { status: 'unavailable', summary: null },
+                ],
                 '/api/environments/:team_id/error_tracking/fingerprints': [
                     200,
                     {
