@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.aeo.backend.engines import (
     OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
+    ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
     anthropic_truncated_error,
     build_check_fields,
@@ -217,6 +218,29 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
     assert captured["payload"]["max_output_tokens"] == OPENAI_MAX_OUTPUT_TOKENS
     if expected_error is None:
         assert check.cited_urls  # completed body carries citations
+
+
+def test_claude_engine_calls_web_search_directly() -> None:
+    captured: dict = {}
+
+    def fake_post(_session, _url, _headers, payload, **_kwargs):
+        captured["payload"] = payload
+        return ANTHROPIC_BODY
+
+    with (
+        patch(
+            "products.aeo.backend.engines.resolve_ai_gateway_config",
+            return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
+        ),
+        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
+        patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
+    ):
+        check = ClaudeWebSearchEngine().run("best session replay tool", trace_id="t1", custom_properties={})
+
+    [tool] = captured["payload"]["tools"]
+    assert tool["allowed_callers"] == ["direct"]
+    assert check.error is None
+    assert check.cited_urls == ["https://posthog.com/session-replay", "https://example.com/reviews"]
 
 
 def test_parse_exa_citations() -> None:

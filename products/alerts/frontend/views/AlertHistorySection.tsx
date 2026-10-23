@@ -20,6 +20,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { DetectorType } from '~/queries/schema/schema-general'
 
@@ -191,18 +192,26 @@ export function AlertHistorySection({
                 },
             })
         }
-        if (alertHistoryIsAnomalyDetection) {
+        // The AI detector has no score. Its checks read as fired or not fired, with a kind and a reason.
+        if (alertHistoryIsAnomalyDetection && !isLLMDetectorAlert) {
             columns.push({
-                title: alertHistoryChartSeriesName === 'Anomaly confidence' ? 'Anomaly confidence' : 'Score',
-                tooltip:
-                    alertHistoryChartSeriesName === 'Anomaly confidence'
-                        ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
-                        : undefined,
+                title: 'Score',
                 align: 'right',
                 render: (_value, check) => {
                     const scores = check.anomaly_scores
                     const lastScore = scores?.length ? scores[scores.length - 1] : null
                     return lastScore != null ? lastScore.toFixed(3) : '—'
+                },
+            })
+        }
+        if (alertHistoryChecksSortedDesc.some((check) => typeof check.triggered_metadata?.kind === 'string')) {
+            columns.push({
+                title: 'Kind',
+                render: (_value, check) => {
+                    const kind = check.triggered_metadata?.kind
+                    return typeof kind === 'string' && kind !== 'none'
+                        ? capitalizeFirstLetter(kind.replaceAll('_', ' '))
+                        : '—'
                 },
             })
         }
@@ -289,7 +298,7 @@ export function AlertHistorySection({
         alertHistoryIsAnomalyDetection,
         investigationAgentEnabled,
         isAnyRowSqlAlert,
-        alertHistoryChartSeriesName,
+        isLLMDetectorAlert,
         showWhyColumn,
         alertHistoryChecksSortedDesc,
     ])

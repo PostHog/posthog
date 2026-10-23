@@ -44,7 +44,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _runner(self, query: MetricsQuery) -> MetricsQueryRunner:
         return MetricsQueryRunner(query=query, team=self.team)
 
-    def test_translates_schema_node_to_facade_request(self) -> None:
+    @parameterized.expand([("fixed", "minute"), ("dashboard_variable", "$window")])
+    def test_translates_schema_node_to_facade_request(self, _name: str, interval: str) -> None:
         query = MetricsQuery(
             clauses=[
                 MetricsQueryClause(
@@ -58,11 +59,21 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             dateRange=DateRange(date_from="2026-09-19T00:00:00Z", date_to="2026-09-19T01:00:00Z"),
-            interval="minute",
+            interval=interval,
             formula=None,
         )
 
-        request = self._runner(query)._to_request()
+        runner = self._runner(query)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ]
+            )
+        )
+        request = runner._to_request()
 
         clause = request.clauses[0]
         assert clause.metric_name == "http_requests_total"

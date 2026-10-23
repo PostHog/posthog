@@ -3903,6 +3903,49 @@ class TestSignalReportMergeAPI(APIBaseTest):
         source.refresh_from_db()
         assert source.status == SignalReport.Status.SUPPRESSED
 
+    @parameterized.expand(
+        [
+            ("person", None, None),
+            ("scout_task", "signals-scout-error-tracking", "signals-scout-error-tracking"),
+            ("non_scout_task", "", None),
+        ]
+    )
+    def test_merge_attributes_a_scout_merge_to_its_skill(self, _name, scout_skill, expected_author):
+        survivor = self._report()
+        source = self._report()
+        headers: dict[str, str] = {}
+        task_id: str | None = None
+        if scout_skill is not None:
+            Task = apps.get_model("tasks", "Task")
+            TaskRun = apps.get_model("tasks", "TaskRun")
+            task = Task.objects.create(team=self.team, title="task", description="desc")
+            task_id = str(task.id)
+            headers["X-PostHog-Task-Id"] = task_id
+            if scout_skill:
+                SignalScoutRun.objects.create(
+                    team=self.team,
+                    task_run=TaskRun.objects.create(task=task, team=self.team),
+                    skill_name=scout_skill,
+                    skill_version=1,
+                )
+
+        with (
+            patch("products.signals.backend.views.report_user_action") as report_action,
+            self.captureOnCommitCallbacks(execute=False),
+        ):
+            response = self.client.post(
+                self._merge_url(str(survivor.id)),
+                data=json.dumps({"source_report_ids": [str(source.id)]}),
+                content_type="application/json",
+                headers=headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        note = SignalReportArtefact.objects.get(report_id=survivor.id, type="note")
+        assert NoteArtefact.model_validate_json(note.content).author == expected_author
+        properties = report_action.call_args.kwargs["properties"]
+        assert (properties["task_id"], properties["scout_skill_name"]) == (task_id, expected_author)
+
     def test_merge_schedules_the_signal_move_once_committed(self):
         survivor = self._report()
         source = self._report()
