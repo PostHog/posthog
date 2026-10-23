@@ -15,6 +15,7 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSessionLogic'
 import { TODAY_RAIL_WIDTH, todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -129,6 +130,11 @@ export function Navigation({
     }, [mainRef, setMainContentRef, setMainContentRect, deferSceneMeasurementsDuringResize])
 
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+
+    // The chat session restores a saved run when it mounts. A layout effect runs before any scene's passive effect,
+    // so a scene that clears the panel on show (the AI-first composer) clears it after the restore. The lazy TodayShell
+    // loads too late to mount it.
+    useLayoutEffect(() => (todayRail ? todayPanelChatSessionLogic.mount() : undefined), [todayRail])
 
     const todayPhoneBodyClass = todayPhone && mode === 'full'
     useLayoutEffect(() => {

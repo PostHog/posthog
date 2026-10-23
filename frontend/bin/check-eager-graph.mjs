@@ -120,6 +120,8 @@ const ROOTS = [
             // The Today layout renders only behind the today-rail-nav flag, and it pulls in quill primitives.
             'src/layout/today/TodayShell.tsx',
             'src/layout/today/TodayContextPanelFloating.tsx',
+            'src/layout/today/TodaySidePanel.tsx',
+            'src/layout/today/TodayTopBar.tsx',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
