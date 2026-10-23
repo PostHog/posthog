@@ -71,21 +71,25 @@ def score_events(
 ) -> list[dict[str, Any]]:
     """One event per series and bucket that is later than the series' newest scored bucket."""
     events: list[dict[str, Any]] = []
+    event_uuids: set[str] = set()
     for series in scores.series:
         through = scored_through.get(series.series_key)
         for point in series.points:
             if through is not None and point.bucket_start <= through:
                 continue
-            events.append(
-                _event(
-                    team_id=team_id,
-                    insight_id=insight_id,
-                    scores=scores,
-                    series=series,
-                    point=point,
-                    scored_at=scored_at,
-                )
+            event = _event(
+                team_id=team_id,
+                insight_id=insight_id,
+                scores=scores,
+                series=series,
+                point=point,
+                scored_at=scored_at,
             )
+            # Capture rejects the whole batch on a repeated uuid, e.g. an hourly bucket repeated at a DST fall-back.
+            if event["event_uuid"] in event_uuids:
+                continue
+            event_uuids.add(event["event_uuid"])
+            events.append(event)
     return events
 
 
