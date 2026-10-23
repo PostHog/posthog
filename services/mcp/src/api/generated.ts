@@ -40037,7 +40037,6 @@ export namespace Schemas {
 
     /**
      * * `queued` - Queued
-     * * `waiting` - Waiting
      * * `unknown` - Unknown
      * * `skipped` - Skipped
      * * `failed` - Failed
@@ -40051,7 +40050,6 @@ export namespace Schemas {
 
     export const EmailStatusEnum = {
       Queued: 'queued',
-      Waiting: 'waiting',
       Unknown: 'unknown',
       Skipped: 'skipped',
       Failed: 'failed',
@@ -40067,7 +40065,6 @@ export namespace Schemas {
       /** Where the email is. A status never moves back: a late `sent` never replaces `delivered`.
        *
        * * `queued` - Queued
-       * * `waiting` - Waiting
        * * `unknown` - Unknown
        * * `skipped` - Skipped
        * * `failed` - Failed
