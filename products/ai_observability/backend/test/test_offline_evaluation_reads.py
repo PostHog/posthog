@@ -12,6 +12,9 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.api.offline_experiment_read_serializers import (
+    OfflineScorerHistoryQuerySerializer,
+)
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
@@ -383,23 +386,28 @@ class TestOfflineEvaluationReads(TestCase):
 
     def test_model_breakdown_paginates_missing_and_named_models_without_duplicates(self) -> None:
         experiment = self._experiment()
-        for model in (None, "model-a", "model-b", "Not specified"):
+        models = [None, "model-a", "model-b", "Not specified", "模" * 255, "😀" * 255, "😁" * 255]
+        for model in models:
             self._result(self._item(experiment, model_version=model), self.numeric, 1.0)
         query = OfflineReadQuery(breakdown="model_version", limit=1)
         values = []
         while True:
             page = self.service.scorer_history(self.numeric.definition_id, query)
-            self.assertEqual(page.count, 4)
+            self.assertEqual(page.count, len(models))
             self.assertEqual(len(page.results), 1)
             values.append(page.results[0].breakdown_value)
             if not page.next_cursor:
                 break
+            serializer = OfflineScorerHistoryQuerySerializer(
+                data={"breakdown": "model_version", "limit": 1, "cursor": page.next_cursor}
+            )
+            self.assertTrue(serializer.is_valid(), serializer.errors)
             with self.assertRaises(OfflineEvaluationValidationError):
                 self.service.scorer_history(
                     self.numeric.definition_id, replace(query, cursor=page.next_cursor, breakdown="suite_key")
                 )
             query = replace(query, cursor=page.next_cursor)
-        self.assertCountEqual(values, [None, "model-a", "model-b", "Not specified"])
+        self.assertCountEqual(values, models)
 
     @parameterized.expand(
         [
