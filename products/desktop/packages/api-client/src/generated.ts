@@ -6176,10 +6176,23 @@ export namespace Schemas {
      * * `stable` - stable
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
+    /**
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     */
+    export type GroupRepeatDirectionEnum = "vertical" | "horizontal";
+    export type DashboardGroupRepeat = {
+        /**
+         * Name of the metric dashboard variable, without the $. Each copy of the group gets one of its values.
+         */
+        variable: string;
+        direction?: (GroupRepeatDirectionEnum & unknown) | undefined;
+    };
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
         group_titles: Record<string, string>;
+        group_repeats: Record<string, DashboardGroupRepeat>;
     }>;
     /**
      * Serializer mixin that handles tags for objects.
@@ -6265,6 +6278,12 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         group_titles?: (Record<string, string> | null) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_repeats?:
+            | (Record<string, DashboardGroupRepeat> | null)
+            | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -19436,6 +19455,7 @@ export namespace Schemas {
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
         group_titles: Record<string, string> | null;
+        group_repeats: Record<string, DashboardGroupRepeat> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
         use_dashboard: number | null;
