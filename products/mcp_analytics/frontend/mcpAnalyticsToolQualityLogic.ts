@@ -126,8 +126,7 @@ export interface DailyChartData {
     labels: string[]
     calls: number[]
     errors: number[]
-    callsShare: number[]
-    errorsShare: number[]
+    errorRate: number[]
     successRate: number[]
     p50: number[]
     p95: number[]
@@ -157,25 +156,17 @@ export const TOOL_QUALITY_PAGE_SIZE = 50
 export function buildDailyChartData(dailyStats: DailyToolStat[], bucketKeys: string[]): DailyChartData {
     const byBucket = new Map(dailyStats.map((r) => [normalizeBucket(r.day), r]))
     const rows = bucketKeys.map((k) => byBucket.get(k))
-    const calls = rows.map((r) => r?.calls ?? 0)
-    const errors = rows.map((r) => r?.errors ?? 0)
     return {
         labels: bucketKeys,
-        calls,
-        errors,
-        callsShare: sharesOfTotal(calls),
-        errorsShare: sharesOfTotal(errors),
+        calls: rows.map((r) => r?.calls ?? 0),
+        errors: rows.map((r) => r?.errors ?? 0),
+        errorRate: rows.map((r) => (r && r.calls ? (r.errors / r.calls) * 100 : NaN)),
         successRate: rows.map((r) => (r && r.calls ? ((r.calls - r.errors) / r.calls) * 100 : NaN)),
         p50: rows.map((r) => (r ? r.p50 : NaN)),
         p95: rows.map((r) => (r ? r.p95 : NaN)),
         p99: rows.map((r) => (r ? r.p99 : NaN)),
         latencyBoxes: rows.map((r, i) => (r ? latencyBox(r, bucketKeys[i]) : null)),
     }
-}
-
-function sharesOfTotal(values: number[]): number[] {
-    const total = values.reduce((sum, value) => sum + value, 0)
-    return values.map((value) => (total ? (value / total) * 100 : 0))
 }
 
 // Whiskers stop at p99 so one very slow call does not flatten every box.

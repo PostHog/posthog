@@ -46,22 +46,18 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(data.successRate[0]).toBeCloseTo(90)
             expect(data.successRate[1]).toBeNaN()
             expect(data.p99).toEqual([2100, NaN, 1500])
-            expect(data.callsShare.map((v) => Math.round(v))).toEqual([67, 0, 33])
-            expect(data.errorsShare).toEqual([100, 0, 0])
+            expect(data.errorRate[0]).toBeCloseTo(10)
+            expect(data.errorRate[1]).toBeNaN()
+            expect(data.errorRate[2]).toEqual(0)
         })
 
         it.each([
-            ['all errors are zero', 0, [0, 0]],
-            ['errors split evenly', 5, [50, 50]],
-        ])('gives each bucket its share of the window when %s', (_label, errors, expected) => {
-            const data = buildDailyChartData(
-                [
-                    dailyStat({ day: '2026-06-05', calls: 10, errors }),
-                    dailyStat({ day: '2026-06-06', calls: 10, errors }),
-                ],
-                ['2026-06-05 00:00:00', '2026-06-06 00:00:00']
-            )
-            expect(data.errorsShare).toEqual(expected)
+            ['no errors', 10, 0, 0],
+            ['half the calls errored', 10, 5, 50],
+            ['the row has no calls', 0, 0, NaN],
+        ])('gives the error rate as a percentage of calls when %s', (_label, calls, errors, expected) => {
+            const data = buildDailyChartData([dailyStat({ day: '2026-06-05', calls, errors })], ['2026-06-05 00:00:00'])
+            expect(data.errorRate).toEqual([expected])
         })
 
         it('builds a latency box per bucket with whiskers clipped at p99', () => {

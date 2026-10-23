@@ -164,25 +164,30 @@ export function ToolQualityCharts({
         [incompleteTail, data.labels.length]
     )
 
-    const showCallsShare = views.calls === 'percentage'
+    const showErrorRate = views.calls === 'percentage'
     const callsSeries = useMemo<Series[]>(
-        () => [
-            {
-                key: 'calls',
-                label: 'Calls',
-                color: theme.colors[0],
-                data: showCallsShare ? data.callsShare : data.calls,
-                stroke: partialStroke,
-            },
-            {
-                key: 'errors',
-                label: 'Errors',
-                color: theme.colors[4],
-                data: showCallsShare ? data.errorsShare : data.errors,
-                stroke: partialStroke,
-            },
-        ],
-        [data, theme, partialStroke, showCallsShare]
+        () =>
+            showErrorRate
+                ? [
+                      {
+                          key: 'errorRate',
+                          label: 'Error rate',
+                          color: theme.colors[4],
+                          data: data.errorRate,
+                          stroke: partialStroke,
+                      },
+                  ]
+                : [
+                      { key: 'calls', label: 'Calls', color: theme.colors[0], data: data.calls, stroke: partialStroke },
+                      {
+                          key: 'errors',
+                          label: 'Errors',
+                          color: theme.colors[4],
+                          data: data.errors,
+                          stroke: partialStroke,
+                      },
+                  ],
+        [data, theme, partialStroke, showErrorRate]
     )
     const successSeries = useMemo<Series[]>(
         () => [
@@ -214,7 +219,7 @@ export function ToolQualityCharts({
     )
 
     const countsConfig = useChartConfig(() => buildConfig(timezone, interval), [timezone, interval])
-    const sharesConfig = useChartConfig(
+    const errorRateConfig = useChartConfig(
         () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage }),
         [timezone, interval]
     )
@@ -257,7 +262,7 @@ export function ToolQualityCharts({
                 <TimeSeriesLineChart
                     series={callsSeries}
                     labels={data.labels}
-                    config={showCallsShare ? sharesConfig : countsConfig}
+                    config={showErrorRate ? errorRateConfig : countsConfig}
                     theme={theme}
                     dataAttr="mcp-tool-quality-calls-chart"
                 />
