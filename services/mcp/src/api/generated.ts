@@ -105842,8 +105842,25 @@ export namespace Schemas {
       identifiers?: TransactionalEmailIdentifiers;
       /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
       message_data?: SendEmailMessageData;
-      /** The template to send, by key or by id. */
-      template: TemplateReference;
+      /** The template to send, by key or by id. Leave it out to send content your code rendered, with `template_key`. */
+      template?: TemplateReference;
+      /** Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Send it with `subject` and `html` or `text`, instead of `template`. PostHog sends the content as is and never stores it as a template. */
+      template_key?: string;
+      /** Subject of the rendered email. Only with `template_key`. */
+      subject?: string;
+      /** HTML body of the rendered email. Only with `template_key`. */
+      html?: string;
+      /** Plain text body of the rendered email. Only with `template_key`. Without it, PostHog derives the text from `html`. */
+      text?: string;
+      /**
+         * Addresses replies go to. Not with `template.id`.
+         * @maxItems 10
+         */
+      reply_to?: string[];
+      /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. They count as analytics events. Defaults to on for `template_key` and `template.key` sends, and to the project's setting for `template.id` sends. */
+      capture_engagement?: boolean;
+      /** Sender, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, rendered content goes out from the project's default sender, and a template from its own sender. Not with `template.id`. */
+      from?: string;
     }
 
     export interface SendEmailWarning {
@@ -117877,9 +117894,9 @@ export namespace Schemas {
       name: string;
       /** Email subject line. Supports Liquid, such as `{{ variables.first_name }}`. */
       subject: string;
-      /** Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. */
-      html: string;
-      /** Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one. */
+      /** Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. Send at least one of `html` and `text`. */
+      html?: string;
+      /** Plain-text body for email clients that can't show HTML, stored as sent. Send at least one of `html` and `text`. Leaving it out removes the stored one. */
       text?: string;
       /** Inbox preview text shown after the subject. Leaving it out removes the stored one. */
       preheader?: string;
@@ -117887,6 +117904,8 @@ export namespace Schemas {
       source?: TemplateSource;
       /** Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content. */
       if_not_superseded?: boolean;
+      /** Set it on uploads a send makes on its own. When people edit the template with this key in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. Leave it out to take the template over from PostHog. */
+      if_code_managed?: boolean;
     }
 
     export interface UploadTemplateResponse {

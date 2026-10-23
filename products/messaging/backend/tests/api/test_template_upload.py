@@ -27,6 +27,13 @@ WELCOME_HASH = "v1:f74cd913f3aa2e5667a588f2865634e56693df77793ca594d18e9b5f89e3d
 # HTML files end with a newline. The upload stores it, so the stored hash matches the hash of the file.
 GREETING = {"name": "Welcome", "subject": "Grüße", "preheader": "Vorschau", "html": "<p>ä</p>\n", "text": "ä"}
 GREETING_HASH = "v1:ff5293725c21e0f9b71918af66cf7b6e17b2021f250fe915f8426946b378c88d"
+# A template written only as text, which the contract allows like a send's content.
+WELCOME_TEXT = {
+    "name": "Welcome",
+    "subject": "Welcome, {{ variables.first_name }}",
+    "text": "Hi {{ variables.first_name }}",
+}
+WELCOME_TEXT_HASH = "v1:3a5dfe21db340dd1db6fd33a72099ef8250699f84b8bf81f39cbf477eaf46642"
 
 
 @patch("products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.capture")
@@ -137,6 +144,27 @@ class TestTemplateUpload(APIBaseTest):
         assert (repaired["result"], repaired["content_hash"]) == ("updated", WELCOME_HASH)
         assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
 
+    def test_a_text_only_template_a_send_does_not_find_uploads_and_sends(self, post, _flag, _capture):
+        post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+
+        def send() -> Any:
+            return self.psak.post(
+                f"/api/projects/{self.team.id}/messaging/send/email/",
+                {"template": {"key": "welcome", "hash": WELCOME_TEXT_HASH}, "to": "user@example.com"},
+                format="json",
+            )
+
+        outdated = send()
+        uploaded = self.psak.put(self.url, {**WELCOME_TEXT, "if_code_managed": True}, format="json")
+        sent = send()
+
+        assert (outdated.status_code, outdated.json()["code"]) == (status.HTTP_409_CONFLICT, "template_outdated")
+        assert uploaded.status_code == status.HTTP_201_CREATED, uploaded.json()
+        assert uploaded.json()["content_hash"] == WELCOME_TEXT_HASH
+        assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
+        email = self._sent_email(uploaded.json()["transactional_hog_flow_id"])
+        assert (email["html"], email["text"]) == ("", WELCOME_TEXT["text"])
+
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
         first = self._upload(WELCOME)
@@ -212,6 +240,47 @@ class TestTemplateUpload(APIBaseTest):
         made_in_posthog.refresh_from_db()
         assert made_in_posthog.draft_content is None
 
+    @parameterized.expand(
+        [
+            ("adopted", "adopt", status.HTTP_409_CONFLICT),
+            ("released_and_edited", "release_and_edit", status.HTTP_409_CONFLICT),
+            ("managed_by_code", None, status.HTTP_200_OK),
+        ]
+    )
+    def test_an_upload_if_code_managed_never_overwrites_content_edited_in_posthog(
+        self, _post, _flag, _capture, _name, edit_in_posthog, expected_status
+    ):
+        template_id = self._upload(WELCOME)["id"]
+        template_url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
+        if edit_in_posthog == "adopt":
+            MessageTemplate.objects.filter(id=template_id).update(managed_by=None)
+        elif edit_in_posthog == "release_and_edit":
+            released = self.client.patch(template_url, {"managed_by": "gui"}, format="json")
+            assert released.status_code == status.HTTP_200_OK, released.json()
+            edited = self.client.patch(
+                template_url,
+                {"content": {"email": {"subject": "Edited in PostHog", "html": "<p>Edited</p>"}}},
+                format="json",
+            )
+            assert edited.status_code == status.HTTP_200_OK, edited.json()
+        before = MessageTemplate.objects.get(id=template_id)
+
+        response = self.psak.put(self.url, {**GREETING, "if_code_managed": True}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        after = MessageTemplate.objects.get(id=template_id)
+        if expected_status == status.HTTP_409_CONFLICT:
+            error = response.json()
+            assert error["code"] == "template_edited_in_posthog"
+            assert error["why"] and error["fix"]
+            assert (after.content, after.managed_by, after.content_hash) == (
+                before.content,
+                before.managed_by,
+                before.content_hash,
+            )
+        else:
+            assert after.content_hash == GREETING_HASH
+
     def _adopted_template_sending_from(self, sender: Integration) -> MessageTemplate:
         return MessageTemplate.objects.create(
             team=self.team,
@@ -278,6 +347,14 @@ class TestTemplateUpload(APIBaseTest):
                 "invalid_request",
                 "subject",
                 "Fix `subject` and upload again.",
+            ),
+            (
+                "no_body",
+                "welcome",
+                {"name": "Welcome", "subject": "Hi", "text": ""},
+                "invalid_request",
+                "html",
+                "Fix `html` and upload again.",
             ),
             (
                 "long_source_path",

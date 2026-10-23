@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "capture_engagement": {
+            "description": "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. They count as analytics events. Defaults to on for `template_key` and `template.key` sends, and to the project's setting for `template.id` sends.",
+            "type": "boolean"
+        },
+        "from": {
+            "description": "Sender, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, rendered content goes out from the project's default sender, and a template from its own sender. Not with `template.id`.",
+            "type": "string"
+        },
+        "html": {
+            "description": "HTML body of the rendered email. Only with `template_key`.",
+            "type": "string"
+        },
         "identifiers": {
             "description": "Who the email is for, used to attribute engagement events.",
             "properties": {
@@ -27,8 +39,22 @@
             },
             "type": "object"
         },
+        "reply_to": {
+            "description": "Addresses replies go to. Not with `template.id`.",
+            "items": {
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "subject": {
+            "description": "Subject of the rendered email. Only with `template_key`.",
+            "type": "string"
+        },
         "template": {
-            "description": "The template to send, by key or by id.",
+            "description": "The template to send, by key or by id. Leave it out to send content your code rendered, with `template_key`.",
             "properties": {
                 "hash": {
                     "description": "Content hash of the template you hold, as `v1:` and 64 hex characters. When PostHog never published that content, the send answers `template_outdated` and sends nothing. Only with `key`.",
@@ -45,6 +71,14 @@
             },
             "type": "object"
         },
+        "template_key": {
+            "description": "Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Send it with `subject` and `html` or `text`, instead of `template`. PostHog sends the content as is and never stores it as a template.",
+            "type": "string"
+        },
+        "text": {
+            "description": "Plain text body of the rendered email. Only with `template_key`. Without it, PostHog derives the text from `html`.",
+            "type": "string"
+        },
         "to": {
             "description": "Email address of the recipient.",
             "format": "email",
@@ -52,6 +86,6 @@
             "type": "string"
         }
     },
-    "required": ["to", "template"],
+    "required": ["to"],
     "type": "object"
 }

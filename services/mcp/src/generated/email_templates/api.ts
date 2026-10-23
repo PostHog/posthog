@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Send one transactional email to one recipient from a template named by its key or id. `message_data` fills the template's `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: content it never published sends nothing, and content that newer content replaced sends the current content with a `template_superseded` warning. Transactional emails skip opt-outs and frequency caps.
+ * Send one transactional email to one recipient, in one of two forms. A template named by its key or id: `message_data` fills its `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: a key or content it doesn't hold sends nothing and answers `template_outdated`, and content that newer content replaced sends the current content with a `template_superseded` warning. Or content your code rendered, named by `template_key`: PostHog sends it as is and never stores it. Transactional emails skip opt-outs and frequency caps.
  * @summary Send a transactional email
  */
 export const MessagingSendEmailCreateParams = () => zod.object({
@@ -21,6 +21,8 @@ export const MessagingSendEmailCreateParams = () => zod.object({
 })
 
 export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
+
+export const messagingSendEmailCreateBodyReplyToMax = 10
 
 export const MessagingSendEmailCreateBody = () => zod.object({
     to: zod.email().describe('Email address of the recipient.'),
@@ -61,7 +63,41 @@ export const MessagingSendEmailCreateBody = () => zod.object({
                 .optional()
                 .describe('ID of the template, for templates made in PostHog. Give either `key` or `id`.'),
         })
-        .describe('The template to send, by key or by id.'),
+        .optional()
+        .describe(
+            'The template to send, by key or by id. Leave it out to send content your code rendered, with `template_key`.'
+        ),
+    template_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Send it with `subject` and `html` or `text`, instead of `template`. PostHog sends the content as is and never stores it as a template.'
+        ),
+    subject: zod.string().optional().describe('Subject of the rendered email. Only with `template_key`.'),
+    html: zod.string().optional().describe('HTML body of the rendered email. Only with `template_key`.'),
+    text: zod
+        .string()
+        .optional()
+        .describe(
+            'Plain text body of the rendered email. Only with `template_key`. Without it, PostHog derives the text from `html`.'
+        ),
+    reply_to: zod
+        .array(zod.email())
+        .max(messagingSendEmailCreateBodyReplyToMax)
+        .optional()
+        .describe('Addresses replies go to. Not with `template.id`.'),
+    capture_engagement: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. They count as analytics events. Defaults to on for `template_key` and `template.key` sends, and to the project's setting for `template.id` sends."
+        ),
+    from: zod
+        .string()
+        .optional()
+        .describe(
+            "Sender, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, rendered content goes out from the project's default sender, and a template from its own sender. Not with `template.id`."
+        ),
 })
 
 /**
@@ -525,6 +561,7 @@ export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
 export const messagingTemplatesByKeyUpdateBodySourceOneRefMax = 400
 
 export const messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault = false
+export const messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault = false
 
 export const MessagingTemplatesByKeyUpdateBody = () => zod.object({
     name: zod
@@ -534,11 +571,16 @@ export const MessagingTemplatesByKeyUpdateBody = () => zod.object({
     subject: zod.string().describe('Email subject line. Supports Liquid, such as `{{ variables.first_name }}`.'),
     html: zod
         .string()
-        .describe('Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.'),
+        .optional()
+        .describe(
+            'Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. Send at least one of `html` and `text`.'
+        ),
     text: zod
         .string()
         .optional()
-        .describe("Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one."),
+        .describe(
+            "Plain-text body for email clients that can't show HTML, stored as sent. Send at least one of `html` and `text`. Leaving it out removes the stored one."
+        ),
     preheader: zod
         .string()
         .optional()
@@ -570,5 +612,11 @@ export const MessagingTemplatesByKeyUpdateBody = () => zod.object({
         .default(messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault)
         .describe(
             'Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content.'
+        ),
+    if_code_managed: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault)
+        .describe(
+            'Set it on uploads a send makes on its own. When people edit the template with this key in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. Leave it out to take the template over from PostHog.'
         ),
 })

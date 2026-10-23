@@ -2,8 +2,13 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "html": {
-            "description": "Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.",
+            "description": "Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. Send at least one of `html` and `text`.",
             "type": "string"
+        },
+        "if_code_managed": {
+            "default": false,
+            "description": "Set it on uploads a send makes on its own. When people edit the template with this key in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. Leave it out to take the template over from PostHog.",
+            "type": "boolean"
         },
         "if_not_superseded": {
             "default": false,
@@ -70,10 +75,10 @@
             "type": "string"
         },
         "text": {
-            "description": "Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one.",
+            "description": "Plain-text body for email clients that can't show HTML, stored as sent. Send at least one of `html` and `text`. Leaving it out removes the stored one.",
             "type": "string"
         }
     },
-    "required": ["key", "name", "subject", "html"],
+    "required": ["key", "name", "subject"],
     "type": "object"
 }

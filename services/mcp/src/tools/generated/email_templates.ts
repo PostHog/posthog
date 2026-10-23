@@ -299,6 +299,9 @@ const workflowsUploadEmailTemplate = (): ToolBase<
         if (params.if_not_superseded !== undefined) {
             body['if_not_superseded'] = params.if_not_superseded
         }
+        if (params.if_code_managed !== undefined) {
+            body['if_code_managed'] = params.if_code_managed
+        }
         const result = await context.api.request<Schemas.UploadTemplateResponse>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/by_key/${encodeURIComponent(String(params.key))}/`,
@@ -330,6 +333,27 @@ const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSche
         }
         if (params.template !== undefined) {
             body['template'] = params.template
+        }
+        if (params.template_key !== undefined) {
+            body['template_key'] = params.template_key
+        }
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.html !== undefined) {
+            body['html'] = params.html
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.reply_to !== undefined) {
+            body['reply_to'] = params.reply_to
+        }
+        if (params.capture_engagement !== undefined) {
+            body['capture_engagement'] = params.capture_engagement
+        }
+        if (params.from !== undefined) {
+            body['from'] = params.from
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
