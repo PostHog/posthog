@@ -6672,7 +6672,18 @@ class MCPToolQualityDailyStatItem(BaseModel):
     calls: int
     day: str
     errors: int
+    max: float | None = None
+    mean: float | None = None
+    min: float | None = Field(
+        default=None,
+        description=(
+            "Latency spread for the box plot view. Optional so responses cached before"
+            " these fields existed still parse."
+        ),
+    )
+    p25: float | None = None
     p50: float
+    p75: float | None = None
     p95: float
     p99: float
 

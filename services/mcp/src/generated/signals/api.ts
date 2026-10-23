@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 70 enabled ops
+ * PostHog API - MCP 71 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -552,6 +552,132 @@ export const SignalsReportsMergeCreateBody = () => zod.object({
         .describe(
             "Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters."
         ),
+})
+
+/**
+ * Apply a human reviewer edit, including on reports without a reviewer artefact.
+ * @summary Set a report's suggested reviewers
+ */
+export const SignalsReportsReviewersUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsReviewersUpdateBodyActionDefault = `replace`
+export const signalsReportsReviewersUpdateBodyContentItemGithubLoginMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemGithubNameMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemReasonMax = 500
+
+export const signalsReportsReviewersUpdateBodyContentMax = 10
+
+export const signalsReportsReviewersUpdateBodyTargetsItemGithubLoginMax = 200
+
+export const signalsReportsReviewersUpdateBodyTargetsItemGithubNameMax = 200
+
+export const signalsReportsReviewersUpdateBodyTargetsItemReasonMax = 500
+
+export const signalsReportsReviewersUpdateBodyTargetsMax = 10
+
+export const SignalsReportsReviewersUpdateBody = () => zod.object({
+    action: zod
+        .enum(['add', 'remove', 'replace', 'confirm'])
+        .describe('\* `add` - Add\n\* `remove` - Remove\n\* `replace` - Replace\n\* `confirm` - Confirm')
+        .default(signalsReportsReviewersUpdateBodyActionDefault)
+        .describe(
+            'Add or remove only the supplied people, replace the list, or explicitly confirm it.\n\n\* `add` - Add\n\* `remove` - Remove\n\* `replace` - Replace\n\* `confirm` - Confirm'
+        ),
+    expected_reviewers: zod
+        .object({
+            reviewers_id: zod
+                .string()
+                .nullable()
+                .describe('Current reviewer artefact ID, or null before the first list.'),
+            corrections_id: zod
+                .string()
+                .nullable()
+                .describe('Current corrections artefact ID, or null before corrections are stored.'),
+        })
+        .optional()
+        .describe('State from the last read. Required for replacement and confirmation when corrections are enabled.'),
+    content: zod
+        .array(
+            zod
+                .object({
+                    github_login: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemGithubLoginMax)
+                        .optional()
+                        .describe(
+                            'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                        ),
+                    user_uuid: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
+                        ),
+                    github_name: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemGithubNameMax)
+                        .optional()
+                        .describe('Optional human-readable display name. Not backfilled from GitHub by the server.'),
+                    reason: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemReasonMax)
+                        .nullish()
+                        .describe(
+                            'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                        ),
+                })
+                .describe(
+                    'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
+                )
+        )
+        .max(signalsReportsReviewersUpdateBodyContentMax)
+        .describe('People to add, remove, or keep in a replacement. Send an empty list for confirmation.'),
+    targets: zod
+        .array(
+            zod
+                .object({
+                    github_login: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemGithubLoginMax)
+                        .optional()
+                        .describe(
+                            'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                        ),
+                    user_uuid: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
+                        ),
+                    github_name: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemGithubNameMax)
+                        .optional()
+                        .describe('Optional human-readable display name. Not backfilled from GitHub by the server.'),
+                    reason: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemReasonMax)
+                        .nullish()
+                        .describe(
+                            'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                        ),
+                })
+                .describe(
+                    'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
+                )
+        )
+        .max(signalsReportsReviewersUpdateBodyTargetsMax)
+        .optional()
+        .describe('Explicit add or remove targets. When supplied, content is only a fallback for older servers.'),
 })
 
 /**

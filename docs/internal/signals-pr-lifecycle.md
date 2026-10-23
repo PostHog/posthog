@@ -167,16 +167,27 @@ This is prompt guidance, not an enforced access control, and it does not validat
 
 ## Reviewer notifications
 
-Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
-
-The `signals-research-reviewer-selection` flag lets research choose reviewers and preserve its selected order.
+With `signals-research-reviewer-selection` enabled, the research agent chooses report recipients in relevance order.
+Ownership files, CODEOWNERS, code history, report findings, and human corrections supply evidence for that choice.
+They cannot replace it with an ownership-first or commit-count selection.
 Research first reads recent human corrections from the project profile, which is available on every plan.
 It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
 The existing limit remains three reviewers.
 
-The pipeline skips a reviewer row when ordered identities and authorization evidence are unchanged.
-A different explanation alone does not add a row. Human edits retain precedence.
+A missing, malformed, or entirely ineligible decision retains valid existing recipients and records a failed selection.
+An explicit empty decision clears automatic recipients while preserving pins and confirmed lists.
+The artefact write path rechecks project access before saving; if all proposed candidates have become ineligible, it retains valid existing recipients.
+Report recipients need project access, but do not need GitHub accounts.
+Scout and custom-agent reports also preserve the agent's selected order through the existing artefact path.
+The saved list drives both the Inbox index and notification recipients; no later ownership selector reranks it.
+
+With research selection disabled, research uses the legacy ownership-and-commit selector.
+That rollback does not release corrections or bypass the artefact rules.
+The legacy resolver also remains an independent task-runner permission check; selecting a report recipient does not authorize a task.
+
+The pipeline skips a reviewer row when the accepted content is unchanged.
+Human corrections retain precedence.
 A real selection change after the first Slack notification can still leave that notification out of date.
 Automatic reviewer changes do not send additional Slack notifications.
 
@@ -193,7 +204,13 @@ The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 
-When an implementation pull request reaches the report, the worker requests reviews from suggested reviewers with connected GitHub accounts. It sends up to 15 reviewers per request. It skips the pull request author, existing assignees, the DRI it assigns, people with pending requests, and people who submitted a review. If GitHub rejects one reviewer, the worker continues with the other reviewers. Under the DRI rule, one assignee remains responsible for the pull request.
+When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.
+This makes the owner's work visible in both GitHub assignment and review-request lists.
+Without a single owner, it requests the highest-ranked eligible report reviewer only when no person or team request exists.
+Each attempt requests at most one person. It never removes existing requests.
+The worker skips the author, pending recipients, completed reviewers, and people whose review request was removed.
+Incomplete review or removal history prevents a new request.
+Personal assignment settings control ownership; they do not disable review requests.
 
 ## Assignment decisions
 
@@ -242,7 +259,7 @@ The same artefact table stores `reviewer_corrections`, with pins, exclusions, co
 Corrections and membership are saved atomically with the existing actor and process attribution.
 The first protected reviewer write recovers old corrections from reviewer deltas matched to activity records, under the report lock.
 It saves the result once. Reads use saved corrections; before recovery, they mark reports with old human edits as needing review.
-During rollout, automatic task start and PR owner selection wait for that recovery.
+During rollout, automatic task start and PR assignment wait for that recovery.
 A human-authored snapshot alone does not prove approval of the complete list.
 Incomplete history stops automatic changes until a person confirms the current list through the API.
 
@@ -272,6 +289,73 @@ Generic artefact PATCH and DELETE cannot change reviewer history, and clients ca
 If stored reviewer data is invalid, a person can replace the list with matching state, even with the writer flag off.
 The repair keeps the old rows and existing corrections. It does not confirm the list or clear the history-review marker.
 
+### Shared report and PR assignment
+
+With `signals-research-reviewer-selection` and `signals-assignment-writer` enabled, the saved report assignment supplies candidates for one PR owner.
+`signals-assignment-side-effects` must allow delivery. The legacy DRI flag does not change this rule.
+
+```mermaid
+flowchart LR
+    A{{Research or scout reads feedback}} --> B[Choose assignees]
+    B --> C[Check access and human corrections]
+    C --> D[(suggested_reviewers)]
+    D --> E[Inbox report]
+    D --> F[Check personal settings, accounts, and GitHub access]
+    F --> G[First eligible recipient becomes PR owner]
+    E --> H[Human edit and reason]
+    H --> I[(Existing corrections and notes)]
+    I --> A
+    classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
+    classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
+    classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
+    classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
+    class A phBlue;
+    class G phRed;
+    class E,H phYellow;
+    class B,C,D,F,I phGray;
+```
+
+The worker maps selected project members to their current personal GitHub accounts and checks repository assignability.
+Each attempt checks at most ten eligible candidates, in the saved order.
+It assigns the first eligible person whose **Assign me on GitHub** setting is on, then stops.
+A missing settings row, a missing GitHub account, or lost access skips that person. The worker can choose the next saved recipient, but nobody outside the report.
+If no saved recipient qualifies, the PR remains unassigned.
+The personal setting does not remove anyone from the report. Claims and owning teams do not change the selected list or its order.
+The report remains the source of the assignment. Logs record unavailable accounts, permission failures, and GitHub delivery failures.
+
+The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
+Queued work and retries use the current personal setting.
+Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
+The legacy DRI path also respects report exclusions and rechecks human choices before assignment.
+Claimants and suggested reviewers must be active project members to receive assignments or review requests.
+This first version selects an owner only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
+That work must preserve human GitHub changes and use the same ordered report candidates.
+GitHub's final read and write are not atomic, so a small external race remains.
+
+There is no separate PR model call, evidence collector, decision cache, or assignment artefact.
+The existing task permission checks remain separate. Report assignment does not authorize an agent to run under that person's account.
+GitHub review requests still use the current report list, subject to the existing request policy.
+
+The first loop trial uses one correction with a reason, a new related report, and an unrelated control case.
+Inspect the existing research trace and selection reason, then check the saved report list and PR assignment.
+Confirm that feedback changes the relevant choice and leaves the unrelated case unchanged.
+Confirm that selected people with the GitHub setting off remain on the report but receive no automatic GitHub assignment.
+The live trial remains pending; automated delivery tests do not establish research selection quality.
+
+### Identity and organization changes
+
+`resolve_reviewers.py` maps linked PostHog and GitHub identities in both directions. The existing `scout-members-list` tool
+exposes project members and known GitHub accounts to agents. Personal GitHub integrations and GitHub OAuth provide identity links;
+some existing lookup paths also use the GitHub App installer identity. Report recipients can use PostHog user UUIDs without GitHub accounts.
+
+The PR worker uses current personal GitHub integrations and OAuth links. It does not use the team installer identity as a personal link or discover new accounts.
+Verified discovery for unlinked accounts remains future work. It should extend the existing member tools, record the source and age of each link,
+and reject uncertain or conflicting matches. Similar names alone do not prove an identity.
+
+Access loss removes an ineligible report recipient on the next protected reviewer write. A team move with access retained changes selection evidence;
+it does not cancel a human pin. No general process currently finds and reassesses all old reports after organization changes.
+Such a process remains future work and must use the same correction rules. Existing manual GitHub choices remain authoritative.
+
 ### Rollout and rollback
 
 | Control                           | Allows                                                                                                                           |
@@ -280,6 +364,9 @@ The repair keeps the old rows and existing corrections. It does not confirm the 
 | `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for enrolled reports. |
 
 Both flags support organization targeting and require explicit enablement.
+The existing `signals-research-reviewer-selection` flag controls research selection and, with the writer enabled, shared report and PR assignment.
+PR delivery also requires the side-effect flag, including before a report enters the writer.
+Disabling research selection restores the legacy PR policies. Saved report corrections remain protected.
 They use local evaluation, so a report lock never waits for the flag service.
 Missing flag definitions keep the new behavior disabled.
 Enable the writer with side effects disabled to test real assignment changes without external delivery or task start.
