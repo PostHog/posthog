@@ -240,15 +240,32 @@ def test_post_query_sends_freshly_read_token(tmp_path):
     "query,query_parameters,expected",
     [
         (
+            "SELECT %(hogql_val_0)s AS `{hogql_val_0}`",
+            {"hogql_val_0": "` AS injected, 'quoted' -- \\"},
+            "SELECT '` AS injected, \\'quoted\\' -- \\\\' AS `{hogql_val_0}`",
+        ),
+        (
+            "SELECT %(value)s AS `{{value}}`, %(value)s AS `{value!r}`, %(value)s AS `{value.attr}`",
+            {"value": "literal {value} and %(value)s"},
+            "SELECT 'literal {value} and %(value)s' AS `{{value}}`, "
+            "'literal {value} and %(value)s' AS `{value!r}`, "
+            "'literal {value} and %(value)s' AS `{value.attr}`",
+        ),
+        (
+            "SELECT {value:String}, %(value)s",
+            {"value": "literal {value}"},
+            "SELECT {value:String}, 'literal {value}'",
+        ),
+        (
             # the empty-object sentinel HogQL prints for a native-JSON property read must not become '{0}'
-            "SELECT if(notEquals(x, '{}'), x, %(fallback)s) FROM t WHERE team_id = {{team_id:Int64}}",
+            "SELECT if(notEquals(x, '{}'), x, %(fallback)s) FROM t WHERE team_id = {team_id:Int64}",
             {"fallback": "{}"},
             "SELECT if(notEquals(x, '{}'), x, '{}') FROM t WHERE team_id = {team_id:Int64}",
         ),
         (
-            "select * from events where event = {event}",
+            "select * from events where event = '{event}'",
             {"event": "hello"},
-            "select * from events where event = 'hello'",
+            "select * from events where event = '{event}'",
         ),
         (
             "select * from events where event = %(event)s",
@@ -256,37 +273,35 @@ def test_post_query_sends_freshly_read_token(tmp_path):
             "select * from events where event = 'world'",
         ),
         (
-            "select * from events where event = %(event)s and event != {another}",
+            "select * from events where event = %(event)s and event != %(another)s",
             {"event": "index_{1}", "another": "event"},
             "select * from events where event = 'index_{1}' and event != 'event'",
         ),
         (
-            "select * from events where event = %(event)s and event != {another}",
+            "select * from events where event = %(event)s and event != %(another)s",
             {"event": "index_{something}", "another": "event"},
             "select * from events where event = 'index_{something}' and event != 'event'",
         ),
         # a value containing an unbalanced brace used to crash the format pass
         (
-            "select * from events where event = %(event)s and event != {another}",
+            "select * from events where event = %(event)s and event != %(another)s",
             {"event": "brace {", "another": "event"},
             "select * from events where event = 'brace {' and event != 'event'",
         ),
         # a JSON string value used to be mangled by the format pass
         (
-            "select * from events where properties = %(props)s and event != {another}",
+            "select * from events where properties = %(props)s and event != %(another)s",
             {"props": '{"a": 1}', "another": "event"},
             "select * from events where properties = '{\"a\": 1}' and event != 'event'",
         ),
         # a value matching another parameter's name must not be substituted again
         (
-            "select * from events where event = %(event)s and event != {another}",
+            "select * from events where event = %(event)s and event != %(another)s",
             {"event": "literal {another}", "another": "event"},
             "select * from events where event = 'literal {another}' and event != 'event'",
         ),
-        # the INSERT INTO FUNCTION s3(...) shape used by batch exports: intentional escapes
-        # collapse while a value containing '%' and braces survives verbatim
         (
-            "INSERT INTO FUNCTION s3('bucket/export_{{_partition_id}}.arrow') SELECT %(v)s SETTINGS log_comment={log_comment}",
+            "INSERT INTO FUNCTION s3('bucket/export_{_partition_id}.arrow') SELECT %(v)s SETTINGS log_comment=%(log_comment)s",
             {"v": '100%-{"a": 1}', "log_comment": "comment"},
             "INSERT INTO FUNCTION s3('bucket/export_{_partition_id}.arrow') SELECT '100%-{\"a\": 1}' SETTINGS log_comment='comment'",
         ),

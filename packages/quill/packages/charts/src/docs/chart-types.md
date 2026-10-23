@@ -79,7 +79,9 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 ## BarList
 
 Ranked rows: a label, a bar on a neutral track, and a value, one row per series.
-It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`.
+It is a preset over `StackedBarList` with one series and a color per bar.
+`StackedBarList` is a stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`, laid out in label, bar and value columns.
+Use `StackedBarList` directly when a row stacks several segments, such as a funnel step split by breakdown: it takes `labels` and `series` like `BarChart`, plus `renderLabel(rowIndex)` and `renderValue(rowIndex)` for the cells, `onPointClick`, and `config.valueDomain`.
 
 - It takes the same `series` as `PieChart` and values a row the same way, as the sum of its data floored at 0. Rows keep the order of `series`, so sort them first.
 - `config.scale: 'max'` (default) fills the track with the largest row. `'total'` makes the track the whole, so a bar shows its share.
@@ -98,6 +100,7 @@ It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'hori
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
 Supports `config.legend` for grouped series and `onBoxClick`.
 `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws values along x; `yScaleType: 'log'` then applies to that x value axis, and `yTickFormatter` formats its ticks.
+Whiskers are drawn at `min` and `max`. Set `whiskerMin` and `whiskerMax` on a datum to clip them (for example to 1.5 × IQR) while `min` and `max` stay the true extremes; the y-axis then spans the whiskers, and the default tooltip lists both.
 The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 Boxes have a light tint of the series color, a thick median line, and whiskers in the axis color. Set `config.boxCornerRadius: 0` for square corners.
 
@@ -110,6 +113,9 @@ A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex,
 `config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
 It runs for every cell, empty ones included; return null to leave one blank.
 Each label takes light or dark text from the cell fill behind it, and is dropped when the cell is too small for the text, so a dense grid falls back to a plain density map.
+`config.cellStyle` overrides single cells: `color` ramps that cell from a second accent (a summary row), `outlined` draws a dashed outline and no fill (a period still in progress), `filled` fills a 0 cell at the lightest step (a real zero, not missing data).
+`config.highlightedColumns` draws a band behind the named columns, for a column the consumer selected or is hovering.
+The consumer owns the column header, so it owns the click and hover that set those indices.
 
 ## SankeyChart
 

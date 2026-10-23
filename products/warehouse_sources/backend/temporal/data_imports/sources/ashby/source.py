@@ -99,8 +99,11 @@ You can create an API key under **Admin → API Keys** in Ashby. Grant read perm
         if schema_name is not None and schema_name not in ASHBY_ENDPOINTS:
             return False, f"Unknown Ashby schema '{schema_name}'"
 
-        path = ASHBY_ENDPOINTS[schema_name].probe_path if schema_name is not None else DEFAULT_PROBE_PATH
-        status, message = check_access(config.api_key, path)
+        if schema_name is not None:
+            endpoint_config = ASHBY_ENDPOINTS[schema_name]
+            status, message = check_access(config.api_key, endpoint_config.probe_path, endpoint_config.probe_body)
+        else:
+            status, message = check_access(config.api_key, DEFAULT_PROBE_PATH)
 
         if status == 200:
             return True, None

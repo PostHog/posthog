@@ -135,6 +135,7 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
+from products.signals.backend.anomaly_scores.schedule import create_anomaly_scoring_tick_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
@@ -826,6 +827,51 @@ async def create_finalize_usage_reports_schedule(client: Client):
         )
 
 
+async def create_reconcile_organization_active_state_schedule(client: Client):
+    """Nightly realignment of billing's deactivated flags with Organization.is_active, 04:45 UTC.
+
+    The Organization post_save signal is the real-time path; this sweep catches missed
+    flips (dispatch failures, writes that skip signals). Same slot as the Celery schedule
+    it replaces.
+    """
+    from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+        ReconcileOrganizationActiveStateInputs,
+    )
+
+    reconcile_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "reconcile-organization-active-state-to-billing",
+            asdict(ReconcileOrganizationActiveStateInputs()),
+            id="reconcile-organization-active-state-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 04:45 UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "reconcile-organization-active-state-schedule"):
+        await a_update_schedule(client, "reconcile-organization-active-state-schedule", reconcile_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "reconcile-organization-active-state-schedule",
+            reconcile_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -955,6 +1001,7 @@ schedules = [
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_activity_summary_tick_schedule,
+    create_anomaly_scoring_tick_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
@@ -994,6 +1041,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    schedules.append(create_reconcile_organization_active_state_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.

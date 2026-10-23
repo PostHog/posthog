@@ -172,6 +172,37 @@ def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMet
     return None
 
 
+def calculate_detectable_effect(
+    metric_type: CalculatorMetricType,
+    baseline_value: float,
+    control_samples: int,
+    variant_samples: int,
+    variance: float | None = None,
+) -> float | None:
+    """The smallest relative effect, as a percentage, that the sample-size formula detects between a control and a
+    variant of these sizes.
+
+    The inverse of :func:`calculate_sample_size`: for two variants of ``n`` samples each, the sample size for the
+    returned effect is about ``2 · n``. The formula takes variants of equal size, so ``1/n_control + 1/n_variant``
+    replaces its ``2/n`` for an uneven split.
+    """
+    if control_samples <= 0 or variant_samples <= 0 or baseline_value == 0:
+        return None
+
+    if metric_type == "funnel":
+        # A conversion rate of 0 or 1 has no binomial variance, so no effect size follows from it.
+        if not 0 < baseline_value < 1:
+            return None
+        variance = baseline_value * (1 - baseline_value)
+    elif variance is None:
+        variance = calculate_variance(metric_type, baseline_value)
+    if variance is None or variance <= 0:
+        return None
+
+    d = math.sqrt(SAMPLE_SIZE_Z_FACTOR / 2 * variance * (1 / control_samples + 1 / variant_samples))
+    return 100 * d / abs(baseline_value)
+
+
 def calculate_running_time_days(sample_size: int | None, exposure_rate_per_day: float | None) -> int | None:
     """Days to reach ``sample_size`` at ``exposure_rate_per_day`` exposures/day."""
     if not sample_size or not exposure_rate_per_day or exposure_rate_per_day <= 0:

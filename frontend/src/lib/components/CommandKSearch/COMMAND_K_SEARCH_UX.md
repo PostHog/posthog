@@ -91,13 +91,27 @@ The input is always in exactly one mode, decided from the token under the cursor
 ### Search mode
 
 - Free text plus all committed chips go to the file system endpoint in one request. Typing a value that names exactly one option (`is:dashboard`) commits it as a chip without Space, as if its suggestion were picked.
+- A search with words goes to the ranked search endpoint (`file_system/search/`). A search made only of filters goes to the list endpoint, because there are no words to rank.
 - Sections, in this fixed order, covering everything the current palette finds:
-  1. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines).
-  2. In-memory lists, filtered on every keystroke: **Products**, **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**.
-  3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
+  1. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines), and products. For a search with words, see [Ranked results](#ranked-results).
+  2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead.
+  3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number).
   4. **Ask PostHog AI**.
+  5. **Persons**, **Groups**. Person and group searches can take seconds, so they come last and nothing above them waits for them. The person search starts with the file system search, after 50 ms.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
+
+### Ranked results
+
+Results for a search with words follow ordered tie-breaking rules: words matched, typos, word proximity, name before folder, exact words, word position, exactness, the person's recent views, then recency. Products rank with the same rules through their name and search keywords, so "recordings" finds Session replay. When a name match and a search keyword match tie, the name match ranks first, so "metrics" puts Metrics above Data catalog.
+
+- When no result has every word, results use the words that matched. A callout above the results names the dropped word ("No matches for **xyzzy**. Showing results for **report**."). When every match needs a typo, it says "No exact matches for **dashbord**. Showing close spellings." The callout is not selectable.
+- **Best matches** comes first: the three best results of different types.
+- The other results follow in groups by type, each with its total count and up to three rows. A group ends with a **See all N <types>** row that adds the `is:` chip and keeps the words. A one-word search that starts a type name (`dash`, `flag`) moves that type's group up.
+- Results with the same name show as one row with a "+N with this name" badge.
+- A short list (8 or fewer) or a list of one type shows flat, under one **Results** header.
+- With an `is:` chip, results show as one flat list. The creator shows on rows that share a name.
+- Rows show the folder (when not Unfiled) and "viewed 3 days ago" when the person opened the item, otherwise "created 2 mos ago". Type labels show only in Best matches, where types mix.
 
 ## Smart filters
 
@@ -139,21 +153,21 @@ Rule for adding a filter: it ships only when its values can be suggested (static
 
 These are the rules reviewers check. Breaking one is a bug.
 
-1. **Fixed section order.** Sections render in the order in this doc for a given mode. A section never moves above another because its data arrived first.
-2. **Reserve space while loading.** The Results section renders skeleton rows at its last known height (or 3 on its first load) while it loads. It does not collapse to zero and then expand. Sections below Results that usually come back empty (Events, Properties, Workflows, Accounts, Support tickets, Persons, Groups) reserve nothing on their first load and appear only once they have rows, so skeletons never show up just to collapse.
-3. **Never blank on keystroke.** Keep the previous result set visible (dimmed slightly after 150 ms) until the new set arrives. Swap in one commit.
+1. **Fixed section order.** Sections render in the order in this doc for a given mode. A section never moves above another because its data arrived first. Ranked groups are ordered by their best result for each query, and do not move while that query's rows stay on screen.
+2. **Reserve space while loading.** On its first load, the Results section renders 3 skeleton rows, and nothing renders below it until the file system search returns. Products wait too, because they rank with the saved objects. Below Results, a section appears only once it and every section above it have loaded, so a late source never pushes rows on screen down. A section that comes back empty reserves nothing. While a section below Results is still loading, a quiet **Loading more…** row with a spinner sits at the very bottom, so people know more is coming. It fades in after 150 ms, so fast searches never flash it, and nothing above it ever moves.
+3. **Never blank on keystroke.** Keep the previous query's whole list visible (dimmed slightly after 150 ms) until the new query's results arrive. Then swap Results and the sections below it in one commit.
 4. **No mid-query re-rank.** Once rows for a query string are painted, later responses for the same query append to their own section. They never reorder rows above them.
 5. **Highlight follows identity, not index.** The highlighted row is tracked by item key (`section/type:ref`). Once the person moves the highlight (arrow keys or pointer), it stays on that item through result swaps for the same query while the item still exists. If it is gone, or the person never moved it, the first row is highlighted. Any change to the query (typing, clearing, adding or removing a chip) starts again at the first row.
 6. **Fixed row height.** Every row is one line, same height. Long names truncate with an ellipsis; the type label and timestamp never wrap.
-7. **Instant local, deferred remote.** Local sources (recents, starred, products, filter keys, type values, cached members) filter synchronously on every keystroke. Remote search debounces at 150 ms.
-8. **Latest wins.** Each remote request is aborted when a newer one starts (`AbortController`). A late response for an older query is dropped, never painted.
+7. **Instant local, deferred remote.** Local sources (recents, starred, products, filter keys, type values, cached members) filter synchronously on every keystroke. Remote search debounces at 150 ms, except the file system search, which debounces at 50 ms.
+8. **Latest wins.** Each remote request is aborted when a newer one starts (`AbortController`). A late response for an older query is dropped, never painted. A request that has not answered after 3 s settles empty, so the sections below it never wait longer than that.
 9. **Chips don't reflow the list.** Committing a chip changes the query but follows rules 3 to 5 like any other edit.
 
 ## Performance budget
 
 - Keystroke to paint: under 16 ms for local filtering. Measure in the React profiler before merging.
 - Remote result under 300 ms p95 for `file_system` search with filters.
-- Per-section caps: Filters 3, Suggestions 8 (`is:` lists every type, since that list is short and fixed), Results 20, Recents 5, Products, Settings, Persons and Groups 5 each in Search mode. No virtualization needed at these sizes.
+- Per-section caps: Filters 3, Suggestions 8 (`is:` lists every type, since that list is short and fixed), Results 20 (a ranked search fetches 40 and shows up to 3 per group), Recents 5, Products, Settings, Persons and Groups 5 each in Search mode. No virtualization needed at these sizes.
 - Cache remote responses by normalized query string (sorted chips + trimmed text) for the life of the palette. Backspacing to an earlier query paints from cache with zero network.
 - Org members for `createdBy:` and folders for `in:` load the first time that filter is used, then filter locally. Opening the palette sends no request.
 - The parser and the local filters are pure and memoized on input text.
@@ -193,6 +207,6 @@ These are the rules reviewers check. Breaking one is a bug.
 Every step emits an event so we can see adoption and drop-off:
 
 - `command k search opened` (source: shortcut, button)
-- `command k filter suggested` / `command k filter committed` (key, value kind, via: tab, enter, space, paste)
-- `command k result opened` (section, position, has_filters, filter_keys, query_length)
+- `command k filter suggested` / `command k filter committed` (key, value kind, via: tab, enter, space, paste, see-all)
+- `command k result opened` (section, position, has_filters, filter_keys, query_length, ranked_section: `best-matches`, `group-<type>`, or the local section)
 - `command k search abandoned` (closed with no result opened; last mode, had_filters)

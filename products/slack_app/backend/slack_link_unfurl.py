@@ -63,8 +63,10 @@ from products.slack_app.backend.logic.link_unfurl_charts import (
     slack_fetchable_image_url,
     with_chart_images,
 )
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
     SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
     SlackAppUnfurlChartsWorkflow,
@@ -1315,6 +1317,30 @@ def add_artifact_image_to_unfurl(
     )
 
 
+def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
+    """The Slack user steering the run in this thread, when that run was told to share chart links.
+
+    Slack credits a message our app posts to our bot user, and some bot-posted messages to the
+    placeholder author. Neither resolves to a PostHog user, so a thread whose run shares links is
+    the signal that such a message is our reply, written for that person with their PostHog
+    access. The run state holds the decision, so no flag call here."""
+    if not event.get("thread_ts"):
+        return None
+    actors = (
+        SlackThreadTaskMapping.objects.filter(
+            integration=integration,
+            channel=event["channel"],
+            thread_ts=event["thread_ts"],
+            task_run__state__slack_chart_links=True,
+        )
+        .values_list(
+            "task_run__state__slack_actor_slack_user_id", "latest_actor_slack_user_id", "mentioning_slack_user_id"
+        )
+        .first()
+    )
+    return next((actor for actor in actors or () if actor), None)
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
@@ -1335,7 +1361,14 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     # Imported here to avoid circular import with api (api imports this module at load time).
-    from products.slack_app.backend.api import resolve_slack_user
+    from products.slack_app.backend.api import SLACK_PLACEHOLDER_USER_ID, resolve_slack_user
+
+    bot_authors = {SLACK_PLACEHOLDER_USER_ID, get_cached_bot_user_id(slack, integration)}
+    bot_reply_actor = _bot_reply_actor(integration, event) if slack_user_id in bot_authors else None
+    if bot_reply_actor:
+        slack_user_id = bot_reply_actor
+        # Everything downstream, the chart workflow included, reads the sharer from the event.
+        event = {**event, "user": bot_reply_actor}
 
     user_context = resolve_slack_user(
         slack,
@@ -1484,4 +1517,5 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         followup_invite_shown=invite is not None,
         charts_queued=charts_queued,
         artifact_image_queued=artifact_image_queued,
+        bot_reply=bot_reply_actor is not None,
     )

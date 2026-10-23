@@ -20,22 +20,22 @@ FROM (
         FROM
             person
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND id in (
                 SELECT
                     id
                 FROM
                     person
                 WHERE
-                    team_id = {team_id}::Int64
-                    AND _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
+                    team_id = %(team_id)s::Int64
+                    AND _timestamp >= %(interval_start)s::DateTime64
+                    AND _timestamp < %(interval_end)s::DateTime64
             )
         GROUP BY
             id
         HAVING
-            argMax(_timestamp, person.version) >= {interval_start}::DateTime64
-            AND argMax(_timestamp, person.version) < {interval_end}::DateTime64
+            argMax(_timestamp, person.version) >= %(interval_start)s::DateTime64
+            AND argMax(_timestamp, person.version) < %(interval_end)s::DateTime64
     ),
     distinct_ids AS (
         -- new distinct_ids
@@ -44,22 +44,22 @@ FROM (
         FROM
             person_distinct_id2
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND distinct_id in (
                 SELECT
                     distinct_id
                 FROM
                     person_distinct_id2
                 WHERE
-                    team_id = {team_id}::Int64
-                    AND _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
+                    team_id = %(team_id)s::Int64
+                    AND _timestamp >= %(interval_start)s::DateTime64
+                    AND _timestamp < %(interval_end)s::DateTime64
             )
         GROUP BY
             distinct_id
         HAVING
-            argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
-            AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
+            argMax(_timestamp, person_distinct_id2.version) >= %(interval_start)s::DateTime64
+            AND argMax(_timestamp, person_distinct_id2.version) < %(interval_end)s::DateTime64
 
         UNION DISTINCT
 
@@ -69,7 +69,7 @@ FROM (
         FROM
             person_distinct_id2
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND person_id IN new_persons
     ),
     latest_distinct_ids AS (
@@ -81,7 +81,7 @@ FROM (
         FROM
             person_distinct_id2
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND distinct_id IN distinct_ids
         GROUP BY
             distinct_id
@@ -94,7 +94,7 @@ FROM (
         FROM
             person
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND
             id IN (
                 SELECT
@@ -116,21 +116,21 @@ FROM (
         toBool(p.is_deleted) AS is_deleted,
         multiIf(
             (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                pd._timestamp >= %(interval_start)s::DateTime64
+                AND pd._timestamp < %(interval_end)s::DateTime64
             )
             AND NOT (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp >= %(interval_start)s::DateTime64
+                AND p._timestamp < %(interval_end)s::DateTime64
             ),
             pd._timestamp,
             (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp >= %(interval_start)s::DateTime64
+                AND p._timestamp < %(interval_end)s::DateTime64
             )
             AND NOT (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                pd._timestamp >= %(interval_start)s::DateTime64
+                AND pd._timestamp < %(interval_end)s::DateTime64
             ),
             p._timestamp,
             least(p._timestamp, pd._timestamp)
@@ -140,7 +140,7 @@ FROM (
         INNER JOIN latest_distinct_ids pd
             ON p.id = pd.person_id2
     WHERE
-        p.team_id = {team_id}::Int64
+        p.team_id = %(team_id)s::Int64
         AND (p.id, p.version, p._timestamp) in latest_person_versions
     ORDER BY
         _inserted_at
@@ -172,22 +172,22 @@ FROM (
         FROM
             person
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND id in (
                 SELECT
                     id
                 FROM
                     person
                 WHERE
-                    team_id = {team_id}::Int64
-                    AND _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
+                    team_id = %(team_id)s::Int64
+                    AND _timestamp >= %(interval_start)s::DateTime64
+                    AND _timestamp < %(interval_end)s::DateTime64
             )
         GROUP BY
             id
         HAVING
-            argMax(_timestamp, person.version) >= {interval_start}::DateTime64
-            AND argMax(_timestamp, person.version) < {interval_end}::DateTime64
+            argMax(_timestamp, person.version) >= %(interval_start)s::DateTime64
+            AND argMax(_timestamp, person.version) < %(interval_end)s::DateTime64
     ),
     distinct_ids AS (
         -- new distinct_ids
@@ -196,22 +196,22 @@ FROM (
         FROM
             person_distinct_id2
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND distinct_id in (
                 SELECT
                     distinct_id
                 FROM
                     person_distinct_id2
                 WHERE
-                    team_id = {team_id}::Int64
-                    AND _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
+                    team_id = %(team_id)s::Int64
+                    AND _timestamp >= %(interval_start)s::DateTime64
+                    AND _timestamp < %(interval_end)s::DateTime64
             )
         GROUP BY
             distinct_id
         HAVING
-            argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
-            AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
+            argMax(_timestamp, person_distinct_id2.version) >= %(interval_start)s::DateTime64
+            AND argMax(_timestamp, person_distinct_id2.version) < %(interval_end)s::DateTime64
 
         UNION DISTINCT
 
@@ -221,7 +221,7 @@ FROM (
         FROM
             person_distinct_id2
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND person_id IN new_persons
     ),
     latest_distinct_ids AS (
@@ -233,7 +233,7 @@ FROM (
         FROM
             person_distinct_id2
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND distinct_id IN distinct_ids
         GROUP BY
             distinct_id
@@ -247,7 +247,7 @@ FROM (
         FROM
             person
         WHERE
-            team_id = {team_id}::Int64
+            team_id = %(team_id)s::Int64
             AND
             id IN (
                 SELECT
@@ -269,21 +269,21 @@ FROM (
         toBool(p.is_deleted) AS is_deleted,
         multiIf(
             (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                pd._timestamp >= %(interval_start)s::DateTime64
+                AND pd._timestamp < %(interval_end)s::DateTime64
             )
             AND NOT (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp >= %(interval_start)s::DateTime64
+                AND p._timestamp < %(interval_end)s::DateTime64
             ),
             pd._timestamp,
             (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp >= %(interval_start)s::DateTime64
+                AND p._timestamp < %(interval_end)s::DateTime64
             )
             AND NOT (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                pd._timestamp >= %(interval_start)s::DateTime64
+                AND pd._timestamp < %(interval_end)s::DateTime64
             ),
             p._timestamp,
             least(p._timestamp, pd._timestamp)
@@ -293,14 +293,14 @@ FROM (
         INNER JOIN latest_distinct_ids pd
             ON p.id = pd.person_id2
     WHERE
-        p.team_id = {team_id}::Int64
+        p.team_id = %(team_id)s::Int64
         AND (p.id, p.version, p._timestamp) in latest_person_versions
 ) AS persons
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
     max_bytes_before_external_sort=50000000000,
     optimize_aggregation_in_order=1,
-    log_comment={log_comment}
+    log_comment=%(log_comment)s
 """)
 
 
@@ -315,11 +315,11 @@ SELECT
     p.created_at AS created_at,
     toBool(p.is_deleted) AS is_deleted,
     multiIf(
-        pd._timestamp < {interval_end}::DateTime64
-            AND NOT p._timestamp < {interval_end}::DateTime64,
+        pd._timestamp < %(interval_end)s::DateTime64
+            AND NOT p._timestamp < %(interval_end)s::DateTime64,
         pd._timestamp,
-        p._timestamp < {interval_end}::DateTime64
-            AND NOT pd._timestamp < {interval_end}::DateTime64,
+        p._timestamp < %(interval_end)s::DateTime64
+            AND NOT pd._timestamp < %(interval_end)s::DateTime64,
         p._timestamp,
         least(p._timestamp, pd._timestamp)
     ) AS _inserted_at
@@ -333,7 +333,7 @@ FROM (
     FROM
         person_distinct_id2
     PREWHERE
-        team_id = {team_id}::Int64
+        team_id = %(team_id)s::Int64
     GROUP BY
         team_id,
         distinct_id
@@ -350,17 +350,17 @@ INNER JOIN (
     FROM
         person
     PREWHERE
-        team_id = {team_id}::Int64
+        team_id = %(team_id)s::Int64
     GROUP BY
         team_id,
         id
 ) AS p ON p.id = pd.person_id AND p.team_id = pd.team_id
 WHERE
-    pd.team_id = {team_id}::Int64
-    AND p.team_id = {team_id}::Int64
+    pd.team_id = %(team_id)s::Int64
+    AND p.team_id = %(team_id)s::Int64
     AND (
-        pd._timestamp < {interval_end}::DateTime64
-        OR p._timestamp < {interval_end}::DateTime64
+        pd._timestamp < %(interval_end)s::DateTime64
+        OR p._timestamp < %(interval_end)s::DateTime64
     )
 ORDER BY
     _inserted_at
@@ -384,11 +384,11 @@ SELECT
     p.created_at AS created_at,
     toBool(p.is_deleted) AS is_deleted,
     multiIf(
-        pd._timestamp < {interval_end}::DateTime64
-            AND NOT p._timestamp < {interval_end}::DateTime64,
+        pd._timestamp < %(interval_end)s::DateTime64
+            AND NOT p._timestamp < %(interval_end)s::DateTime64,
         pd._timestamp,
-        p._timestamp < {interval_end}::DateTime64
-            AND NOT pd._timestamp < {interval_end}::DateTime64,
+        p._timestamp < %(interval_end)s::DateTime64
+            AND NOT pd._timestamp < %(interval_end)s::DateTime64,
         p._timestamp,
         least(p._timestamp, pd._timestamp)
     ) AS _inserted_at
@@ -402,7 +402,7 @@ FROM (
     FROM
         person_distinct_id2
     PREWHERE
-        team_id = {team_id}::Int64
+        team_id = %(team_id)s::Int64
     GROUP BY
         team_id,
         distinct_id
@@ -419,21 +419,21 @@ INNER JOIN (
     FROM
         person
     PREWHERE
-        team_id = {team_id}::Int64
+        team_id = %(team_id)s::Int64
     GROUP BY
         team_id,
         id
 ) AS p ON p.id = pd.person_id AND p.team_id = pd.team_id
 WHERE
-    pd.team_id = {team_id}::Int64
-    AND p.team_id = {team_id}::Int64
+    pd.team_id = %(team_id)s::Int64
+    AND p.team_id = %(team_id)s::Int64
     AND (
-        pd._timestamp < {interval_end}::DateTime64
-        OR p._timestamp < {interval_end}::DateTime64
+        pd._timestamp < %(interval_end)s::DateTime64
+        OR p._timestamp < %(interval_end)s::DateTime64
     )
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
     max_bytes_before_external_sort=50000000000,
     optimize_aggregation_in_order=1,
-    log_comment={log_comment}
+    log_comment=%(log_comment)s
 """)

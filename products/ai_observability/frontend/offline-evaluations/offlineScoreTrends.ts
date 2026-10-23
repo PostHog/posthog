@@ -241,7 +241,7 @@ export function getOfflineHistoryCoverage(page: OfflineHistoryPageApi, timezone:
     return `${page.results.length} of ${page.count} experiment/version results${span}${page.count > page.results.length ? ' · Partial history' : ''}`
 }
 
-export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineTrendPanel[] {
+export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[], combineVersions = false): OfflineTrendPanel[] {
     const durations = periods.map((period) =>
         period.dateFrom && period.dateTo ? Date.parse(period.dateTo) - Date.parse(period.dateFrom) : null
     )
@@ -253,7 +253,9 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
         for (const point of period.points) {
             const { summary } = point
             const scorer = summary.scorer
-            const configuration = `${scorer.kind}:${JSON.stringify(scorer.config)}`
+            const configuration = combineVersions
+                ? `${scorer.definition_id}:${scorer.kind}`
+                : `${scorer.kind}:${JSON.stringify(scorer.config)}`
             const panelKey = `${configuration}:${elapsed ? 'overlay' : period.key}`
             let panel = panels.get(panelKey)
             if (!panel) {
@@ -272,6 +274,14 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
                             : undefined,
                 }
                 panels.set(panelKey, panel)
+            } else if (
+                combineVersions &&
+                !(
+                    panel.passingRule?.operator === offlineNumericPassingRule(scorer)?.operator &&
+                    panel.passingRule?.threshold === offlineNumericPassingRule(scorer)?.threshold
+                )
+            ) {
+                panel.passingRule = null
             }
             const metrics =
                 scorer.kind === 'categorical'

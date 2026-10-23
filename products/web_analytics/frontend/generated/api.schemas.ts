@@ -1450,6 +1450,8 @@ export interface ContentAutopilotProposalListApi {
     validation_report: ContentAutopilotValidationReportApi
     /** Repository-relative export path. */
     readonly file_path: string
+    /** Existing or intended public URL. */
+    readonly target_url: string
     readonly created_at: string
     readonly updated_at: string
 }

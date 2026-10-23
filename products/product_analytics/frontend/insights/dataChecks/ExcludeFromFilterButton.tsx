@@ -10,6 +10,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
     Button,
+    Text,
 } from '@posthog/quill'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -34,7 +35,7 @@ export function ExcludeFromFilterButton({
 }): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
     const { currentTeamLoading } = useValues(logic)
-    const { addFilterRule } = useActions(logic)
+    const { addFilterRule, reportButtonClicked } = useActions(logic)
     const rule = check.filter_to_add
 
     if (!rule) {
@@ -49,6 +50,7 @@ export function ExcludeFromFilterButton({
                         target="_blank"
                     />
                 }
+                onClick={() => reportButtonClicked('edit_filter', check.key)}
                 data-attr="insight-data-check-filter-settings"
             >
                 Edit filter
@@ -73,6 +75,7 @@ export function ExcludeFromFilterButton({
                                 ? undefined
                                 : 'Only project admins can change the internal and test users filter.'
                         }
+                        onClick={() => reportButtonClicked('add_filter_rule', check.key)}
                         data-attr="insight-data-check-add-filter-rule"
                     />
                 }
@@ -85,16 +88,27 @@ export function ExcludeFromFilterButton({
                     <AlertDialogDescription>
                         {`Every insight that filters out internal and test users will also leave out events where ${property} is one of these:`}
                     </AlertDialogDescription>
+                    <ul className="my-1 flex max-h-48 list-disc flex-col gap-1 overflow-y-auto ps-4 text-xs">
+                        {rule.value.map((value) => (
+                            <li key={value}>{value}</li>
+                        ))}
+                    </ul>
+                    <Text size="xs" variant="muted">
+                        You can change the rule later in project settings.
+                    </Text>
                 </AlertDialogHeader>
-                <ul className="m-0 flex max-h-48 flex-col gap-1 overflow-y-auto ps-4 text-xs">
-                    {rule.value.map((value) => (
-                        <li key={value}>{value}</li>
-                    ))}
-                </ul>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
                     <AlertDialogClose
-                        render={<Button variant="primary" onClick={() => addFilterRule(check)} />}
+                        render={
+                            <Button
+                                variant="primary"
+                                onClick={() => {
+                                    reportButtonClicked('add_filter_rule_confirm', check.key)
+                                    addFilterRule(check)
+                                }}
+                            />
+                        }
                         data-attr="insight-data-check-add-filter-rule-confirm"
                     >
                         Add rule

@@ -7,7 +7,7 @@ from django.conf import settings
 
 import structlog
 
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
@@ -178,11 +178,12 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 # validated against this set where it is stored, and `resolve_scopes` intersects against it
 # again at mint time, so a stale or hand-edited grant cannot widen a token.
 #
-# Every entry is an artifact-shaped write, which is what makes an unattended agent holding one
-# acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
-# destination is arbitrary egress; `feature_flag:write`, `experiment:write` and `survey:write`,
-# because they change what end users see in production; `cohort:write` and `action:write` until
-# a scout needs them; and anything organization, user, member, or role shaped.
+# Every entry but `experiment:write` is an artifact-shaped write, which is what makes an unattended
+# agent holding one acceptable at all. Its entry below says why it is the exception. Kept out on
+# purpose: `hog_function:write` and batch exports, because a destination is arbitrary egress;
+# `feature_flag:write` and `survey:write`, because they change what end users see in production;
+# `cohort:write` and `action:write` until a scout needs them; and anything organization, user,
+# member, or role shaped.
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
@@ -244,6 +245,12 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
+#   ticket:write           Support ticket fields and saved ticket views, plus new private notes.
+#                          The API blocks scouts from public replies, outbound compose, customer
+#                          identity changes, existing-note changes, and generic ticket comments.
+#                          Ticket field changes can still start configured workflows that message
+#                          customers. Ticket delete is outside the scope. Saved view delete is
+#                          permanent and removes member pins; a view is a name and filter set.
 #   canvas:write           Every canvas in a public space of the scout's project, and every canvas
 #                          the acting user created in a space they can see (see
 #                          `authorized_canvases`): publish a new version, patch a grid layout, write
@@ -253,6 +260,21 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          recoverable soft-delete and only reaches canvases the acting user created.
 #                          A scout cannot create a canvas: a sandbox may only file one in its task's
 #                          space, and a scout task has none. It maintains one a person created.
+#   experiment:write       Every experiment in the scout's project, not only the ones the scout
+#                          created: create, update, duplicate, archive, and the lifecycle actions
+#                          launch, pause, resume, end, and reset. Launch and pause turn the linked
+#                          feature flag on and off, so unlike every other entry here this scope
+#                          CHANGES WHAT END USERS SEE. It is grantable because a person turns it on
+#                          for one scout on purpose, and the picker says so.
+#                          `products/experiments/backend/presentation/scout_writes.py` narrows it
+#                          for scouts: no delete (archive instead), no copy to another project, no
+#                          migration (it creates shared metrics), and no flag cleanup PR (a scout
+#                          already holds `task:write`). Without `feature_flag:write` a scout also
+#                          cannot ship a variant or change the variants, rollout, or holdout of a
+#                          launched experiment or a live flag, because each of those rewrites the
+#                          rollout. The extra scopes in `dangerously_get_required_scopes` still
+#                          apply, so the grant alone cannot disable a flag on archive or set the
+#                          team default repository. It can also create an exposure cohort.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -280,7 +302,9 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "ticket:write",
         "canvas:write",
+        "experiment:write",
     }
 )
 
@@ -663,7 +687,7 @@ def _organization_id_for_team(team_id: int) -> str:
 
 
 class WizardIdentityBlockedError(Exception):
-    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    """An access rule refuses this identity a wizard credential. Distinct from
     the mint's RuntimeError cases because it is permanent, and a caller that retries
     a transient token failure must not retry this one."""
 
@@ -678,16 +702,6 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     resume reaches with no request in front of it.
     """
     organization_id = _organization_id_for_team(team_id)
-    if wizard_identity_blocked(
-        distinct_id=str(user.distinct_id),
-        email=user.email,
-        surface="wizard_mint",
-        user_uuid=str(user.uuid),
-        organization_ids=[organization_id],
-        team_ids=[team_id],
-    ):
-        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
-
     try:
         refused = security_access_refused(
             SecuritySubject(

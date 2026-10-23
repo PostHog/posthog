@@ -50,6 +50,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
+    AgentModelOptionsSerializer,
     ArtifactContentSerializer,
     ArtifactDeleteResultSerializer,
     ArtifactListSerializer,
@@ -221,6 +222,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         "list_templates",
         "resolve_template",
         "online_performance",
+        "agent_models",
     ]
     scope_object_write_actions = [
         "create",
@@ -259,7 +261,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         # them on or off, or archives or deletes a pipeline that writes them, needs person:write
         # like /score does.
         if self.action in ("create", "update", "partial_update"):
-            writes_persons = "write_person_property" in request.data
+            # A JSON null or list body is not a dict, so let the serializer reject it with a 400.
+            writes_persons = isinstance(request.data, dict) and "write_person_property" in request.data
         elif self.action in ("archive", "destroy") and not getattr(self, "swagger_fake_view", False):
             # Schema generation has no pipeline to read, so it documents the base scopes.
             writes_persons = api.pipeline_writes_person_property(self.team_id, self.kwargs["pk"])
@@ -368,6 +371,19 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     @action(detail=False, methods=["get"], url_path="templates", pagination_class=None)
     def list_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(TemplateInfoSerializer(instance=api.list_templates(), many=True).data)
+
+    @extend_schema(
+        responses={200: AgentModelOptionsSerializer},
+        summary="List training agent models",
+        description=(
+            "Return the models a pipeline's training agent may run on, with the reasoning efforts each supports "
+            "and its relative token cost, plus the model and effort a pipeline with blank settings uses. "
+            "Pass a model id as agent_model and an effort as agent_reasoning_effort on create or update."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="agent_models", pagination_class=None)
+    def agent_models(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(AgentModelOptionsSerializer(instance=api.list_agent_model_options()).data)
 
     @validated_request(
         request_serializer=ResolveTemplateRequestSerializer,
