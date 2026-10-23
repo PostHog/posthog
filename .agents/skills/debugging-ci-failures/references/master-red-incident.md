@@ -53,9 +53,11 @@ The commands above read the same evidence.
 
 ### The lane on Depot CI
 
-`Backend CI (scheduled)` is the hourly full test matrix. It runs on Depot CI, so GitHub has no runs or logs for it.
-The alert gives this lane a Depot run ID, ten characters such as `b1c2d3f4g5`, and a depot.dev URL.
-The alerter reads the lane from Depot when it opens the incident, so the alerted run is the newest failing run.
+`Backend CI (scheduled)` is the hourly full test matrix.
+`Backend CI` without the suffix is the master push run.
+Depot stores both types of runs and their logs; GitHub receives job checks.
+The alert includes a Depot run ID, such as `b1c2d3f4g5`, and a depot.dev URL.
+The alerter reads Depot when it opens the incident, so the alert identifies the newest failing run at that time.
 
 Depot posts a check for each job on the master commit that the run tested.
 Those checks give each job's conclusion and times, with no log text.

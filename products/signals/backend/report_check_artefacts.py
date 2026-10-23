@@ -2,8 +2,8 @@
 
 Every writer lives here rather than at its call site, because a lifecycle entry is written from
 four places — the shared authoring path, the expiry sweep, and the cancel paths — and they have to
-agree on what an entry says. Each is best-effort: the transition has already happened, and losing
-its log entry must not fail it.
+agree on what an entry says. Writers are best-effort unless their caller requires the log to
+commit with its transition.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ def _write(
     check: SignalReportCheck,
     content: CheckScheduled | CheckExpired | CheckCancelled,
     attribution: ArtefactAttribution,
+    *,
+    raise_on_error: bool = False,
 ) -> None:
     try:
         SignalReportArtefact.add_log(
@@ -33,6 +35,8 @@ def _write(
             attribution=attribution,
         )
     except Exception:
+        if raise_on_error:
+            raise
         logger.exception(
             "signals.report_check.lifecycle_artefact_failed",
             check_id=str(check.id),
@@ -76,7 +80,7 @@ def write_check_scheduled(check: SignalReportCheck, attribution: ArtefactAttribu
     )
 
 
-def write_check_expired(check: SignalReportCheck, expired_at: datetime) -> None:
+def write_check_expired(check: SignalReportCheck, expired_at: datetime, *, raise_on_error: bool = False) -> None:
     """Record that a check reached its horizon without settling.
 
     Attributed to the system, because no author chose this: the sweep retires the row when its
@@ -92,6 +96,7 @@ def write_check_expired(check: SignalReportCheck, expired_at: datetime) -> None:
             last_run_at=check.last_run_at.isoformat() if check.last_run_at else None,
         ),
         ArtefactAttribution.system(),
+        raise_on_error=raise_on_error,
     )
 
 

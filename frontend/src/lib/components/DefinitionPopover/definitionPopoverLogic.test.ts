@@ -163,6 +163,7 @@ describe('definitionPopoverLogic', () => {
                 type: TaxonomicFilterGroupType | string
                 definition: TaxonomicDefinitionTypes
                 url?: string
+                payload?: Record<string, unknown>
                 dispatchActions: any[]
             }[] = [
                 {
@@ -208,6 +209,8 @@ describe('definitionPopoverLogic', () => {
                     type: TaxonomicFilterGroupType.Cohorts,
                     definition: mockCohort,
                     url: `api/projects/${MOCK_TEAM_ID}/cohorts/${mockCohort.id}`,
+                    // The full cohort carries its query, which would re-populate a static cohort
+                    payload: { description: 'new and improved description' },
                     dispatchActions: [cohortsModel, ['updateCohort']],
                 },
                 {
@@ -240,7 +243,7 @@ describe('definitionPopoverLogic', () => {
                     if (group.url) {
                         expect(api.update).toHaveBeenCalledWith(
                             group.url,
-                            expect.objectContaining({ description: 'new and improved description' })
+                            group.payload ?? expect.objectContaining({ description: 'new and improved description' })
                         )
                     }
                 })

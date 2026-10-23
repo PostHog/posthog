@@ -25,6 +25,7 @@ import { DataQualityOverview } from 'products/data_quality/frontend/overview/Dat
 import { ModelsLineageTab } from './lineage/ModelsLineageTab'
 import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
+import { ModelsUsageTab } from './ModelsUsageTab'
 import { ViewsTab } from './ViewsTab'
 
 export const scene: SceneExport = {
@@ -34,7 +35,8 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, suspensionBySavedQueryId } = useValues(modelsSceneLogic)
+    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, suspensionBySavedQueryId, usageEnabled } =
+        useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: Pick<DataWarehouseSavedQuery, 'id'>): string => {
@@ -66,6 +68,17 @@ export function ModelsScene(): JSX.Element {
             content: <ViewsTab getViewUrl={getViewUrl} suspensionByViewId={suspensionBySavedQueryId} />,
             'data-attr': 'models-tab-models',
         },
+        ...(usageEnabled
+            ? [
+                  {
+                      key: 'usage' as const,
+                      label: 'Usage',
+                      link: urls.models('usage'),
+                      content: <ModelsUsageTab />,
+                      'data-attr': 'models-tab-usage',
+                  },
+              ]
+            : []),
         {
             key: 'lineage',
             label: 'Lineage',
