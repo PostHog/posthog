@@ -296,6 +296,49 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     return results
 }
 
+/**
+ * Runs tasks in first-in, first-out order with at most `limit` tasks at the same time.
+ * A task whose signal aborts while it waits does not start, and its promise rejects with an AbortError.
+ */
+export class TaskQueue {
+    private running = 0
+    private readonly waiting: { start: () => void; drop: () => void }[] = []
+
+    constructor(private readonly limit: number) {}
+
+    run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new DOMException('Aborted', 'AbortError'))
+                return
+            }
+            const entry = {
+                start: (): void => {
+                    signal?.removeEventListener('abort', entry.drop)
+                    this.running++
+                    new Promise<T>((resolveTask) => resolveTask(task())).then(resolve, reject).finally(() => {
+                        this.running--
+                        this.startNext()
+                    })
+                },
+                drop: (): void => {
+                    this.waiting.splice(this.waiting.indexOf(entry), 1)
+                    reject(new DOMException('Aborted', 'AbortError'))
+                },
+            }
+            signal?.addEventListener('abort', entry.drop, { once: true })
+            this.waiting.push(entry)
+            this.startNext()
+        })
+    }
+
+    private startNext(): void {
+        while (this.running < this.limit && this.waiting.length > 0) {
+            this.waiting.shift()!.start()
+        }
+    }
+}
+
 export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
 
