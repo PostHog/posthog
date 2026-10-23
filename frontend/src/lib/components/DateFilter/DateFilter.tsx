@@ -5,6 +5,7 @@ import { forwardRef, useEffect, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import { Button, SelectTriggerIcon } from '@posthog/quill'
 
 import {
     CUSTOM_OPTION_DESCRIPTION,
@@ -15,6 +16,8 @@ import {
 } from 'lib/components/DateFilter/types'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -138,6 +141,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
 ) {
     const effectiveShowCustomRelativeRange = allowSingleAndRange ? true : showCustomRelativeRange
     const key = useRef(uuid()).current
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const logicProps: DateFilterLogicProps = {
         key,
         dateFrom,
@@ -514,20 +518,37 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             closeParentPopoverOnClickInside={false}
             overflowHidden={view === DateFilterView.QuickList}
         >
-            <LemonButton
-                ref={ref}
-                id="daterange_selector"
-                size={size ?? 'small'}
-                type={type ?? 'secondary'}
-                disabledReason={disabledReason}
-                data-attr="date-filter"
-                icon={<IconCalendar />}
-                onClick={isVisible ? close : open}
-                fullWidth={fullWidth}
-                tooltip={formatResolvedDateRange(resolvedDateRange)}
-            >
-                <span className={clsx('text-nowrap', className)}>{label}</span>
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    ref={ref}
+                    id="daterange_selector"
+                    variant={quillButtonVariant(type ?? 'secondary')}
+                    disabledReason={disabledReason}
+                    data-attr="date-filter"
+                    onClick={isVisible ? close : open}
+                    className={fullWidth ? 'w-full' : undefined}
+                    tooltip={formatResolvedDateRange(resolvedDateRange)}
+                >
+                    <IconCalendar />
+                    <span className={clsx('text-nowrap', className)}>{label}</span>
+                    <SelectTriggerIcon />
+                </Button>
+            ) : (
+                <LemonButton
+                    ref={ref}
+                    id="daterange_selector"
+                    size={size ?? 'small'}
+                    type={type ?? 'secondary'}
+                    disabledReason={disabledReason}
+                    data-attr="date-filter"
+                    icon={<IconCalendar />}
+                    onClick={isVisible ? close : open}
+                    fullWidth={fullWidth}
+                    tooltip={formatResolvedDateRange(resolvedDateRange)}
+                >
+                    <span className={clsx('text-nowrap', className)}>{label}</span>
+                </LemonButton>
+            )}
         </Popover>
     )
 })
