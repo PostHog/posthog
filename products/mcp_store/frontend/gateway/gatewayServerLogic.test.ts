@@ -277,6 +277,22 @@ describe('gatewayServerLogic', () => {
         })
     })
 
+    it.each([
+        ['their own share', YOU, true],
+        ['only a teammate share', TEAMMATE, false],
+    ])('lets a member edit an agent scope backed by %s', (_label, sharer, expected) => {
+        parentLogic.actions.loadConfigSuccess({
+            is_admin: false,
+            registered_template_ids: [],
+            allow_custom_servers: true,
+            allow_member_agent_access: true,
+        })
+        parentLogic.actions.loadServiceAccountsSuccess([serviceAccount('scout-id', [{ user: sharer, scope: 'team' }])])
+        logic.actions.setScope({ scopeType: 'agent', scopeServiceAccountId: 'scout-id', label: 'Agent scout-id' })
+
+        expect(logic.values.canEditScope).toBe(expected)
+    })
+
     it('uses the policy mutation response while keeping the loader in flight', async () => {
         const pendingResponse = deferred<Awaited<ReturnType<typeof mcpGatewayServersPoliciesCreate>>>()
         const updatedPolicy = toolPolicy('create_issue', { policy_state: 'needs_approval' })

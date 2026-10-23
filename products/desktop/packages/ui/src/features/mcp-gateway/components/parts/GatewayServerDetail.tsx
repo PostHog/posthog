@@ -222,7 +222,15 @@ export function GatewayServerDetail({
   const scopeEditable =
     isAdmin ||
     scope.scopeType === "member" ||
-    (scope.scopeType === "agent" && canManageAgentAccess);
+    // An agent's tool policy covers every member's share, so members tune it
+    // only alongside their own.
+    (scope.scopeType === "agent" &&
+      canManageAgentAccess &&
+      server.agents.some(
+        (agent) =>
+          agent.service_account_id === scope.scopeServiceAccountId &&
+          agent.user.id === currentUser?.id,
+      ));
   // Any connected member can re-list — it runs against their own credential,
   // and it is the manual retry when auto-discovery failed.
   const refreshInstallationId = liveInstallationId;
@@ -535,13 +543,15 @@ export function GatewayServerDetail({
             );
           })}
           <div className="ml-auto flex items-center gap-1">
-            <BulkTrio
-              label={`Set all for ${scope.label}`}
-              filtered={hasToolSearch}
-              disabled={tools.setAllPending || bulkEditableCount === 0}
-              allowNeedsApproval={!agentScope}
-              onSet={setBulkPolicy}
-            />
+            {scopeEditable && (
+              <BulkTrio
+                label={`Set all for ${scope.label}`}
+                filtered={hasToolSearch}
+                disabled={tools.setAllPending || bulkEditableCount === 0}
+                allowNeedsApproval={!agentScope}
+                onSet={setBulkPolicy}
+              />
+            )}
             {refreshInstallationId && (
               <RefreshToolsButton
                 pending={tools.refreshPending}

@@ -1598,6 +1598,53 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             is expected_access
         )
 
+    def test_member_without_their_own_share_cannot_change_agent_tool_policy(self) -> None:
+        self._make_member()
+        account = sync_built_in_agents(self.team)[0]
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Teammate share",
+            url="https://mcp.teammate-share.example.com/mcp",
+        )
+        teammate = User.objects.create_and_join(self.organization, "sharer@example.com", None)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=teammate,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="create_issue",
+            last_seen_at=timezone.now(),
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=teammate,
+            service_account=account,
+            gateway_server=server,
+            installation=installation,
+            granted_by=teammate,
+            scope="team",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_gateway/servers/{server.id}/policies/",
+            data={
+                "scope_type": "agent",
+                "scope_service_account_id": str(account.id),
+                "policies": [{"tool_name": "create_issue", "policy_state": "approved"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not MCPToolPolicy.objects.for_team(self.team.id).filter(scope_type="agent").exists()
+
     def test_restricted_member_cannot_change_existing_agent_access_but_admin_can(self) -> None:
         self._make_member()
         account = sync_built_in_agents(self.team)[0]

@@ -15,7 +15,7 @@ from products.posthog_ai.scripts.build_skills.discovery import SkillDiscoverer
 from products.posthog_ai.scripts.build_skills.frontmatter import parse_frontmatter, validate_frontmatter
 from products.posthog_ai.scripts.build_skills.rendering import SkillRenderer
 from products.posthog_ai.scripts.build_skills.skill_builder import SkillBuilder
-from products.posthog_ai.scripts.build_skills.skill_manifest import DiscoveredSkill
+from products.posthog_ai.scripts.build_skills.skill_manifest import DiscoveredSkill, SkillResource
 from products.posthog_ai.scripts.build_skills.tool_references import _check_tool_references
 
 
@@ -387,6 +387,12 @@ def test_build_manifest_rejects_duplicate_rendered_names(tmp_path: Path) -> None
     assert builder.lint_all() is True
     with pytest.raises(ValueError, match="Duplicate skill name 'shared-name'"):
         builder.build_manifest(discoverer.discover(), SkillRenderer())
+
+
+@pytest.mark.parametrize("name", ["shadow/../trusted-skill", "../escape", "nested/skill", ""])
+def test_skill_resource_rejects_names_that_are_not_one_path_segment(name: str) -> None:
+    with pytest.raises(ValueError):
+        SkillResource(name=name, description="desc", files=[], source="products/alpha/skills/x")
 
 
 def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:

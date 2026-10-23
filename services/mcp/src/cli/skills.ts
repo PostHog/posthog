@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
-import { errorCode } from './utils'
+import { assertResolvesInside, errorCode } from './utils'
 
 export interface SkillListItem {
     id: string
@@ -80,6 +80,7 @@ export async function installSkill(
     }
 
     const destinationRoot = targetSkillDirectory(cwd, skillId)
+    await assertResolvesInside(cwd, destinationRoot)
     try {
         await fs.access(destinationRoot)
         if (!opts.force) {

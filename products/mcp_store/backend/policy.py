@@ -6,8 +6,8 @@ can never make a tool more permissive than the team allows.
 
 1. Org rules — enabled team guardrails; a match locks the state.
 2. The stricter of the caller's own choice and the team ceiling. The caller's
-   choice comes from its scope row, or for members from the legacy
-   per-installation state. The ceiling comes from the explicit team row, then
+   choice comes from its scope row, or for an installation's owner from the
+   legacy per-installation state. The ceiling comes from the explicit team row, then
    the audience preset.
 3. `needs_approval` — freshly discovered tools are opt-in when neither side
    has made a choice.
@@ -321,7 +321,14 @@ class PolicyContext:
                 self.preset = config.member_default_preset if caller.kind == "member" else config.agent_default_preset
 
         raw_legacy = dict(legacy_rows or {}) if caller.kind == "member" else {}
-        if legacy_rows is None and installation is not None and caller.kind == "member":
+        # Only the owner writes the legacy column, so on a shared installation it
+        # is the owner's choice and must not stand in for another member's.
+        if (
+            legacy_rows is None
+            and installation is not None
+            and caller.kind == "member"
+            and installation.user_id == caller.user_id
+        ):
             for row in installation.tools.filter(removed_at__isnull=True).values("tool_name", "approval_state"):
                 raw_legacy[row["tool_name"]] = row["approval_state"]
         self._legacy_rows = {

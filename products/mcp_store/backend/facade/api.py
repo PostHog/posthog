@@ -80,7 +80,7 @@ def resolve_member_tool_states(
     locks surfaces as `"do_not_use"`. Use it for callers that approve calls
     on the member's behalf, because the member cannot approve a locked state."""
     rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
-        "tool_name", "annotations", "approval_state", "removed_at"
+        "tool_name", "annotations", "approval_state", "removed_at", "installation__user_id"
     )
     legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
 
@@ -91,7 +91,12 @@ def resolve_member_tool_states(
         team_id=team_id,
         caller=GatewayCaller(kind="member", user_id=user_id),
         gateway_server_id=gateway_server_id,
-        legacy_rows={row["tool_name"]: row["approval_state"] for row in rows if row["removed_at"] is None},
+        # Only the owner writes the legacy column, so it is not a teammate's preference.
+        legacy_rows={
+            row["tool_name"]: row["approval_state"]
+            for row in rows
+            if row["removed_at"] is None and row["installation__user_id"] == user_id
+        },
     )
     resolved: dict[str, str] = {}
     for row in rows:

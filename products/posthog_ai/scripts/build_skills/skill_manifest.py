@@ -22,7 +22,8 @@ class SkillFile(BaseModel):
 
 
 class SkillResource(BaseModel):
-    name: str
+    # The name becomes the ``dist/skills/<name>`` directory, so it must stay one path segment.
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
     description: str
     files: list[SkillFile]
     source: str

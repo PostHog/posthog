@@ -139,6 +139,7 @@ export interface gatewayServerLogicValues {
     availableAgentAccounts: MCPServiceAccountApi[]
     availableScopes: PolicyScope[]
     breadcrumbs: Breadcrumb[]
+    canEditScope: boolean
     displayedToolPolicies: ResolvedToolPolicyApi[]
     filteredToolPolicies: ResolvedToolPolicyApi[]
     policyCounts: Record<MCPToolApprovalStateEnumApi, number>
@@ -402,6 +403,12 @@ export interface gatewayServerLogicMeta {
             serviceAccounts: MCPServiceAccountApi[],
             agentSharesByAccountId: Record<string, AgentServerShare>
         ) => MCPServiceAccountApi[]
+        canEditScope: (
+            isAdmin: boolean,
+            scope: PolicyScope,
+            canManageAgentAccess: boolean,
+            agentSharesByAccountId: Record<string, AgentServerShare>
+        ) => boolean
         agentShareDisabledReason: (server: MCPGatewayServerApi | null) => string | undefined
         refreshInstallationId: (server: MCPGatewayServerApi | null) => string | null
         filteredToolPolicies: (toolPolicies: ResolvedToolPolicyApi[], toolSearch: string) => ResolvedToolPolicyApi[]
@@ -718,6 +725,21 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                 // Sharing is personal, so an agent a teammate already shares with
                 // stays available for the viewer to share their own connection.
                 serviceAccounts.filter((account) => !agentSharesByAccountId[account.id]?.sharedByYou),
+        ],
+        canEditScope: [
+            (s) => [s.isAdmin, s.scope, s.canManageAgentAccess, s.agentSharesByAccountId],
+            (
+                isAdmin: boolean,
+                scope: PolicyScope,
+                canManageAgentAccess: boolean,
+                agentSharesByAccountId: Record<string, AgentServerShare>
+            ): boolean =>
+                isAdmin ||
+                scope.scopeType === 'member' ||
+                // An agent's tool policy covers every member's share, so members tune it only alongside their own.
+                (scope.scopeType === 'agent' &&
+                    canManageAgentAccess &&
+                    !!agentSharesByAccountId[scope.scopeServiceAccountId ?? '']?.sharedByYou),
         ],
         agentShareDisabledReason: [
             (s) => [s.server],

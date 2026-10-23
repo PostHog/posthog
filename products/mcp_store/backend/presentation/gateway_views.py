@@ -1218,6 +1218,18 @@ class MCPGatewayServerViewSet(
         data = request.validated_data
         scope_type, scope_user, scope_account = self._resolve_scope(data)
         self._require_scope_permission(scope_type, scope_user, write=True)
+        # Agent policy applies to every member's share of this server, so a
+        # member may tune it only alongside a share of their own.
+        if (
+            scope_type == "agent"
+            and not self._is_project_admin()
+            and not MCPServiceAccountServerAccess.objects.for_team(self.team_id)
+            .filter(service_account=scope_account, gateway_server=server, user_id=request.user.id)
+            .exists()
+        ):
+            raise PermissionDenied(
+                "Share your connection to this server with the agent before changing its tool access."
+            )
 
         if scope_type != "team":
             if scope_type == "agent" and scope_account is not None:
