@@ -19,8 +19,6 @@ from aiobotocore.session import get_session
 from opentelemetry import trace
 
 if typing.TYPE_CHECKING:
-    from aiobotocore.awsrequest import AioAWSResponse
-    from botocore.awsrequest import AWSPreparedRequest
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_s3.type_defs import CompletedPartTypeDef, UploadPartOutputTypeDef
 
@@ -607,20 +605,20 @@ class PinnedS3HTTPSession(AIOHTTPSession):
 
     def _create_connector(self, proxy_url: str | None) -> PinnedTCPConnector:
         """Replace aioboto3's connector with our own."""
-        connector = super()._create_connector(proxy_url)
-        self._exit_stack.push_async_callback(connector.close)
+        connector = super()._create_connector(proxy_url)  # type: ignore[misc]
+        self._exit_stack.push_async_callback(connector.close)  # type: ignore[attr-defined]
 
         return PinnedTCPConnector(
             self._host_to_resolved_ips,
             limit=connector.limit,
             ssl=connector._ssl,
-            **self._connector_args,
+            **self._connector_args,  # type: ignore[attr-defined]
         )
 
-    async def send(self, request: "AWSPreparedRequest") -> "AioAWSResponse":
+    async def send(self, request):
         """Validate IPs before sending the request."""
         if self._bypass_validation:
-            return typing.cast("AioAWSResponse", await super().send(request))
+            return await super().send(request)
 
         url = urlsplit(request.url)
         host = url.hostname
@@ -631,7 +629,7 @@ class PinnedS3HTTPSession(AIOHTTPSession):
         host = canonicalize_host(host)
         if host in self._host_to_resolved_ips:
             # Host already resolved, we can fire the request
-            return typing.cast("AioAWSResponse", await super().send(request))
+            return await super().send(request)
 
         async with self._pin_lock:
             if host not in self._host_to_resolved_ips:
@@ -649,7 +647,7 @@ class PinnedS3HTTPSession(AIOHTTPSession):
 
                 self._host_to_resolved_ips[host] = verdict.pinned_ips
 
-        return typing.cast("AioAWSResponse", await super().send(request))
+        return await super().send(request)
 
 
 @contextlib.asynccontextmanager
