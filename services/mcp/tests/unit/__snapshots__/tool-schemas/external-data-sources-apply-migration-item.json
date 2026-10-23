@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "credential_id": {
+            "description": "Stored credential from the source connect page, for the item's PostHog source type.",
+            "type": "string"
+        },
+        "destination_ids": {
+            "description": "Destinations to write the new source to. Omit to write to the PostHog warehouse.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "item_id": {
+            "description": "The migration item to create a PostHog source for.",
+            "type": "string"
+        },
+        "prefix": {
+            "description": "Table name prefix to use instead of the planned one, for example when the planned one is taken.",
+            "type": "string"
+        }
+    },
+    "required": ["item_id", "credential_id"],
+    "type": "object"
+}
