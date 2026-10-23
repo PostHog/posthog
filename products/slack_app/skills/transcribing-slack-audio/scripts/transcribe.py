@@ -95,7 +95,7 @@ def missing_tools(model_path: Path) -> list[str]:
     return missing
 
 
-def probe_duration_seconds(audio: Path) -> float:
+def probe_duration_seconds(audio: Path, *, deadline: float, timeout_seconds: int) -> float:
     result = _run(
         [
             "ffprobe",
@@ -109,8 +109,8 @@ def probe_duration_seconds(audio: Path) -> float:
             "json",
             str(audio),
         ],
-        timeout=PROBE_TIMEOUT_SECONDS,
-        limit_seconds=PROBE_TIMEOUT_SECONDS,
+        timeout=min(PROBE_TIMEOUT_SECONDS, deadline - time.monotonic()),
+        limit_seconds=timeout_seconds,
         step="reading the audio metadata",
     )
     if result.returncode != 0:
@@ -146,7 +146,7 @@ def transcribe_file(
         raise TranscriptionError(f"the file is {size / 1024 / 1024:.1f} MB, over the {MAX_FILE_BYTES // 1024 // 1024} MB limit")
 
     deadline = time.monotonic() + timeout_seconds
-    duration = probe_duration_seconds(audio)
+    duration = probe_duration_seconds(audio, deadline=deadline, timeout_seconds=timeout_seconds)
     if duration > max_duration_seconds:
         raise TranscriptionError(
             f"the recording is {duration / 60:.1f} minutes long, over the {max_duration_seconds / 60:g} minute limit"
