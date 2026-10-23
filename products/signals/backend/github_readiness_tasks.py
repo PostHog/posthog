@@ -42,7 +42,7 @@ async def start_recovered_report(team_id: int, report_id: str) -> None:
         pass
 
 
-@shared_task(queue=CeleryQueue.DEFAULT.value, ignore_result=True, soft_time_limit=240, time_limit=300)
+@shared_task(queue=CeleryQueue.LONG_RUNNING.value, ignore_result=True, soft_time_limit=240, time_limit=300)
 @with_team_scope()
 def resume_github_blocked_reports(
     team_id: int, after_report_id: str | None = None, *, connection_restored: bool = False

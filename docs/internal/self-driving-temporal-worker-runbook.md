@@ -190,4 +190,6 @@ GitHub unsuspension schedules installation revalidation. Rate-limited revalidati
 
 The self-driving config API exposes effective `github_readiness` from cached state, using the same project and eligible organization-owner connections as execution. Reading this status never calls GitHub.
 
+The bounded recovery sweep runs on the `celery` queue. Per-team report recovery runs on `long_running` because its GitHub and Temporal calls can take more than a few seconds. Installation revalidation uses the `integrations` queue. Delayed batches and retries inherit their task's queue.
+
 Research and implementation blockers each have a timestamp for the first blocked attempt. Recovery uses a seven-day window from that timestamp; subsequent readiness checks must not extend it.
