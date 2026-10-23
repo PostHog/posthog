@@ -57,7 +57,7 @@ export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
     },
     [ApprovalActionKey.EXPERIMENT_UPDATE]: {
         label: 'Update experiment',
-        description: "change this experiment's variant split or release conditions",
+        description: "change this experiment's rollout or variant split, or ship a winning variant",
     },
 }
 
@@ -85,12 +85,11 @@ const APPROVAL_RESOURCE_CONFIG: Record<string, { label: string; urlBuilder: (id:
     [ApprovalResourceType.FEATURE_FLAG]: { label: 'Feature flag', urlBuilder: (id) => `/feature-flags/${id}` },
 }
 
-export function getApprovalResourceUrl(actionKey: string, resourceId: string | null): string | null {
+export function getApprovalResourceUrl(resourceType: string, resourceId: string | null): string | null {
     if (!resourceId) {
         return null
     }
-    const prefix = actionKey.split('.')[0]
-    const config = APPROVAL_RESOURCE_CONFIG[prefix]
+    const config = APPROVAL_RESOURCE_CONFIG[resourceType]
     return config ? config.urlBuilder(resourceId) : null
 }
 

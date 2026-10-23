@@ -73,14 +73,14 @@ class UpdateExperimentAction(UpdateFeatureFlagAction):
 
     key = "experiment.update"
     version = 1
-    description = "Change an experiment's variant split, or ship a winning variant"
+    description = "Change an experiment's rollout or variant split, or ship a winning variant"
     owner_scope = FLAG_OWNER_EXPERIMENT
 
     @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         display = super().get_display_data(intent_data)
         flag_key = intent_data.get("flag_key", "unknown")
-        description = f"Change the variant split of the experiment on feature flag '{flag_key}'"
+        description = f"Change the rollout or variant split of the experiment on feature flag '{flag_key}'"
         suffix = display["description"].split(":", 1)
         if len(suffix) == 2:
             description = f"{description}:{suffix[1]}"
