@@ -35,7 +35,7 @@ Settle three things with the developer before you record, render or write a stor
 - **A style reference**: a file or a URL of a video the developer wants this one to feel like. Match its pace, tone and framing.
 - **Music**: yes or no, and the mood when yes.
 
-The **final take** is the take with the voiceover and music that the developer gets. Every take before it is silent: no `voiceover` and no `music` in the storyboard.
+The **final take** is the take with the voiceover and music that the developer gets. Every take before it is silent, with no `voiceover` and no `music` in the storyboard. A style board for a music choice is the one exception.
 
 ### 2. Get the stack ready
 
@@ -116,8 +116,8 @@ Change the brief or the storyboard until the developer approves both.
 When the video could go more than one way, such as two voices, two music moods or two pacings, make a **style board** for each option instead of a final take for each.
 A style board is a cut-down storyboard of the first steps, about ten seconds long, with two voice lines:
 
-- two stills from its silent take
-- its silent take, as the motion
+- two stills from its take
+- its take, as the motion. When the options differ in music, record this take with the option's `music`, so the developer hears each mood.
 - its two voice lines, from `--voice-only`
 
 The developer picks one board, and only that option gets a final take.
