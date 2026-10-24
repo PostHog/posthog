@@ -366,9 +366,10 @@ Fired when the side panel shows a new state.
 
 Fired when the user runs a tool on the page from the extension.
 
-| Property | Type     | Description                                   |
-| -------- | -------- | --------------------------------------------- |
-| `tool`   | `string` | `'inspect'`, `'heatmap'`, or `'save-heatmap'` |
+| Property  | Type                   | Description                                                                                                                                                                   |
+| --------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tool`    | `string`               | `'inspect'`, `'heatmap'`, `'save-heatmap'`, `'actions'`, `'create-action'`, `'save-action'`, `'flags'`, `'override-flag'`, `'clear-flag-overrides'`, or `'impersonate-flags'` |
+| `payload` | `boolean \| undefined` | `true` when `'override-flag'` sets a payload                                                                                                                                  |
 
 **File:** `extension/extensionTelemetry.ts`
 

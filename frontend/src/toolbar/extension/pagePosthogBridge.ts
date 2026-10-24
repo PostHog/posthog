@@ -7,10 +7,19 @@ import {
     PageAgentRequestMessage,
     isPageAgentReplyMessage,
 } from './pageAgentProtocol'
-import type { PageAnalyticsInfo } from './pageToolbarBridge'
+import type { PageAnalyticsInfo, PageFeatureFlagsSnapshot } from './pageToolbarBridge'
 
-// The page agent answers in milliseconds. Past this, the page most likely reloaded or has no agent.
+export interface PageFlagMutationStatus {
+    pending: boolean
+    error: string | null
+    revision: number
+}
+
+type FeatureFlagsCallback = (flags: string[], variants: Record<string, string | boolean>) => void
+
+// The page agent answers in milliseconds. Past these, the page most likely reloaded or has no agent.
 const ANALYTICS_TIMEOUT_MS = 1000
+const MUTATION_TIMEOUT_MS = 5000
 
 let nextRequestId = 1
 
@@ -60,13 +69,39 @@ export function onPagePosthogAppeared(handler: () => void): void {
     })
 }
 
-/** Stands in for the page's posthog-js in the content script, with the settings the page agent read from it. */
+/**
+ * Stands in for the page's posthog-js in the content script. The toolbar's logics read posthog-js synchronously, so
+ * this keeps a copy of the page's flag state and updates it as soon as it sends a change, before the page agent answers.
+ */
 export class PagePosthogBridge {
+    private featureFlags: PageFeatureFlagsSnapshot
+    private pendingMutations = new Map<number, ReturnType<typeof setTimeout>>()
+    private featureFlagsCallbacks: FeatureFlagsCallback[] = []
+    private mutationStatus: PageFlagMutationStatus = { pending: false, error: null, revision: 0 }
+    private removeListener: () => void
     /** The parts of posthog-js that the toolbar's logics read. */
     readonly posthog: PostHog
 
-    constructor(info: PageAnalyticsInfo) {
-        this.posthog = {
+    constructor(
+        private readonly info: PageAnalyticsInfo,
+        private readonly onChange: (status: PageFlagMutationStatus) => void
+    ) {
+        this.featureFlags = info.featureFlags
+        this.removeListener = onPageAgentReply((reply) => this.handleReply(reply))
+        this.posthog = this.buildPosthog()
+    }
+
+    dispose(): void {
+        this.removeListener()
+        for (const timeout of this.pendingMutations.values()) {
+            clearTimeout(timeout)
+        }
+        this.pendingMutations.clear()
+    }
+
+    private buildPosthog(): PostHog {
+        const { info } = this
+        return {
             version: info.version ?? undefined,
             config: {
                 disable_scroll_properties: info.scrollPropertiesDisabled,
@@ -75,7 +110,89 @@ export class PagePosthogBridge {
             heatmaps: info.heatmapsEnabled === null ? undefined : { isEnabled: info.heatmapsEnabled },
             // Matches posthog-js, which measures scroll depth on the page's scroll root when the config names one.
             scrollManager: { scrollY: () => scrollRoot(info.scrollRootSelector)?.scrollTop ?? window.scrollY },
+            featureFlags: {
+                overrideFeatureFlags: (
+                    overrides: { flags?: Record<string, string | boolean>; payloads?: Record<string, unknown> } | false
+                ) => this.overrideFeatureFlags(overrides),
+                reloadFeatureFlags: () => this.sendMutation({ method: 'reload-flags' }),
+                getFlagVariants: () => this.featureFlags.variants,
+            },
+            get_property: (key: string) =>
+                key === '$override_feature_flags' ? this.featureFlags.overrides : undefined,
+            getGroups: () => this.featureFlags.groups,
+            onFeatureFlags: (callback: FeatureFlagsCallback) => {
+                this.featureFlagsCallbacks.push(callback)
+                return () => {
+                    this.featureFlagsCallbacks = this.featureFlagsCallbacks.filter((c) => c !== callback)
+                }
+            },
         } as unknown as PostHog
+    }
+
+    private overrideFeatureFlags(
+        overrides: { flags?: Record<string, string | boolean>; payloads?: Record<string, unknown> } | false
+    ): void {
+        const flags = overrides === false ? false : (overrides.flags ?? {})
+        this.featureFlags = { ...this.featureFlags, overrides: flags === false ? {} : flags }
+        this.sendMutation(
+            overrides === false
+                ? { method: 'override-flags', flags: false }
+                : { method: 'override-flags', flags: overrides.flags ?? {}, payloads: overrides.payloads }
+        )
+    }
+
+    /** A flag change shows as pending until the page agent answers, or fails when it doesn't answer in time. */
+    private sendMutation(request: PageAgentRequest): void {
+        const id = postToPageAgent(request)
+        this.pendingMutations.set(
+            id,
+            setTimeout(() => this.finishMutation(id, "The page didn't answer."), MUTATION_TIMEOUT_MS)
+        )
+        this.setMutationStatus({ pending: true })
+    }
+
+    private finishMutation(id: number, error: string | null): void {
+        const timeout = this.pendingMutations.get(id)
+        if (timeout === undefined) {
+            return
+        }
+        clearTimeout(timeout)
+        this.pendingMutations.delete(id)
+        this.setMutationStatus({
+            pending: this.pendingMutations.size > 0,
+            error,
+            revision: this.mutationStatus.revision + 1,
+        })
+    }
+
+    private handleReply(reply: PageAgentReply): void {
+        if (reply.kind === 'feature-flags') {
+            this.setFeatureFlags(reply.featureFlags)
+            this.onChange(this.mutationStatus)
+            return
+        }
+        if (reply.kind !== 'result') {
+            return
+        }
+        if (!this.pendingMutations.has(reply.id)) {
+            return
+        }
+        if (reply.ok) {
+            this.setFeatureFlags(reply.featureFlags)
+        }
+        this.finishMutation(reply.id, reply.ok ? null : reply.error)
+    }
+
+    private setFeatureFlags(featureFlags: PageFeatureFlagsSnapshot): void {
+        this.featureFlags = featureFlags
+        for (const callback of this.featureFlagsCallbacks) {
+            callback(Object.keys(featureFlags.variants), featureFlags.variants)
+        }
+    }
+
+    private setMutationStatus(patch: Partial<PageFlagMutationStatus>): void {
+        this.mutationStatus = { ...this.mutationStatus, ...patch }
+        this.onChange(this.mutationStatus)
     }
 }
 
