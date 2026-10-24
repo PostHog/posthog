@@ -30,7 +30,7 @@ export function DashboardTileGroupTabs({
                                 {getTileGroupLabel(section.group, section.tiles.length)}
                             </span>
                         ) : (
-                            'Other tiles'
+                            'Overview'
                         ),
                 }))}
             />
