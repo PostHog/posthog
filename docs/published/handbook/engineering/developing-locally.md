@@ -38,6 +38,31 @@ These components rely on a few external services:
 - Redis – for caching and inter-service communication
 - Zookeeper – for coordinating Kafka and ClickHouse clusters
 
+### Kafka username and password authentication
+
+The Python app, Node.js ingestion clients, and Rust capture event producers can connect to Kafka with username and password authentication. Use `SASL_PLAINTEXT` or `SASL_SSL` with `PLAIN`, `SCRAM-SHA-256`, or `SCRAM-SHA-512`. Use `SASL_SSL` to encrypt credentials in transit.
+
+Configure each connection separately:
+
+| Client                            | Authentication settings                                                                                                                                                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python                            | `KAFKA_<PROFILE>_SECURITY_PROTOCOL`, `KAFKA_<PROFILE>_SASL_MECHANISM`, `KAFKA_<PROFILE>_SASL_USER`, `KAFKA_<PROFILE>_SASL_PASSWORD`; the default profile also accepts `KAFKA_SECURITY_PROTOCOL` and `KAFKA_SASL_*`          |
+| Node.js consumers                 | `KAFKA_CONSUMER_SECURITY_PROTOCOL`, `KAFKA_CONSUMER_SASL_MECHANISMS`, `KAFKA_CONSUMER_SASL_USERNAME`, `KAFKA_CONSUMER_SASL_PASSWORD`                                                                                        |
+| Node.js producers                 | `KAFKA_PRODUCER_SECURITY_PROTOCOL`, `KAFKA_PRODUCER_SASL_MECHANISMS`, `KAFKA_PRODUCER_SASL_USERNAME`, `KAFKA_PRODUCER_SASL_PASSWORD`                                                                                        |
+| Node.js ingestion named producers | `KAFKA_<SLOT>_PRODUCER_SECURITY_PROTOCOL`, `KAFKA_<SLOT>_PRODUCER_SASL_MECHANISMS`, `KAFKA_<SLOT>_PRODUCER_SASL_USERNAME`, `KAFKA_<SLOT>_PRODUCER_SASL_PASSWORD`; slots are `INGESTION_UPSTREAM` and `INGESTION_DOWNSTREAM` |
+| Rust capture named producer       | `KAFKA_INGESTION_PRODUCER_SECURITY_PROTOCOL`, `KAFKA_INGESTION_PRODUCER_SASL_MECHANISMS`, `KAFKA_INGESTION_PRODUCER_SASL_USERNAME`, `KAFKA_INGESTION_PRODUCER_SASL_PASSWORD`                                                |
+| Rust capture v1 sinks             | `CAPTURE_V1_SINK_<NAME>_KAFKA_SECURITY_PROTOCOL`, `CAPTURE_V1_SINK_<NAME>_KAFKA_SASL_MECHANISM`, `CAPTURE_V1_SINK_<NAME>_KAFKA_SASL_USER`, `CAPTURE_V1_SINK_<NAME>_KAFKA_SASL_PASSWORD`                                     |
+
+Supply credentials through the environment or a deployment secret manager. Usernames and passwords remain strings, including values that look like numbers or booleans. For the Python app, use uppercase protocol and mechanism names. Python profiles inherit unset authentication settings from the default profile even when they specify their own hosts. Configure profile-specific authentication settings when connecting to a cluster with different credentials or a different security protocol.
+
+This configuration covers the application connections listed above. Node.js CDP and session replay named producers, the optional capture warnings producer, capture-logs, and other standalone Rust services need separate integration. Rust capture's event producers use the named producer and v1 sink settings above; the legacy `KAFKA_SECURITY_PROTOCOL` and `KAFKA_SASL_*` variables do not configure those event producers.
+
+The `self/posthog` Compose stack uses `SASL_PLAINTEXT` and `PLAIN` on port `29092` for application connections and topic administration. Its ClickHouse listener on port `19092` remains plaintext. Restrict access to plaintext listeners to the infrastructure and ClickHouse hosts that need them.
+
+Run `./deploy-minimal.sh prepare-kafka` from `self/posthog` on the resource host to prepare Kafka. For separate resource and application hosts, securely copy the same `KAFKA_SASL_USER` and `KAFKA_SASL_PASSWORD` into both hosts' `.env` files. Set `KAFKA_ADVERTISED_HOST` to the resource host address and `KAFKA_HOSTS` to its authenticated endpoint on port `29092`. Export the credentials before running `./create-kafka-topics.sh` for topic administration.
+
+Build the application images from the modified source before deploying them. Pulling and retagging upstream images does not include local changes. Recreate application containers after changing connection settings so they receive the new environment.
+
 When spinning up an instance of PostHog for development, we recommend the following hybrid configuration:
 
 - External services (ClickHouse, Kafka, PostgreSQL, Redis, etc.) run in Docker via `docker compose`

@@ -113,6 +113,32 @@ describe('KafkaConsumerV2', () => {
         mockRdKafka = mockInstance
     })
 
+    it.each([
+        ['sasl_plaintext', 'PLAIN'],
+        ['sasl_ssl', 'PLAIN'],
+        ['sasl_ssl', 'SCRAM-SHA-256'],
+        ['sasl_ssl', 'SCRAM-SHA-512'],
+    ] as const)('forwards %s / %s authentication', (protocol, mechanism) => {
+        new KafkaConsumerV2(
+            { groupId: 'authenticated-group', topic: 'test-topic' },
+            {
+                'security.protocol': protocol,
+                'sasl.mechanisms': mechanism,
+                'sasl.username': '00123',
+                'sasl.password': 'false',
+            }
+        )
+        expect(require('node-rdkafka').KafkaConsumer).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                'security.protocol': protocol,
+                'sasl.mechanisms': mechanism,
+                'sasl.username': '00123',
+                'sasl.password': 'false',
+            }),
+            expect.any(Object)
+        )
+    })
+
     afterEach(async () => {
         // Drop any in-flight tasks before disconnect to avoid 60s timeout waits.
         if (consumer && (consumer as any).inFlight) {

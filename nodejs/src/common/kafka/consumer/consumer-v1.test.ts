@@ -156,6 +156,36 @@ describe('consumer', () => {
         }
     })
 
+    it.each([
+        ['sasl_plaintext', 'PLAIN'],
+        ['sasl_ssl', 'PLAIN'],
+        ['sasl_ssl', 'SCRAM-SHA-256'],
+        ['sasl_ssl', 'SCRAM-SHA-512'],
+    ] as const)('forwards %s / %s authentication', async (protocol, mechanism) => {
+        const authenticated = new KafkaConsumer(
+            { groupId: 'authenticated-group', topic: 'test-topic' },
+            {
+                'security.protocol': protocol,
+                'sasl.mechanisms': mechanism,
+                'sasl.username': '00123',
+                'sasl.password': 'false',
+            }
+        )
+        await authenticated.connect(async () => ({}))
+        expect(require('node-rdkafka').KafkaConsumer).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                'security.protocol': protocol,
+                'sasl.mechanisms': mechanism,
+                'sasl.username': '00123',
+                'sasl.password': 'false',
+            }),
+            expect.any(Object)
+        )
+        const disconnected = authenticated.disconnect()
+        consumeCallback(null, [])
+        await disconnected
+    })
+
     it('should create a consumer and process messages', async () => {
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await consumer.connect(eachBatch)

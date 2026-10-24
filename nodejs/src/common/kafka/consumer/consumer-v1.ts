@@ -35,7 +35,12 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '../config'
+import {
+    getKafkaConfigFromEnv,
+    redactKafkaConfig,
+    stripClassicProtocolConfig,
+    validateKafkaSecurityConfig,
+} from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -498,6 +503,7 @@ export class KafkaConsumer {
                 | 'earliest'
                 | 'latest'
                 | undefined) ?? 'earliest'
+        validateKafkaSecurityConfig(this.consumerConfig)
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
             'auto.offset.reset': autoOffsetReset,
         })
@@ -561,11 +567,18 @@ export class KafkaConsumer {
         })
 
         consumer.on('subscribed', (topics) => {
-            logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
+            logger.info('📝', 'librdkafka consumer subscribed', {
+                topics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
-            logger.error('📝', 'librdkafka connection failure', { error, metrics, config: this.consumerConfig })
+            logger.error('📝', 'librdkafka connection failure', {
+                error,
+                metrics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {

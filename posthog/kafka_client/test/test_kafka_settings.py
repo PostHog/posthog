@@ -155,6 +155,31 @@ class ResolveProducerSettingsTest(TestCase):
 
 
 class ResolveProfileTest(TestCase):
+    @parameterized.expand(
+        [
+            (prefix, hosts)
+            for prefix in ("KAFKA_DEFAULT_", "KAFKA_")
+            for hosts in (None, "example.com:9092", "other.example.com:9092")
+        ]
+    )
+    def test_profile_inherits_default_auth_with_explicit_hosts(self, prefix: str, hosts: str | None) -> None:
+        env = {
+            f"{prefix}HOSTS": "example.com:9092",
+            f"{prefix}SECURITY_PROTOCOL": "SASL_PLAINTEXT",
+            f"{prefix}SASL_MECHANISM": "PLAIN",
+            f"{prefix}SASL_USER": "example-user",
+            f"{prefix}SASL_PASSWORD": "fake-kafka-credential",
+        }
+        if hosts is not None:
+            env["KAFKA_WAREHOUSE_SOURCES_HOSTS"] = hosts
+        with patch.dict("os.environ", env, clear=True):
+            profile = kafka_settings._resolve_profile("warehouse_sources")
+        self.assertEqual(profile.hosts, [hosts or "example.com:9092"])
+        self.assertEqual(profile.security_protocol, "SASL_PLAINTEXT")
+        self.assertEqual(profile.sasl_mechanism, "PLAIN")
+        self.assertEqual(profile.sasl_user, "example-user")
+        self.assertEqual(profile.sasl_password, "fake-kafka-credential")
+
     def test_default_profile_falls_back_to_kafka9092(self):
         with patch.dict("os.environ", {}, clear=True):
             profile = kafka_settings._resolve_profile("default")

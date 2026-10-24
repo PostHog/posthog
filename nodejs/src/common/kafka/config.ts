@@ -45,6 +45,23 @@ export function parseEnvToRdkafkaConfig(
 
                 let parsedValue: string | number | boolean = value
 
+                const rdkafkaKey = key.replace(prefix, '').replace(/_/g, '.').toLowerCase()
+                if (
+                    rdkafkaKey.startsWith('sasl.') ||
+                    rdkafkaKey.endsWith('.pem') ||
+                    rdkafkaKey.includes('password') ||
+                    rdkafkaKey.includes('secret') ||
+                    rdkafkaKey === 'security.protocol'
+                ) {
+                    acc[rdkafkaKey] =
+                        rdkafkaKey === 'security.protocol'
+                            ? value.toLowerCase()
+                            : rdkafkaKey === 'sasl.mechanism' || rdkafkaKey === 'sasl.mechanisms'
+                              ? value.toUpperCase()
+                              : value
+                    return acc
+                }
+
                 // parse value to a number if it is one
                 const numberValue = Number(value)
                 if (!isNaN(numberValue)) {
@@ -58,7 +75,6 @@ export function parseEnvToRdkafkaConfig(
                     parsedValue = false
                 }
 
-                const rdkafkaKey = key.replace(prefix, '').replace(/_/g, '.').toLowerCase()
                 acc[rdkafkaKey] = parsedValue
                 return acc
             },
@@ -71,6 +87,30 @@ export const getKafkaConfigFromEnv = (target: KafkaConfigTarget): GlobalConfig =
     // That said we also want to be able to add defaults on the global config object
     // So what we do is we first find all values from the default config object and then in addition we add the env ones.
     return parseEnvToRdkafkaConfig(`KAFKA_${target}_`, { skipKeysInDefaultConfig: true })
+}
+
+export function validateKafkaSecurityConfig(config: GlobalConfig): void {
+    const protocol = config['security.protocol']?.toLowerCase()
+    if (protocol !== 'sasl_plaintext' && protocol !== 'sasl_ssl') {
+        return
+    }
+    const mechanism = (config['sasl.mechanisms'] ?? '').toUpperCase()
+    if (['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'].includes(mechanism)) {
+        for (const key of ['sasl.username', 'sasl.password'] as const) {
+            if (!config[key]) {
+                throw new Error(`${key} is required for username/password Kafka authentication`)
+            }
+        }
+    }
+}
+
+export function redactKafkaConfig(config: GlobalConfig): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(config).map(([key, value]) => [
+            key,
+            key.includes('password') || key.includes('secret') || key.endsWith('.pem') ? '***' : value,
+        ])
+    )
 }
 
 /**

@@ -1,5 +1,9 @@
 import { kafkaProducerMessagesDiscardedCounter } from '~/common/kafka/blackhole-producer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import {
+    INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,
+    INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP,
+} from '~/ingestion/common/outputs/producers'
 
 import { AllowedConfigKey } from './kafka-producer-config'
 import { KafkaProducerRegistryBuilder } from './kafka-producer-registry-builder'
@@ -20,6 +24,29 @@ describe('KafkaProducerRegistryBuilder', () => {
         'metadata.broker.list': 'BROKER_LIST',
         'linger.ms': 'LINGER_MS',
     } as const satisfies Partial<Record<AllowedConfigKey, string>>
+
+    it.each([INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP, INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP])(
+        'forwards authentication for an application output',
+        async (outputMap) => {
+            const config = Object.fromEntries(Object.values(outputMap).map((key) => [key, '']))
+            config[outputMap['security.protocol']] = 'SASL_PLAINTEXT'
+            config[outputMap['sasl.mechanisms']] = 'plain'
+            config[outputMap['sasl.username']] = '00123'
+            config[outputMap['sasl.password']] = 'false'
+            const map: Partial<Record<AllowedConfigKey, string>> = outputMap
+            await new KafkaProducerRegistryBuilder(undefined).register('AUTHENTICATED', map).build(config)
+            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(
+                undefined,
+                expect.objectContaining({
+                    'security.protocol': 'sasl_plaintext',
+                    'sasl.mechanisms': 'PLAIN',
+                    'sasl.username': '00123',
+                    'sasl.password': 'false',
+                }),
+                'AUTHENTICATED'
+            )
+        }
+    )
 
     it('creates a registry with a single producer', async () => {
         const config = { BROKER_LIST: 'kafka:9092', LINGER_MS: '20' }
