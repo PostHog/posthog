@@ -13519,6 +13519,30 @@ export namespace Schemas {
       marketing_analytics_config: unknown;
     }
 
+    export interface ApplyUtmDefaultsRequest {
+      /** When true, only count the emails the change would update. Nothing is saved. */
+      dry_run?: boolean;
+      /** Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links. */
+      enable_where_off?: boolean;
+    }
+
+    export interface ApplyUtmDefaultsResponse {
+      /** Email steps that get (or would get) the team defaults. */
+      emails_updated: number;
+      /** Workflows and broadcasts that contain those email steps. */
+      workflows_updated: number;
+      /** Of those, the ones that are live, so their next send uses the new values. */
+      active_workflows_updated: number;
+      /** Email steps where UTM tags get (or would get) turned on. */
+      emails_turned_on: number;
+      /** Email steps in scope that have UTM tags off. enable_where_off turns them on. */
+      emails_off: number;
+      /** Workflows with emails to update that you can't edit. They keep their old values. */
+      workflows_without_access: number;
+      /** Workflows that could not be saved, for example because they fail validation. They keep their old values. */
+      workflows_failed: number;
+    }
+
     export interface ApprovalPolicy {
       readonly id: string;
       /** @maxLength 128 */
@@ -88009,7 +88033,7 @@ export namespace Schemas {
        * * `opt_out` - Opt Out
        * * `opt_in` - Opt In */
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
-      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults. */
       email_utm_tags_enabled?: boolean;
       /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
       email_utm_params?: EmailUtmParams;
