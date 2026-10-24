@@ -219,7 +219,7 @@ interface DebugInfoPanelProps {
 }
 
 function DebugInfoPanel({ endpoint, viewingVersion }: DebugInfoPanelProps): JSX.Element {
-    const savedQueryId = endpoint.materialization?.saved_query_id
+    const savedQueryId = (viewingVersion ?? endpoint).materialization?.saved_query_id
     // Prefer the version being viewed; fall back to the endpoint's current version UUID.
     const versionId = viewingVersion?.version_id ?? endpoint.current_version_id
 
@@ -233,7 +233,7 @@ function DebugInfoPanel({ endpoint, viewingVersion }: DebugInfoPanelProps): JSX.
                 ) : (
                     <div className="flex flex-col">
                         <LemonLabel>Saved query ID</LemonLabel>
-                        <span className="text-xs text-muted">Not materialized</span>
+                        <span className="text-xs text-muted">Model unavailable</span>
                     </div>
                 )}
             </div>

@@ -185,6 +185,7 @@ class DataWarehouseSavedQuerySerializer(
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    endpoint = serializers.SerializerMethodField(help_text="Endpoint publication represented by this model, if any.")
     suspended = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
         source="folder",
@@ -253,6 +254,7 @@ class DataWarehouseSavedQuerySerializer(
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "endpoint",
             "folder_id",
             "folder_name",
             "latest_error",
@@ -279,6 +281,7 @@ class DataWarehouseSavedQuerySerializer(
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "endpoint",
             "sync_frequency_bounds",
             "folder_name",
             "latest_error",
@@ -676,6 +679,23 @@ class DataWarehouseSavedQuerySerializer(
         return query
 
     def validate(self, attrs):
+        if (
+            self.instance is not None
+            and self.instance.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and {
+                "name",
+                "query",
+                "deleted",
+                "is_materialized",
+                "sync_frequency",
+                "incremental",
+                "is_test",
+                "expires_at",
+            }.intersection(self.initial_data)
+        ):
+            raise serializers.ValidationError(
+                "This model is an endpoint version. Edit the query on its endpoint page to create a new version."
+            )
         attrs = super().validate(attrs)
 
         # Falls back to the stored config so editing the query of an already-incremental view is

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconExpand45, IconExternal } from '@posthog/icons'
@@ -11,6 +12,7 @@ import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
 import { LineageGraph } from '../lineage/LineageGraph'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
+import { lineageNodeName } from '../lineage/lineageSearch'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 function nodeLineageUrl(node: DataModelingNode): string {
@@ -54,6 +56,8 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         [lineageGraph?.currentNodeId]
     )
 
+    const fullGraphUrl = combineUrl(urls.models('lineage'), node ? { search: `+${lineageNodeName(node)}+` } : {}).url
+
     if (!lineageGraphLoading && lineageGraphError) {
         return (
             <LemonBanner type="error" action={{ children: 'Retry', onClick: loadLineageGraph }}>
@@ -72,7 +76,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                         recorded connections yet.
                     </p>
                 </div>
-                <LemonButton type="secondary" size="small" to={urls.models('lineage')} icon={<IconExternal />}>
+                <LemonButton type="secondary" size="small" to={fullGraphUrl} icon={<IconExternal />}>
                     Explore all lineage
                 </LemonButton>
             </div>
@@ -104,7 +108,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                to={urls.models('lineage')}
+                                to={fullGraphUrl}
                                 tooltip="Open the full graph"
                                 icon={<IconExternal />}
                             />

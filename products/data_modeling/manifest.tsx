@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             name: 'Models',
             import: () => import('./frontend/ModelsScene'),
             projectBased: true,
-            description: 'Create and manage views and materialized views for transforming and organizing your data.',
+            description: 'Manage models and published endpoints, including their versions, lineage, and data quality.',
             iconType: 'data_modeling',
         },
         NodeDetail: {

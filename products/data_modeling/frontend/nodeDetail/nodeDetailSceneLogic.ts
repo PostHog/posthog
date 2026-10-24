@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
@@ -31,6 +32,7 @@ import type { DataQualitySubjectApi } from 'products/data_quality/frontend/gener
 import { MATERIALIZING_TYPES } from '../freshness'
 import { dataModelingNodesRetrieve } from '../generated/api'
 import { DataModelingNodesRetrieveLookup, type NodeTypeEnumApi } from '../generated/api.schemas'
+import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 
 export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'data-quality', 'history'] as const
 export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]
@@ -630,7 +632,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (savedQuery) {
                     return !!savedQuery.is_materialized
                 }
-                return MATERIALIZING_TYPES.has(node?.type ?? 'table')
+                return node?.endpoint?.is_materialized ?? MATERIALIZING_TYPES.has(node?.type ?? 'table')
             },
         ],
         defaultTab: [
@@ -639,8 +641,6 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node?.saved_query_id) {
                     return 'lineage'
                 }
-                // An endpoint's saved query is always materialized, but its materialization panel
-                // strips most controls, so Query is the tab that fits it.
                 if (node?.type === 'endpoint') {
                     return 'query'
                 }
@@ -722,6 +722,15 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             // asking for one this model has no page for is corrected in place. Replace, not push: a
             // redirect the user did not ask for is not a history step.
             canonicalizeTab: () => {
+                const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+                const modelPath = urls.nodeDetail(props.id)
+                if (pathname !== modelPath && !pathname.startsWith(`${modelPath}/`)) {
+                    return
+                }
+                if (values.node && (values.node.type === 'endpoint' || values.node.endpoint)) {
+                    router.actions.replace(lineageNodeUrl(values.node, values.currentTab ?? 'query'))
+                    return
+                }
                 const tab = values.effectiveTab
                 if (tab && tab !== values.currentTab) {
                     router.actions.replace(urls.nodeDetail(props.id, tab))

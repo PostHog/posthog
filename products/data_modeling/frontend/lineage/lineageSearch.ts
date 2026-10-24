@@ -105,6 +105,10 @@ export function traverseLineage(startId: string, maps: AdjacencyMaps, mode: Line
 }
 
 /** Nodes whose name contains the term, best match first so lineage anchors on the closest name. */
+export function lineageNodeName(node: Pick<DataModelingNode, 'name' | 'endpoint'>): string {
+    return node.endpoint ? `${node.endpoint.name} v${node.endpoint.version}` : node.name
+}
+
 export function matchNodesByName(nodes: DataModelingNode[], term: string): DataModelingNode[] {
     const needle = term.toLowerCase()
     if (!needle) {
@@ -112,15 +116,18 @@ export function matchNodesByName(nodes: DataModelingNode[], term: string): DataM
     }
     // Lowercase each name once. The comparator runs O(n log n) times, so lowercasing inside it
     // allocates two strings per comparison, and a plain search matches on every keystroke.
-    const matches: { node: DataModelingNode; lowerName: string }[] = []
+    const matches: { node: DataModelingNode; lowerName: string; lowerDisplayName: string }[] = []
     for (const node of nodes) {
         const lowerName = node.name.toLowerCase()
-        if (lowerName.includes(needle)) {
-            matches.push({ node, lowerName })
+        const lowerDisplayName = lineageNodeName(node).toLowerCase()
+        if (lowerName.includes(needle) || lowerDisplayName.includes(needle)) {
+            matches.push({ node, lowerName, lowerDisplayName })
         }
     }
     matches.sort((a, b) => {
-        const exact = Number(b.lowerName === needle) - Number(a.lowerName === needle)
+        const exact =
+            Number(b.lowerName === needle || b.lowerDisplayName === needle) -
+            Number(a.lowerName === needle || a.lowerDisplayName === needle)
         return exact !== 0 ? exact : a.node.name.length - b.node.name.length
     })
     return matches.map((match) => match.node)

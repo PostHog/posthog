@@ -35,6 +35,7 @@ import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { ElkDirection, NodeHandle } from './autolayout'
+import { lineageNodeName } from './lineageSearch'
 import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
 import { NodeTypeTag } from './NodeTypeTag'
 
@@ -54,6 +55,7 @@ export type LineageNodeShape = Pick<
     | 'user_tag'
     | 'suspended'
     | 'lineage_issue'
+    | 'endpoint'
 >
 
 export interface LineageNodeState {
@@ -217,7 +219,7 @@ function LineageNodeContextMenu({
 }): JSX.Element {
     const { node, openUrl } = data
     const trigger = (
-        <Tooltip title={node.name} delayMs={500}>
+        <Tooltip title={lineageNodeName(node)} delayMs={500}>
             {openUrl ? <ContextMenuTrigger asChild>{children}</ContextMenuTrigger> : children}
         </Tooltip>
     )
@@ -262,8 +264,10 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const [isHovered, setIsHovered] = useState(false)
     const loadingRef = useCancelAnimationsOnUnmount<HTMLDivElement>()
 
-    const showMetadata = MATERIALIZING_TYPES.has(node.type)
-    const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
+    const displayName = lineageNodeName(node)
+    const isInlineEndpoint = node.type === 'endpoint' && node.endpoint?.is_materialized === false
+    const showMetadata = MATERIALIZING_TYPES.has(node.type) && !isInlineEndpoint
+    const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning && !isInlineEndpoint
     const { color } = NODE_TYPE_TAG_SETTINGS[node.type]
 
     const handleMouseEnter = useCallback(() => {
@@ -335,7 +339,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const destination = node.type === 'metric' ? 'the metric' : 'the model'
     const cardAction = data.selectable ? 'highlights its lineage' : `opens ${destination}`
     const ariaLabel = [
-        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
+        `${displayName}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
         node.lineage_issue && lineageIssueMessage(node.lineage_issue),
     ]
         .filter(Boolean)
@@ -424,7 +428,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                 targetBlank
                                 stopPropagation
                                 tooltip="Open in new tab"
-                                aria-label={`Open ${node.name} in new tab`}
+                                aria-label={`Open ${displayName} in new tab`}
                                 icon={<IconExternal />}
                                 data-attr="lineage-node-open"
                             />
@@ -432,7 +436,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     </div>
                 </div>
                 <div className="flex items-center justify-between gap-2 py-2">
-                    <span className="font-medium text-sm truncate">{node.name}</span>
+                    <span className="font-medium text-sm truncate">{displayName}</span>
                     {callbacks.onEdit && (
                         <LemonButton
                             size="xxsmall"
@@ -441,7 +445,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                             onClick={stop(callbacks.onEdit)}
                         />
                     )}
-                    {callbacks.onMaterialize && MATERIALIZING_TYPES.has(node.type) && (
+                    {callbacks.onMaterialize && showMetadata && (
                         <Tooltip title={state.isRunning ? null : 'Run this node'}>
                             <LemonButton
                                 size="xsmall"
@@ -454,6 +458,13 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     )}
                 </div>
             </div>
+            {isInlineEndpoint && (
+                <div className="rounded-b-lg bg-primary px-3 py-1.5 text-xs text-secondary">
+                    <Tooltip title="Runs its query when called. Results are not stored on a refresh schedule.">
+                        Inline
+                    </Tooltip>
+                </div>
+            )}
             {showMetadata && <MetadataBar node={node} />}
         </div>
     )

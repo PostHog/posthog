@@ -96,7 +96,6 @@ describe('nodeDetailSceneLogic', () => {
     it.each<[string, DataModelingNodeType, boolean, NodeDetailSceneTab]>([
         ['a materialized view', 'matview', true, 'materialization'],
         ['a plain view', 'view', false, 'query'],
-        ['an endpoint', 'endpoint', true, 'query'],
         ['a table', 'table', false, 'lineage'],
     ])('opens %s on its own default tab', async (_case, type, materialized, expectedTab) => {
         node = buildNode(type)
@@ -380,6 +379,34 @@ describe('nodeDetailSceneLogic', () => {
         expect(screen.queryByText('column_10')).toBeNull()
         expect(screen.getByText('column_11')).toBeTruthy()
         expect(screen.getByText('11 of 11 columns')).toBeTruthy()
+    })
+
+    it.each([
+        [undefined, 'query'],
+        ['query', 'query'],
+        ['lineage', 'lineage'],
+        ['data-quality', 'data_quality'],
+        ['materialization', 'configuration'],
+    ] as const)('redirects a published model %s link to endpoint %s', async (tab, endpointTab) => {
+        node = buildNode('endpoint', { endpoint: { name: 'orders', version: 2, is_materialized: false } })
+        await mountScene(urls.nodeDetail(NODE_ID, tab))
+        expect(router.values.location.pathname).toBe(`/project/997${urls.endpoint('orders')}`)
+        expect(router.values.searchParams).toMatchObject({ version: 2, tab: endpointTab })
+    })
+
+    it('redirects an orphaned endpoint model to the endpoints list', async () => {
+        node = buildNode('endpoint')
+        await mountScene(urls.nodeDetail(NODE_ID, 'lineage'))
+        expect(router.values.location.pathname).toBe(`/project/997${urls.endpoints()}`)
+    })
+
+    it('keeps the endpoint route when its model panels load', async () => {
+        node = buildNode('endpoint', { endpoint: { name: 'orders', version: 2, is_materialized: false } })
+        const endpointPath = urls.endpoint('orders')
+        await mountScene(endpointPath)
+
+        expect(logic.values.node?.id).toEqual(NODE_ID)
+        expect(router.values.location.pathname).toEqual(`/project/997${endpointPath}`)
     })
 
     it('lists every tab a saved query supports when data quality checks are on', async () => {

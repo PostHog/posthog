@@ -1,5 +1,7 @@
 import dataclasses
 
+from django.db.models import Q
+
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
@@ -54,7 +56,9 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     # a node outlives the query it points at, because deleting one is best-effort while soft-deleting
     # the query is not. running it can only fail, so it must not reach the materialization activity.
     executable_nodes = nodes.filter(type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
-    ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
+    ephemeral_nodes = executable_nodes.filter(
+        Q(type=NodeType.VIEW) | Q(type=NodeType.ENDPOINT, saved_query__is_materialized=False)
+    )
     edges = (
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, Prefetch
+from django.db.models import Model, OuterRef, Prefetch, Subquery
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -21,6 +21,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.permissions import is_service_auth
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.temporal.common.client import sync_connect
 
@@ -43,6 +44,8 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids
+from products.endpoints.backend.facade.models import EndpointVersion
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -213,14 +216,39 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             .order_by(self.ordering)
         )
 
-        # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.
-        # Allow retrieve so the Node detail page can fetch them by ID.
         if self.action == "list":
             # The list serializer reads none of these large JSONB columns. Left in the SELECT,
             # Postgres detoasts each one per view, and a page holds up to a thousand views.
-            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
-                "query", "external_tables", "incremental_state"
+            base_queryset = base_queryset.defer("query", "external_tables", "incremental_state")
+
+        if not is_service_auth(self.request):
+            base_queryset = base_queryset.exclude(
+                id__in=denied_endpoint_saved_query_ids(
+                    self.team_id,
+                    self.user_access_control,
+                    "editor"
+                    if self.action
+                    in {
+                        "update",
+                        "partial_update",
+                        "destroy",
+                        "run",
+                        "resume",
+                        "cancel",
+                        "materialize",
+                        "revert_materialization",
+                    }
+                    else "viewer",
+                )
             )
+        endpoint_versions = EndpointVersion.objects.filter(
+            endpoint__team_id=self.team_id, saved_query_id=OuterRef("pk")
+        ).exclude(endpoint__deleted=True)
+        base_queryset = base_queryset.annotate(
+            _endpoint_name=Subquery(endpoint_versions.values("endpoint__name")[:1]),
+            _endpoint_version=Subquery(endpoint_versions.values("version")[:1]),
+            _endpoint_current_version=Subquery(endpoint_versions.values("endpoint__current_version")[:1]),
+        )
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")
@@ -242,6 +270,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             # The UPSERT branch updates an existing row without going through get_object(),
             # so run object-level permission checks explicitly to honor per-object access controls.
             self.check_object_permissions(request, saved_query)
+            if saved_query.id in denied_endpoint_saved_query_ids(
+                self.team_id, self.user_access_control, "editor", saved_query_ids=[saved_query.id]
+            ):
+                raise exceptions.PermissionDenied("You need edit access to this endpoint to change its model.")
             serializer = self.get_serializer(saved_query, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
@@ -300,6 +332,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT and not saved_query.is_materialized:
+            raise serializers.ValidationError(
+                "Enable materialization for this version on its endpoint page before running it."
+            )
 
         if body.validated_data["full_refresh"]:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
@@ -434,6 +470,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+            raise serializers.ValidationError("Change materialization for this version on its endpoint page.")
+
         try:
             disable_saved_query_materialization(
                 self.team_id,
@@ -462,6 +501,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Enable materialization for this saved query, at the requested sync frequency or daily.
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+            raise serializers.ValidationError("Change materialization for this version on its endpoint page.")
 
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
@@ -512,9 +554,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 id__in=serializer.validated_data["view_ids"], team_id=self.team_id
             ).exclude(deleted=True)
         )
+        denied_ids = denied_endpoint_saved_query_ids(
+            self.team_id,
+            self.user_access_control,
+            "editor",
+            saved_query_ids=[saved_query.id for saved_query in candidates],
+        )
         self.user_access_control.preload_object_access_controls(cast(list[Model], candidates))
         for saved_query in candidates:
-            if self.user_access_control.check_access_level_for_object(saved_query, "editor"):
+            if saved_query.id not in denied_ids and self.user_access_control.check_access_level_for_object(
+                saved_query, "editor"
+            ):
                 unsuspend_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
@@ -530,6 +580,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query = self.get_object()
         ancestors = lineage._related_saved_queries(saved_query, upstream=True, max_depth=lineage._parse_level(request))
+        if not is_service_auth(request):
+            ancestors -= {
+                str(identifier)
+                for identifier in denied_endpoint_saved_query_ids(self.team_id, self.user_access_control)
+            }
         return response.Response({"ancestors": ancestors})
 
     @extend_schema(
@@ -546,6 +601,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         descendants = lineage._related_saved_queries(
             saved_query, upstream=False, max_depth=lineage._parse_level(request)
         )
+        if not is_service_auth(request):
+            descendants -= {
+                str(identifier)
+                for identifier in denied_endpoint_saved_query_ids(self.team_id, self.user_access_control)
+            }
         return response.Response({"descendants": descendants})
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
@@ -553,8 +613,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         page_params = parse_activity_page_params(request)
 
         item_id = kwargs["pk"]
-        if not DataWarehouseSavedQuery.objects.filter(id=item_id, team_id=self.team_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        self.get_object()
 
         activity_page = load_activity(
             scope="DataWarehouseSavedQuery",

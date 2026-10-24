@@ -13,6 +13,7 @@ and response serialization. Business logic lives in ``backend/logic``:
 import re
 import builtins
 import dataclasses
+from collections.abc import Iterable
 from typing import Literal, cast
 from uuid import UUID
 
@@ -62,6 +63,7 @@ from products.data_modeling.backend.facade.api import (
     allowed_saved_query_ids,
     blocked_lineage_node_id,
     describe_dependents,
+    get_node_ids_for_saved_queries,
 )
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.models import DataModelingJob
@@ -386,6 +388,16 @@ class EndpointViewSet(
             return annotated
         return endpoint.versions.count()
 
+    def _serialize_many(
+        self, objects: Iterable[Endpoint | EndpointVersion], request: Request | None = None
+    ) -> list[dict]:
+        objects = list(objects)
+        versions = [obj if isinstance(obj, EndpointVersion) else self._current_version(obj) for obj in objects]
+        self._model_node_ids = get_node_ids_for_saved_queries(
+            self.team_id, [str(version.saved_query_id) for version in versions if version.saved_query_id]
+        )
+        return [self._serialize(obj, request) for obj in objects]
+
     def _serialize(
         self,
         obj: Endpoint | EndpointVersion,
@@ -415,7 +427,24 @@ class EndpointViewSet(
             ui_path = f"/project/{endpoint.team_id}/endpoints/{endpoint.name}"
             ui_url = request.build_absolute_uri(ui_path)
 
+        node_ids = getattr(self, "_model_node_ids", None)
+        if node_ids is None:
+            node_ids = get_node_ids_for_saved_queries(
+                endpoint.team_id, [str(version.saved_query_id)] if version.saved_query_id else []
+            )
+        node_id = node_ids.get(str(version.saved_query_id))
+        materialization = build_materialization_info(version)
+        model_unavailable_reason = None
+        if node_id is None:
+            model_unavailable_reason = (
+                "Lineage could not resolve this version's query. Check its tables and columns."
+                if version.saved_query_id
+                else materialization.get("reason") or "Lineage and data quality are not available for this version yet."
+            )
+
         result = {
+            "node_id": node_id,
+            "model_unavailable_reason": model_unavailable_reason,
             "id": str(endpoint.id),
             "name": endpoint.name,
             "description": version.description,
@@ -434,7 +463,7 @@ class EndpointViewSet(
             "versions_count": versions_count,
             "derived_from_insight": endpoint.derived_from_insight,
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
-            "materialization": build_materialization_info(version),
+            "materialization": materialization,
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
             "tags": self._get_tag_names(endpoint),
@@ -466,9 +495,9 @@ class EndpointViewSet(
         queryset = self._with_serialization_prefetches(self.filter_queryset(self.get_queryset()))
         page = self.paginate_queryset(queryset)
         if page is not None:
-            results = [self._serialize(endpoint, request) for endpoint in page]
+            results = self._serialize_many(page, request)
             return self.get_paginated_response(results)
-        results = [self._serialize(endpoint, request) for endpoint in queryset]
+        results = self._serialize_many(queryset, request)
         return Response({"results": results})
 
     @extend_schema(
@@ -797,9 +826,9 @@ class EndpointViewSet(
         )
         page = self.paginate_queryset(versions_qs)
         if page is not None:
-            results = [self._serialize(v) for v in page]
+            results = self._serialize_many(page)
             return self.get_paginated_response(results)
-        results = [self._serialize(v) for v in versions_qs]
+        results = self._serialize_many(versions_qs)
         return Response({"results": results})
 
     @extend_schema(

@@ -24,6 +24,7 @@ from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDag
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +104,11 @@ def run_related_node_materializations(
         team_id=node.team_id,
         node__id__in=node_ids,
     ).distinct()
+    denied_endpoint_ids = denied_endpoint_saved_query_ids(
+        team_id, access_control, "editor", saved_query_ids=saved_queries.values_list("id", flat=True)
+    )
+    if denied_endpoint_ids:
+        raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
     for saved_query in saved_queries:
         if not access_control.check_access_level_for_object(saved_query, "editor"):
             raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
