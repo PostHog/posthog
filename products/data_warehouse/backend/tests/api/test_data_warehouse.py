@@ -99,6 +99,7 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
+        self.assertEqual(body["data_ops_variant"], variant)
         if variant == "trino":
             self.assertIsNone(body["connection"])
             self.assertEqual(body["trino"], trino_status)

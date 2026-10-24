@@ -91,6 +91,29 @@ describe('dataWarehouseSceneLogic', () => {
         expect(logic.values.dataOpsVariant).toBe('trino')
     })
 
+    // The monitoring endpoints reject the variant the server did not resolve, so a client flag that
+    // disagrees with the server must not pick the monitoring tab.
+    it.each([
+        { name: 'server resolves Trino', serverVariant: 'trino', trinoFlag: false, expectedVariant: 'trino' },
+        { name: 'server resolves DuckDB', serverVariant: 'duckdb', trinoFlag: true, expectedVariant: 'duckdb' },
+    ])('uses the variant from the warehouse status over client flags: $name', async (testCase) => {
+        if (testCase.trinoFlag) {
+            useOnlyTheTrinoFlag()
+        }
+        warehouseStatusResponse = [
+            200,
+            {
+                state: 'ready',
+                data_ops_variant: testCase.serverVariant,
+                trino: testCase.serverVariant === 'trino' ? { state: 'ready', ready_at: null, connection: null } : null,
+            },
+        ]
+        mountScene()
+        await waitForWarehouseStatus()
+
+        expect(logic.values.dataOpsVariant).toBe(testCase.expectedVariant)
+    })
+
     // A Trino organization has nothing to query until Trino itself is ready, so the warehouse
     // being ready is not enough to show Overview and Monitoring.
     it.each([
