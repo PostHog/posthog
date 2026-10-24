@@ -1915,10 +1915,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 **validated_data.get("customization", {}),
                 "layout_compaction": layout_compaction,
             }
-        if has_groups:
-            validated_data["customization"] = _with_groups(validated_data.get("customization", {}), groups)
-        if has_group_titles:
-            validated_data["customization"] = _with_group_titles(validated_data.get("customization", {}), group_titles)
+
+        def with_requested_groups(customization: dict[str, Any]) -> dict[str, Any]:
+            if has_groups:
+                customization = _with_groups(customization, groups)
+            if has_group_titles:
+                customization = _with_group_titles(customization, group_titles)
+            return customization
+
+        if has_groups or has_group_titles:
+            validated_data["customization"] = with_requested_groups(validated_data.get("customization", {}))
 
         with transaction.atomic():
             dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
@@ -1940,6 +1946,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         exc_info=True,
                     )
                     raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                # The template merge keeps template groups that the request cleared, so apply the request again.
+                if has_groups or has_group_titles:
+                    dashboard.customization = with_requested_groups(
+                        normalize_dashboard_customization(dashboard.customization)
+                    )
+                    dashboard.save(update_fields=["customization"])
 
             elif existing_dashboard:
                 existing_tiles = (

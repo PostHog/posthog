@@ -502,8 +502,8 @@ def create_from_template(
 ) -> None:
     from products.dashboards.backend.customization import (  # noqa: PLC0415 — breaks posthog.models import cycle
         normalize_dashboard_customization,
-        stored_customization,
         stored_group_key,
+        template_customization,
     )
 
     if not dashboard.name or dashboard.name == "":
@@ -511,7 +511,7 @@ def create_from_template(
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description or ""
     dashboard.customization = {
-        **stored_customization(template.customization),
+        **template_customization(template.customization),
         **normalize_dashboard_customization(dashboard.customization),
     }
 

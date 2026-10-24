@@ -3,7 +3,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
 from products.dashboards.backend.widget_specs.openapi import DASHBOARD_TILE_GROUP_DEFAULTS, DashboardTileGroupSerializer
 
@@ -81,4 +81,13 @@ def stored_customization(customization: Any) -> dict[str, Any]:
     groups = stored_groups(customization)
     if groups:
         stored["groups"] = groups
+    return stored
+
+
+def template_customization(customization: Any) -> dict[str, Any]:
+    # A dashboard rejects group writes past these limits, so a template must not create one that breaks them.
+    stored = stored_customization(customization)
+    groups = [(key, group) for key, group in stored.pop("groups", {}).items() if len(key) <= MAX_GROUP_KEY_LENGTH]
+    if groups:
+        stored["groups"] = dict(groups[:MAX_GROUPS])
     return stored
