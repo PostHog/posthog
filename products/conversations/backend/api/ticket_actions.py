@@ -19,12 +19,12 @@ from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.tagged_item import add_tags_to_object, cleanup_orphan_tags, remove_tags_from_object, set_tags_on_object
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Tag, Team
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.comment import Comment
-from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
@@ -546,37 +546,20 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
     if "tags" in serializer.validated_data:
         try:
             tags_mode = serializer.validated_data.get("tags_mode", "add")
-            normalized_tags = {tagify(t) for t in serializer.validated_data["tags"]}
+            tags = serializer.validated_data["tags"]
 
             # Tag adds and removes are both logged by the TaggedItem model activity signal
-            # (to the ticket's timeline and the Tag audit stream). Removals must go through
-            # the per-instance delete() so the signal fires for them too; a bulk queryset
-            # delete would skip it. The trigger context attributes every resulting entry
-            # to the workflow that made the change.
+            # (to the ticket's timeline and the Tag audit stream). The trigger context
+            # attributes every resulting entry to the workflow that made the change.
             with ActivityTriggerContext(workflow_trigger):
                 if tags_mode == "remove":
-                    for tagged_item in (
-                        ticket.tagged_items.filter(tag__name__in=normalized_tags)
-                        .select_related("tag__team")
-                        .prefetch_related("uuid_object")
-                    ):
-                        tagged_item.delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    remove_tags_from_object(tags, ticket)
+                    cleanup_orphan_tags(team.id)
                 elif tags_mode == "set":
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag=tag_instance)
-                    for tagged_item in (
-                        ticket.tagged_items.exclude(tag__name__in=normalized_tags)
-                        .select_related("tag__team")
-                        .prefetch_related("uuid_object")
-                    ):
-                        tagged_item.delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
+                    set_tags_on_object(tags, ticket)
+                    cleanup_orphan_tags(team.id)
                 else:
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag=tag_instance)
+                    add_tags_to_object(tags, ticket)
         except Exception as e:
             capture_exception(e, {"ticket_id": str(ticket.id)})
             return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)
