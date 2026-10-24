@@ -58,10 +58,32 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
 )
 
 
+def _is_wrapped_cancellation(error: BaseException) -> bool:
+    """Whether `error` is a cancellation, or wraps one in its exception chain or its args.
+
+    A vendor driver with a broad `except Exception` can wrap the CancelledError that Temporal raises
+    in the activity thread. The databricks-sql-connector `RequestError` keeps the original error only
+    in its args, not in `__cause__` or `__context__`.
+    """
+    seen: set[int] = set()
+    pending: list[BaseException] = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if temporalio.exceptions.is_cancelled_exception(current):
+            return True
+        linked = (current.__cause__, current.__context__, *current.args)
+        pending.extend(e for e in linked if isinstance(e, BaseException))
+    return False
+
+
 def is_expected_activity_failure(error: BaseException) -> bool:
     """Whether an activity failure is expected rather than a defect, so it must not reach error tracking.
 
-    Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative worker
+    Cancellations (worker drain, activity timeout, workflow cancellation), also when a vendor
+    driver wraps them in its own error, a cooperative worker
     shutdown (raised mid-activity during a deploy, always retried on a fresh worker), our own
     egress-budget backpressure (a deliberate "defer and retry later" signal that our rate limiter
     already records via record_outbound_decision), errors explicitly marked non-reportable
@@ -74,7 +96,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
     that nobody can action.
     """
     return (
-        temporalio.exceptions.is_cancelled_exception(error)
+        _is_wrapped_cancellation(error)
         or isinstance(error, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
         or (
             isinstance(error, temporalio.exceptions.ApplicationError)
