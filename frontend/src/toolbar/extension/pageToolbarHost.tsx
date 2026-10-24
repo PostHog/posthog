@@ -7,6 +7,7 @@ import { ToolbarProps } from '~/types'
 
 import { ExtensionPort, extensionFileUrl, onPageToolbarConnect } from './extensionBrowser'
 import { extensionPageFlagsLogic } from './extensionPageFlagsLogic'
+import { extensionPageMoreLogic } from './extensionPageMoreLogic'
 import { extensionPageToolbarLogic, getPageToolbarState } from './extensionPageToolbarLogic'
 import { PagePosthogBridge, onPagePosthogAppeared, requestPageAnalytics } from './pagePosthogBridge'
 import {
@@ -40,6 +41,7 @@ export class PageToolbarHost {
     private overlayRoot: Root | null = null
     private ports = new Set<ExtensionPort>()
     private lastState: PageToolbarState | null = null
+    private lastScreenshotPreview: string | null = null
     private lastAccessToken: string | null = null
     private postTimeout: ReturnType<typeof setTimeout> | null = null
     private idleTimeout: ReturnType<typeof setTimeout> | null = null
@@ -132,9 +134,11 @@ export class PageToolbarHost {
         }
         const unsubscribe = getContext().store.subscribe(() => this.scheduleStatePost())
         const unmountConfig = toolbarConfigLogic(props).mount()
-        const unmountPageToolbar = extensionPageToolbarLogic.mount()
+        const unmountPageToolbar = extensionPageToolbarLogic({ posthogBridge: this.posthogBridge }).mount()
+        const unmountMore = extensionPageMoreLogic({ posthogBridge: this.posthogBridge }).mount()
         this.unmountLogics = () => {
             unsubscribe()
+            unmountMore()
             unmountPageToolbar()
             unmountConfig()
             // The toolbar mounts some logics for good, and they keep toolbarConfigLogic with the last session's props
@@ -164,6 +168,7 @@ export class PageToolbarHost {
         this.posthogBridge = null
         this.uiHost = null
         this.lastState = null
+        this.lastScreenshotPreview = null
     }
 
     private clearIdleTimeout(): void {
@@ -208,6 +213,10 @@ export class PageToolbarHost {
         const state = getPageToolbarState()
         this.lastState = state
         port.postMessage({ type: 'state', state } satisfies PageToolbarMessage)
+        const preview = this.screenshotPreview()
+        if (preview) {
+            port.postMessage({ type: 'screenshot-preview', dataUrl: preview } satisfies PageToolbarMessage)
+        }
     }
 
     private postChanges(): void {
@@ -234,6 +243,15 @@ export class PageToolbarHost {
         if (Object.keys(patch).length > 0) {
             this.broadcast({ type: 'patch', patch })
         }
+        const preview = this.screenshotPreview()
+        if (preview && preview !== this.lastScreenshotPreview) {
+            this.broadcast({ type: 'screenshot-preview', dataUrl: preview })
+        }
+        this.lastScreenshotPreview = preview
+    }
+
+    private screenshotPreview(): string | null {
+        return extensionPageMoreLogic.findMounted()?.values.screenshotPreview ?? null
     }
 
     private broadcast(message: PageToolbarMessage): void {

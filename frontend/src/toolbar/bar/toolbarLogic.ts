@@ -26,7 +26,7 @@ import { AvailableFeature } from '~/types'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from '../../lib/components/heatmaps/types'
 import type { HedgehogModeInterface } from '../../lib/components/HedgehogMode/types'
 import type { ActionType } from '../../types'
-import { generatePiiMaskingCSS } from './piiMaskingStyles'
+import { DEFAULT_PII_MASKING_COLOR, applyPiiMaskingStylesheet, getPiiMaskingWarnings } from './piiMaskingStyles'
 
 const MARGIN = 2
 const HEDGEHOG_OFFSET = 80
@@ -521,7 +521,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             },
         ],
         piiMaskingColor: [
-            '#888888' as string,
+            DEFAULT_PII_MASKING_COLOR as string,
             { persist: true },
             {
                 setPiiMaskingColor: (_, { color }) => color,
@@ -699,36 +699,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 if (!posthog || !piiMaskingEnabled) {
                     return null
                 }
-
-                const warnings: string[] = []
-                if (posthog.sessionRecording?.status === 'active') {
-                    if (
-                        posthog.config.session_recording?.blockClass !== undefined &&
-                        typeof posthog.config.session_recording?.blockClass !== 'string'
-                    ) {
-                        warnings.push(
-                            "The toolbar's PII masking tool doesn't support non-string `session_recording.blockClass`. If you want to use PII masking, please set it to a string, or file a feature request at https://posthog.com/roadmap."
-                        )
-                    }
-                    if (
-                        posthog.config.session_recording?.maskTextClass !== undefined &&
-                        typeof posthog.config.session_recording?.maskTextClass !== 'string'
-                    ) {
-                        warnings.push(
-                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextClass`. If you want to use PII masking, please set it to a string, or file a feature request at https://posthog.com/roadmap."
-                        )
-                    }
-                    if (
-                        posthog.config.session_recording?.maskTextSelector !== undefined &&
-                        typeof posthog.config.session_recording?.maskTextSelector !== 'string'
-                    ) {
-                        warnings.push(
-                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextSelector`. If you want to use PII masking, please set it to a string, or file a feature request at https://posthog.com/roadmap."
-                        )
-                    }
-                }
-
-                return warnings
+                return getPiiMaskingWarnings(posthog)
             },
         ],
         isLoading: [
@@ -950,30 +921,15 @@ export const toolbarLogic = kea<toolbarLogicType>([
             })
         },
         togglePiiMasking: () => {
-            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
-
-            if (values.piiMaskingEnabled) {
-                const css = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
-                if (!styleElement) {
-                    const newStyleElement = document.createElement('style')
-                    newStyleElement.id = PII_MASKING_STYLESHEET_ID
-                    document.head.appendChild(newStyleElement)
-                    newStyleElement.textContent = css
-                } else {
-                    styleElement.textContent = css
-                }
-            } else {
-                if (styleElement) {
-                    styleElement.remove()
-                }
-            }
+            applyPiiMaskingStylesheet(
+                PII_MASKING_STYLESHEET_ID,
+                values.piiMaskingEnabled,
+                values.piiMaskingColor,
+                values.posthog
+            )
         },
-        setPiiMaskingColor: async ({ color }) => {
-            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
-
-            if (styleElement && values.piiMaskingEnabled) {
-                styleElement.textContent = generatePiiMaskingCSS(color, values.posthog)
-            }
+        setPiiMaskingColor: ({ color }) => {
+            applyPiiMaskingStylesheet(PII_MASKING_STYLESHEET_ID, values.piiMaskingEnabled, color, values.posthog)
         },
         startGracefulExit: () => {
             actions.setVisibleMenu('none')
@@ -1036,22 +992,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
         // Initialize PII masking if already enabled
         // Remove stylesheet on unmount
         cache.disposables.add(() => {
-            if (values.piiMaskingEnabled) {
-                let styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
-                if (!styleElement) {
-                    styleElement = document.createElement('style')
-                    styleElement.id = PII_MASKING_STYLESHEET_ID
-                    document.head.appendChild(styleElement)
-                }
-                styleElement.textContent = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
-            }
-
-            return () => {
-                const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID)
-                if (styleElement) {
-                    styleElement.remove()
-                }
-            }
+            applyPiiMaskingStylesheet(
+                PII_MASKING_STYLESHEET_ID,
+                values.piiMaskingEnabled,
+                values.piiMaskingColor,
+                values.posthog
+            )
+            return () => applyPiiMaskingStylesheet(PII_MASKING_STYLESHEET_ID, false, values.piiMaskingColor, null)
         }, 'piiMasking')
 
         // the toolbar can be run within the posthog parent app
