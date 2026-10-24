@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -28,7 +27,6 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
 from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
@@ -258,10 +256,9 @@ class TestScoreInsight(SimpleTestCase):
             assert limits[0] == 150
 
 
-class TestMetricScoringQuery(BaseTest):
-    # The real runner reads team settings from the database when it builds its series.
+class TestMetricScoringQuery(SimpleTestCase):
     @parameterized.expand([("without_compare", None), ("with_saved_compare", CompareFilter(compare=True))])
-    def test_metric_display_sends_one_query_per_series_without_the_previous_period(
+    def test_metric_display_is_scored_as_a_line_without_the_previous_period(
         self, _name: str, compare_filter: CompareFilter | None
     ) -> None:
         insight = _insight(
@@ -269,18 +266,15 @@ class TestMetricScoringQuery(BaseTest):
             trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
             compareFilter=compare_filter,
         )
-        runners: list[TrendsQueryRunner] = []
 
-        def run(runner: TrendsQueryRunner, **_kwargs: Any) -> MagicMock:
-            runners.append(runner)
-            return MagicMock(results=[])
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[])
+            score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
 
-        with patch.object(TrendsQueryRunner, "run", autospec=True, side_effect=run):
-            score_insight(insight, self.team, now=datetime(2026, 1, 10, tzinfo=UTC))
-
-        assert len(runners[0].series) == 2
-        assert not (runners[0].query.compareFilter and runners[0].query.compareFilter.compare)
-        assert query_cost(insight, self.team) == len(runners[0].series)
+        query = runner.call_args.kwargs["query"]
+        assert query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH
+        assert query.compareFilter is None
+        assert query_cost(insight, MagicMock(spec=Team)) == 2
 
 
 class TestFetchBuckets(SimpleTestCase):
