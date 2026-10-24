@@ -60,8 +60,8 @@ class TestRemoveTriggerLabel:
         _remove_trigger_label(RemoveTriggerLabelInput(team_id=1, owner="PostHog", repo="posthog", pr_number=7))
 
         assert [call.args for call in request.call_args_list] == [
-            ("DELETE", "/repos/PostHog/posthog/issues/7/labels/posthog-review"),
-            ("DELETE", "/repos/PostHog/posthog/issues/7/labels/reviewhog"),
+            ("DELETE", "/repos/PostHog/posthog/issues/7/labels/posthog-review-deep"),
+            ("DELETE", "/repos/PostHog/posthog/issues/7/labels/posthog-review-standard"),
         ]
 
     @patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", "inst"))

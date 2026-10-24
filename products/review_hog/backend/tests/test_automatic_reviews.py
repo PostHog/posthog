@@ -8,11 +8,13 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import caches
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -21,9 +23,11 @@ from posthog.ingress.github.provider import SPECS, build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.review_hog.backend.label_reviews import BOT_LABEL_COMMENT
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
@@ -82,7 +86,11 @@ def _payload(
 
 
 def _label_payload(
-    *, label: str = "posthog-review", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
+    *,
+    label: str = "posthog-review-standard",
+    sender: str = "OctoCat",
+    sender_type: str = "User",
+    login: str = "OctoCat",
 ) -> dict[str, object]:
     return {
         **_payload(action="labeled", login=login),
@@ -220,12 +228,14 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
-            ("person_adds_the_legacy_label", "reviewhog", "OctoCat", "User", True),
-            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
+            ("person_adds_the_standard_label", "posthog-review-standard", "OctoCat", "User", True, False),
+            ("person_adds_the_deep_label", "posthog-review-deep", "OctoCat", "User", True, True),
+            ("label_name_ignores_case", "PostHog-Review-Deep", "OctoCat", "User", True, True),
             # The task explains the refusal on the pull request and removes the label.
-            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
-            ("another_label", "bug", "OctoCat", "User", False),
+            ("bot_adds_the_label", "posthog-review-standard", "renovate[bot]", "Bot", True, False),
+            ("retired_label", "reviewhog", "OctoCat", "User", False, False),
+            ("retired_unsuffixed_label", "posthog-review", "OctoCat", "User", False, False),
+            ("another_label", "bug", "OctoCat", "User", False, False),
         ]
     )
     @patch(_QUEUE)
@@ -237,6 +247,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         sender: str,
         sender_type: str,
         expected_enqueue: bool,
+        expected_deep: bool,
         label_enqueue: MagicMock,
         enqueue: MagicMock,
     ) -> None:
@@ -255,6 +266,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
                 head_branch="feature",
                 labeler_login=sender,
                 labeled_by_bot=sender_type == "Bot",
+                deep=expected_deep,
             )
         else:
             label_enqueue.assert_not_called()
@@ -511,26 +523,65 @@ class TestLabelReviewTask(BaseTest):
             review_mode="flash",
         )
 
-    def test_a_label_after_a_published_deep_review_runs_deep(self) -> None:
-        # A Standard request after a published Deep review is dropped, so the label would do nothing.
-        ReviewReport.objects.for_team(self.team.id).create(
-            team=self.team,
-            repository="posthog/posthog",
-            pr_number=42,
-            head_branch="feature",
-            base_branch="master",
-            published_heads_by_mode={"full": _HEAD_SHA},
-        )
+    @parameterized.expand(
+        [
+            # A Standard request after a published Deep review is dropped, so the label would do nothing.
+            ("standard_label_after_a_published_deep_review", "posthog-review-standard", "OctoCat", True, "full", None),
+            ("deep_label", "posthog-review-deep", "OctoCat", False, "full", None),
+            ("deep_label_from_outside_the_organization", "posthog-review-deep", "stranger", False, "flash", None),
+            ("deep_label_from_outside_the_project", "posthog-review-deep", "OctoCat", False, "flash", "project_denied"),
+            (
+                "deep_label_from_an_email_outside_the_verified_domains",
+                "posthog-review-deep",
+                "OctoCat",
+                False,
+                "flash",
+                "unverified_email_domain",
+            ),
+        ]
+    )
+    def test_a_label_picks_the_review_mode(
+        self,
+        _name: str,
+        label: str,
+        sender: str,
+        deep_published: bool,
+        expected_mode: str,
+        refusal: str | None,
+    ) -> None:
+        if refusal == "project_denied":
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            create_access_control(
+                team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+        elif refusal == "unverified_email_domain":
+            OrganizationDomain.objects.create(
+                organization=self.organization, domain="verified-example.com", verified_at=timezone.now()
+            )
+            self.organization.enforce_verified_domains = True
+            self.organization.save(update_fields=["enforce_verified_domains"])
+        if deep_published:
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="posthog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                published_heads_by_mode={"full": _HEAD_SHA},
+            )
 
-        self._run(_label_payload())
+        self._run(_label_payload(label=label, sender=sender))
 
-        assert self.start.call_args.kwargs["review_mode"] == "full"
+        assert self.start.call_args.kwargs["review_mode"] == expected_mode
 
     @parameterized.expand(
         [
-            ("another_bot", "posthog-review", "renovate[bot]", False),
-            ("another_bot_legacy_label", "reviewhog", "renovate[bot]", False),
-            ("stamphog_hands_off", "posthog-review", "stamphog[bot]", True),
+            ("another_bot", "posthog-review-standard", "renovate[bot]", False),
+            ("another_bot_deep_label", "posthog-review-deep", "renovate[bot]", False),
+            ("stamphog_hands_off", "posthog-review-standard", "stamphog[bot]", True),
         ]
     )
     def test_only_stamphog_may_label_as_a_bot(self, _name: str, label: str, sender: str, starts: bool) -> None:
@@ -542,8 +593,8 @@ class TestLabelReviewTask(BaseTest):
             assert calls == []
         else:
             assert calls == [
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review-deep"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review-standard"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
 

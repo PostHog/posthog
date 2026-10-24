@@ -62,6 +62,8 @@ def process_label_event(
     head_branch: str,
     labeler_login: str,
     labeled_by_bot: bool,
+    # Messages queued before this argument existed came from the Standard label.
+    deep: bool = False,
 ) -> None:
     LabelReview(
         installation_id=installation_id,
@@ -72,4 +74,5 @@ def process_label_event(
         head_branch=head_branch,
         labeler_login=labeler_login,
         labeled_by_bot=labeled_by_bot,
+        deep=deep,
     ).start()
