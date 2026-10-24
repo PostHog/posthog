@@ -1,3 +1,4 @@
+import { zipSync } from 'fflate'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -244,4 +245,157 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
             __POSTHOG_TOOLBAR_APP_ENTRY__: JSON.stringify(path.basename(entryJs)),
         },
     })
+}
+
+// The browser extension ships one panel bundle in a folder per browser. Only the manifest differs:
+//
+//   dist/toolbar-extension/<browser>/manifest.json
+//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, assets/, icons/
+//
+// Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
+const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
+
+const TOOLBAR_EXTENSION_VERSION = '0.1.0'
+
+const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
+
+const TOOLBAR_EXTENSION_ICONS = {
+    16: 'icons/favicon-16x16.png',
+    32: 'icons/favicon-32x32.png',
+    192: 'icons/android-chrome-192x192.png',
+}
+
+export function cleanToolbarExtensionBuild(dirname) {
+    fs.rmSync(path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR), { recursive: true, force: true })
+}
+
+/** panel.html isn't an esbuild input, so watch mode rebuilds on its edits only through this. */
+function watchExtensionPagesPlugin(dirname) {
+    return {
+        name: 'watch-toolbar-extension-pages',
+        setup(build) {
+            build.onLoad({ filter: /extension[\\/]panel\.tsx$/ }, (args) => ({
+                contents: fs.readFileSync(args.path, 'utf8'),
+                loader: 'tsx',
+                watchFiles: [path.resolve(dirname, 'src/toolbar/extension/panel.html')],
+            }))
+        },
+    }
+}
+
+function toolbarExtensionBaseConfig(dirname) {
+    return {
+        outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
+        // The pages and scripts name their files directly, so they carry no hash.
+        entryNames: '[name]',
+        // Extension pages resolve assets against their own folder, so URLs stay relative.
+        publicPath: undefined,
+        loader: { ...commonConfig.loader, '.svg': 'dataurl' },
+        define: {
+            ...commonConfig.define,
+            __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(''),
+        },
+    }
+}
+
+export function getToolbarExtensionBuildConfig(dirname) {
+    return {
+        ...toolbarExtensionBaseConfig(dirname),
+        name: 'Toolbar extension',
+        entryPoints: { panel: 'src/toolbar/extension/panel.tsx' },
+        format: 'esm',
+        // Keeps lazily imported code (such as hedgehog mode, reached through lemon-ui) out of panel.js.
+        splitting: true,
+        chunkNames: 'chunks/[name]-[hash]',
+        extraPlugins: [createToolbarModulePlugin(dirname), watchExtensionPagesPlugin(dirname)],
+    }
+}
+
+/** Firefox doesn't run a module as a background script, so the background script is one classic script. */
+export function getToolbarExtensionScriptsBuildConfig(dirname) {
+    return {
+        ...toolbarExtensionBaseConfig(dirname),
+        name: 'Toolbar extension scripts',
+        entryPoints: { background: 'src/toolbar/extension/background.ts' },
+        format: 'iife',
+        splitting: false,
+        extraPlugins: [createToolbarModulePlugin(dirname)],
+    }
+}
+
+// Asks for every http and https site, because the panel follows the active tab without a click on the extension
+// button, which `activeTab` needs.
+function buildToolbarExtensionManifest(browser) {
+    const manifest = {
+        manifest_version: 3,
+        name: 'PostHog',
+        description: 'Use the PostHog toolbar in a side panel next to your website.',
+        version: TOOLBAR_EXTENSION_VERSION,
+        icons: TOOLBAR_EXTENSION_ICONS,
+        action: {
+            default_title: 'Open PostHog',
+            default_icon: TOOLBAR_EXTENSION_ICONS,
+        },
+        permissions: ['storage'],
+        host_permissions: ['http://*/*', 'https://*/*'],
+    }
+    if (browser === 'firefox') {
+        manifest.sidebar_action = {
+            default_title: 'PostHog',
+            default_panel: 'panel.html',
+            default_icon: TOOLBAR_EXTENSION_ICONS,
+            open_at_install: false,
+        }
+        // Firefox needs an add-on ID for MV3 storage, and 128 is the first release that grants Manifest V3 host
+        // permissions at install.
+        manifest.browser_specific_settings = { gecko: { id: 'toolbar@posthog.com', strict_min_version: '128.0' } }
+        // Firefox runs Manifest V3 background code as an event page, not as a service worker.
+        manifest.background = { scripts: ['background.js'] }
+    } else {
+        manifest.permissions.push('sidePanel')
+        manifest.side_panel = { default_path: 'panel.html' }
+        // 116 is the first release with `sidePanel.setPanelBehavior`, which opens the panel from the toolbar button.
+        manifest.minimum_chrome_version = '116'
+        manifest.background = { service_worker: 'background.js' }
+    }
+    return manifest
+}
+
+export function finalizeToolbarExtensionBuild(dirname) {
+    const buildDir = path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR)
+    for (const browser of TOOLBAR_EXTENSION_BROWSERS) {
+        const outDir = path.resolve(dirname, 'dist', 'toolbar-extension', browser)
+        fs.rmSync(outDir, { recursive: true, force: true })
+        fs.cpSync(buildDir, outDir, { recursive: true })
+        fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension/panel.html'), path.resolve(outDir, 'panel.html'))
+        for (const icon of Object.values(TOOLBAR_EXTENSION_ICONS)) {
+            fs.mkdirSync(path.dirname(path.resolve(outDir, icon)), { recursive: true })
+            fs.copyFileSync(path.resolve(dirname, 'public', icon), path.resolve(outDir, icon))
+        }
+        fs.writeFileSync(
+            path.resolve(outDir, 'manifest.json'),
+            JSON.stringify(buildToolbarExtensionManifest(browser), null, 4) + '\n'
+        )
+        fs.writeFileSync(
+            path.resolve(
+                dirname,
+                'dist',
+                'toolbar-extension',
+                `posthog-toolbar-${browser}-${TOOLBAR_EXTENSION_VERSION}.zip`
+            ),
+            zipSync(readDirectoryFiles(outDir))
+        )
+    }
+}
+
+function readDirectoryFiles(directory) {
+    const files = {}
+    for (const entry of fs.readdirSync(directory, { recursive: true, withFileTypes: true })) {
+        // Source maps stay in the unpacked folders for local debugging, but would triple the size of the zips.
+        if (entry.isFile() && !entry.name.endsWith('.map')) {
+            const filePath = path.join(entry.parentPath, entry.name)
+            files[path.relative(directory, filePath).split(path.sep).join('/')] = fs.readFileSync(filePath)
+        }
+    }
+    return files
 }

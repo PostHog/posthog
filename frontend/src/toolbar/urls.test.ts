@@ -15,6 +15,7 @@ describe('toolbar urls duplicate', () => {
         featureFlag: [[123], ['my-flag']],
         featureFlags: [[], ['history']],
         heatmap: [['hm-abc123'], [123]],
+        heatmaps: [[], ['tab=saved'], ['?tab=saved']],
         organizationBilling: [[], [['product_analytics']], [['product_analytics', 'session_replay']]],
         productTour: [['tour-id'], ['tour-id', 'step=2'], ['tour-id', '?step=2']],
         sessionProfile: [['session-uuid']],
