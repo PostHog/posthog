@@ -31,11 +31,11 @@ For a raw take with no captions or narration, frame-perfect at 60 fps, PostHog s
 
 Settle three things with the developer before you record, render or write a storyboard:
 
-- **Promo or demo.** A demo shows the real app working, from the first click to the proof. A promo sells the feature: it leads with the payoff, rides on music and pace, and can leave the app behind. "A video for the launch" can mean either, so ask. This recorder makes demos. For a promo, start from [hogreel](references/branding.md#promo-videos).
+- **Promo or demo.** A demo shows the real app working, from the first click to the proof. A promo sells the feature: it leads with the payoff, moves fast to music, and can leave the app behind. "A video for the launch" can mean either, so ask. This recorder makes demos. For a promo, [hogreel](references/branding.md#promo-videos) renders the video, and this recorder can supply clips of the app for it. Agree with the developer which tool makes the video before you continue.
 - **A style reference**: a file or a URL of a video the developer wants this one to feel like. Match its pace, tone and framing.
 - **Music**: yes or no, and the mood when yes.
 
-When the developer wants variants to choose from, make a **style board** for each one instead of a full video: two stills, about ten seconds of motion, and two voice lines. The developer picks from the boards, and only the winner gets a full render.
+The **final take** is the take with the voiceover and music that the developer gets. Every take before it is silent: no `voiceover` and no `music` in the storyboard.
 
 ### 2. Get the stack ready
 
@@ -46,7 +46,7 @@ For example, workflow runs and email sends need the CDP workflow workers, which 
 [references/troubleshooting.md](references/troubleshooting.md) lists the ones that caught us.
 
 The recorder needs `ffmpeg` and the repo's Python environment, which has Playwright.
-Without `apt` or `brew`, fetch the static ffmpeg build the recorder's error names. It matches the machine's architecture.
+On Linux without `apt`, fetch the static ffmpeg build the recorder's error names. It matches the machine's architecture.
 It reads the brand assets from `frontend/node_modules/@posthog/brand`, so run `pnpm install` first if that directory is missing.
 
 ### 3. Seed the data the demo needs
@@ -60,8 +60,13 @@ Use reserved domains (`example.com`) or a domain you control for addresses, and 
 Some flows validate a domain, for example the email sender refuses a domain without mail servers, so check what the flow accepts.
 
 Each take changes state: it creates objects, sends emails, and bumps versions.
-Write small scripts for the demo: seed the starting state, reset it before every take, check that the flow works once before the first take, and a fast preflight that asserts the seeded data is still there.
-The storyboard's `preflight` runs that assert before every take, so a take with missing data stops before it records.
+Write four small scripts for the demo:
+
+- seed: creates the starting state.
+- reset: puts the starting state back before every take.
+- check: runs the flow once before the first take.
+- preflight: asserts in seconds that the seeded data is still there. Set it as the storyboard's `preflight`, so a take with missing data stops before it records.
+
 [references/seeding.md](references/seeding.md) shows how to work out what the flow needs and how to write each script.
 
 ### 4. Write the storyboard
@@ -101,12 +106,22 @@ Settle the captions in a silent take first, because every changed line costs cre
 
 ### 5. Get the cut approved
 
-Before the full take, send the developer a voice-only cut and three stills, and wait for a yes:
+Before the final take, send the developer a voice-only cut and three stills, and wait for a yes:
 
 - **Voice-only cut**: `--voice-only` writes the narration to `<output>.voice.mp3` without recording. Skip it when the video has no voiceover.
-- **Three stills**: the title card and two key beats, with their captions. Take them from a silent take of just those steps, cut down from the storyboard.
+- **Three stills**: the title card and two key beats, with their captions. Take them from a silent take of the whole storyboard, with `ffmpeg -ss <seconds> -i <output>.mp4 -frames:v 1 still.png`.
 
-Change the brief or the storyboard until the developer approves both. A style board is the same check for each variant.
+Change the brief or the storyboard until the developer approves both.
+
+When the video could go more than one way, such as two voices, two music moods or two pacings, make a **style board** for each option instead of a final take for each.
+A style board is a cut-down storyboard of the first steps, about ten seconds long, with two voice lines:
+
+- two stills from its silent take
+- its silent take, as the motion
+- its two voice lines, from `--voice-only`
+
+The developer picks one board, and only that option gets a final take.
+Generated music depends on the video's length in ten second steps, so the final take gets a new track in the same mood. Say so when you show the boards.
 
 ### 6. Record
 
@@ -119,7 +134,9 @@ uv run python .agents/skills/recording-demo-videos/scripts/record_demo.py path/t
 The script logs in, loads every page once to warm the dev server, then records.
 It writes `<output>.mp4`, `<output>.sheet.png` and `<output>.log.json` next to the storyboard.
 When a step fails, it writes `<output>.error.png` and exits non-zero. The log names the step.
-To fix a late step, rehearse from it with `--from-step N`: the take starts at step N, on the page of the last `goto` before it, and writes `<output>.from-N.mp4`.
+To fix a late step, rehearse from it with `--from-step N`, where N is the step the log names.
+The take starts at step N, on the page of the last `goto` before it, and writes `<output>.from-N.mp4`.
+The steps before N do not run, so the data must already be in the state step N expects, such as right after the failed take.
 When the step works, reset and record the whole take.
 
 ### 7. Review, then record again

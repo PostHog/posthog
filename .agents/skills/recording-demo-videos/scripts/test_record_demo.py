@@ -41,16 +41,17 @@ def test_the_soundtrack_ends_with_the_video(tmp_path: Path, sound_seconds: float
 
 
 @pytest.mark.parametrize(
-    "machine, build",
+    "system, machine, build",
     [
-        ("aarch64", "ffmpeg-release-arm64-static.tar.xz"),
-        ("arm64", "ffmpeg-release-arm64-static.tar.xz"),
-        ("x86_64", "ffmpeg-release-amd64-static.tar.xz"),
-        ("riscv64", None),
+        ("Linux", "aarch64", "ffmpeg-release-arm64-static.tar.xz"),
+        ("Linux", "arm64", "ffmpeg-release-arm64-static.tar.xz"),
+        ("Linux", "x86_64", "ffmpeg-release-amd64-static.tar.xz"),
+        ("Linux", "riscv64", None),
+        ("Darwin", "arm64", None),
     ],
 )
-def test_static_ffmpeg_matches_the_machine(machine: str, build: str | None) -> None:
-    url = record_demo.static_ffmpeg_url(machine)
+def test_static_ffmpeg_matches_the_machine(system: str, machine: str, build: str | None) -> None:
+    url = record_demo.static_ffmpeg_url(system, machine)
 
     assert (url.rsplit("/", 1)[-1] if url else None) == build
 
@@ -65,24 +66,34 @@ STEPS = [
 
 
 @pytest.mark.parametrize(
-    "from_step, page, indexes",
+    "steps, from_step, page, indexes, title",
     [
-        (0, None, [0, 1, 2, 3, 4]),
-        (2, None, [2, 3, 4]),
-        (4, {"goto": "/inbox", "wait_for": {"text": "Reset"}}, [4]),
+        (STEPS, None, None, [0, 1, 2, 3, 4], True),
+        ([], None, None, [], True),
+        (STEPS, 0, None, [0, 1, 2, 3, 4], False),
+        (STEPS, 2, None, [2, 3, 4], False),
+        (STEPS, 4, {"goto": "/inbox", "wait_for": {"text": "Reset"}}, [4], False),
     ],
-    ids=["whole take", "step with its own page", "step on an earlier page"],
+    ids=["whole take", "cards only", "rehearsal from the start", "step with its own page", "step on an earlier page"],
 )
-def test_from_step_resumes_on_the_right_page(from_step: int, page: dict | None, indexes: list[int]) -> None:
-    resume = record_demo.resume_plan(STEPS, from_step)
+def test_from_step_resumes_on_the_right_page(
+    steps: list[dict], from_step: int | None, page: dict | None, indexes: list[int], title: bool
+) -> None:
+    resume = record_demo.resume_plan(steps, from_step)
 
     assert resume.page == page
     assert [index for index, _ in resume.steps] == indexes
+    assert resume.title == title
 
 
 def test_from_step_past_the_end_fails_before_recording() -> None:
     with pytest.raises(SystemExit, match="has 5 steps"):
         record_demo.resume_plan(STEPS, 5)
+
+
+@pytest.mark.parametrize("from_step, name", [(None, "demo.mp4"), (0, "demo.from-0.mp4"), (3, "demo.from-3.mp4")])
+def test_a_rehearsal_keeps_the_full_take(from_step: int | None, name: str) -> None:
+    assert record_demo.take_output(Path("/videos/demo.mp4"), from_step) == Path("/videos") / name
 
 
 def test_a_failing_preflight_stops_the_take_before_it_records(tmp_path: Path) -> None:

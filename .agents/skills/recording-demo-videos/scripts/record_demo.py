@@ -430,21 +430,29 @@ def spoken_lines(storyboard: dict[str, Any], variables: "Vars") -> dict[str, str
 
 @dataclass(frozen=True)
 class Resume:
-    """Where a take starts: the page to load first, if the first step has none, then the steps to run."""
+    """Where a take starts: the title card or the page to load first, then the steps to run."""
 
+    title: bool
     page: dict[str, Any] | None
     steps: list[tuple[int, dict[str, Any]]]
 
 
-def resume_plan(steps: list[dict[str, Any]], from_step: int) -> Resume:
+def resume_plan(steps: list[dict[str, Any]], from_step: int | None) -> Resume:
+    if from_step is None:
+        return Resume(True, None, list(enumerate(steps)))
     if not 0 <= from_step < len(steps):
         raise SystemExit(f"--from-step {from_step} is out of range. The storyboard has {len(steps)} steps, from 0.")
     page = None
-    if from_step and "goto" not in steps[from_step]:
+    if "goto" not in steps[from_step]:
         earlier = [step for step in steps[:from_step] if "goto" in step]
         if earlier:
             page = {key: earlier[-1][key] for key in ("goto", "wait_for") if key in earlier[-1]}
-    return Resume(page, list(enumerate(steps))[from_step:])
+    return Resume(False, page, list(enumerate(steps))[from_step:])
+
+
+def take_output(output: Path, from_step: int | None) -> Path:
+    """A rehearsal from a step writes next to the full take, never over it."""
+    return output if from_step is None else output.with_name(f"{output.stem}.from-{from_step}{output.suffix}")
 
 
 class Recorder:
@@ -770,7 +778,7 @@ class Recorder:
             page = await context.new_page()
             self.t0 = time.monotonic()
             try:
-                if "title" in self.sb and self.resume.steps[0][0] == 0:
+                if "title" in self.sb and self.resume.title:
                     await self.card(page, self.sb["title"], "title")
                 if self.resume.page:
                     await self.waited(self.load(page, self.resume.page), keep=0)
@@ -986,15 +994,16 @@ def without_elevenlabs(storyboard: dict[str, Any]) -> tuple[dict[str, Any], list
     return {name: value for name, value in storyboard.items() if name not in skipped}, skipped
 
 
-def static_ffmpeg_url(machine: str) -> str | None:
-    arch = STATIC_FFMPEG_ARCH.get(machine.lower())
+def static_ffmpeg_url(system: str, machine: str) -> str | None:
+    """The static build that runs on this machine. The builds exist for Linux only."""
+    arch = STATIC_FFMPEG_ARCH.get(machine.lower()) if system == "Linux" else None
     return STATIC_FFMPEG_URL.format(arch=arch) if arch else None
 
 
 def ffmpeg_missing() -> str:
     machine = platform.machine()
-    url = static_ffmpeg_url(machine)
-    static = f"Without a package manager, fetch the {machine} static build: {url}" if url else ""
+    url = static_ffmpeg_url(platform.system(), machine)
+    static = f"Without a package manager, fetch the Linux {machine} static build: {url}" if url else ""
     return f"ffmpeg is missing. Install it first (apt-get install -y ffmpeg, or brew install ffmpeg). {static}".strip()
 
 
@@ -1020,7 +1029,6 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--from-step",
         type=int,
-        default=0,
         help="Start the take at this step, from 0, and write <output>.from-N.mp4. For fixing a late step.",
     )
     parser.add_argument(
@@ -1043,8 +1051,7 @@ def main(argv: list[str] | None = None) -> None:
     if not shutil.which("ffmpeg"):
         raise SystemExit(ffmpeg_missing())
     resume = resume_plan(storyboard["steps"], args.from_step)
-    if args.from_step:
-        output = output.with_name(f"{output.stem}.from-{args.from_step}{output.suffix}")
+    output = take_output(output, args.from_step)
     if "preflight" in storyboard:
         run_preflight(storyboard["preflight"], values)
     skipped: list[str] = []

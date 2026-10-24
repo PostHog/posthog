@@ -57,14 +57,15 @@ When a late step fails, fix it with `--from-step N` instead of the whole take, t
 
 ## The encode hangs after the take
 
-An ffmpeg that stalls at 0% CPU after the take, at the sound mix, and ignores Ctrl-C, is an older recorder.
-It padded the audio without an end and relied on `-shortest`, which never finishes on some ffmpeg builds, such as the 7.0 static build.
-The recorder now pads the audio to the video's length. Stop the stuck process with `kill -9`, update the checkout, and record again.
+ffmpeg stalls at 0% CPU at the sound mix and ignores Ctrl-C.
+An audio pad without an end, together with `-shortest`, never finishes on some ffmpeg builds, such as the 7.0 static build.
+`encode` in `record_demo.py` pads the audio to the video's length with `apad=whole_dur`. If your checkout has a bare `apad`, update it.
+Stop the stuck process with `kill -9`, then record again.
 
 ## ffmpeg fails with `Exec format error`
 
 The ffmpeg binary is built for another architecture, such as an x86 build on an aarch64 machine.
-Check `uname -m`, and fetch the static build the recorder names when ffmpeg is missing. It matches the machine.
+Remove that binary from `PATH`, then run the recorder again. Its error names the static build for this machine.
 
 ## The local stack lost its data
 
