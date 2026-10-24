@@ -1919,6 +1919,12 @@ class TestDirectPostgresQuery(APIBaseTest):
             ("tunnel_tls_on", _SSH_TUNNEL_CONFIG, "require"),
             ("tunnel_tls_off", _SSH_TUNNEL_TLS_OFF, "prefer"),
             ("disabled_tunnel_tls_off_ignored", _SSH_TUNNEL_DISABLED_TLS_OFF, "require"),
+            ("verify_certificate", {"verify_server_certificate": "true"}, "verify-full"),
+            (
+                "verify_certificate_through_tunnel",
+                {**_SSH_TUNNEL_CONFIG, "verify_server_certificate": "true"},
+                "verify-ca",
+            ),
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
