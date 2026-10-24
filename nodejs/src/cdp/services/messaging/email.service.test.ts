@@ -1122,15 +1122,19 @@ describe('EmailService', () => {
 
         // A person without an email property renders an empty `to`. Counting that as email_failed
         // lets one project's data trip the platform send failure rate alert.
+        // A suppressed cc or bcc must not turn the missing-recipient skip into a suppression.
         it.each([
-            ['an empty string', ''],
-            ['only whitespace', '   '],
-            ['no value', undefined],
-        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email) => {
+            ['an empty string', '', undefined],
+            ['only whitespace', '   ', undefined],
+            ['no value', undefined, undefined],
+            ['an empty string beside a suppressed cc', '', 'suppressed@example.com'],
+        ])('skips the send without SES or email_failed when the recipient is %s', async (_label, email, cc) => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
                 to: { email: email as string, name: 'Test User' },
+                cc,
             })
+            jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
             const result = await service.executeSendEmail(invocation)
@@ -1217,7 +1221,9 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
-                expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
+                expect(result.logs.map((l) => l.message)).toContain(
+                    'Skipping send. Email sending is paused for this workflow. Spam complaints reached 2% of the 400 emails sent. Resume it from the workflow page once the audience is cleaned up.'
+                )
                 // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
                 expect(result.skipped).toBe(true)
             })
@@ -1845,6 +1851,25 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(result.capturedPostHogEvents).toHaveLength(0)
         })
+
+        it.each([
+            { captureEngagement: true, teamCaptures: false, captured: 1 },
+            { captureEngagement: false, teamCaptures: true, captured: 0 },
+        ])(
+            "follows a code send's capture choice $captureEngagement over the team switch $teamCaptures",
+            async ({ captureEngagement, teamCaptures, captured }) => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(teamCaptures)
+                invocation.hogFunction.metadata = { capture_engagement: captureEngagement }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.capturedPostHogEvents).toHaveLength(captured)
+            }
+        )
 
         it('should capture a $workflows_email_failed PostHog event on failure', async () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(

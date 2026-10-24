@@ -429,6 +429,351 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    const CODE_MANAGED = {
+        id: 'existing-id',
+        name: 'Welcome',
+        description: 'Sent after signup',
+        content: {
+            templating: 'liquid',
+            email: { subject: 'Welcome', html: '<p>Hi</p>', text: 'Hi', design: null, from: '', to: '' },
+        },
+        key: 'welcome',
+        managed_by: 'code',
+        source_repository: 'github.com/example/app',
+        source_path: 'emails/welcome.html',
+        source_ref: '3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
+        content_hash: 'v1:0000000000000000000000000000000000000000000000000000000000000000',
+    }
+
+    describe('code-managed source', () => {
+        it.each([
+            {
+                description: 'a template made in PostHog has no source',
+                served: { id: 'existing-id', name: 'Existing', managed_by: null },
+                isCodeManaged: false,
+                templateSource: null,
+            },
+            {
+                description: 'a keyed template that PostHog still manages has no source',
+                served: { ...CODE_MANAGED, managed_by: 'gui' },
+                isCodeManaged: false,
+                templateSource: null,
+            },
+            {
+                description: 'a known host links the file, the repository and the shortened commit',
+                served: CODE_MANAGED,
+                isCodeManaged: true,
+                templateSource: {
+                    path: 'emails/welcome.html',
+                    fileUrl:
+                        'https://github.com/example/app/blob/3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3/emails/welcome.html',
+                    repository: 'github.com/example/app',
+                    repositoryUrl: 'https://github.com/example/app',
+                    ref: '3f2c1ab',
+                    refUrl: 'https://github.com/example/app/commit/3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
+                },
+            },
+            {
+                description: 'a branch links to the branch',
+                served: { ...CODE_MANAGED, source_ref: 'main' },
+                isCodeManaged: true,
+                templateSource: expect.objectContaining({
+                    ref: 'main',
+                    refUrl: 'https://github.com/example/app/tree/main',
+                }),
+            },
+            {
+                description: 'an unknown host stays plain text',
+                served: { ...CODE_MANAGED, source_repository: 'git.example.com/team/app' },
+                isCodeManaged: true,
+                templateSource: {
+                    path: 'emails/welcome.html',
+                    fileUrl: undefined,
+                    repository: 'git.example.com/team/app',
+                    repositoryUrl: undefined,
+                    ref: '3f2c1ab',
+                    refUrl: undefined,
+                },
+            },
+            {
+                description: 'an upload without a source shows none',
+                served: { ...CODE_MANAGED, source_repository: null, source_path: null, source_ref: null },
+                isCodeManaged: true,
+                templateSource: null,
+            },
+        ])('$description', async ({ served, isCodeManaged, templateSource }) => {
+            useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': served } })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadTemplateSuccess'])
+                .toMatchValues({ isCodeManaged, templateSource })
+        })
+    })
+
+    describe('code-managed template', () => {
+        let patchBodies: Record<string, unknown>[]
+        let createBodies: Record<string, unknown>[]
+
+        beforeEach(async () => {
+            patchBodies = []
+            createBodies = []
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': CODE_MANAGED },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        patchBodies.push(await request.json())
+                        return [200, { ...CODE_MANAGED, managed_by: 'gui' }]
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/messaging_templates/': async ({ request }: { request: Request }) => {
+                        createBodies.push(await request.json())
+                        return [201, { id: 'copy-id' }]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        it('keeps its fields and never saves when they change', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTemplateValue('content.email.subject', 'Edited here')
+                logic.actions.setTemplateValues({ name: 'Renamed here' })
+                logic.actions.submitTemplate()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ templateChanged: false })
+            expect(logic.values.template.name).toBe('Welcome')
+            expect(patchBodies).toEqual([])
+        })
+
+        it('duplicates as a copy without its key, ownership, source or hash', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTemplate()
+            }).toFinishAllListeners()
+
+            expect(createBodies).toEqual([
+                { name: 'Welcome (copy)', description: 'Sent after signup', content: CODE_MANAGED.content },
+            ])
+        })
+
+        it('becomes editable once released', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.releaseTemplate()
+            })
+                .toDispatchActions(['releaseTemplateSuccess'])
+                .toFinishAllListeners()
+
+            expect(patchBodies).toEqual([{ managed_by: 'gui' }])
+            logic.actions.setTemplateValue('name', 'Edited here')
+            await expectLogic(logic).toMatchValues({ isCodeManaged: false, templateChanged: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions(['saveTemplateSuccess'])
+                .toFinishAllListeners()
+            expect(patchBodies[1]).toMatchObject({ name: 'Edited here' })
+            const serverOwnedFieldsSent = [
+                'key',
+                'managed_by',
+                'source_repository',
+                'source_path',
+                'source_ref',
+            ].filter((field) => field in patchBodies[1])
+            expect(serverOwnedFieldsSent).toEqual([])
+        })
+    })
+
+    describe('claimed back by an upload while editing', () => {
+        const draft = { ...CODE_MANAGED.content, email: { ...CODE_MANAGED.content.email, subject: 'Draft subject' } }
+        const claimed = { ...CODE_MANAGED, transactional_hog_flow_id: 'flow-id', draft_content: null }
+        let serverTemplate: Record<string, unknown>
+        let reloadStatus: number
+        let createBodies: Record<string, unknown>[]
+
+        const editTemplate = (): void => {
+            logic.actions.setTemplateValue('name', 'Welcome, edited here')
+            logic.actions.setTemplateValue('content.email.subject', 'Edited subject')
+        }
+
+        const autosave = async (): Promise<void> => {
+            await jest.advanceTimersByTimeAsync(1500)
+        }
+
+        const autosaveThenClaim = async (): Promise<void> => {
+            await autosave()
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            serverTemplate = claimed
+        }
+
+        const publish = async (): Promise<void> => {
+            await autosaveThenClaim()
+            logic.actions.submitTemplate()
+        }
+
+        const discardDraft = async (): Promise<void> => {
+            await autosaveThenClaim()
+            logic.actions.confirmDiscardDraft()
+        }
+
+        const claimThenAutosave = async (): Promise<void> => {
+            serverTemplate = claimed
+            await autosave()
+        }
+
+        const refuse = async (refusal: () => Promise<void>): Promise<void> => {
+            editTemplate()
+            await refusal()
+            await jest.advanceTimersByTimeAsync(3000)
+            await expectLogic(logic).toDispatchActions([
+                reloadStatus === 200 ? 'loadTemplateSuccess' : 'loadTemplateFailure',
+            ])
+        }
+
+        beforeEach(async () => {
+            serverTemplate = { ...claimed, managed_by: 'gui', draft_content: draft }
+            reloadStatus = 200
+            createBodies = []
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                if (serverTemplate.managed_by === 'code') {
+                    return [
+                        403,
+                        { type: 'invalid_request', code: 'immutable', detail: 'This template is managed by code.' },
+                    ]
+                }
+                return [200, { ...serverTemplate, ...body, updated_at: '2026-01-01T00:01:00Z' }]
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [reloadStatus, serverTemplate],
+                },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                },
+                post: {
+                    '/api/environments/:team_id/messaging_templates/': async ({ request }: { request: Request }) => {
+                        createBodies.push(await request.json())
+                        return [201, { id: 'copy-id' }]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const keptEdits = expect.objectContaining({ name: 'Welcome, edited here' })
+
+        it.each([
+            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'succeeds', status: 200, edits: keptEdits },
+            { refusal: 'an autosave', refuse: claimThenAutosave, reload: 'fails', status: 500, edits: keptEdits },
+            { refusal: 'a publish', refuse: publish, reload: 'succeeds', status: 200, edits: keptEdits },
+            { refusal: 'a publish', refuse: publish, reload: 'fails', status: 500, edits: keptEdits },
+            { refusal: 'a draft discard', refuse: discardDraft, reload: 'fails', status: 500, edits: null },
+        ])(
+            'turns read-only when $refusal is refused and the reload $reload',
+            async ({ refuse: refusal, status, edits }) => {
+                reloadStatus = status
+                await refuse(refusal)
+
+                await expectLogic(logic).toMatchValues({
+                    isCodeManaged: true,
+                    hasDraft: false,
+                    hasUnsavedChanges: false,
+                    refusedEdits: edits,
+                })
+                expect(logic.values.template.name).toBe('Welcome')
+            }
+        )
+
+        it.each([
+            {
+                requests: 'an autosave and a publish',
+                refuse: async (): Promise<void> => {
+                    serverTemplate = claimed
+                    logic.actions.saveDraft()
+                    logic.actions.submitTemplate()
+                },
+            },
+            {
+                requests: 'an autosave, then a draft discard',
+                refuse: async (): Promise<void> => {
+                    await claimThenAutosave()
+                    logic.actions.confirmDiscardDraft()
+                },
+            },
+        ])('keeps the edits the first refusal rescued when $requests are refused', async ({ refuse: refusal }) => {
+            await refuse(refusal)
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ isCodeManaged: true, refusedEdits: keptEdits })
+        })
+
+        it('keeps the edits from before and after a release when a second upload refuses them', async () => {
+            await refuse(claimThenAutosave)
+            serverTemplate = { ...claimed, managed_by: 'gui' }
+            await expectLogic(logic, () => {
+                logic.actions.releaseTemplate()
+            }).toDispatchActions(['releaseTemplateSuccess'])
+            await expectLogic(logic).toMatchValues({ refusedEdits: null, hasUnsavedChanges: true })
+
+            logic.actions.setTemplateValue('description', 'Edited after the release')
+            await claimThenAutosave()
+            await expectLogic(logic).toDispatchActions(['claimedByUpload']).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                isCodeManaged: true,
+                refusedEdits: expect.objectContaining({
+                    name: 'Welcome, edited here',
+                    description: 'Edited after the release',
+                }),
+            })
+        })
+
+        it('asks before a navigation drops the refused edits', async () => {
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            await refuse(claimThenAutosave)
+
+            router.actions.push('/workflows/library')
+
+            expect(confirmSpy).toHaveBeenCalledTimes(1)
+            confirmSpy.mockRestore()
+        })
+
+        it('duplicates the unsaved edits without its key, ownership, source or hash', async () => {
+            await refuse(claimThenAutosave)
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateWithMyChanges()
+            }).toFinishAllListeners()
+
+            expect(createBodies).toEqual([
+                {
+                    name: 'Welcome, edited here (copy)',
+                    description: 'Sent after signup',
+                    content: { ...draft, email: { ...draft.email, subject: 'Edited subject' } },
+                },
+            ])
+            await expectLogic(logic).toMatchValues({ refusedEdits: null })
+        })
+    })
+
     describe('make transactional', () => {
         test.each([
             ['an edit made while it runs', true],

@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -21,7 +22,10 @@ import {
     messagingTemplatesMakeTransactionalCreate,
     messagingTemplatesPartialUpdate,
 } from 'products/messaging/frontend/generated/api'
-import type { MessageTemplateContentApi } from 'products/messaging/frontend/generated/api.schemas'
+import type {
+    MessageTemplateContentApi,
+    TemplateManagedByEnumApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import {
@@ -33,13 +37,19 @@ import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-function
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
 import type { IntegrationType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
+import { TemplateSource, isCodeManagedTemplate, templateSource, withoutServerOwnedFields } from './codeManagedTemplate'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { templateCopy } from './templateCopy'
 import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
 
 type TemplateContent = MessageTemplate['content']
+
+function isClaimedByUpload(error: unknown): boolean {
+    return error instanceof ApiError && error.code === 'immutable'
+}
 
 /** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function splitDraft(template: MessageTemplate): {
@@ -69,6 +79,8 @@ export interface messageTemplateLogicValues {
     hasDraft: boolean
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
+    isCodeManaged: boolean
+    isDuplicating: boolean
     isMakingTransactional: boolean
     isSavingDraft: boolean
     isSavingSensitive: boolean
@@ -80,6 +92,7 @@ export interface messageTemplateLogicValues {
     messageLoading: boolean
     originalTemplate: MessageTemplate
     publishedContent: TemplateContent | null
+    refusedEdits: MessageTemplate | null
     savedDraft: TemplateContent | null
     showTemplateErrors: boolean
     template: MessageTemplate
@@ -96,8 +109,13 @@ export interface messageTemplateLogicValues {
             description: string
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
             sensitive?: boolean | undefined
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
@@ -108,6 +126,7 @@ export interface messageTemplateLogicValues {
     templateLoading: boolean
     templateManualErrors: Record<string, any>
     templatePickerOpen: boolean
+    templateSource: TemplateSource | null
     templateTouched: boolean
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
@@ -121,8 +140,13 @@ export interface messageTemplateLogicValues {
             description: string
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
             sensitive?: boolean | undefined
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
@@ -141,6 +165,9 @@ export interface messageTemplateLogicActions {
     autoSaveDraft: () => {
         value: true
     }
+    claimedByUpload: (keepEdits: boolean) => {
+        keepEdits: boolean
+    }
     confirmDiscardDraft: () => {
         value: true
     }
@@ -154,6 +181,12 @@ export interface messageTemplateLogicActions {
         value: true
     }
     duplicateTemplate: () => {
+        value: true
+    }
+    duplicateTemplateDone: () => {
+        value: true
+    }
+    duplicateWithMyChanges: () => {
         value: true
     }
     keepMyTemplateVersion: () => {
@@ -195,6 +228,21 @@ export interface messageTemplateLogicActions {
     makeTransactionalDone: (hogFlowId: string | null) => {
         hogFlowId: string | null
     }
+    releaseTemplate: () => any
+    releaseTemplateFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    releaseTemplateSuccess: (
+        template: MessageTemplate,
+        payload?: any
+    ) => {
+        template: MessageTemplate
+        payload?: any
+    }
     replayDeferredExternalEdit: () => {
         value: true
     }
@@ -208,8 +256,13 @@ export interface messageTemplateLogicActions {
         description: string
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
         sensitive?: boolean | undefined
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
@@ -224,8 +277,13 @@ export interface messageTemplateLogicActions {
             description: string
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
             sensitive?: boolean | undefined
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
@@ -287,6 +345,9 @@ export interface messageTemplateLogicActions {
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    setRefusedEdits: (edits: MessageTemplate | null) => {
+        edits: MessageTemplate | null
+    }
     setSensitive: (sensitive: boolean) => {
         sensitive: boolean
     }
@@ -323,8 +384,13 @@ export interface messageTemplateLogicActions {
             description: string
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
             sensitive?: boolean | undefined
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
@@ -340,8 +406,13 @@ export interface messageTemplateLogicActions {
             description: string
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
             sensitive?: boolean | undefined
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
@@ -370,8 +441,13 @@ export interface messageTemplateLogicActions {
         description: string
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
         sensitive?: boolean | undefined
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
@@ -386,8 +462,13 @@ export interface messageTemplateLogicActions {
             description: string
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
             sensitive?: boolean | undefined
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
@@ -403,8 +484,13 @@ export interface messageTemplateLogicActions {
         description: string
         draft_content?: MessageTemplateContentApi | null | undefined
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
         sensitive?: boolean | undefined
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         tags?: string[] | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
@@ -419,8 +505,13 @@ export interface messageTemplateLogicActions {
             description: string
             draft_content?: MessageTemplateContentApi | null | undefined
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
             sensitive?: boolean | undefined
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             tags?: string[] | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
@@ -443,6 +534,8 @@ export interface messageTemplateLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
+        isCodeManaged: (originalTemplate: MessageTemplate) => boolean
+        templateSource: (originalTemplate: MessageTemplate) => TemplateSource | null
         draftsEnabled: (transactionalHogFlowId: string | null) => boolean
         hasDraft: (
             savedDraft: {
@@ -478,6 +571,17 @@ export type messageTemplateLogicType = MakeLogicType<
     messageTemplateLogicMeta
 >
 
+async function createCopyOf(source: MessageTemplate): Promise<MessageTemplate | null> {
+    try {
+        const copy = await api.messaging.createTemplate(templateCopy(source))
+        lemonToast.success('Template duplicated successfully')
+        return copy
+    } catch (error: any) {
+        lemonToast.error(error?.detail || 'Failed to duplicate template')
+        return null
+    }
+}
+
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
     props({} as MessageTemplateLogicProps),
@@ -497,6 +601,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
+        duplicateTemplateDone: true,
+        setRefusedEdits: (edits: MessageTemplate | null) => ({ edits }),
+        claimedByUpload: (keepEdits: boolean) => ({ keepEdits }),
+        duplicateWithMyChanges: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         saveTags: (tags: string[]) => ({ tags }),
@@ -548,7 +656,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             }),
             submit: async (template) => {
-                actions.saveTemplate(template)
+                if (!values.isCodeManaged) {
+                    actions.saveTemplate(template)
+                }
             },
         },
     })),
@@ -609,6 +719,21 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 confirmDiscardDraft: () => true,
                 discardDraftDone: () => false,
+            },
+        ],
+        isDuplicating: [
+            false,
+            {
+                duplicateTemplate: () => true,
+                duplicateWithMyChanges: () => true,
+                duplicateTemplateDone: () => false,
+            },
+        ],
+        // Unsaved edits that the server refused because an upload claimed the template back for code.
+        refusedEdits: [
+            null as MessageTemplate | null,
+            {
+                setRefusedEdits: (_, { edits }) => edits,
             },
         ],
         transactionalTab: [
@@ -696,6 +821,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                       draftOutOfDate
                     : templateChanged,
         ],
+        isCodeManaged: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): boolean => isCodeManagedTemplate(originalTemplate),
+        ],
+        templateSource: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): TemplateSource | null => templateSource(originalTemplate),
+        ],
     }),
     loaders(({ props, actions }) => ({
         template: {
@@ -714,7 +847,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 // Saving the content publishes it, and the server clears the draft. The sensitive setting
                 // and the tags each save on their own, so a publish never sends them and can't undo a
                 // change made in another tab since this one loaded the template.
-                const { sensitive: _sensitive, tags: _tags, ...content } = template
+                const { sensitive: _sensitive, tags: _tags, ...content } = withoutServerOwnedFields(template)
                 const saved =
                     template.id === 'new'
                         ? await api.messaging.createTemplate(template)
@@ -723,6 +856,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setDraftState(draft, published)
                 return form
             },
+            releaseTemplate: () => api.messaging.updateTemplate(props.id, { managed_by: 'gui' }),
         },
         message: {
             loadMessage: async () => {
@@ -777,7 +911,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.setExternallyEdited(false)
             actions.autoSaveDraft()
         },
-        setTemplateValue: () => actions.autoSaveDraft(),
+        // A code-managed form never diverges from the server copy, so nothing can save or autosave it.
+        setTemplateValue: () =>
+            values.isCodeManaged ? actions.resetTemplate(values.originalTemplate) : actions.autoSaveDraft(),
+        setTemplateValues: () =>
+            values.isCodeManaged ? actions.resetTemplate(values.originalTemplate) : actions.autoSaveDraft(),
         saveTags: async ({ tags }, breakpoint) => {
             // An unsaved template has no row yet, so its tags ride the create.
             if (!props.id || props.id === 'new') {
@@ -803,7 +941,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.setTemplate({ ...values.template, tags: updated.tags })
             actions.setOriginalTemplate({ ...values.originalTemplate, tags: updated.tags })
         },
-        setTemplateValues: () => actions.autoSaveDraft(),
         autoSaveDraft: async (_, breakpoint) => {
             if (!values.draftsEnabled) {
                 return
@@ -830,9 +967,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     draft_content: content as MessageTemplateContentApi,
                 })
                 actions.saveDraftDone(content, updated.updated_at)
-            } catch {
+            } catch (error) {
                 actions.saveDraftFailed()
-                lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
+                if (isClaimedByUpload(error)) {
+                    actions.claimedByUpload(true)
+                } else {
+                    lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
+                }
             }
         },
         saveDraftDone: ({ updatedAt }) => {
@@ -873,10 +1014,31 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     updated_at: updated.updated_at,
                 })
                 actions.resetTemplate({ ...values.template, content: published, updated_at: updated.updated_at })
-            } catch {
-                lemonToast.error("Couldn't discard your draft. Try again.")
+            } catch (error) {
+                if (isClaimedByUpload(error)) {
+                    // The upload dropped the draft too, so the discard got what it asked for.
+                    actions.claimedByUpload(false)
+                } else {
+                    lemonToast.error("Couldn't discard your draft. Try again.")
+                }
             }
             actions.discardDraftDone()
+            actions.replayDeferredExternalEdit()
+        },
+        releaseTemplateSuccess: ({ template }) => {
+            actions.resetTemplate(template)
+            actions.setOriginalTemplate(template)
+            const edits = values.refusedEdits
+            if (edits) {
+                // Back in the editable form, a later refusal rescues these together with the edits made after.
+                actions.setRefusedEdits(null)
+                actions.setTemplateValues({ name: edits.name, description: edits.description, content: edits.content })
+            }
+            lemonToast.success('This template is no longer managed by code. You can edit it here.')
+            actions.replayDeferredExternalEdit()
+        },
+        releaseTemplateFailure: ({ errorObject }) => {
+            lemonToast.error(errorObject?.detail ?? 'Could not stop managing this template in code. Please try again.')
             actions.replayDeferredExternalEdit()
         },
         makeTransactional: async () => {
@@ -966,7 +1128,27 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error(errors.content.email.from.email)
             }
         },
+        claimedByUpload: ({ keepEdits }) => {
+            // An upload claimed the template back for code. The page locks at once, so a failed reload
+            // can't leave it editable. Only the offered duplicate keeps the refused edits. The upload also
+            // dropped the draft, so the page shows the published content.
+            const published = values.publishedContent ?? values.originalTemplate.content
+            const claimed = { ...values.originalTemplate, content: published, managed_by: 'code' as const }
+            // A later refusal sees the form already reset, so only the first one holds the person's edits.
+            if (keepEdits && !values.refusedEdits) {
+                actions.setRefusedEdits(values.template)
+            }
+            actions.setExternallyEdited(false)
+            actions.setDraftState(null, published)
+            actions.setOriginalTemplate(claimed)
+            actions.resetTemplate(claimed)
+            actions.loadTemplate()
+        },
         saveTemplateFailure: ({ errorObject }) => {
+            if (isClaimedByUpload(errorObject)) {
+                actions.claimedByUpload(true)
+                return
+            }
             actions.replayDeferredExternalEdit()
             // A 404 means the template no longer resolves for this environment - it was soft-deleted,
             // or it belongs to a different environment than the one currently selected.
@@ -1012,22 +1194,27 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             })
         },
-        duplicateTemplate: async () => {
+        duplicateTemplate: async (_, breakpoint) => {
             if (values.hasUnsavedChanges) {
                 lemonToast.error('Please save your changes before duplicating')
+                actions.duplicateTemplateDone()
                 return
             }
-            const template = values.template
-            try {
-                const duplicatedTemplate = await api.messaging.createTemplate({
-                    name: `${template.name} (copy)`,
-                    description: template.description,
-                    content: template.content,
-                })
-                lemonToast.success('Template duplicated successfully')
-                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
-            } catch {
-                lemonToast.error('Failed to duplicate template')
+            const copy = await createCopyOf(values.template)
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
+            }
+        },
+        duplicateWithMyChanges: async (_, breakpoint) => {
+            const edits = values.refusedEdits
+            const copy = edits && (await createCopyOf(edits))
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
+                actions.setRefusedEdits(null)
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
             }
         },
         deleteTemplate: async () => {
@@ -1079,7 +1266,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         // Guards both new and existing templates - a brand-new template only exists in form
         // state until "Create" is pressed, so leaving without saving would discard it entirely.
         enabled: (newLocation) => {
-            if (!values.hasUnsavedChanges) {
+            // After a refusal, the banner holds the only copy of the edits.
+            if (!values.hasUnsavedChanges && !values.refusedEdits) {
                 return false
             }
             // Allow same-path changes (e.g. query params) through without warning.

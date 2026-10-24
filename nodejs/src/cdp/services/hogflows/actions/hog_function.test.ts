@@ -524,7 +524,7 @@ describe('HogFunctionHandler', () => {
         'should skip the send and emit email_bounce_prevented when validation predicts a hard bounce for %s',
         async (_label, parentRunId) => {
             ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
-                'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.'
+                'Skipping send. The domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.'
             )
             invocation.parentRunId = parentRunId
 
