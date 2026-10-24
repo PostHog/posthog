@@ -87,6 +87,11 @@ CONSTANCE_CONFIG = {
         "Allow queued (async) native events cluster queries. Turn this on only after every query worker runs a version that keeps the native route, because older workers read the legacy cluster.",
         bool,
     ),
+    "CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS": (
+        [],
+        "Project IDs whose precompute builds read the native-JSON events table (events_json). Experiment builds and builds that mention $feature_flag_called keep reading the legacy events table. Results built from each table are stored separately.",
+        list[int],
+    ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         # Person-on-events v2 reads are the production default for every project created
         # since 2024-06-14, and both CI lanes set this variable so their runs match it. A
@@ -465,6 +470,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_NATIVE_EVENTS_HOST",
     "CLICKHOUSE_NATIVE_EVENTS_TEAMS",
     "CLICKHOUSE_NATIVE_EVENTS_ASYNC",
+    "CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",

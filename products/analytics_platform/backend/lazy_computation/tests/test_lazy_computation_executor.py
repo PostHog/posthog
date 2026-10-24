@@ -1,5 +1,6 @@
 import time as time_mod
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 import pytest
 import time_machine
@@ -7,7 +8,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import IntegrityError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
@@ -21,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
+from posthog.models.instance_setting import override_instance_config
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -44,6 +46,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
+    _resolve_insert_query,
     _written_rows,
     build_lazy_computation_insert_sql,
     clamp_ranges_to_data_horizon,
@@ -1289,6 +1292,84 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         )
         assert restored_result.ready is True
         assert restored_result.job_ids == [first_job_id]
+
+    @parameterized.expand(
+        [
+            ("unlisted", False, ["$pageview"], {}, LazyComputationTable.PREAGGREGATION_RESULTS, False),
+            ("listed", True, ["$pageview"], {}, LazyComputationTable.PREAGGREGATION_RESULTS, True),
+            (
+                "listed_flag_called",
+                True,
+                ["$feature_flag_called", "$experiment_exposure"],
+                {},
+                LazyComputationTable.PREAGGREGATION_RESULTS,
+                False,
+            ),
+            (
+                "listed_experiment_table",
+                True,
+                ["$pageview"],
+                {},
+                LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+                False,
+            ),
+            (
+                "project_schema_choice",
+                False,
+                ["$pageview"],
+                {"useNewEventsSchema": True},
+                LazyComputationTable.PREAGGREGATION_RESULTS,
+                True,
+            ),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_native_events_precompute_teams_build_from_events_json_in_own_jobs(
+        self,
+        _name: str,
+        listed: bool,
+        events: list[str],
+        team_modifiers: dict[str, bool],
+        table: LazyComputationTable,
+        reads_events_json: bool,
+    ) -> None:
+        query = self.MANUAL_INSERT_QUERY.replace("event = '$pageview'", "event IN {events}")
+        build = partial(
+            ensure_precomputed,
+            team=self.team,
+            insert_query=query,
+            table=table,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={"events": ast.Constant(value=events)},
+        )
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=0,
+        ) as insert:
+            legacy = build()
+            self.team.modifiers = team_modifiers
+            with override_instance_config(
+                "CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS", [self.team.pk] if listed else []
+            ):
+                result = build()
+
+        legacy_identity = LazyComputationQuery(
+            query=_resolve_insert_query(
+                query,
+                {
+                    "events": ast.Constant(value=events),
+                    "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
+                    "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+                },
+            ),
+            table=table,
+            timezone=self.team.timezone,
+        )
+        assert PreaggregationJob.objects.get(id=legacy.job_ids[0]).query_hash == compute_query_hash(legacy_identity)
+        assert (result.job_ids != legacy.job_ids) is reads_events_json
+        assert insert.call_count == (2 if reads_events_json else 1)
+        assert ("events_json" in insert.call_args.args[0]) is reads_events_json
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only

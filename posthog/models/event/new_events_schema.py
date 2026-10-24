@@ -160,10 +160,18 @@ def native_events_async_enabled() -> bool:
 def native_events_cluster_ineligibility(team_id: int | None) -> str | None:
     if not get_new_events_cluster_host():
         return "The native events cluster host is not configured."
-    allowed = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_TEAMS")
-    if not isinstance(allowed, list) or any(type(value) is not int for value in allowed) or team_id not in allowed:
+    if not _team_in_id_list_setting("CLICKHOUSE_NATIVE_EVENTS_TEAMS", team_id):
         return "This project is not enabled for native events cluster queries."
     return None
+
+
+def native_events_precompute_enabled(team_id: int) -> bool:
+    return _team_in_id_list_setting("CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS", team_id)
+
+
+def _team_in_id_list_setting(name: str, team_id: int | None) -> bool:
+    allowed = get_instance_setting(name)
+    return isinstance(allowed, list) and all(type(value) is int for value in allowed) and team_id in allowed
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
