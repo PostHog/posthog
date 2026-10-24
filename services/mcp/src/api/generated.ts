@@ -71136,11 +71136,6 @@ export namespace Schemas {
       name: string;
       /** Whether this model has been deleted. */
       deleted: boolean;
-      /**
-         * Error from the latest run, if present.
-         * @nullable
-         */
-      error: string | null;
     }
 
     export interface ModelStatusBreakdown {
@@ -128891,6 +128886,10 @@ export namespace Schemas {
      * @maximum 100
      */
     page_size?: number;
+    /**
+     * Limit usage to one accessible materialized view.
+     */
+    saved_query_id?: string;
     /**
      * Comma-separated materialized view IDs. Usage is limited to accessible views.
      * @minLength 1
