@@ -1037,7 +1037,36 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
         else:
             raise serializers.ValidationError({"filters": f"Unknown source: {source!r}"})
 
+        if "name" in data:
+            self._validate_unique_name(data["name"])
+        if source != GroupUsageMetric.Source.DATA_WAREHOUSE and "filters" in data:
+            self._validate_cohort_filters(cast(dict, filters))
+
         return data
+
+    def _validate_unique_name(self, name: str) -> None:
+        group_type_index = self.instance.group_type_index if self.instance else self.context["group_type_index"]
+        existing = GroupUsageMetric.objects.filter(
+            team=self.context["get_team"](), group_type_index=group_type_index, name=name
+        )
+        if self.instance:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            raise serializers.ValidationError({"name": f"A usage metric named {name!r} already exists."})
+
+    def _validate_cohort_filters(self, filters: dict) -> None:
+        metric = GroupUsageMetric(team=self.context["get_team"](), filters=filters)
+        reasons = metric.get_cohort_filter_errors()
+        if reasons:
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Your internal and test account filters use cohorts that usage metrics can't use: "
+                        f"{'; '.join(reasons)}. Use a cohort with only person property filters, "
+                        f"or turn off the internal and test account filter for this metric."
+                    )
+                }
+            )
 
     def _validate_events(self, math: str, math_property: str | None) -> None:
         if math == GroupUsageMetric.Math.SUM and not math_property:
