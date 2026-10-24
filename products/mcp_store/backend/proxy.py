@@ -1,5 +1,7 @@
 import json
+import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -9,6 +11,8 @@ from django.utils import timezone
 
 import httpx
 import structlog
+from opentelemetry import trace
+from opentelemetry.trace import Span, SpanKind, StatusCode
 
 from posthog.api.streaming import sse_streaming_response
 from posthog.security.pinned_httpx import pinned_client
@@ -25,8 +29,9 @@ from .policy import GatewayCaller, PolicyContext, legacy_state_for_caller
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
-UPSTREAM_TIMEOUT = 180
+UPSTREAM_TIMEOUT = httpx.Timeout(180, connect=10, write=10, pool=10)
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
 MAX_LOGGED_MISSING_TOOLS = 20
 REDIRECT_STATUS_CODES = {301, 302, 307, 308}
@@ -530,6 +535,55 @@ def _write_audit_events(
         logger.exception("Failed to write MCP gateway audit events", installation_id=str(installation.id))
 
 
+@contextmanager
+def _trace_upstream(installation: MCPServerInstallation, phase: str) -> Iterator[Span]:
+    host = urlparse(installation.url).hostname or ""
+    installation_id = str(installation.id)
+    started = time.monotonic()
+    with tracer.start_as_current_span(
+        f"mcp_store.proxy.{phase}",
+        kind=SpanKind.CLIENT,
+        attributes={
+            "server.address": host,
+            "mcp.installation_id": installation_id,
+            "mcp.gateway_server_id": str(installation.gateway_server_id or ""),
+            "mcp.proxy.phase": phase,
+        },
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        try:
+            yield span
+        except (SSRFBlockedError, httpx.RequestError) as error:
+            error_type = type(error).__name__
+            span.set_attribute("error.type", error_type)
+            span.set_status(StatusCode.ERROR)
+            logger.warning(
+                "Upstream MCP request failed",
+                installation_id=installation_id,
+                gateway_server_id=str(installation.gateway_server_id or ""),
+                upstream_host=host,
+                phase=phase,
+                error_type=error_type,
+                duration_ms=round((time.monotonic() - started) * 1000),
+            )
+            raise
+
+
+def _upstream_error_response(error: SSRFBlockedError | httpx.RequestError) -> HttpResponse:
+    if isinstance(error, SSRFBlockedError):
+        message = "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."
+    elif isinstance(error, httpx.ProxyError):
+        message = "Outbound proxy could not connect to the MCP server. Try again later."
+    elif isinstance(error, httpx.TimeoutException):
+        message = "Upstream MCP server timed out"
+    elif isinstance(error, httpx.ConnectError):
+        message = "Upstream MCP server unreachable"
+    else:
+        message = "Upstream MCP request failed. Try again later."
+    return HttpResponse(json.dumps({"error": message}), content_type="application/json", status=502)
+
+
 def proxy_mcp_request(
     request: Any,
     installation: MCPServerInstallation,
@@ -633,38 +687,21 @@ def proxy_mcp_request(
         trust_env=trust_environment_proxy(installation.url, installation.team_id),
     )
     try:
-        upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
-            client,
-            "POST",
-            installation.url,
-            content=body,
-            headers=headers,
-            stream=True,
-        )
-    except (SSRFBlockedError, httpx.ProxyError):
+        with _trace_upstream(installation, "request") as span:
+            upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
+                client,
+                "POST",
+                installation.url,
+                content=body,
+                headers=headers,
+                stream=True,
+            )
+            span.set_attribute("http.response.status_code", upstream_response.status_code)
+            if upstream_response.status_code >= 400:
+                span.set_status(StatusCode.ERROR)
+    except (SSRFBlockedError, httpx.RequestError) as error:
         client.close()
-        logger.warning("Upstream MCP connection blocked by URL or proxy policy")
-        return HttpResponse(
-            '{"error": "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."}',
-            content_type="application/json",
-            status=502,
-        )
-    except httpx.ConnectError:
-        client.close()
-        logger.warning("Upstream MCP server unreachable", url=installation.url)
-        return HttpResponse(
-            '{"error": "Upstream MCP server unreachable"}',
-            content_type="application/json",
-            status=502,
-        )
-    except httpx.TimeoutException:
-        client.close()
-        logger.warning("Upstream MCP server timed out", url=installation.url)
-        return HttpResponse(
-            '{"error": "Upstream MCP server timed out"}',
-            content_type="application/json",
-            status=502,
-        )
+        return _upstream_error_response(error)
     except Exception:
         client.close()
         raise
@@ -674,11 +711,16 @@ def proxy_mcp_request(
     if "text/event-stream" in content_type:
         return _build_sse_response(upstream_response, client)
 
-    # Read body then close to avoid memory leaks from buffered responses
     try:
-        upstream_response.read()
+        with _trace_upstream(installation, "response_body"):
+            upstream_response.read()
+    except httpx.RequestError as error:
+        return _upstream_error_response(error)
     finally:
-        client.close()
+        try:
+            upstream_response.close()
+        finally:
+            client.close()
 
     if upstream_response.status_code >= 400:
         logger.warning(

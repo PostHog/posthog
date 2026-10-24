@@ -2,18 +2,25 @@ import os
 import time
 import uuid
 import ipaddress
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
+from django.http import HttpResponse
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
+import httpcore
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.models import Organization, Team, User
 from posthog.security.url_validation import PinnedUrlVerdict
@@ -30,6 +37,7 @@ from products.mcp_store.backend.oauth import TokenRefreshRejectedError
 from products.mcp_store.backend.proxy import (
     _build_sse_response,
     build_upstream_auth_headers,
+    proxy_mcp_request,
     validate_installation_auth,
 )
 
@@ -612,7 +620,12 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         if route in {"untrusted", "denied"}:
             assert response.status_code == 502
-            assert "outbound proxy configuration" in response.json()["error"]
+            if route == "untrusted":
+                assert "outbound proxy configuration" in response.json()["error"]
+            else:
+                assert response.json()["error"] == (
+                    "Outbound proxy could not connect to the MCP server. Try again later."
+                )
             assert seen == []
             return
 
@@ -1152,6 +1165,84 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED, (
                 f"Expected 405 for {method.upper()}, got {response.status_code}"
             )
+
+
+class TestProxyUpstreamFailures:
+    @parameterized.expand(
+        [
+            ("connect", httpcore.ConnectTimeout, "ConnectTimeout", "request", 10),
+            ("headers", httpcore.ReadTimeout, "ReadTimeout", "request", 180),
+            ("headers_disconnect", httpcore.ReadError, "ReadError", "request", 180),
+            ("headers_protocol", httpcore.RemoteProtocolError, "RemoteProtocolError", "request", 180),
+            ("body_timeout", httpcore.ReadTimeout, "ReadTimeout", "response_body", 180),
+            ("body_disconnect", httpcore.ReadError, "ReadError", "response_body", 180),
+            ("proxy", httpcore.ProxyError, "ProxyError", "request", 10),
+        ]
+    )
+    def test_stalled_upstream_records_failure_and_closes_connection(
+        self, case: str, error_class: type[Exception], error_type: str, phase: str, timeout: float
+    ) -> None:
+        installation = MCPServerInstallation(
+            team_id=1,
+            auth_type="none",
+            url="https://fake-user:fake-password@mcp.example.com/private?token=fake-url-token",
+        )
+        request = SimpleNamespace(data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers={})
+        stream = MagicMock(spec=httpcore.NetworkStream)
+        stream.start_tls.return_value = stream
+        stream.get_extra_info.return_value = None
+        failure = error_class("fake-error-secret")
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
+
+        if phase == "response_body":
+            stream.read.side_effect = [
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{",
+                failure,
+            ]
+        else:
+            stream.read.side_effect = failure
+
+        with (
+            patch("products.mcp_store.backend.proxy.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("products.mcp_store.backend.proxy.tracer", provider.get_tracer("test")),
+            patch.dict(os.environ, no_proxies),
+            patch("httpcore.SyncBackend.connect_tcp", return_value=stream) as connect,
+            capture_logs() as logs,
+        ):
+            if case in {"connect", "proxy"}:
+                connect.side_effect = failure
+            response = proxy_mcp_request(request, installation)
+
+        assert isinstance(response, HttpResponse)
+        assert response.status_code == 502
+        if case in {"connect", "headers", "body_timeout"}:
+            assert response.content == b'{"error": "Upstream MCP server timed out"}'
+        if case in {"connect", "proxy"}:
+            assert connect.call_args.kwargs["timeout"] == timeout
+        else:
+            assert stream.read.call_args.kwargs["timeout"] == timeout
+            assert stream.write.call_args.kwargs["timeout"] == 10
+            stream.close.assert_called()
+
+        [failure_log] = [entry for entry in logs if entry["event"] == "Upstream MCP request failed"]
+        assert failure_log["error_type"] == error_type
+        assert failure_log["phase"] == phase
+        assert failure_log["installation_id"] == str(installation.id)
+        assert failure_log["upstream_host"] == "mcp.example.com"
+        assert failure_log["duration_ms"] >= 0
+        failed_span = exporter.get_finished_spans()[-1]
+        assert failed_span.name == f"mcp_store.proxy.{phase}"
+        assert failed_span.status.status_code.name == "ERROR"
+        assert failed_span.attributes is not None
+        assert failed_span.attributes["error.type"] == error_type
+        assert failed_span.attributes["server.address"] == "mcp.example.com"
+        assert failed_span.events == ()
+        diagnostics = str(logs) + str([span.attributes for span in exporter.get_finished_spans()])
+        for secret in ("fake-password", "fake-url-token", "fake-error-secret", "/private"):
+            assert secret not in diagnostics
 
 
 class TestBuildSSEResponseOverCap:

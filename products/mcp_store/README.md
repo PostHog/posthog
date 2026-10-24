@@ -207,6 +207,10 @@ Either way the description is for pi only, so the agent server drops it before p
 Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.
 `needs_approval` and `do_not_use` tools are refused before any upstream request.
 
+The transparent proxy allows 10 seconds for each connection, request write, or pool wait and 180 seconds of read inactivity for tool execution and SSE responses. These are per-operation timeouts, not a total request deadline. Buffered response failures return HTTP 502 and close the upstream connection. SSE failures close the stream after response headers have been sent.
+
+The `mcp_store.proxy.request` and `mcp_store.proxy.response_body` spans separate the wait for upstream headers from buffered body reads. Failed operations log `Upstream MCP request failed` with the installation, gateway server, upstream hostname, phase, exception type, and elapsed time. Proxy transport errors and URL-policy blocks remain separate exception types. These diagnostics omit URL paths, query strings, credentials, and exception messages.
+
 ## Key modules
 
 | Path                                   | What it is                                                                      |
