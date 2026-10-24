@@ -26,7 +26,7 @@ def query_workflow_run(
     *, curated: CuratedGitHubSource, run_id: int, ci_engine: CIEngine | None = None
 ) -> WorkflowRunDetail | None:
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True)),
         query_type="engineering_analytics.workflow_run",
         placeholders={
             "run_id": ast.Constant(value=run_id),
