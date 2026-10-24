@@ -315,7 +315,7 @@ flowchart LR
     C --> D[(suggested_reviewers)]
     D --> E[Inbox report]
     D --> F[Check personal settings, accounts, and GitHub access]
-    F --> G[First eligible recipient becomes PR owner]
+    F --> G[Assign or replace one PR owner]
     E --> H[Human edit and reason]
     H --> I[(Existing corrections and notes)]
     I --> A
@@ -339,14 +339,17 @@ The report remains the source of the assignment. Logs record unavailable account
 
 The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
 Queued work and retries use the current personal setting.
-Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
+Each successful automatic assignment records its owner and origin. A later reviewer edit, claim, or verified PR refresh can reassess that owner.
+The worker replaces owners only when GitHub's current assignees exactly match its latest record; extra assignees, manual removal, and unknown-origin assignments remain authoritative.
+It adds the replacement before removing the previous automatic owner and stops if GitHub reports a concurrent assignee change.
+If no report recipient qualifies, it clears only its recorded automatic assignment. A failed eligibility lookup leaves the assignment unchanged.
+Incomplete human-edit history blocks automatic assignment.
 The legacy DRI path also respects report exclusions and rechecks human choices before assignment.
 Claimants and suggested reviewers must be active project members to receive assignments or review requests.
-This first version selects an owner only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
-That work must preserve human GitHub changes and use the same ordered report candidates.
+
 GitHub's final read and write are not atomic, so a small external race remains.
 
-There is no separate PR model call, evidence collector, decision cache, or assignment artefact.
+There is no separate PR model call, evidence collector, or decision cache. The internal `pr_owner_assignment` artefact stores delivery provenance and is not writable through the generic API.
 The existing task permission checks remain separate. Report assignment does not authorize an agent to run under that person's account.
 GitHub review requests still use the current report list, subject to the existing request policy.
 
@@ -362,9 +365,9 @@ The live trial remains pending; automated delivery tests do not establish resear
 exposes project members and known GitHub accounts to agents. Personal GitHub integrations and GitHub OAuth provide identity links;
 some existing lookup paths also use the GitHub App installer identity. Report recipients can use PostHog user UUIDs without GitHub accounts.
 
-The PR worker uses current personal GitHub integrations and OAuth links. It does not use the team installer identity as a personal link or discover new accounts.
-Verified discovery for unlinked accounts remains future work. It should extend the existing member tools, record the source and age of each link,
-and reject uncertain or conflicting matches. Similar names alone do not prove an identity.
+The PR worker uses current personal GitHub integrations and OAuth links. Before assigning a linked account, it verifies the stable GitHub user ID against the repository collaborator record.
+The provenance record stores the link source, verification time, and a 30-day expiry. An expired proof is refreshed on the next reassessment trigger.
+It does not use the team installer identity as a personal link or discover new accounts. Similar names alone do not prove an identity.
 
 Access loss removes an ineligible report recipient on the next protected reviewer write. A team move with access retained changes selection evidence;
 it does not cancel a human pin. No general process currently finds and reassesses all old reports after organization changes.

@@ -4380,6 +4380,7 @@ export interface SignalReportStateRequestApi {
  * * `repo_selection` - Repo Selection
  * * `suggested_reviewers` - Suggested Reviewers
  * * `reviewer_corrections` - Reviewer Corrections
+ * * `pr_owner_assignment` - Pr Owner Assignment
  * * `channel_assignment` - Channel Assignment
  * * `dismissal` - Dismissal
  * * `code_reference` - Code Reference
@@ -4420,6 +4421,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     RepoSelection: 'repo_selection',
     SuggestedReviewers: 'suggested_reviewers',
     ReviewerCorrections: 'reviewer_corrections',
+    PrOwnerAssignment: 'pr_owner_assignment',
     ChannelAssignment: 'channel_assignment',
     Dismissal: 'dismissal',
     CodeReference: 'code_reference',

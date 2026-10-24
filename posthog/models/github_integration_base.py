@@ -917,6 +917,22 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
 
+    def _installation_authenticated_delete(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """DELETE with installation auth for GitHub endpoints that accept a JSON body."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("DELETE", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation DELETE failed", url=url, exc_info=True)
+            return None
+
     def _installation_authenticated_post(
         self,
         url: str,
@@ -1486,6 +1502,37 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def remove_pull_request_assignees(
+        self, repository: str, pr_number: int, assignees: Iterable[str]
+    ) -> dict[str, Any]:
+        """Remove named assignees from a pull request and return the remaining assignees."""
+        unwanted = list(dict.fromkeys(login for login in assignees if login))[:MAX_PR_ASSIGNEES]
+        if not unwanted:
+            return {"success": True, "assignees": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = self._installation_authenticated_delete(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/assignees",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/assignees",
+            json_body={"assignees": unwanted},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error unassigning pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to unassign pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            issue = response.json()
+        except Exception:
+            issue = {}
+        remaining = [
+            entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
+        ]
+        return {"success": True, "assignees": remaining}
 
     def request_pull_request_reviews(self, repository: str, pr_number: int, reviewers: Iterable[str]) -> dict[str, Any]:
         """Request reviews from GitHub users on a pull request."""

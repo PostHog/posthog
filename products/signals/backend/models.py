@@ -1393,6 +1393,7 @@ class SignalReportArtefact(UUIDModel):
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
         REVIEWER_CORRECTIONS = "reviewer_corrections"
+        PR_OWNER_ASSIGNMENT = "pr_owner_assignment"
         CHANNEL_ASSIGNMENT = "channel_assignment"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
@@ -1452,7 +1453,9 @@ class SignalReportArtefact(UUIDModel):
     # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
-    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.REVIEWER_CORRECTIONS})
+    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset(
+        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT}
+    )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1463,6 +1466,7 @@ class SignalReportArtefact(UUIDModel):
     MAX_REPORT_LINK_GRAPH_LEVELS = 50
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
+            ArtefactType.PR_OWNER_ASSIGNMENT,
             ArtefactType.CODE_REFERENCE,
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
