@@ -125,7 +125,7 @@ function answerByBreakdown(workspace: PlaywrightWorkspaceSetupResult): Answering
 async function mockBilling(
     page: Page,
     workspace: PlaywrightWorkspaceSetupResult,
-    answers: { usage?: Answering; spend?: Answering; projectsDelayMs?: number } = {}
+    answers: { usage?: Answering; spend?: Answering; projectsHeldUntil?: Promise<void> } = {}
 ): Promise<BillingReads> {
     const reads: BillingReads = { usage: [], spend: [] }
     const answering: Record<Kind, Answering> = {
@@ -137,9 +137,7 @@ async function mockBilling(
     await page.route(/\/api\/billing\/credits\/overview/, (route) => route.fulfill({ json: CREDIT_OVERVIEW }))
     // The projects with usage: the live one and one deleted since its usage was reported.
     await page.route(/\/api\/organizations\/[^/]+\/billing\/projects\//, async (route) => {
-        if (answers.projectsDelayMs) {
-            await new Promise((resolve) => setTimeout(resolve, answers.projectsDelayMs))
-        }
+        await answers.projectsHeldUntil
         await route.fulfill({
             json: {
                 count: 2,
@@ -225,17 +223,23 @@ test.describe('Billing usage and spend', () => {
             expect(params.get('top_projects')).toBeNull()
         })
 
-        test('holds the project filter while its list loads, then offers every project with usage', async ({
+        test('offers live projects while the project list loads, then adds deleted projects with usage', async ({
             page,
         }) => {
-            await mockBilling(page, workspace, { projectsDelayMs: 1500 })
+            let releaseProjects = (): void => {}
+            const projectsHeldUntil = new Promise<void>((resolve) => {
+                releaseProjects = resolve
+            })
+            await mockBilling(page, workspace, { projectsHeldUntil })
             await openPage(page, 'usage')
 
-            await expect(page.getByPlaceholder('Loading projects…')).toBeDisabled()
-            await expect(page.getByTestId('billing-usage-projects')).toBeVisible({ timeout: 10000 })
-
-            const options = await openProjects(page, 'usage')
+            await page.getByTestId('billing-usage-projects').click()
+            const options = page.locator('.Popover').last()
             await expect(options.getByText(workspace.team_name, { exact: true })).toBeVisible()
+            await expect(options.getByText(`ID: ${DELETED_TEAM_ID} (deleted)`)).toHaveCount(0)
+
+            releaseProjects()
+            await expect(options.getByText(`ID: ${DELETED_TEAM_ID} (deleted)`)).toBeVisible()
         })
 
         test('a project selection narrows the request and names the export, until it covers every project', async ({
