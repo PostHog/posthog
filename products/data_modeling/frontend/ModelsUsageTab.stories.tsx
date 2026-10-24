@@ -113,6 +113,37 @@ const populated: ModelUsageApi = {
         }
     }),
 }
+
+const getUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
+    const savedQueryIds = new Set(
+        (new URL(request.url).searchParams.get('saved_query_ids') ?? '').split(',').filter(Boolean)
+    )
+    if (savedQueryIds.size === 0) {
+        return [200, populated]
+    }
+
+    const selectedModels = populated.models.filter(
+        (model) => model.saved_query_id && savedQueryIds.has(model.saved_query_id)
+    )
+    const statusBreakdown = populated.status_breakdown
+        .map((breakdown) => {
+            const selectedStatusModels = breakdown.models.filter((model) => savedQueryIds.has(model.saved_query_id))
+            return { ...breakdown, count: selectedStatusModels.length, models: selectedStatusModels }
+        })
+        .filter((breakdown) => breakdown.count > 0)
+
+    return [
+        200,
+        {
+            ...populated,
+            overview: selectedModels.length === 1 ? selectedModels[0] : populated.overview,
+            models: selectedModels,
+            count: selectedModels.length,
+            status_breakdown: statusBreakdown,
+            trends: [],
+        },
+    ]
+}
 const unknown: ModelUsageTotalsApi = {
     runs: 8,
     measured_runs: 0,
@@ -231,12 +262,12 @@ const meta: Meta<typeof ModelsUsageTab> = {
         msw: {
             mocks: {
                 get: {
-                    '/api/projects/:team_id/data_modeling_usage/': populated,
+                    '/api/projects/:team_id/data_modeling_usage/': getUsage,
                     '/api/projects/:team_id/data_modeling_jobs/': ({ request }: MockResolverInfo) => {
                         const params = new URL(request.url).searchParams
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 20)
-                        const savedQueryId = params.get('saved_query_id')
+                        const savedQueryIds = new Set((params.get('saved_query_ids') ?? '').split(',').filter(Boolean))
                         const engine = params.get('engine')
                         const status = params.get('status')
                         const after = params.get('after')
@@ -244,7 +275,8 @@ const meta: Meta<typeof ModelsUsageTab> = {
                         const filteredJobs = jobs.filter((job) => {
                             const startedAt = new Date(job.created_at)
                             return (
-                                (!savedQueryId || job.saved_query_id === savedQueryId) &&
+                                (savedQueryIds.size === 0 ||
+                                    (job.saved_query_id && savedQueryIds.has(job.saved_query_id))) &&
                                 (!engine || job.engine === engine) &&
                                 (!status || job.status === status) &&
                                 (!after || startedAt >= new Date(after)) &&
@@ -356,7 +388,7 @@ export const StatusOnly: Story = {
         },
     },
 }
-export const FailedModelsDialog: Story = {
+export const FilteredByFailedModels: Story = {
     decorators: [inMainContent('w-256')],
     play: async () => {
         await waitFor(() => {
@@ -364,7 +396,7 @@ export const FailedModelsDialog: Story = {
                 throw new globalThis.Error('Models usage must finish loading')
             }
         })
-        modelsUsageLogic.findMounted()!.actions.setSelectedStatusBreakdown({ engine: 'clickhouse', status: 'Failed' })
+        modelsUsageLogic.findMounted()!.actions.setSelectedSavedQueryIds([models[2].saved_query_id!])
     },
 }
 export const Error: Story = {

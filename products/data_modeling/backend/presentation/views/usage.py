@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from django.db import models
 
@@ -38,9 +39,18 @@ class ModelUsageQuerySerializer(serializers.Serializer):
         default=ModelUsageEngine.CLICKHOUSE,
         help_text="Materialization engine. All combines ClickHouse and managed warehouse usage.",
     )
-    saved_query_id = serializers.UUIDField(
-        required=False, allow_null=True, help_text="Limit usage to one accessible materialized view."
+    saved_query_ids = serializers.CharField(
+        required=False, help_text="Comma-separated materialized view IDs. Usage is limited to accessible views."
     )
+
+    def validate_saved_query_ids(self, value: str) -> list[UUID]:
+        values = [item.strip() for item in value.split(",") if item.strip()]
+        if not values:
+            raise serializers.ValidationError("Select at least one materialized view.")
+        try:
+            return [UUID(item) for item in values]
+        except ValueError as error:
+            raise serializers.ValidationError("Enter valid materialized view IDs.") from error
 
     def validate(self, attrs: dict) -> dict:
         days = attrs.get("days")
@@ -140,8 +150,8 @@ class ModelUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: ValidatedRequest, **kwargs: object) -> response.Response:
         query_data = request.validated_query_data
         saved_queries = self.get_queryset()
-        if saved_query_id := query_data.get("saved_query_id"):
-            saved_queries = saved_queries.filter(id=saved_query_id)
+        if saved_query_ids := query_data.get("saved_query_ids"):
+            saved_queries = saved_queries.filter(id__in=saved_query_ids)
         selected_engine = query_data["engine"]
         engines = (
             (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)

@@ -74,23 +74,23 @@ describe('modelsUsageLogic', () => {
         expect(usageRequests[0].get('engine')).toBe('all')
         expect(jobRequests[0].get('all_engines')).toBe('true')
         expect(jobRequests[0].get('engine')).toBeNull()
-        expect(jobRequests[0].get('saved_query_id')).toBeNull()
+        expect(jobRequests[0].get('saved_query_ids')).toBeNull()
         expect(jobRequests[0].get('after')).not.toBeNull()
         expect(jobRequests[0].get('before')).toBeNull()
         expect(logic.values.materializedViewOptions.map((option) => option.name)).toEqual(['Alpha view', 'Beta view'])
 
-        await expectLogic(logic, () => logic.actions.setSelectedSavedQueryId('view-a')).toDispatchActions([
+        await expectLogic(logic, () => logic.actions.setSelectedSavedQueryIds(['view-a', 'view-b'])).toDispatchActions([
             'loadUsageSuccess',
             'loadMaterializationJobsSuccess',
         ])
-        expect(usageRequests.at(-1)?.get('saved_query_id')).toBe('view-a')
-        expect(jobRequests.at(-1)?.get('saved_query_id')).toBe('view-a')
+        expect(usageRequests.at(-1)?.get('saved_query_ids')).toBe('view-a,view-b')
+        expect(jobRequests.at(-1)?.get('saved_query_ids')).toBe('view-a,view-b')
         expect(jobRequests.at(-1)?.get('offset')).toBe('0')
 
         await expectLogic(logic, () => logic.actions.setJobsPage(2)).toDispatchActions([
             'loadMaterializationJobsSuccess',
         ])
-        expect(jobRequests.at(-1)?.get('saved_query_id')).toBe('view-a')
+        expect(jobRequests.at(-1)?.get('saved_query_ids')).toBe('view-a,view-b')
         expect(jobRequests.at(-1)?.get('offset')).toBe('20')
         expect(logic.values.page).toBe(1)
     })
@@ -113,10 +113,7 @@ describe('modelsUsageLogic', () => {
             { key: 'managed_warehouse', label: 'Managed warehouse', data: [0, 2] },
         ])
 
-        logic.actions.setSelectedStatusBreakdown({ engine: 'clickhouse', status: 'Failed' })
-        expect(logic.values.selectedStatusBreakdown).toEqual({ engine: 'clickhouse', status: 'Failed' })
-        logic.actions.setSelectedEngine(DataModelingUsageListEngine.ManagedWarehouse)
-        expect(logic.values.selectedStatusBreakdown).toBeNull()
+        expect(logic.values.selectedSavedQueryIds).toEqual([])
     })
 
     it('filters all tab requests by engine', async () => {

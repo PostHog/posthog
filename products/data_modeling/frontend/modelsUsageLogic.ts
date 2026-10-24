@@ -112,11 +112,6 @@ export interface MaterializedViewOption {
     name: string
 }
 
-export interface ModelStatusSelection {
-    engine: string
-    status: string
-}
-
 export function modelStatusLabel(status: string): string {
     return status === DataModelingJobsListStatus.Cancelled ? 'Canceled' : status
 }
@@ -143,8 +138,7 @@ export interface modelsUsageLogicValues {
     page: number
     selectedEngine: DataModelingUsageListEngine
     selectedJobStatus: DataModelingJobsListStatus | null
-    selectedSavedQueryId: string | null
-    selectedStatusBreakdown: ModelStatusSelection | null
+    selectedSavedQueryIds: string[]
     statusChartLabels: string[]
     statusChartSeries: Series[]
     usage: ModelUsageApi | null
@@ -212,11 +206,8 @@ export interface modelsUsageLogicActions {
     setSelectedJobStatus: (status: DataModelingJobsListStatus | null) => {
         status: DataModelingJobsListStatus | null
     }
-    setSelectedSavedQueryId: (savedQueryId: string | null) => {
-        savedQueryId: string | null
-    }
-    setSelectedStatusBreakdown: (selection: ModelStatusSelection | null) => {
-        selection: ModelStatusSelection | null
+    setSelectedSavedQueryIds: (savedQueryIds: string[]) => {
+        savedQueryIds: string[]
     }
 }
 
@@ -261,8 +252,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         setJobsPage: (page: number) => ({ page }),
         setSelectedEngine: (engine: DataModelingUsageListEngine) => ({ engine }),
         setSelectedJobStatus: (status: DataModelingJobsListStatus | null) => ({ status }),
-        setSelectedStatusBreakdown: (selection: ModelStatusSelection | null) => ({ selection }),
-        setSelectedSavedQueryId: (savedQueryId: string | null) => ({ savedQueryId }),
+        setSelectedSavedQueryIds: (savedQueryIds: string[]) => ({ savedQueryIds }),
         openModel: true,
         refresh: true,
         refreshJobs: true,
@@ -279,7 +269,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                 setPage: (_, { page }) => page,
                 setDateRange: () => 1,
                 setSelectedEngine: () => 1,
-                setSelectedSavedQueryId: () => 1,
+                setSelectedSavedQueryIds: () => 1,
             },
         ],
         jobsPage: [
@@ -289,7 +279,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                 setDateRange: () => 1,
                 setSelectedEngine: () => 1,
                 setSelectedJobStatus: () => 1,
-                setSelectedSavedQueryId: () => 1,
+                setSelectedSavedQueryIds: () => 1,
             },
         ],
         selectedEngine: [
@@ -300,19 +290,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             null as DataModelingJobsListStatus | null,
             { setSelectedJobStatus: (_, { status }) => status },
         ],
-        selectedStatusBreakdown: [
-            null as ModelStatusSelection | null,
-            {
-                setSelectedStatusBreakdown: (_, { selection }) => selection,
-                setDateRange: () => null,
-                setSelectedEngine: () => null,
-                setSelectedSavedQueryId: () => null,
-            },
-        ],
-        selectedSavedQueryId: [
-            null as string | null,
-            { setSelectedSavedQueryId: (_, { savedQueryId }) => savedQueryId },
-        ],
+        selectedSavedQueryIds: [[] as string[], { setSelectedSavedQueryIds: (_, { savedQueryIds }) => savedQueryIds }],
         failed: [false, { loadUsage: () => false, loadUsageFailure: () => true }],
         materializationJobsFailed: [
             false,
@@ -334,7 +312,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                             : DataModelingUsageListEngine.Clickhouse,
                         page: values.page,
                         page_size: 20,
-                        saved_query_id: values.selectedSavedQueryId ?? undefined,
+                        saved_query_ids: values.selectedSavedQueryIds.join(',') || undefined,
                     })
                     breakpoint()
                     return result
@@ -349,7 +327,8 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                         after: materializationJobsDateFrom(values.dateFrom, values.dateTo),
                         limit: MATERIALIZATION_JOBS_PAGE_SIZE,
                         offset: (values.jobsPage - 1) * MATERIALIZATION_JOBS_PAGE_SIZE,
-                        saved_query_id: values.selectedSavedQueryId ?? undefined,
+                        saved_query_ids:
+                            values.selectedSavedQueryIds.length > 0 ? values.selectedSavedQueryIds : undefined,
                         all_engines: values.managedWarehouseEnabled || undefined,
                         engine:
                             values.managedWarehouseEnabled && values.selectedEngine !== DataModelingUsageListEngine.All
@@ -443,7 +422,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             actions.loadMaterializationJobs()
         },
         setSelectedJobStatus: () => actions.loadMaterializationJobs(),
-        setSelectedSavedQueryId: () => {
+        setSelectedSavedQueryIds: () => {
             actions.loadUsage()
             actions.loadMaterializationJobs()
         },

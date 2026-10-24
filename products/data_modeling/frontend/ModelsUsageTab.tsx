@@ -37,7 +37,6 @@ import type { DateMappingOption } from '~/types'
 
 import { DataModelingUsageListEngine } from './generated/api.schemas'
 import { MaterializationJobsTable } from './MaterializationJobsTable'
-import { ModelsByStatusDialog } from './ModelsByStatusDialog'
 import { ModelsUsageByModelTable } from './ModelsUsageByModelTable'
 import {
     MATERIALIZATION_ENGINE_LABELS,
@@ -53,8 +52,6 @@ const DATE_OPTIONS: DateMappingOption[] = [7, 30, 90].map((days) => ({
         `${date.subtract(days, 'day').format('MMM D, YYYY')} – ${date.subtract(1, 'day').format('MMM D, YYYY')}`,
     defaultInterval: 'day',
 }))
-
-const ALL_VIEWS: MaterializedViewOption = { id: 'all', name: 'All materialized views' }
 
 function MetricTile({ title, value }: { title: string; value: string }): JSX.Element {
     return (
@@ -88,13 +85,21 @@ export function ModelsUsageTab({
         managedWarehouseEnabled,
         materializedViewOptions,
         selectedEngine,
-        selectedSavedQueryId,
+        selectedSavedQueryIds,
     } = useValues(modelsUsageLogic)
-    const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryId, setSelectedStatusBreakdown } =
+    const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryIds } =
         useActions(modelsUsageLogic)
     const viewFilterRef = useRef<HTMLButtonElement>(null)
-    const viewOptions = useMemo(() => [ALL_VIEWS, ...materializedViewOptions], [materializedViewOptions])
-    const selectedView = viewOptions.find((option) => option.id === (selectedSavedQueryId ?? ALL_VIEWS.id)) ?? ALL_VIEWS
+    const selectedViews = useMemo(
+        () => materializedViewOptions.filter((option) => selectedSavedQueryIds.includes(option.id)),
+        [materializedViewOptions, selectedSavedQueryIds]
+    )
+    const selectedViewsLabel =
+        selectedSavedQueryIds.length === 0
+            ? 'All materialized views'
+            : selectedSavedQueryIds.length === 1
+              ? (selectedViews[0]?.name ?? '1 materialized view')
+              : `${selectedSavedQueryIds.length} materialized views`
     const theme = useChartTheme()
     const chartConfig = useChartConfig(
         () => ({
@@ -130,12 +135,13 @@ export function ModelsUsageTab({
                 </div>
                 <div className="flex flex-wrap gap-2">
                     <Combobox
-                        items={viewOptions}
-                        value={selectedView}
+                        multiple
+                        items={materializedViewOptions}
+                        value={selectedViews}
                         itemToStringValue={(option: MaterializedViewOption) => option.name}
                         isItemEqualToValue={(option, value) => option.id === value.id}
-                        onValueChange={(option: MaterializedViewOption | null) =>
-                            setSelectedSavedQueryId(!option || option.id === ALL_VIEWS.id ? null : option.id)
+                        onValueChange={(options: MaterializedViewOption[]) =>
+                            setSelectedSavedQueryIds(options.map((option) => option.id))
                         }
                     >
                         <ComboboxTrigger
@@ -144,10 +150,22 @@ export function ModelsUsageTab({
                             data-attr="models-usage-view-filter"
                             disabled={usageLoading || jobsLoading}
                         >
-                            <span className="truncate">{selectedView.name}</span>
+                            <span className="truncate">{selectedViewsLabel}</span>
                         </ComboboxTrigger>
                         <ComboboxContent anchor={viewFilterRef} align="end" className="w-80 max-w-[calc(100vw-2rem)]">
                             <ComboboxInput placeholder="Search materialized views" showTrigger={false} />
+                            {selectedSavedQueryIds.length > 0 ? (
+                                <div className="px-1 pt-1">
+                                    <Button
+                                        variant="link-muted"
+                                        size="xs"
+                                        onClick={() => setSelectedSavedQueryIds([])}
+                                        data-attr="models-usage-view-filter-clear"
+                                    >
+                                        Clear selection
+                                    </Button>
+                                </div>
+                            ) : null}
                             <ComboboxEmpty>No materialized views found.</ComboboxEmpty>
                             <ComboboxList>
                                 {(option: MaterializedViewOption) => (
@@ -307,7 +325,7 @@ export function ModelsUsageTab({
                                     <CardDescription>
                                         Latest run for each model and engine in the selected complete-day range.
                                         {statusChartSeries.length > 1 ? ' Bars are stacked by engine.' : ''}
-                                        {' Select a bar to see its models.'}
+                                        {' Select a bar to filter this tab to its models.'}
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent>
@@ -324,10 +342,9 @@ export function ModelsUsageTab({
                                                         modelStatusLabel(item.status) === label
                                                 )
                                                 if (breakdown) {
-                                                    setSelectedStatusBreakdown({
-                                                        engine: breakdown.engine,
-                                                        status: breakdown.status,
-                                                    })
+                                                    setSelectedSavedQueryIds(
+                                                        breakdown.models.map((model) => model.saved_query_id)
+                                                    )
                                                 }
                                             }}
                                         />
@@ -346,7 +363,6 @@ export function ModelsUsageTab({
             )}
 
             <MaterializationJobsTable savedQueryIdToNodeId={savedQueryIdToNodeId} />
-            <ModelsByStatusDialog savedQueryIdToNodeId={savedQueryIdToNodeId} />
         </div>
     )
 }

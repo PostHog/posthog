@@ -524,10 +524,10 @@ export type DataModelingUsageListParams = {
      */
     page_size?: number
     /**
-     * Limit usage to one accessible materialized view.
-     * @nullable
+     * Comma-separated materialized view IDs. Usage is limited to accessible views.
+     * @minLength 1
      */
-    saved_query_id?: string | null
+    saved_query_ids?: string
 }
 
 export type DataModelingUsageListEngine = (typeof DataModelingUsageListEngine)[keyof typeof DataModelingUsageListEngine]

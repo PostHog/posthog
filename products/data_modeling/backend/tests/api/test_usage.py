@@ -180,11 +180,26 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(managed_only["overview"]["read_bytes"], 4096)
         self.assertEqual([item["engine"] for item in managed_only["models"][0]["engines"]], ["managed_warehouse"])
 
+        second_model = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="weekly_orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=second_model,
+            status="Completed",
+            last_run_at=finished,
+            read_bytes=2048,
+            usage_updated_at=finished,
+        )
         filtered = self.client.get(
             f"/api/projects/{self.team.id}/data_modeling_usage/",
-            {"days": 7, "engine": "all", "saved_query_id": model.id},
+            {"days": 7, "engine": "all", "saved_query_ids": f"{model.id},{second_model.id}"},
         ).json()
-        self.assertEqual(filtered["count"], 1)
+        self.assertEqual(filtered["count"], 2)
+        self.assertEqual(
+            {row["saved_query_id"] for row in filtered["models"]},
+            {str(model.id), str(second_model.id)},
+        )
         invalid = self.client.get(f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 91})
         self.assertEqual(invalid.status_code, 400)
 
