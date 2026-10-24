@@ -8,6 +8,7 @@ Events are sent to the customer's PostHog project via their team's API token.
 
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlparse
 
 from django.utils import timezone
 
@@ -401,6 +402,21 @@ def _groups_from_org_id(organization_id: str) -> dict:
     return {"instance": SITE_URL, "organization": organization_id}
 
 
+def _get_session_host(ticket: Ticket) -> str | None:
+    """Host of the page the customer filed the ticket from, e.g. for region-aware links in workflow emails.
+
+    The widget supplies `current_url` unverified, so only a host in the team's widget_domains
+    allowlist is emitted. Otherwise a spoofed URL could put an attacker's link into a support email.
+    """
+    # Deferred: the api package imports this module.
+    from products.conversations.backend.api.serializers import validate_url_domain  # noqa: PLC0415
+
+    current_url = (ticket.session_context or {}).get("current_url")
+    if not isinstance(current_url, str) or not validate_url_domain(current_url, ticket.team):
+        return None
+    return urlparse(current_url).hostname
+
+
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
     return {
         "ticket_id": str(ticket.id),
@@ -409,6 +425,7 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
         "channel_detail": ticket.channel_detail,
         "status": ticket.status,
         "priority": ticket.priority,
+        "session_host": _get_session_host(ticket),
     }
 
 
