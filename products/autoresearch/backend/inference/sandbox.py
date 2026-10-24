@@ -54,6 +54,7 @@ import pandas as pd
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from temporalio.exceptions import is_cancelled_exception
 
 from posthog.schema import HogQLQuery
 
@@ -246,6 +247,8 @@ def fit_champion_model(
         try:
             bundle = read_bundle(prefix)
         except Exception as exc:
+            if is_cancelled_exception(exc):
+                raise
             raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
     acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
     _validate_bundle_feature_sql(bundle)
@@ -319,6 +322,8 @@ def score_via_sandbox(
         try:
             bundle = read_bundle(prefix)
         except Exception as exc:
+            if is_cancelled_exception(exc):
+                raise
             raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
     acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
     _validate_bundle_feature_sql(bundle)
@@ -775,6 +780,8 @@ def _count_rows(
             query_context=query_context,
         )
     except Exception as exc:
+        if is_cancelled_exception(exc):
+            raise
         raise SandboxInferenceError(f"{what} query failed: {exc}") from exc
     if len(result.rows) != 1 or not result.rows[0]:
         raise SandboxInferenceError(f"{what} query did not return a single row")
@@ -812,6 +819,8 @@ def _materialize_rows(
             query_context=query_context,
         )
     except Exception as exc:
+        if is_cancelled_exception(exc):
+            raise
         raise SandboxInferenceError(f"Feature query failed: {exc}") from exc
 
     if not result.rows or not result.columns:
@@ -1076,11 +1085,15 @@ def _read_scores(sandbox: SandboxExecutor, *, expected_rows: int) -> dict[str, f
     try:
         parquet = pq.ParquetFile(io.BytesIO(raw))
     except Exception as exc:
+        if is_cancelled_exception(exc):
+            raise
         raise SandboxInferenceError(f"scores.parquet was not readable: {exc}") from exc
     _check_scores_footer(parquet, expected_rows=expected_rows)
     try:
         df = parquet.read(columns=["distinct_id", "p_y"]).to_pandas()
     except Exception as exc:
+        if is_cancelled_exception(exc):
+            raise
         raise SandboxInferenceError(f"scores.parquet was not readable: {exc}") from exc
     scores: dict[str, float] = {}
     for distinct_id, p_y in zip(df["distinct_id"], df["p_y"]):
