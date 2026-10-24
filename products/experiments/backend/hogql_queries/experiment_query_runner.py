@@ -62,7 +62,7 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
 )
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds, PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
@@ -111,12 +111,14 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         error_event_context: Optional[str] = "ui",
+        precompute_builds: PrecomputeBuilds = PrecomputeBuilds.RUN,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+        self.precompute_builds = precompute_builds
         self._requested_as_of = as_of
         # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
         # because the generic /query API path constructs runners without kwargs; internal callers that own
@@ -212,6 +214,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             builder,
             self.experiment.start_date,
             experiment_window_end(self.experiment, self.as_of),
+            builds=self.precompute_builds,
         )
 
     @cached_property
@@ -225,6 +228,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             has_breakdowns=bool(self._get_breakdowns_for_builder()),
             cuped_enabled=self.cuped_config.enabled,
             is_data_warehouse_query=self.is_data_warehouse_query,
+            builds=self.precompute_builds,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:

@@ -20,12 +20,13 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
@@ -1043,6 +1044,8 @@ class TestCalculateActivity(BaseTest):
         # even a NON-final attempt must persist the FAILED row immediately and raise non_retryable — every
         # retry would burn a full ClickHouse query without changing the outcome.
         exp = self._experiment(flag_key=f"calc-permanent-{name}", metrics=[_mean_metric("m1")])
+        exp.start_date = datetime.fromisoformat(_QUERY_TO) - timedelta(days=30)
+        exp.save()
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
@@ -1061,6 +1064,33 @@ class TestCalculateActivity(BaseTest):
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.status == ExperimentMetricResult.Status.FAILED
 
+    @parameterized.expand(
+        [
+            ("out_of_memory", ClickHouseQueryMemoryLimitExceeded()),
+            ("byte_limit", ServerException("too many bytes", code=307)),
+        ]
+    )
+    def test_online_resource_limit_retries_once_offline(self, name: str, exc: Exception):
+        exp = self._experiment(flag_key=f"calc-online-limit-{name}", metrics=[_mean_metric("m1")])
+        exp.start_date = datetime.fromisoformat(_QUERY_TO) - timedelta(days=2)
+        exp.save()
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+            with pytest.raises(Exception) as online_exc:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=1)
+            assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
+
+            with pytest.raises(ApplicationError) as offline_exc:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+
+        assert not getattr(online_exc.value, "non_retryable", False)
+        assert offline_exc.value.non_retryable is True
+        assert ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1").status == (
+            ExperimentMetricResult.Status.FAILED
+        )
+
     def test_query_to_is_passed_as_as_of_to_runner(self):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
         # as_of, not just stored on the result row. Without as_of the runner falls back to its own now(),
@@ -1077,6 +1107,43 @@ class TestCalculateActivity(BaseTest):
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
+
+    @parameterized.expand(
+        [
+            ("first_attempt_short_window", 1, timedelta(days=2), None, Workload.ONLINE, PrecomputeBuilds.SKIP),
+            ("retry_short_window", 2, timedelta(days=2), None, Workload.OFFLINE, PrecomputeBuilds.RUN),
+            ("first_attempt_long_window", 1, timedelta(days=7), None, Workload.OFFLINE, PrecomputeBuilds.RUN),
+            (
+                "first_attempt_cuped_lookback",
+                1,
+                timedelta(days=2),
+                {"cuped": {"enabled": True}},
+                Workload.OFFLINE,
+                PrecomputeBuilds.RUN,
+            ),
+        ]
+    )
+    def test_workload_and_precompute_builds_follow_attempt_and_window(
+        self,
+        name: str,
+        attempt: int,
+        window: timedelta,
+        stats_config: dict | None,
+        expected_workload: Workload,
+        expected_builds: PrecomputeBuilds,
+    ):
+        exp = self._experiment(flag_key=f"calc-workload-{name}", metrics=[_mean_metric("m1")])
+        exp.start_date = datetime.fromisoformat(_QUERY_TO) - window
+        exp.stats_config = stats_config
+        exp.save()
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=attempt)
+
+        kwargs = mock_runner.call_args.kwargs
+        assert (kwargs["workload"], kwargs["precompute_builds"]) == (expected_workload, expected_builds)
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
@@ -1792,6 +1859,8 @@ class TestRecalculationAnalytics(BaseTest):
         # with the shared backend error_type taxonomy — including byte_limit (307) and rate_limited (202),
         # the two real failure modes that used to collapse into server_error and stay invisible.
         exp = self._experiment(flag_key=f"an-terminal-{name}", metrics=[_mean_metric("m1")])
+        exp.start_date = datetime.fromisoformat(_QUERY_TO) - timedelta(days=30)
+        exp.save()
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:

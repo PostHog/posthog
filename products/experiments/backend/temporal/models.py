@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import timedelta
 from typing import Final, Literal
 
 from posthog.dataclasses import frozen
@@ -46,6 +47,10 @@ TIMEOUT_MAX_METRIC_ATTEMPTS = 2
 CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 120
 CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 300
 
+# A first attempt over a shorter window runs on the online replicas, which answer faster and keep it out of the
+# offline queue. Retries and longer windows stay offline, so a burst or a long scan cannot load the online tier.
+ONLINE_FIRST_ATTEMPT_MAX_WINDOW = timedelta(days=7)
+
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
 RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
@@ -59,6 +64,9 @@ RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE = "recalculation_window_too_long"
 NON_RETRYABLE_ERROR_TYPES = frozenset(
     {"out_of_memory", "byte_limit", "validation_error", RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE}
 )
+# Non-retryable classes that get one offline retry when they fail on the online replicas. See
+# ONLINE_FIRST_ATTEMPT_MAX_WINDOW.
+ONLINE_RETRIABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit"})
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the
 # attempt from the outside. The next heartbeat delivers the cancellation, which kills the ClickHouse query, but

@@ -30,20 +30,24 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
+from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
     get_user_friendly_message,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
+from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
@@ -51,6 +55,8 @@ from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
+    ONLINE_FIRST_ATTEMPT_MAX_WINDOW,
+    ONLINE_RETRIABLE_ERROR_TYPES,
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
     RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
@@ -585,6 +591,24 @@ def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> s
     return f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}_attempt{attempt:02d}"
 
 
+def _scan_start(experiment: Experiment, metric: ExperimentMetric, query_from: datetime) -> datetime:
+    # CUPED reads a pre-exposure window before the start date, so it widens the scan.
+    team_config = get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
+    cuped = get_cuped_config(
+        experiment.stats_config,
+        metric,
+        team_default_enabled=team_config.default_cuped_enabled,
+        team_default_lookback_days=team_config.default_cuped_lookback_days,
+    )
+    return query_from - timedelta(days=cuped.lookback_days) if cuped.enabled else query_from
+
+
+def _calculation_workload(attempt: int, scan_start: datetime, query_to: datetime) -> Workload:
+    if attempt == 1 and query_to - scan_start < ONLINE_FIRST_ATTEMPT_MAX_WINDOW:
+        return Workload.ONLINE
+    return Workload.OFFLINE
+
+
 @database_sync_to_async_pool(executor=_CANCELLATION_EXECUTOR)
 def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
     """Kill the ClickHouse query the metric's calc left running, so the abandoned attempt stops reading."""
@@ -724,12 +748,18 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 trigger=state.trigger,
             )
 
+        workload = Workload.OFFLINE
         try:
+            metric = build_metric(metric_dict)
+            workload = _calculation_workload(attempt, _scan_start(experiment, metric, query_from), query_to_dt)
             runner = ExperimentQueryRunner(
-                query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
+                query=ExperimentQuery(experiment_id=experiment_id, metric=metric),
                 team=experiment.team,
                 as_of=query_to_dt,
-                workload=Workload.ONLINE,
+                workload=workload,
+                # Builds run untagged, so they land on the offline replicas, and a read on the online replicas
+                # right after can miss their rows. An online attempt reads finished builds and scans the rest.
+                precompute_builds=PrecomputeBuilds.SKIP if workload == Workload.ONLINE else PrecomputeBuilds.RUN,
                 # Userless background recompute. Warehouse access is enforced when the metric is authored,
                 # so resolve warehouse tables here instead of failing closed.
                 bypass_warehouse_access_control=True,
@@ -871,7 +901,12 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except Exception as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             error_type = classify_experiment_query_error(e)
-            is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
+            # An online attempt reads no new precompute builds, so a resource limit there can still pass on the
+            # offline retry, which builds them.
+            retries_offline = workload == Workload.ONLINE and error_type in ONLINE_RETRIABLE_ERROR_TYPES
+            is_permanent = (error_type in NON_RETRYABLE_ERROR_TYPES and not retries_offline) or isinstance(
+                e, ValueError
+            )
             max_attempts = TIMEOUT_MAX_METRIC_ATTEMPTS if error_type == "timeout" else MAX_METRIC_ATTEMPTS
             is_last_attempt = is_final_attempt or attempt >= max_attempts
             # validation_error = the user's metric config is broken (e.g. HogQL referencing a
