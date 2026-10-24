@@ -1923,7 +1923,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 customization = _with_group_titles(customization, group_titles)
             return customization
 
-        if has_groups or has_group_titles:
+        if (has_groups or has_group_titles) and not use_template:
             validated_data["customization"] = with_requested_groups(validated_data.get("customization", {}))
 
         with transaction.atomic():
@@ -1946,7 +1946,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         exc_info=True,
                     )
                     raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
-                # The template merge keeps template groups that the request cleared, so apply the request again.
+                # Group settings in the request apply on top of the template's groups, so they wait for the merge.
                 if has_groups or has_group_titles:
                     dashboard.customization = with_requested_groups(
                         normalize_dashboard_customization(dashboard.customization)

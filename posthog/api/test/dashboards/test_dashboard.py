@@ -3768,8 +3768,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "loose": None,
         }
 
-    @parameterized.expand([("groups_empty", {"groups": {}}), ("groups_null", {"groups": None})])
-    def test_dashboard_from_template_respects_cleared_groups(self, _name: str, request_groups: dict) -> None:
+    @parameterized.expand(
+        [
+            ("groups_empty", {"groups": {}}, {"tile_spacing": "tight"}),
+            ("groups_null", {"groups": None}, {"tile_spacing": "tight"}),
+            (
+                "group_titles_keep_template_settings",
+                {"group_titles": {"plans": "Renamed"}},
+                {
+                    "tile_spacing": "tight",
+                    "groups": {"plans": {"title": "Renamed", "color": "green", "collapsed": False}},
+                    "group_titles": {"plans": "Renamed"},
+                },
+            ),
+        ]
+    )
+    def test_dashboard_from_template_applies_requested_groups(
+        self, _name: str, request_groups: dict, expected_customization: dict
+    ) -> None:
         template = {
             **valid_template,
             "tiles": [{"type": "TEXT", "body": "grouped", "layouts": {}, "group_key": "plans"}],
@@ -3784,7 +3800,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
-        assert dashboard["customization"] == {"tile_spacing": "tight"}
+        assert dashboard["customization"] == expected_customization
 
     def test_create_from_template_json_rejects_oversized_agent_context(self) -> None:
         template: dict = {
