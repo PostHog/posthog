@@ -474,7 +474,17 @@ def score_insight(
         and supports_score_step(query)
     ):
         return _score_step(
-            insight, team, query, scores, state, split.artifacts, detector, scoring=scoring, now=now, limits=limits
+            insight,
+            team,
+            query,
+            scores,
+            state,
+            split.artifacts,
+            detector,
+            scoring=scoring,
+            now=now,
+            after=after,
+            limits=limits,
         )
     return _train_step(
         insight, team, query, scores, identity, detector, scoring=scoring, now=now, after=after, limits=limits
@@ -544,13 +554,18 @@ def _score_step(
     *,
     scoring: IntervalScoring,
     now: datetime,
+    after: datetime | None,
     limits: ScoringLimits,
 ) -> InsightScores:
-    """Score the buckets after ``state.scored_through`` with the stored artifacts. Nothing is fitted."""
+    """Score the buckets after the older of ``after`` and ``state.scored_through`` with the stored artifacts.
+
+    ``after`` is the oldest newest-scored bucket over the series. A series that missed a visit, for example a
+    breakdown value out of the top N, then still gets its missed buckets, and the events drop each series' buckets
+    up to its own newest scored bucket. Nothing is fitted.
+    """
     interval = scores.interval
-    to_score = buckets_to_score(
-        interval, now=now, after=state.scored_through, timezone=team.timezone_info, limits=limits
-    )
+    since = min((through for through in (after, state.scored_through) if through is not None), default=None)
+    to_score = buckets_to_score(interval, now=now, after=since, timezone=team.timezone_info, limits=limits)
     # One bucket more than the context that preprocessing reads, as in the full fetch.
     buckets = fetch_buckets(query, scoring, to_score, history=detector.context_buckets() + 1)
     fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.SCORE)
@@ -565,9 +580,7 @@ def _score_step(
         if artifact is None:
             unmatched += 1
             continue
-        _completed, returned = _scored_indices(
-            line.buckets, interval=interval, now=now, after=state.scored_through, limits=limits
-        )
+        _completed, returned = _scored_indices(line.buckets, interval=interval, now=now, after=since, limits=limits)
         points = score_with_artifact(detector, artifact, line.values, line.buckets, returned)
         if points:
             newest = points[-1].bucket_start.astimezone(UTC)

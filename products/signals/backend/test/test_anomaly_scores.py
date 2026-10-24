@@ -339,6 +339,21 @@ class TestScoreInsight(SimpleTestCase):
         assert scores.state.scored_through == datetime(2026, 1, 11, tzinfo=UTC)
         assert scores.model_id == "model"
 
+        # "gone" comes back. Its own newest scored bucket is still the one from the train step.
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(
+                results=[result("gone", datetime(2026, 1, 6, tzinfo=UTC), 7)]
+            )
+            returned = score_insight(
+                insight,
+                team,
+                now=datetime(2026, 1, 13, 0, 30, tzinfo=UTC),
+                after=trained.state.scored_through,
+                split=SplitRun(state=scores.state, artifacts=trained.artifacts),
+            )
+
+        assert [point.bucket_start.day for point in returned.series[0].points] == [10, 11, 12]
+
     def test_a_score_pick_whose_state_no_longer_matches_the_insight_trains(self) -> None:
         stale = TrainedState(
             identity=StateIdentity(interval=IntervalType.DAY, detector_version="old", query_hash="old"),
