@@ -79,6 +79,7 @@ import {
     cohortBroadcastAudience,
     cohortBroadcastDisabledReason,
     createCohortDataNodeLogicKey,
+    isMadeOnlyOfOtherCohorts,
     urlForCohortWorkflow,
 } from './cohortUtils'
 import { openDeleteCohortDialog } from './DeleteCohortDialog'
@@ -817,6 +818,14 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             </Link>
                                         </LemonBanner>
                                     )}
+                                    {featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_CONDITIONS] &&
+                                        isMadeOnlyOfOtherCohorts(cohort) && (
+                                            <LemonBanner type="info" data-attr="cohort-made-only-of-other-cohorts">
+                                                Workflows can't use a cohort made only of other cohorts yet. To use this
+                                                one in a workflow, add a condition that every member matches, such as
+                                                "email is set".
+                                            </LemonBanner>
+                                        )}
                                     <SceneSection
                                         // TODO: @adamleithp Add a number of matching persons to the title "Matching criteria (100)"
                                         title="Matching criteria"

@@ -2036,6 +2036,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("static_cohort", "static", "is a static cohort"),
             ("dynamic_behavioral_cohort", "dynamic", "isn't ready for realtime evaluation"),
             ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for realtime evaluation"),
+            ("made_only_of_other_cohorts", "references_only", "Add a condition that every member matches"),
             ("missing_cohort", "missing", "doesn't exist in this environment"),
             ("sibling_environment_cohort", "sibling_environment", "doesn't exist in this environment"),
         ]
@@ -2050,6 +2051,16 @@ class TestHogFlowAPI(APIBaseTest):
             cohort_id = self._create_behavioral_cohort(None, backfilled=False).id
         elif cohort_kind == "realtime_unbackfilled":
             cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False).id
+        elif cohort_kind == "references_only":
+            referenced = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+            cohort_id = Cohort.objects.create(
+                team=self.team,
+                name="combined",
+                cohort_type=CohortType.REALTIME,
+                filters={
+                    "properties": {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": referenced.id}]}
+                },
+            ).id
         elif cohort_kind == "sibling_environment":
             sibling_team = Team.objects.create(organization=self.organization, project=self.project, name="sibling env")
             cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True, team=sibling_team).id
