@@ -1634,9 +1634,11 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     metric_errors = serializers.JSONField(
         read_only=True,
         help_text=(
-            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is "
-            "true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can "
-            "succeed; false when the metric config, the data, or a resource limit must change first"
+            "Terminal failure per metric_uuid: {step, message, error_type, retriable, calculation_key, timestamp}. "
+            "retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry "
+            "can succeed; false when the metric config, the data, or a resource limit must change first. "
+            "calculation_key is the metric's calculation fingerprint; null or absent when the failure happened before "
+            "the fingerprint existed"
         ),
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")

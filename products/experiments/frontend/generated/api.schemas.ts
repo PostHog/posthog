@@ -3729,7 +3729,7 @@ export interface ExperimentMetricsRecalculationJobApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, calculation_key, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. calculation_key is the metric's calculation fingerprint; null or absent when the failure happened before the fingerprint existed */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -3808,7 +3808,7 @@ export interface ExperimentMetricsRecalculationRunApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, calculation_key, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. calculation_key is the metric's calculation fingerprint; null or absent when the failure happened before the fingerprint existed */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -3890,7 +3890,7 @@ export interface ExperimentMetricsRecalculationLatestApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, calculation_key, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. calculation_key is the metric's calculation fingerprint; null or absent when the failure happened before the fingerprint existed */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string

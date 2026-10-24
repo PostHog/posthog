@@ -2,7 +2,7 @@ import asyncio
 import threading
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -689,6 +689,7 @@ class TestCalculateActivity(BaseTest):
         assert len(recalc.metric_errors) == 1
         assert recalc.metric_errors["m1"]["error_type"] == "validation_error"
         assert recalc.metric_errors["m1"]["retriable"] is False
+        assert recalc.metric_errors["m1"]["calculation_key"] is None
 
     def test_bad_metric_type_fails_at_calculation(self):
         # An unknown metric_type is unschedulable, so the calc lookup fails the metric permanently
@@ -847,23 +848,29 @@ class TestCalculateActivity(BaseTest):
             # Permanent errors stop on the first attempt and need a config or data change first.
             ("validation", ValidationError("bad hogql"), "validation_error", False),
             ("value_error", ValueError("bad metric"), "server_error", False),
+            # Insufficient data returns a failed result instead of raising.
+            ("insufficient_data", StatisticError("not enough data"), "insufficient_data", False),
         ]
     )
-    def test_terminal_failure_records_error_type_and_retriability(
+    def test_terminal_failure_records_error_type_retriability_and_calculation_key(
         self, name: str, exc: Exception, expected_error_type: str, expected_retriable: bool
     ):
         exp = self._experiment(flag_key=f"calc-terminal-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
+        expectation: AbstractContextManager[object] = (
+            nullcontext() if isinstance(exc, StatisticError) else pytest.raises(Exception)
+        )
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
             mock_runner.return_value.run.side_effect = exc
-            with pytest.raises(Exception):
+            with expectation:
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
 
         recalc.refresh_from_db()
         entry = recalc.metric_errors["m1"]
         assert entry["error_type"] == expected_error_type
         assert entry["retriable"] is expected_retriable
+        assert entry["calculation_key"] == _calculation_key(exp, "m1")
 
     def test_terminal_failure_clears_retry_state(self):
         # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
@@ -934,6 +941,7 @@ class TestCalculateActivity(BaseTest):
             assert row.status == ExperimentMetricResult.Status.FAILED
             assert recalc.metric_errors["m1"]["error_type"] == "timeout"
             assert recalc.metric_errors["m1"]["retriable"] is True
+            assert recalc.metric_errors["m1"]["calculation_key"] == _calculation_key(exp, "m1")
             assert [c["event"] for c in captured] == ["experiment metric error"]
             assert captured[0]["properties"]["error_type"] == "timeout"
 
