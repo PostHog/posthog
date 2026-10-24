@@ -100,6 +100,8 @@ export const todayReplayPreviewLogic = kea<todayReplayPreviewLogicType>([
                     // The serializer types `filters` as free JSON, so the generated type is `unknown`.
                     const stored = savedFilter.filters as RecordingUniversalFilters | LegacyRecordingFilters | null
                     const filters = stripSessionIds({ ...DEFAULT_RECORDING_FILTERS, ...asUniversalFilters(stored) })
+                    // The generated sessionRecordingsList takes only limit and offset, not the query filters.
+                    // nosemgrep: prefer-codegen-api-namespaced-replay
                     const response = await api.recordings.list({
                         ...convertUniversalFiltersToRecordingsQuery(filters),
                         limit: TODAY_REPLAY_PREVIEW_LIMIT,
