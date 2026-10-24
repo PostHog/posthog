@@ -476,6 +476,7 @@ def _run_daily_unique_persons_pageviews(
         table=LazyComputationTable.PREAGGREGATION_RESULTS,
         timezone=team.timezone,
         cache_key_context=events_table_cache_key_context(team, modifiers, None),
+        modifiers=modifiers,
     )
 
     executor = LazyComputationExecutor()

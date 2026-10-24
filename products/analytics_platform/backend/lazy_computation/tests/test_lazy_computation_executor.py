@@ -4006,3 +4006,39 @@ class TestInsertsFollowTheEventsRoute(BaseTest):
             assert "events_json" in execute.call_args.args[0]
         # The two builds read different tables, so neither may be served the other's rows.
         assert set(legacy.job_ids).isdisjoint(native.job_ids)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_an_ast_build_prints_the_table_its_job_identity_names(self) -> None:
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        # The query that made the job pinned the legacy table, so the building person's cookie must not change
+        # what the build reads.
+        query_info = LazyComputationQuery(
+            query=query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+        )
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False),
+            new_events_schema_for_request(),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as execute,
+        ):
+            run_lazy_computation_insert(self.team, job, query_info)
+        assert "events_json" not in execute.call_args.args[0]

@@ -621,6 +621,9 @@ class LazyComputationQuery:
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
     cache_key_context: dict[str, str] | None = None
+    # The modifiers of the query that made the job, so an inline build prints against the events table the
+    # identity names rather than the one the building request's own switches would pick.
+    modifiers: HogQLQueryModifiers | None = None
 
 
 @dataclass(frozen=True)
@@ -953,6 +956,7 @@ def build_lazy_computation_insert_sql(
     time_range_start: datetime,
     time_range_end: datetime,
     expires_at: datetime,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> tuple[str, HogQLContext]:
     """
     Build the INSERT ... SELECT SQL for populating lazy-computed results.
@@ -1009,7 +1013,13 @@ def build_lazy_computation_insert_sql(
         query.where = date_range_filter
 
     # Print the SELECT query to ClickHouse SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
+    context = HogQLContext(
+        team_id=team.id,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
+    )
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
@@ -1058,6 +1068,7 @@ def run_lazy_computation_insert(
         time_range_start=job.time_range_start,
         time_range_end=job.time_range_end,
         expires_at=ch_expires_at,
+        modifiers=query_info.modifiers,
     )
 
     set_ch_query_started(job.id)
