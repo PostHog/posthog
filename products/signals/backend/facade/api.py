@@ -31,7 +31,7 @@ from posthog.temporal.common.client import async_connect
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.activity_summary import read as activity_summary_read
 from products.signals.backend.activity_summary.read import (
-    ActivitySummaryFocusArea as ActivitySummaryFocusArea,
+    ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
 )

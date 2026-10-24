@@ -25,8 +25,17 @@ from products.signals.backend.activity_summary import (
     schedule as tick_schedule,
     tick,
 )
+from products.signals.backend.activity_summary.computed import MAX_OWNED, MAX_WATCHED
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.prompt import (
+    MAX_HEADLINE_CHARS,
+    MAX_LABEL_CHARS,
+    MAX_THEMES,
+    MODES,
+    PROMPT_VERSION,
+    system_prompt,
+    user_message,
+)
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     ActivitySummaryTierStats,
@@ -37,12 +46,19 @@ from products.signals.backend.activity_summary.queue import (
     feed_queue,
     is_team_enrolled_for_generation,
     is_team_enrolled_for_read,
+    max_input_chars,
     max_update_cost_usd,
     organization_rollout_bucket,
     seed_queue,
     select_pairs,
 )
-from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RENDER_VERSION, RenderLimits
+from products.signals.backend.activity_summary.render import (
+    DEFAULT_LIMITS,
+    MAX_LIMITS,
+    RENDER_VERSION,
+    Product,
+    RenderLimits,
+)
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
@@ -73,8 +89,8 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )
@@ -745,7 +761,7 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
-        assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nThemes: Signup funnel"
         event = capture.call_args.kwargs
         assert event["event"] == "activity summary generated"
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
@@ -899,3 +915,49 @@ def test_a_payload_recorded_before_limits_existed_decodes_with_the_default_limit
 
     assert decoded == build()
     assert decoded.limits == DEFAULT_LIMITS
+
+
+def _longest_computed() -> dict[str, Any]:
+    long_text = "x" * 500
+    products = [str(product) for product in Product]
+    owned = {"type": long_text, "id": long_text, "name": long_text, "edit_days": 28, "last_at": "2026-10-18"}
+    watched = {"type": long_text, "id": long_text, "name": long_text, "open_days": 28, "last_at": "2026-10-18"}
+    return {
+        "schema_version": 1,
+        "owned": [{"ref": f"o{index}", **owned, "created": True} for index in range(1, MAX_OWNED + 1)],
+        "watched": [{"ref": f"o{index}", **watched, "not_theirs": True} for index in range(1, MAX_WATCHED + 1)],
+        "pages": [
+            {"ref": f"p{index}", "product": product, "open_days": 28, "last_at": "2026-10-18"}
+            for index, product in enumerate(products, start=1)
+        ],
+        "products": {"works_in": products, "visits": products},
+        "task_count": 200,
+    }
+
+
+@parameterized.expand(
+    [
+        ("default limits", DEFAULT_LIMITS),
+        ("reduced limits", RenderLimits(sections_max_chars=500, profile_max_chars=500)),
+        ("largest limits", MAX_LIMITS),
+    ]
+)
+def test_the_cost_bound_covers_the_longest_input(_name: str, limits: RenderLimits) -> None:
+    previous = {
+        "headline": "h" * MAX_HEADLINE_CHARS,
+        "profile": "p" * limits.profile_max_chars,
+        "themes": [
+            {"label": "l" * MAX_LABEL_CHARS, "mode": "investigating", "strength": "medium", "last_seen": "2026-10-18"}
+        ]
+        * MAX_THEMES,
+        "modes": list(MODES),
+    }
+    message = user_message(
+        "r" * limits.sections_max_chars,
+        previous,
+        datetime.date(2026, 10, 18),
+        limits.profile_max_chars,
+        _longest_computed(),
+    )
+
+    assert len(system_prompt(limits.profile_max_chars)) + len(message) <= max_input_chars(limits)
