@@ -156,6 +156,9 @@ class RunResult:
     skill_name: str
     skill_version: int
     skip_reason: str | None = None
+    # The run failed on a retryable upstream error and the caller asked for a retry, so the
+    # failure did not feed the failure-streak breaker. The workflow starts the next attempt.
+    upstream_retry_pending: bool = False
 
 
 class _TrialTaskCancelled(Exception):
@@ -263,6 +266,8 @@ async def _arun_signals_scout(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    upstream_retry_attempt: int = 0,
+    upstream_retries_left: int = 0,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -279,6 +284,11 @@ async def _arun_signals_scout(
     `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
     They render in their own prompt section as untrusted data. `precheck_query_source` says which
     pre-check started the run, and is stamped on the run row.
+
+    `upstream_retries_left` is how many more attempts the workflow starts when this run fails on a
+    retryable upstream error. Above 0, such a failure skips the failure-streak breaker and sets
+    `RunResult.upstream_retry_pending`. `upstream_retry_attempt` counts the earlier attempts, and
+    is stamped on the finished event so the retries that recover are measurable.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     trial = (
@@ -560,6 +570,7 @@ async def _arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            extra_properties=_upstream_retry_properties(upstream_retry_attempt, retry_pending=False),
         )
         return RunResult(
             run_id=str(run_id),
@@ -619,14 +630,29 @@ async def _arun_signals_scout(
             if row_persisted
             else (0, None)
         )
+        # A retry is a new run with its own idempotency keys, so an attempt that already wrote
+        # output is not retried: the retry would publish that output a second time.
+        upstream_retry_pending = (
+            trial is None
+            and upstream_retries_left > 0
+            and isinstance(exc, AgentTurnFailed)
+            and exc.retryable_upstream
+            and not (
+                row_persisted
+                and await database_sync_to_async(_run_wrote_output, thread_sensitive=False)(
+                    run_id, team.parent_team_id or team.id
+                )
+            )
+        )
         # Advance the breaker before the event so the failure that trips it is the one whose
         # `error_message` explains the pause. Scheduled failures only: the threshold is sized
         # on the schedule's cadence, so counting off-schedule "run now" retries would let a
         # burst of them reach a slow lane's threshold in minutes and impose the probe cooldown
-        # on a lane whose schedule never failed.
+        # on a lane whose schedule never failed. An attempt the workflow retries does not count
+        # either, so one scheduled slot books at most one failure.
         streak = (
             await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
-            if triggered_by == TRIGGERED_BY_SCHEDULE
+            if triggered_by == TRIGGERED_BY_SCHEDULE and not upstream_retry_pending
             else None
         )
         _capture_run_finished(
@@ -647,7 +673,10 @@ async def _arun_signals_scout(
             service_tier=service_tier,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
-            extra_properties=_failure_properties(exc),
+            extra_properties={
+                **(_failure_properties(exc) or {}),
+                **_upstream_retry_properties(upstream_retry_attempt, retry_pending=upstream_retry_pending),
+            },
         )
         if streak is not None and streak.tripped:
             _capture_config_auto_paused(
@@ -667,6 +696,7 @@ async def _arun_signals_scout(
             runtime_s=runtime_s,
             skill_name=skill.name,
             skill_version=skill.version,
+            upstream_retry_pending=upstream_retry_pending,
         )
     except BaseException as exc:
         trial_status = tasks_facade.TaskRunStatus.CANCELLED.value
@@ -731,6 +761,8 @@ async def arun_signals_scout(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    upstream_retry_attempt: int = 0,
+    upstream_retries_left: int = 0,
 ) -> RunResult:
     with private_capture_context() if trial_launch_id is not None else nullcontext():
         return await _arun_signals_scout(
@@ -746,6 +778,8 @@ async def arun_signals_scout(
             check_id=check_id,
             precheck_rows=precheck_rows,
             precheck_query_source=precheck_query_source,
+            upstream_retry_attempt=upstream_retry_attempt,
+            upstream_retries_left=upstream_retries_left,
         )
 
 
@@ -1646,6 +1680,16 @@ def _failure_properties(exc: BaseException) -> dict[str, Any] | None:
     return None
 
 
+def _upstream_retry_properties(attempt: int, *, retry_pending: bool) -> dict[str, Any]:
+    """Retry context for the finished event. Empty on a first attempt that is not retried."""
+    properties: dict[str, Any] = {}
+    if attempt > 0:
+        properties["upstream_retry_attempt"] = attempt
+    if retry_pending:
+        properties["upstream_retry_pending"] = True
+    return properties
+
+
 def _run_row_exists(run_id: Any, team_id: int) -> bool:
     return SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).exists()
 
@@ -1666,6 +1710,16 @@ def _read_run_metrics(run_id: Any, team_id: int) -> tuple[int, str | None]:
         return 0, None
     emitted_count, task_run_id = row
     return emitted_count or 0, str(task_run_id) if task_run_id else None
+
+
+def _run_wrote_output(run_id: Any, team_id: int) -> bool:
+    row = (
+        SignalScoutRun.objects.unscoped()
+        .filter(team_id=team_id, id=run_id)
+        .values_list("emitted_count", "emitted_report_ids", "edited_report_ids")
+        .first()
+    )
+    return row is not None and any(row)
 
 
 def _capture_run_started(
