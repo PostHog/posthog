@@ -130,15 +130,13 @@ export const tracingCorrelationConfigLogic = kea<tracingCorrelationConfigLogicTy
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS],
         ],
         // Single owner of the "badge spans whose session hit errors?" rule, for the span list
-        // badge and the trace drawer's Errors tab. Error Tracking viewer access is required as well
-        // as the flag, because the counts and the issues are that product's data. The endpoints
-        // behind both refuse a caller without it, so this gate is what keeps those surfaces from
-        // rendering a refusal as an error state.
+        // badge and the trace drawer's Errors tab. Error Tracking viewer access is required,
+        // because the counts and the issues are that product's data. The endpoints behind both
+        // refuse a caller without it, so this gate is what keeps those surfaces from rendering a
+        // refusal as an error state.
         sessionErrorBadgesEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES] &&
-                userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer),
+            () => [],
+            (): boolean => userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer),
         ],
         // This config only feeds correlation surfaces, so it is only worth a request when one of
         // them is on. The error badges resolve a session from the same configured keys, so a team
