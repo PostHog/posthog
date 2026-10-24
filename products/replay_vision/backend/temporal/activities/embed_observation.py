@@ -1,56 +1,44 @@
-"""Side-effect: embed an observation's explanation text, and rank the observation for What to watch.
+"""Side-effect: emit an embedding request for an observation's explanation text.
 
-Stores the text through the embedding worker's synchronous endpoint, so it lands as a row in
-`document_embeddings`, scoped to the scanner via `metadata.scanner_id` for later natural-language search. monitor/classifier/scorer embed their
+Fires `emit_embedding_request` so the text lands as a row in `document_embeddings`, scoped to the scanner
+via `metadata.scanner_id` for later natural-language search. monitor/classifier/scorer embed their
 `reasoning` paragraph under `rendering="reasoning"`; the summarizer embeds its title and summary as one
 document under `rendering="summary"`. Empty content is skipped. Failures surface to the workflow, which
 logs and swallows them — the observation is already marked succeeded.
 
+The worker's results topic feeds What to watch ranking, see `watch_rank_consumer`.
+
 The structured result (monitor `verdict`, scorer `score`, classifier `tags`) is stamped into `metadata` so
 search can filter by exact outcome inside the same ClickHouse ranking query, with no second-pass lookup.
-
-The endpoint also returns the vector, and the activity ranks the observation from it (see `watch_rank`).
 """
 
-import asyncio
 from typing import Any
 from uuid import UUID
 
-from django.utils import timezone
-
-import httpx
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.api.embedding_worker import async_generate_and_store_embedding
+from posthog.api.embedding_worker import emit_embedding_request
+from posthog.kafka_client.client import ProduceResult
+from posthog.kafka_client.routing import producer_scope
+from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 
 from products.replay_vision.backend.embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.observation_formatting import flatten_markdown
 from products.replay_vision.backend.tags import slugify_tag
+from products.replay_vision.backend.temporal.constants import KAFKA_DELIVERY_TIMEOUT_S
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.types import AnyScannerOutput, EmbedObservationInputs
-from products.replay_vision.backend.watch_rank import (
-    DUPLICATE_MAX_DISTANCE,
-    WatchRank,
-    anchor_vectors,
-    classify,
-    duplicate_root,
-    nearest_earlier_observation,
-)
 
 logger = structlog.get_logger(__name__)
-
-# Bounds ranking so it cannot use up the activity's timeout after the embedding is stored.
-_RANK_TIMEOUT_S = 20
 
 
 def _renderings_for(model_output: AnyScannerOutput) -> list[tuple[str, str]]:
@@ -77,68 +65,53 @@ def _result_metadata(model_output: AnyScannerOutput) -> dict[str, Any]:
     return {}
 
 
-async def _rank(*, team_id: int, scanner_id: UUID, observation_id: UUID, vector: list[float]) -> None:
-    category, contrast = classify(vector, await anchor_vectors(team_id))
-    nearest = await sync_to_async(nearest_earlier_observation, thread_sensitive=False)(
-        team_id=team_id,
-        scanner_id=str(scanner_id),
-        observation_id=str(observation_id),
-        vector=vector,
-        now=timezone.now(),
-    )
-    duplicate_of: str | None = None
-    if nearest is not None and nearest[1] <= DUPLICATE_MAX_DISTANCE:
-        neighbour_rank = await (
-            ReplayObservation.objects.filter(team_id=team_id, id=nearest[0])
-            .values_list("watch_rank", flat=True)
-            .afirst()
-        )
-        duplicate_of = duplicate_root(str(observation_id), nearest[0], neighbour_rank)
-    rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
-    await ReplayObservation.objects.filter(team_id=team_id, id=observation_id).aupdate(watch_rank=rank.to_json())
-
-
-async def _store_and_rank(
-    *, team_id: int, scanner_id: UUID, observation_id: UUID, metadata: dict[str, Any], renderings: list[tuple[str, str]]
+async def _emit_embeddings(
+    *, team_id: int, session_id: str, observation_id: UUID, metadata: dict[str, Any], renderings: list[tuple[str, str]]
 ) -> None:
-    """Store each rendering through the synchronous endpoint, then rank the observation from the first vector."""
-    vector: list[float] | None = None
-    for rendering, content in renderings:
-        if not content.strip():
-            continue
-        try:
-            vectors = await async_generate_and_store_embedding(
-                content,
-                team_id=team_id,
-                product=EMBEDDING_PRODUCT,
-                document_type=EMBEDDING_DOCUMENT_TYPE,
+    """Emit one embedding request per non-empty rendering and confirm broker delivery."""
+
+    def emit_all() -> None:
+        results: list[tuple[str, ProduceResult]] = []
+        with producer_scope(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, flush_timeout=KAFKA_DELIVERY_TIMEOUT_S):
+            for rendering, content in renderings:
+                if not content.strip():
+                    continue
+                result = emit_embedding_request(
+                    content=content,
+                    team_id=team_id,
+                    product=EMBEDDING_PRODUCT,
+                    document_type=EMBEDDING_DOCUMENT_TYPE,
+                    rendering=rendering,
+                    document_id=str(observation_id),
+                    models=[OBSERVATION_EMBEDDING_MODEL.value],
+                    metadata=metadata,
+                )
+                results.append((rendering, result))
+        for rendering, result in results:
+            try:
+                result.get(timeout=0)
+            except Exception:
+                logger.exception(
+                    "replay_vision.embed_observation.kafka_delivery_failed",
+                    session_id=session_id,
+                    observation_id=str(observation_id),
+                    rendering=rendering,
+                )
+                raise
+            logger.debug(
+                "replay_vision.embed_observation.rendering_emitted",
+                session_id=session_id,
+                observation_id=str(observation_id),
                 rendering=rendering,
-                document_id=str(observation_id),
-                models=[OBSERVATION_EMBEDDING_MODEL.value],
-                metadata=metadata,
             )
-        except httpx.HTTPStatusError as e:
-            # The worker refuses an organization without AI data processing, and a document too large to
-            # publish, so a retry cannot succeed.
-            if e.response.status_code in (403, 413):
-                return
-            raise
-        vector = vector or vectors.get(OBSERVATION_EMBEDDING_MODEL.value)
-    if vector is None:
-        return
-    # The embedding is stored by now, so a ranking failure must not fail the activity: a retry
-    # would embed and store the text again.
-    try:
-        async with asyncio.timeout(_RANK_TIMEOUT_S):
-            await _rank(team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
-    except Exception:
-        logger.exception("replay_vision.embed_observation.rank_failed", observation_id=str(observation_id))
+
+    await sync_to_async(emit_all, thread_sensitive=False)()
 
 
 @activity.defn
 @track_activity(side_effect="embed")
 async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
-    """Embed the observation's explanation text when it is non-empty, and rank the observation."""
+    """Emit an embedding for the observation's explanation text when it is non-empty."""
     metadata = {
         "session_id": inputs.session_id,
         "team_id": inputs.team_id,
@@ -146,9 +119,9 @@ async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
         "scanner_id": str(inputs.scanner_id),
         **_result_metadata(inputs.model_output),
     }
-    await _store_and_rank(
+    await _emit_embeddings(
         team_id=inputs.team_id,
-        scanner_id=inputs.scanner_id,
+        session_id=inputs.session_id,
         observation_id=inputs.observation_id,
         metadata=metadata,
         renderings=_renderings_for(inputs.model_output),

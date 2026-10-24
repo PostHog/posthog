@@ -1,7 +1,7 @@
 """What to watch ranking from observation embeddings.
 
-The scan workflow ranks each observation once, from the vector it already embeds for search, so the
-feed needs no model call and no sweep. Each vector is compared with fixed anchor sentences: the
+A consumer of the embedding worker's results ranks each observation once, from the vector the scan
+already embeds for search, so the feed needs no model call and no sweep. Each vector is compared with fixed anchor sentences: the
 closest issue anchor names the category, and its lead over the closest routine anchor is the score.
 The feed turns scores into a percentile within each scanner when it loads, so a scanner that sees
 errors all the time does not fill the feed.
@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from django.core.cache import cache
+from django.utils import timezone
 
 import numpy as np
 
@@ -31,6 +32,7 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_SCOPE_PREWHERE,
     observation_scope_params,
 )
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.watch_feed import WatchFeedEntry, finish_feed
 
 WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
@@ -230,6 +232,29 @@ def duplicate_root(observation_id: str, neighbour_id: str, neighbour_rank: dict[
         return neighbour_id if neighbour_id < observation_id else None
     root = neighbour_rank.get("duplicate_of")
     return root if isinstance(root, str) and root else neighbour_id
+
+
+async def rank_observation(*, team_id: int, scanner_id: str, observation_id: str, vector: list[float]) -> None:
+    """Rank one observation from its embedding and save the rank on the row."""
+    category, contrast = classify(vector, await anchor_vectors(team_id))
+    nearest = await asyncio.to_thread(
+        nearest_earlier_observation,
+        team_id=team_id,
+        scanner_id=scanner_id,
+        observation_id=observation_id,
+        vector=vector,
+        now=timezone.now(),
+    )
+    duplicate_of: str | None = None
+    if nearest is not None and nearest[1] <= DUPLICATE_MAX_DISTANCE:
+        neighbour_rank = await (
+            ReplayObservation.objects.filter(team_id=team_id, id=nearest[0])
+            .values_list("watch_rank", flat=True)
+            .afirst()
+        )
+        duplicate_of = duplicate_root(observation_id, nearest[0], neighbour_rank)
+    rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
+    await ReplayObservation.objects.filter(team_id=team_id, id=observation_id).aupdate(watch_rank=rank.to_json())
 
 
 def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
