@@ -96,11 +96,11 @@ tools:
             and last check times. `daily` has counts per day and engine for the last 30 days (`daily_from` to
             `daily_to`, in the project's timezone); days without a check are left out. Over the same 30 days,
             `consensus` says how many of each engine's answers cited each of the ten most cited domains, `sentiment`
-            counts positive, neutral and negative answers toward the brand per engine (`unscored` answers name the
-            brand but are not scored yet), and `top_words` lists the most used words of the web searches the engines
-            ran. `brand_names` are the words an answer must contain to count as a mention; use them to filter
-            `answer_text` in a HogQL query over `system.aeo_citation_checks`. Use it to compare engines, to see
-            whether a prompt's citations are trending up or down, and to find which sources the engines agree on.
+            counts positive, neutral and negative answers toward the brand per engine (`unscored` answers name the brand
+            but are not scored yet), and `top_words` lists the most used words of the web searches the engines ran.
+            `brand_names` are the words an answer must contain to count as a mention; use them to filter `answer_text`
+            in a HogQL query over `system.aeo_citation_checks`. Use it to compare engines, to see whether a prompt's
+            citations are trending up or down, and to find which sources the engines agree on.
         param_overrides:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
