@@ -91,6 +91,12 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
   tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as
   8 plus 4 or 6 plus 6 can show that hierarchy.
+- Default sizes (`w` × `h`): `Metric` and `BoldNumber` cards 3×3; line, area, and bar charts over time 6×4, or 6×3 when
+  they share a row with metric cards; bar charts per category and funnels 4×4 or 6×4; retention 6×7; paths 12×7; text
+  headings 12×1 or 12×2. Give every tile in a row the same height. Go taller than 4 only when the chart needs it.
+- Hide descriptions on the dashboard. An insight tile shows its insight's description unless the tile's
+  `show_description` is `false`, so send `show_description: false` for every insight tile in the same `dashboard-update`
+  call as the layout. The description stays on the insight page.
 - Reflow: use `dashboard-reorder-tiles` only when the user explicitly asks to reorder tiles or make every tile the
   same size. Include every tile ID from `dashboard-get`; omitted tiles keep their positions and can overlap moved tiles.
   Its layout modes give every listed tile a uniform box. For mixed widths or heights, use `dashboard-update`.
