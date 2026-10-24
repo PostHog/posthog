@@ -109,6 +109,7 @@ from products.tasks.backend.feature_flags import (
     run_stream_presence_gated,
 )
 from products.tasks.backend.github_repository_access import (
+    default_team_github_integration,
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
 from products.tasks.backend.logic.log_slice import (
@@ -8056,7 +8057,7 @@ def create_task(
         validated_data["created_by"] = User.objects.get(id=user_id)
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = default_team_github_integration(team.id, validated_data["repositories"])
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8269,7 +8270,9 @@ def create_task(
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
     if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = default_team_github_integration(
+            team.id, [validated_data["repository"]] if validated_data.get("repository") else []
+        )
         if default_integration:
             validated_data["github_integration"] = default_integration
 

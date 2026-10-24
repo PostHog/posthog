@@ -1,10 +1,105 @@
 import logging
 from collections.abc import Iterable
 
+from django.db.models import QuerySet
+
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
+
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 
 logger = logging.getLogger(__name__)
+
+_MISS_REFRESH_INTERVAL_SECONDS = 60
+
+
+def working_team_github_integrations(team_id: int) -> QuerySet[Integration]:
+    """The team's GitHub installations that can still mint a token, in the order the team prefers them."""
+    return (
+        Integration.objects.filter(team_id=team_id, kind="github")
+        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
+        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+        # Prioritize orgs vs users (alphabetically), then oldest first
+        .order_by("config__account__type", "created_at", "id")
+    )
+
+
+def usable_team_github_integrations(team_id: int) -> QuerySet[Integration]:
+    """The working installations that can reach at least one repository, as far as the cache knows."""
+    # Skip integrations whose installation has been synced and confirmed empty (0 repos)
+    return working_team_github_integrations(team_id).exclude(
+        repository_cache=[], repository_cache_updated_at__isnull=False
+    )
+
+
+def team_github_integration_for_repositories(team_id: int, repositories: Iterable[str]) -> Integration | None:
+    """The first working team installation that reaches every private one of ``repositories``.
+
+    Public sandbox repositories need no credential, so they never decide the pick, and a task with
+    only those gets None.
+
+    The cache answers first. An installation that has never synced its cache comes next, because its
+    access is unknown rather than missing. Only then does GitHub confirm the miss, so a cache that
+    predates a repository does not fail task creation.
+    """
+    wanted = {repository.lower() for repository in repositories if not is_public_sandbox_repo(repository)}
+    if not wanted:
+        return None
+    integrations = list(working_team_github_integrations(team_id))
+    for integration in integrations:
+        if wanted <= _cached_full_names(integration):
+            return integration
+    unsynced = next((i for i in integrations if i.repository_cache_updated_at is None), None)
+    if unsynced is not None:
+        return unsynced
+    unconfirmed: Integration | None = None
+    for integration in integrations:
+        refreshed = _refreshed_full_names(integration)
+        if refreshed is not None and wanted <= refreshed:
+            return integration
+        if refreshed is None and unconfirmed is None and _still_working(integration):
+            unconfirmed = integration
+    return unconfirmed
+
+
+def _still_working(integration: Integration) -> bool:
+    """False once a failed refresh marked the installation gone on the row it holds."""
+    return integration.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in (
+        integration.config or {}
+    )
+
+
+def default_team_github_integration(team_id: int, repositories: list[str]) -> Integration | None:
+    """The installation a task gets when its caller names none: the one that reaches ``repositories``,
+    else the team's first, so a caller that reports access problems at run time keeps doing so."""
+    reaching = team_github_integration_for_repositories(team_id, repositories)
+    return reaching or Integration.objects.filter(team_id=team_id, kind="github").first()
+
+
+def _cached_full_names(integration: Integration) -> set[str]:
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
+    return {
+        full_name.lower()
+        for repo in github.list_all_cached_repositories(allow_refresh=False)
+        if (full_name := repo.get("full_name"))
+    }
+
+
+def _refreshed_full_names(integration: Integration) -> set[str] | None:
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
+    try:
+        repositories = github.sync_repository_cache(min_refresh_interval_seconds=_MISS_REFRESH_INTERVAL_SECONDS)
+    except Exception:
+        logger.warning(
+            "github_repository_cache_refresh_failed",
+            exc_info=True,
+            extra={"team_id": integration.team_id, "integration_id": integration.id},
+        )
+        return None
+    return {full_name.lower() for repo in repositories if (full_name := repo.get("full_name"))}
 
 
 def inaccessible_repositories_via_integration(
