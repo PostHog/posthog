@@ -99,7 +99,7 @@ export function isTodayPath(pathname: string): boolean {
 export function greetingForHour(hour: number, name: string | null | undefined): string {
     const suffix = name ? `, ${name}.` : '.'
     if (hour < 5) {
-        return `You’re up late${suffix}`
+        return `Late-night shareholder value increase? Let’s get it${suffix}`
     }
     if (hour < 12) {
         return `Morning${suffix}`
