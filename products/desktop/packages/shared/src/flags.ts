@@ -26,6 +26,11 @@ export const TASKS_PREWARM_SANDBOX_FLAG =
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
+/**
+ * Reads GitLab project connections through the same git provider service as GitHub. Off keeps
+ * the desktop GitHub-only while the backend has no GitLab repository, branch, or task support.
+ */
+export const GITLAB_INTEGRATION_FLAG = featureFlagKeys.GITLAB_INTEGRATION_FLAG;
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = featureFlagKeys.SPOKEN_NARRATION_FLAG;
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
