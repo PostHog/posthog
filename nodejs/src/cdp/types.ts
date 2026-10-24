@@ -298,11 +298,12 @@ export type AppMetricType = MinimalAppMetric & {
  * Where an event stopped, for a record on a dead-letter topic.
  *
  * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
- * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
- * that throws while an event is being turned into invocations. Those two exist so an unanticipated
- * bug parks the event rather than stalling the partition it arrived on.
+ * `parse`, `lookup` and `process` are the ones it does not: a message it cannot read, a team, hog
+ * function or hog flow lookup that failed with an error that is not retriable, and anything else
+ * that throws while the pipeline turns an event into invocations. Those three park a lone
+ * unanticipated failure rather than stalling the partition it arrived on.
  */
-export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+export type DeadLetterStep = 'parse' | 'lookup' | 'filter' | 'inputs' | 'process'
 
 export type InvocationBuildFailure = {
     sourceId: string

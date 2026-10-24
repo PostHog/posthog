@@ -181,8 +181,10 @@ export class CdpEventsConsumer<
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const park = (message: Message, error: string): boolean =>
-            this.deadLetterService.recordMessageFailure(message, { step: 'parse', error })
+        const park =
+            (step: 'parse' | 'lookup') =>
+            (message: Message, error: string): boolean =>
+                this.deadLetterService.recordMessageFailure(message, { step, error })
         return await parseBatch(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
@@ -205,12 +207,14 @@ export class CdpEventsConsumer<
             loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.
-            onError: park,
+            onError: park('parse'),
             // A lookup error that repeats stops the partition when it fails the batch, so this parks the
             // message for a replay. The loaders send the team ids of the whole batch in one query, so one
             // failed query parks every message in it. With the dead-letter topic off, nothing keeps the
-            // message, so the error fails the batch.
-            parkLookupError: park,
+            // message, so the error fails the batch. A failed query that covers enough of the batch trips
+            // the dead-letter circuit breaker, which also fails the batch. One team's data can fail the
+            // query. The partition then stalls until someone fixes that data.
+            parkLookupError: park('lookup'),
         })
     }
 
