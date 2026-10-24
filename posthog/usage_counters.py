@@ -149,8 +149,8 @@ _REPLAY_UNDERCOUNT = (
     "When that message fails, the session writes no usage record, even when later messages record."
 )
 _WORKFLOW_PUSH_UNDERCOUNT = (
-    "The legacy count bills fetch and push dispatches as workflow invocations. "
-    "Push dispatches write `workflow_push_sent` records, so `workflow_billable_invocations` holds only fetches."
+    "Workflow invocation records from before push reporting omit push dispatches. "
+    "The legacy count includes both fetch and push dispatches."
 )
 _EVENT_DATE_ATTRIBUTION = (
     "Event usage records use capture time; legacy queries use source event time. "
