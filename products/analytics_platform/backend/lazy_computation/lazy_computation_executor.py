@@ -3,7 +3,9 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -512,6 +514,52 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
 }
 
 
+class PrecomputeInsertAborted(Exception):
+    """Raised by an insert observer to stop a build before its INSERT starts. The executor never retries it."""
+
+
+_insert_observer: ContextVar[Callable[[uuid.UUID], None] | None] = ContextVar(
+    "lazy_computation_insert_observer", default=None
+)
+
+
+@contextmanager
+def observe_precompute_inserts(observer: Callable[[uuid.UUID], None]) -> Iterator[None]:
+    """Call `observer` with the job id right before each `ensure_precomputed` INSERT in this context starts.
+
+    The INSERT runs under the job id as its client_query_id, so a caller that cannot stop its own thread can
+    kill the INSERT by that id. The observer can raise PrecomputeInsertAborted to stop the build first.
+    """
+    token = _insert_observer.set(observer)
+    try:
+        yield
+    finally:
+        _insert_observer.reset(token)
+
+
+_wait_observer: ContextVar[Callable[[], None] | None] = ContextVar("lazy_computation_wait_observer", default=None)
+
+
+@contextmanager
+def observe_precompute_waits(observer: Callable[[], None]) -> Iterator[None]:
+    """Call `observer` right before each wait of an `ensure_precomputed` build in this context.
+
+    A wait can last until the wait budget ends, so a caller that cannot stop its own thread can raise from the
+    observer to leave it. The observer gets no job id: the jobs a build waits on belong to other callers.
+    """
+    token = _wait_observer.set(observer)
+    try:
+        yield
+    finally:
+        _wait_observer.reset(token)
+
+
+def _notify_wait_observer() -> None:
+    observer = _wait_observer.get()
+    if observer is not None:
+        observer()
+
+
 RESERVED_PLACEHOLDERS = {"time_window_min", "time_window_max"}
 
 
@@ -538,6 +586,8 @@ def is_non_retryable_error(error: Exception) -> bool:
     """
     current: BaseException | None = error
     while current is not None:
+        if isinstance(current, PrecomputeInsertAborted):
+            return True
         if isinstance(current, ServerException) and current.code in NON_RETRYABLE_CLICKHOUSE_ERROR_CODES:
             return True
         current = current.__cause__
@@ -1461,6 +1511,7 @@ class LazyComputationExecutor:
                         if conflict_passes > 1:
                             remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
                             if remaining > 0:
+                                _notify_wait_observer()
                                 time.sleep(min(interval, remaining))
                             interval = min(interval * 2, self.max_poll_interval_seconds)
                     else:
@@ -1500,6 +1551,7 @@ class LazyComputationExecutor:
                     remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
                     wait_time = min(interval, remaining)
                     if wait_time > 0:
+                        _notify_wait_observer()
                         self._wait_for_notification(pubsub, wait_time)
                     interval = min(interval * 2, self.max_poll_interval_seconds)
                     continue
@@ -1829,6 +1881,9 @@ def ensure_precomputed(
             database=database,
         )
         print_end = time.monotonic()
+        observer = _insert_observer.get()
+        if observer is not None:
+            observer(job.id)
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
             "client_query_id": str(job.id),

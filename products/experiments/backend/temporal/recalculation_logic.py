@@ -5,7 +5,9 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 """
 
 import time
+import uuid
 import random
+import threading
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -33,6 +35,11 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    PrecomputeInsertAborted,
+    observe_precompute_inserts,
+    observe_precompute_waits,
+)
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
@@ -569,6 +576,47 @@ def _capture_experiment_metric_event(
 # ---------------------------------------------------------------------------
 
 
+class RecalculationAttemptCancelled(BaseException):
+    """Stops the calc thread of a cancelled attempt.
+
+    It derives from BaseException, like asyncio.CancelledError, so that the runner's `except Exception` blocks
+    cannot catch it and continue to the direct-scan SELECT.
+    """
+
+
+class AttemptCancellation:
+    """Connects one attempt's calc thread to its cancel path.
+
+    sync_to_async cannot stop the calc thread. The thread checks this object before each precompute stage,
+    INSERT and wait, and before the final SELECT. The cancel path reads the job id of the latest INSERT from it, because the INSERT
+    runs under that job id and not under the attempt's client_query_id. The INSERTs of one thread run in
+    sequence, so only the latest one can still be running.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._cancelled = False
+        self._precompute_job_id: uuid.UUID | None = None
+
+    def track_precompute_insert(self, job_id: uuid.UUID) -> None:
+        # The lock makes the check and the record one step, so the cancel path either sees this job id or this
+        # thread sees the cancel and starts no INSERT.
+        with self._lock:
+            if self._cancelled:
+                raise PrecomputeInsertAborted("Experiment metric recalculation attempt was cancelled")
+            self._precompute_job_id = job_id
+
+    def cancel(self) -> uuid.UUID | None:
+        with self._lock:
+            self._cancelled = True
+            return self._precompute_job_id
+
+    def raise_if_cancelled(self) -> None:
+        with self._lock:
+            if self._cancelled:
+                raise RecalculationAttemptCancelled()
+
+
 def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> str:
     """The ClickHouse client_query_id this metric's recalc query runs under.
 
@@ -586,8 +634,11 @@ def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> s
 
 
 @database_sync_to_async_pool(executor=_CANCELLATION_EXECUTOR)
-def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
+def _cancel_metric_query_sync(
+    recalculation_id: str, metric_uuid: str, attempt: int, cancellation: AttemptCancellation
+) -> None:
     """Kill the ClickHouse query the metric's calc left running, so the abandoned attempt stops reading."""
+    precompute_job_id = cancellation.cancel()
     close_old_connections()
     state = _get_recalc_state(recalculation_id)
     # This runs in its own thread, so it inherits none of the calc body's tags. Untagged statements raise in
@@ -598,7 +649,18 @@ def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: 
         product=Product.EXPERIMENTS,
         feature=Feature.CACHE_WARMUP,
     ):
-        cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
+        query_ids = [_client_query_id(recalculation_id, metric_uuid, attempt)]
+        if precompute_job_id is not None:
+            query_ids.append(str(precompute_job_id))
+        # A failed kill must not skip the next one. After the attempt deadline, the drain does not retry.
+        errors: list[Exception] = []
+        for query_id in query_ids:
+            try:
+                cancel_query_on_cluster(state.team_id, query_id)
+            except Exception as e:
+                errors.append(e)
+        if errors:
+            raise ExceptionGroup("Experiment metric recalculation query kill failed", errors)
 
 
 @database_sync_to_async_pool
@@ -610,8 +672,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    cancellation: AttemptCancellation | None = None,
 ) -> MetricRecalculationResult:
     close_old_connections()
+    cancellation = cancellation or AttemptCancellation()
 
     try:
         query_to_dt = datetime.fromisoformat(query_to)
@@ -740,6 +804,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_event_context=None,
                 # Must fail typed inside the activity before Temporal's start_to_close kill — see models.py.
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+                raise_if_cancelled=cancellation.raise_if_cancelled,
             )
 
             # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
@@ -756,7 +821,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 # Also covers the precompute inserts, which run inside this context.
                 ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
             ):
-                result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                with (
+                    observe_precompute_inserts(cancellation.track_precompute_insert),
+                    observe_precompute_waits(cancellation.raise_if_cancelled),
+                ):
+                    result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
             with transaction.atomic():
@@ -783,6 +852,17 @@ def _calculate_experiment_metric_for_recalculation_sync(
             )
             _clear_retry(recalculation_id, metric_uuid)
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        except RecalculationAttemptCancelled:
+            # The activity has given up on this attempt, so write nothing that can overwrite a later attempt's result.
+            logger.info(
+                "experiment_metric_recalculation_stopped_after_cancel",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+                attempt=attempt,
+            )
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=False, error_step="calculation")
 
         except (StatisticError, ZeroDivisionError) as e:
             # Expected "not enough data" style failures — warn, no exception capture.
