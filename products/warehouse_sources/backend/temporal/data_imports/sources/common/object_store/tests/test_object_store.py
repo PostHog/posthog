@@ -626,6 +626,19 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
             read_rows(store, table)
 
+    @parameterized.expand([("plain", "orders.parquet", False), ("gzipped", "orders.parquet.gz", True)])
+    def test_a_parquet_file_with_one_brotli_column_is_a_parse_error(self, _name: str, path: str, gzipped: bool) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(
+            pa.table({"id": ["1", "2"], "note": ["a", "b"]}),
+            buffer,
+            compression={"id": "SNAPPY", "note": "BROTLI"},
+        )
+        content = gzip.compress(buffer.getvalue()) if gzipped else buffer.getvalue()
+
+        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
+            list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
+
     def test_a_parquet_file_with_no_rows_still_yields_its_schema(self, tmp_path: Path) -> None:
         pq.write_table(pa.table({"id": pa.array([], pa.string())}), tmp_path / "empty.parquet")
         store = local_store(tmp_path)
