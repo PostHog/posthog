@@ -6,6 +6,11 @@ from django.utils.http import url_has_allowed_host_and_scheme
 UNVERIFIED_SOCIAL_EMAIL_ERROR = (
     "Your sign-in provider hasn't verified this email address. Verify it with the provider, then sign in again."
 )
+GITHUB_UNVERIFIED_EMAIL_ERROR = (
+    "GitHub hasn't verified this email address. Verify it in your GitHub email settings, then sign in again. "
+    "Enterprise managed accounts must verify it manually: "
+    "https://docs.github.com/en/account-and-profile/how-tos/email-preferences/verifying-your-email-address"
+)
 GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
 
 

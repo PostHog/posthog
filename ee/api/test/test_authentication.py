@@ -32,7 +32,7 @@ from social_django.utils import load_strategy
 from posthog.api.authentication import social_identity_matches_session
 from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.constants import AvailableFeature
-from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, GITHUB_UNVERIFIED_EMAIL_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
@@ -1040,7 +1040,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("github_unverified", "github", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("github_unverified", "github", False, False, 200, GITHUB_UNVERIFIED_EMAIL_ERROR),
             ("github_public_email_lookup_fails", "github", False, True, 502, GITHUB_EMAIL_LOOKUP_ERROR),
             ("google_unverified", "google-oauth2", False, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
             ("google_claim_missing", "google-oauth2", None, False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
