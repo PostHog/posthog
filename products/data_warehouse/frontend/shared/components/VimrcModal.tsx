@@ -17,7 +17,10 @@ export function VimrcModal({ editorKey }: { editorKey: string }): JSX.Element {
                 <span>
                     These commands run each time Vim mode starts. Use map commands such as{' '}
                     <code>inoremap jj &lt;Esc&gt;</code>, and set commands such as <code>set cursorblink</code> or{' '}
-                    <code>set relativenumber</code>. Lines that start with <code>"</code> are comments.
+                    <code>set relativenumber</code>. To run the query or the selection with a key, map it to{' '}
+                    <code>:run&lt;CR&gt;</code>, for example <code>nnoremap &lt;Leader&gt;r :run&lt;CR&gt;</code> and{' '}
+                    <code>vnoremap &lt;Leader&gt;r :run&lt;CR&gt;</code>. Set the leader key with{' '}
+                    <code>let mapleader = " "</code>. Lines that start with <code>"</code> are comments.
                 </span>
             }
             isOpen={vimrcEditorKey === editorKey}
@@ -50,7 +53,7 @@ export function VimrcModal({ editorKey }: { editorKey: string }): JSX.Element {
                 <LemonTextArea
                     value={vimrcDraft}
                     onChange={setVimrcDraft}
-                    placeholder={'inoremap jj <Esc>\nset cursorblink'}
+                    placeholder={'let mapleader = " "\nnnoremap <Leader>r :run<CR>\ninoremap jj <Esc>\nset cursorblink'}
                     className="font-mono"
                     minRows={8}
                     maxRows={20}
