@@ -84,7 +84,7 @@ def push_registry(job_name: str, registry: CollectorRegistry, *, replace_group: 
 
 
 @contextmanager
-def pushed_metrics_registry(job_name: str) -> Iterator[CollectorRegistry]:
+def pushed_metrics_registry(job_name: str, *, timeout: float = 30) -> Iterator[CollectorRegistry]:
     """
     Return a temporary Prometheus registry that will be pushed to the
     PushGateway when the context closes.
@@ -101,4 +101,4 @@ def pushed_metrics_registry(job_name: str) -> Iterator[CollectorRegistry]:
 
     registry = CollectorRegistry()
     yield registry
-    push_registry(job_name, registry, replace_group=True)
+    push_registry(job_name, registry, replace_group=True, timeout=timeout)

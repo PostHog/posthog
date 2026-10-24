@@ -1,5 +1,6 @@
 import json
 import uuid
+import dataclasses
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
@@ -65,6 +66,7 @@ if TYPE_CHECKING:
 
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
+    from products.signals.backend.report_plan import ReportPlan
 
 from .artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
@@ -698,6 +700,13 @@ class SignalReportClaimSerializer(serializers.Serializer):
     takeover = serializers.BooleanField(
         required=False, default=False, help_text="Explicitly end another actor's claim and take ownership."
     )
+    takeover_claim_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "With takeover, the claim the caller expects to replace. The takeover is rejected when a different "
+            "claim is active, so a takeover based on a stale read cannot replace a newer claim."
+        ),
+    )
     pr_url = serializers.URLField(
         required=False,
         help_text="Compatibility alias for adding one PR. Prefer pull_requests for new callers.",
@@ -713,6 +722,8 @@ class SignalReportClaimSerializer(serializers.Serializer):
             raise serializers.ValidationError("Release cannot be combined with PR attachment or takeover.")
         if attrs.get("claim_id") and attrs.get("takeover"):
             raise serializers.ValidationError("A claim ID cannot be combined with takeover.")
+        if attrs.get("takeover_claim_id") and not attrs.get("takeover"):
+            raise serializers.ValidationError("takeover_claim_id requires takeover.")
         return attrs
 
 
@@ -1266,8 +1277,11 @@ class ReviewerProposalSerializer(serializers.Serializer):
     )
     reviewer_outcome = serializers.ChoiceField(
         choices=ReviewerSelectionOutcome.choices,
-        default="selected",
-        help_text="A successful selection, a deliberate empty result, or an unavailable lookup.",
+        required=False,
+        help_text=(
+            "A successful selection, a deliberate empty result, or an unavailable lookup. "
+            "Defaults to selected when omitted."
+        ),
     )
     reviewer_retry_reason = serializers.CharField(
         required=False, max_length=500, help_text="Reason the reviewer lookup failed."
@@ -1298,6 +1312,48 @@ class ReviewerControlResponseSerializer(serializers.Serializer):
             "needs_review": snapshot.corrections.needs_review,
             "enabled": instance.enabled or snapshot.state.corrections_id is not None,
         }
+
+
+class ReportPlanStepSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="The step's report id.")
+    title = serializers.CharField(read_only=True, allow_null=True, help_text="The step's report title.")
+    status = serializers.ChoiceField(
+        read_only=True,
+        choices=SignalReport.Status.choices,
+        help_text="The step's report status. Monitoring reads as resolved when its rollout is disabled.",
+    )
+    depends_on = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="Ids of the other steps in this plan that this step builds on. Empty when it builds on none.",
+    )
+    implementation_pr_url = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The step's implementation pull request, if one is attached."
+    )
+    implementation_pr_state = serializers.ChoiceField(
+        read_only=True,
+        choices=SignalReportAssignment.PrState.choices,
+        allow_null=True,
+        help_text="Latest known state of that pull request: unknown, draft, open, closed, or merged.",
+    )
+
+
+class ReportPlanSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="The plan's report id. Equals the report's own id when the report is the plan.",
+    )
+    title = serializers.CharField(read_only=True, allow_null=True, help_text="The plan's report title.")
+    status = serializers.ChoiceField(
+        read_only=True,
+        choices=SignalReport.Status.choices,
+        help_text="The plan's report status. Monitoring reads as resolved when its rollout is disabled.",
+    )
+    steps = ReportPlanStepSerializer(
+        many=True,
+        read_only=True,
+        help_text="The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out.",
+    )
 
 
 class SignalReportSerializerExtension(OpenApiSerializerExtension):
@@ -1358,6 +1414,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "Follow-up prompts the report's author suggests sending about it (questions to ask, or "
             "next-step actions to request), in the order they were written. The inbox offers them "
             "above the `Ask AI` box; clicking one fills the box with it."
+        ),
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Free-form lowercase kebab-case slug tags for grouping and filtering reports, at most 10. "
+            "Empty when the report has no tags."
         ),
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
@@ -1491,6 +1555,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "place of the entries."
         ),
     )
+    plan = serializers.SerializerMethodField(
+        help_text=(
+            "The plan this report leads or is a step of, with every step in it. A report that other reports "
+            "link to with `part_of` is a plan. Null when the report is in no plan, and always null in list "
+            "responses, because finding a plan's steps scans the project's report links."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -1512,6 +1583,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "charts",
             "metrics",
             "suggested_prompts",
+            "tags",
             "source_suggestion",
             "priority",
             "actionability",
@@ -1538,6 +1610,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "billing_exempt_reason",
             "channel_id",
             "ranking",
+            "plan",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1562,11 +1635,29 @@ class SignalReportSerializer(serializers.ModelSerializer):
             representation.pop("monitoring_started_at", None)
         return representation
 
+    def _display_status(self, obj: SignalReport, status: str) -> str:
+        if status == SignalReport.Status.MONITORING and not self._monitoring_enabled(obj):
+            return SignalReport.Status.RESOLVED
+        return status
+
     @extend_schema_field(serializers.ChoiceField(choices=SignalReport.Status.choices))
     def get_status(self, obj: SignalReport) -> str:
-        if obj.status == SignalReport.Status.MONITORING and not self._monitoring_enabled(obj):
-            return SignalReport.Status.RESOLVED
-        return obj.status
+        return self._display_status(obj, obj.status)
+
+    @extend_schema_field(ReportPlanSerializer(allow_null=True))
+    def get_plan(self, obj: SignalReport) -> dict | None:
+        plans_map: dict[str, ReportPlan | None] = self.context.get("report_plans_map", {})
+        plan = plans_map.get(str(obj.id))
+        if plan is None:
+            return None
+        plan = dataclasses.replace(
+            plan,
+            status=self._display_status(obj, plan.status),
+            steps=tuple(
+                dataclasses.replace(step, status=self._display_status(obj, step.status)) for step in plan.steps
+            ),
+        )
+        return dict(ReportPlanSerializer(plan).data)
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
