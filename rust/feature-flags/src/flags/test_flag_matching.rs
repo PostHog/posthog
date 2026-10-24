@@ -8272,7 +8272,46 @@ mod tests {
                 group_type_index: Some(0)
             ).mock_into()
         );
-        let mut flag_list = vec![rollout_flag, person_flag, group_flag, group_filter_flag];
+        let email_filter = mock!(PropertyFilter,
+            key: "email".mock_into(),
+            value: Some(json!("user@example.com")),
+            prop_type: PropertyType::Person
+        );
+        // The second condition matches everyone, so the unknown email condition cannot change
+        // the answer.
+        let settled_flag = mock!(FeatureFlag,
+            id: 6,
+            key: "settled_flag".mock_into(),
+            filters: mock!(FlagFilters, groups: vec![
+                FlagPropertyGroup {
+                    properties: Some(vec![email_filter.clone()]),
+                    rollout_percentage: Some(100.0),
+                    ..Default::default()
+                },
+                FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    ..Default::default()
+                },
+            ])
+        );
+        let out_of_rollout_flag = mock!(FeatureFlag,
+            id: 7,
+            key: "out_of_rollout_flag".mock_into(),
+            filters: mock!(FlagFilters, groups: vec![FlagPropertyGroup {
+                properties: Some(vec![email_filter]),
+                rollout_percentage: Some(0.001),
+                ..Default::default()
+            }])
+        );
+        let mut flag_list = vec![
+            rollout_flag,
+            person_flag,
+            group_flag,
+            group_filter_flag,
+            settled_flag,
+            out_of_rollout_flag,
+        ];
         if with_continuity_flag {
             flag_list.push(continuity_flag);
         }
@@ -8314,6 +8353,15 @@ mod tests {
         assert_eq!(
             response.flags["group_filter_flag"].reason.code,
             "timeout:persons_db_deadline"
+        );
+        assert_eq!(
+            response.flags["settled_flag"].to_value(),
+            FlagValue::Boolean(true)
+        );
+        assert!(!response.flags["out_of_rollout_flag"].failed);
+        assert_eq!(
+            response.flags["out_of_rollout_flag"].to_value(),
+            FlagValue::Boolean(false)
         );
         assert_eq!(
             response

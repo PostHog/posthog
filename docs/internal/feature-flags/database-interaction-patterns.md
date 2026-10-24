@@ -102,7 +102,8 @@ When the pool has no free connection, the pool acquire timeout (`ACQUIRE_TIMEOUT
 
 When the deadline passes, the call fails with `FlagError::TimeoutError("persons_db_deadline")` and the existing degrade path runs:
 
-- Flags that need persons data return `reason.code = "timeout:persons_db_deadline"`. Experience continuity flags return `hash_key_override_error`.
+- A flag fails with `reason.code = "timeout:persons_db_deadline"` only when a condition that reads persons data can change its answer. Experience continuity flags return `hash_key_override_error`.
+- A condition that reads persons data still matches nobody outside its rollout, because the rollout check reads no DB data. When another condition settles the answer, the flag evaluates normally.
 - The other flags evaluate normally.
 - The request returns a 200 with `errorsWhileComputingFlags: true`.
 
