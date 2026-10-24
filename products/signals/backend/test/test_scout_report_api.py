@@ -62,7 +62,9 @@ from products.signals.backend.scout_harness.tools.report import (
 )
 from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
+from products.signals.backend.scout_report.judge import SAFETY_REFUSAL_EXPLANATION
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -88,6 +90,16 @@ REPORT_TOOLS = ["emit_report", "edit_report"]
 
 def _safe_judge(choice: bool = True, explanation: str = ""):
     return patch(JUDGE_PATH, new=AsyncMock(return_value=SafetyJudgeResponse(choice=choice, explanation=explanation)))
+
+
+def _refusing_judge():
+    return patch(JUDGE_PATH, new=AsyncMock(side_effect=LLMRefusalError("Model refused the request")))
+
+
+UNSAFE_JUDGES = [
+    ("unsafe_verdict", lambda: _safe_judge(choice=False, explanation="prompt injection"), "prompt injection"),
+    ("model_refusal", _refusing_judge, SAFETY_REFUSAL_EXPLANATION),
+]
 
 
 class TestScoutReportAPI(APIBaseTest):
@@ -367,14 +379,15 @@ class TestScoutReportAPI(APIBaseTest):
         assert enqueue.call_args_list[2].kwargs["edit_note"] is None
         assert enqueue.call_args_list[3].kwargs["edit_note"] is None
 
-    def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
+    @parameterized.expand(UNSAFE_JUDGES)
+    def test_emit_report_unsafe_suppresses_but_returns_id(self, _name, judge, explanation) -> None:
         run = _make_run(self.team)
         config = run.scout_config
         assert config is not None
         config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
         config.save(update_fields=["output_destinations"])
         with (
-            _safe_judge(choice=False, explanation="prompt injection"),
+            judge(),
             patch(EMBED_PATH),
             patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
         ):
@@ -387,7 +400,7 @@ class TestScoutReportAPI(APIBaseTest):
         body = response.json()
         assert body["emitted"] is False
         assert body["report_status"] == SignalReport.Status.SUPPRESSED
-        assert body["safety_explanation"] == "prompt injection"
+        assert body["safety_explanation"] == explanation
         assert body["report_id"] is not None
         queue.assert_not_called()
         # The judge-rejected prompts must not persist: a suppressed report is still reachable from
@@ -1242,14 +1255,15 @@ class TestScoutReportAPI(APIBaseTest):
         # The gate rejects a foreign report before the judge, so a bad id never spends an LLM call.
         judge_mock.assert_not_awaited()
 
-    def test_unsafe_edit_is_rejected_and_report_keeps_its_content(self) -> None:
+    @parameterized.expand(UNSAFE_JUDGES)
+    def test_unsafe_edit_is_rejected_and_report_keeps_its_content(self, _name, judge, explanation) -> None:
         # `emit_report` judges everything it authors; before the edit path got the same judge, an
         # unsafe summary or suggested prompt could land on a surfaced report by editing it in — and a
         # suggested prompt's wording is handed to an agent run told to act on it.
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        with _safe_judge(choice=False, explanation="prompt injection"):
+        with judge():
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={
@@ -1260,7 +1274,7 @@ class TestScoutReportAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "safety judge" in response.content.decode()
+        assert f"edit rejected by the safety judge: {explanation}" in response.content.decode()
         report = SignalReport.objects.get(id=created["report_id"])
         assert report.summary == self._payload()["summary"]
         assert report.suggested_prompts == []
