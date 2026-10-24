@@ -1,4 +1,8 @@
-import { expandRecentsForDisplay, hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import {
+    expandRecentsForDisplay,
+    hasRecentContext,
+    isCompleteRecentPropertyFilter,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     ExcludedOperators,
@@ -6,6 +10,7 @@ import {
     SelectingKeyOnly,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroupType,
+    isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
 
 /*
@@ -30,6 +35,18 @@ export function filterRecentsForContext(
     const availableTypes = new Set(taxonomicGroupTypes)
     const inScope = recentFilterItems.filter((item) => {
         if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+            return false
+        }
+        // A flag recent stored without `key` holds only the flag description, which most flags
+        // leave empty, so its row renders blank. Drop it; the next pick stores a labelled entry.
+        // A completed flag dependency is also stored without `key`, but its row takes its label from
+        // the property filter. Keep it, except in a key-only picker, which strips that filter.
+        if (
+            item._recentContext.sourceGroupType === TaxonomicFilterGroupType.FeatureFlags &&
+            !('key' in item && item.key) &&
+            (isKeyOnlyForGroup(selectingKeyOnly, TaxonomicFilterGroupType.FeatureFlags) ||
+                !isCompleteRecentPropertyFilter(item._recentContext.propertyFilter))
+        ) {
             return false
         }
         // A group's excluded values (e.g. `message` for the logs group-by picker) must be dropped
