@@ -4987,8 +4987,11 @@ mod tests {
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     }
 
+    #[rstest::rstest]
+    #[case::degrades_to_non_member(false)]
+    #[case::fails_the_flag(true)]
     #[tokio::test]
-    async fn test_realtime_cohort_provider_error_degrades_to_non_member() {
+    async fn test_realtime_cohort_provider_error(#[case] fail_on_lookup_error: bool) {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -5039,19 +5042,25 @@ mod tests {
             None,
         )
         .with_cohort_membership_provider(Arc::new(FailingMembershipProvider))
-        .with_realtime_cohort_evaluation(true);
+        .with_realtime_cohort_evaluation(true)
+        .with_fail_on_realtime_cohort_lookup_error(fail_on_lookup_error);
 
         matcher
             .prepare_flag_evaluation_state(&[&flag])
             .await
-            .expect("provider failure must not fail flag evaluation");
+            .expect("provider failure must not fail the evaluation state");
 
-        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+        let result = matcher.get_match(&flag, None, None, None, &None);
 
-        assert!(
-            !result.matches,
-            "On provider failure the person must be treated as a non-member, not re-evaluated dynamically"
-        );
+        if fail_on_lookup_error {
+            let error = result.expect_err("an unknown membership must fail the flag");
+            assert_eq!(error.error_code(), "realtime_cohort_lookup_failed");
+        } else {
+            assert!(
+                !result.unwrap().matches,
+                "On provider failure the person must be treated as a non-member, not re-evaluated dynamically"
+            );
+        }
     }
 
     #[tokio::test]

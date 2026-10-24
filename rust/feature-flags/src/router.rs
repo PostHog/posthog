@@ -856,7 +856,9 @@ mod tests {
             non_persons_reader: invalid_pool.clone(),
             non_persons_writer: invalid_pool.clone(),
             persons_reader: invalid_pool.clone(),
-            persons_writer: invalid_pool,
+            persons_writer: invalid_pool.clone(),
+            persons_reader_client: invalid_pool.clone(),
+            persons_writer_client: invalid_pool,
             behavioral_cohorts_reader: None,
             test_before_acquire: false,
         });
@@ -879,7 +881,9 @@ mod tests {
             non_persons_reader: shared_pool.clone(),
             non_persons_writer: shared_pool.clone(),
             persons_reader: shared_pool.clone(),
-            persons_writer: shared_pool,
+            persons_writer: shared_pool.clone(),
+            persons_reader_client: shared_pool.clone(),
+            persons_writer_client: shared_pool,
             behavioral_cohorts_reader: None,
             test_before_acquire: false,
         });

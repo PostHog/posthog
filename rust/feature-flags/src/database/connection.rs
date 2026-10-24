@@ -1,4 +1,4 @@
-use common_database::{Client, CustomDatabaseError};
+use common_database::{Client, CustomDatabaseError, GatePermit};
 use common_metrics::{gauge, histogram, inc};
 use sqlx::{pool::PoolConnection, postgres::PgConnection, Postgres};
 use std::{
@@ -18,14 +18,21 @@ pub struct TrackedConnection {
     conn: PoolConnection<Postgres>,
     start: Instant,
     labels: [(String, String); 2],
+    /// Holds the pool's operation gate slot until the caller drops the connection.
+    _permit: Option<GatePermit>,
 }
 
 impl TrackedConnection {
-    fn new(conn: PoolConnection<Postgres>, labels: [(String, String); 2]) -> Self {
+    fn new(
+        conn: PoolConnection<Postgres>,
+        labels: [(String, String); 2],
+        permit: Option<GatePermit>,
+    ) -> Self {
         Self {
             conn,
             start: Instant::now(),
             labels,
+            _permit: permit,
         }
     }
 
@@ -67,6 +74,10 @@ impl Drop for TrackedConnection {
 /// - Emits pool utilization ratio to `flags_pool_utilization_ratio`
 /// - Increments `flags_acquire_timeout_total` when pool acquisition times out
 /// - Records connection hold time to `flags_connection_hold_time_ms` when the connection is dropped
+/// - Passes the client's operation gate first, when it has one. A rejected call returns
+///   `CustomDatabaseError::GateRejected` without touching the pool. The gate slot stays taken
+///   until the connection drops. The acquire result is the outcome that the gate's breaker
+///   counts, and an acquire that the caller abandons counts as a failure.
 ///
 /// Works with any database client (reader or writer pools) since PostgresReader and
 /// PostgresWriter are both `Arc<dyn Client + Send + Sync>`.
@@ -110,6 +121,11 @@ pub async fn get_connection_with_metrics(
         gauge(FLAG_POOL_UTILIZATION_GAUGE, &labels[..1], utilization);
     }
 
+    let mut permit = match client.operation_gate() {
+        Some(gate) => Some(gate.enter().await?),
+        None => None,
+    };
+
     // Time connection acquisition (guard records on drop). Use the
     // sub-ms-precision variant: warm pool acquires complete in tens of
     // microseconds; the integer-ms variant rounds them all to the 1ms
@@ -128,7 +144,12 @@ pub async fn get_connection_with_metrics(
         }
     }
 
-    result.map(|conn| TrackedConnection::new(conn, labels))
+    // On error, the permit drops here and the gate counts a failure.
+    let conn = result?;
+    if let Some(permit) = permit.as_mut() {
+        permit.record_success();
+    }
+    Ok(TrackedConnection::new(conn, labels, permit))
 }
 
 /// Acquires a writer database connection while tracking metrics.

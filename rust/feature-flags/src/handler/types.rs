@@ -108,6 +108,8 @@ pub struct FeatureFlagEvaluationContext {
     pub only_use_override_person_properties: bool,
     /// Persons DB calls in this evaluation fail after this instant. `None` disables the deadline.
     pub persons_db_deadline: Option<tokio::time::Instant>,
+    /// When true, a failed realtime cohort lookup fails the flags that target those cohorts.
+    pub fail_on_realtime_cohort_lookup_error: bool,
 }
 
 /// SDK type classification based on user-agent parsing.

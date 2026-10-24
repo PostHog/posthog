@@ -212,6 +212,8 @@ pub struct FlagEvaluationState {
     /// Cache of flag evaluation results to avoid repeated DB lookups
     flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
     failed_flag_ids: HashSet<FeatureFlagId>,
+    /// Realtime cohorts whose membership lookup failed. A flag that targets one of them fails.
+    unresolved_cohort_ids: HashSet<CohortId>,
 }
 
 impl FlagEvaluationState {
@@ -483,6 +485,9 @@ pub struct FeatureFlagMatcher {
     /// Every persons DB call in this evaluation fails once this instant passes. `None` leaves
     /// each call bounded only by the pool acquire timeout and statement_timeout.
     persons_db_deadline: Option<Instant>,
+    /// When true, a failed realtime cohort lookup fails the flags that target those cohorts.
+    /// When false, those cohorts read as non-membership.
+    fail_on_realtime_cohort_lookup_error: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -605,6 +610,7 @@ impl FeatureFlagMatcher {
             timezone: Tz::UTC,
             now: Utc::now(),
             persons_db_deadline: None,
+            fail_on_realtime_cohort_lookup_error: false,
         }
     }
 
@@ -677,6 +683,11 @@ impl FeatureFlagMatcher {
     /// Gives all persons DB work in this evaluation one shared deadline.
     pub fn with_persons_db_deadline(mut self, deadline: Option<Instant>) -> Self {
         self.persons_db_deadline = deadline;
+        self
+    }
+
+    pub fn with_fail_on_realtime_cohort_lookup_error(mut self, fail: bool) -> Self {
+        self.fail_on_realtime_cohort_lookup_error = fail;
         self
     }
 
@@ -973,6 +984,17 @@ impl FeatureFlagMatcher {
     ) -> Result<bool, FlagError> {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
+
+        let targets_unresolved_cohort = cohort_property_filters.iter().any(|filter| {
+            filter.get_cohort_id().is_some_and(|cohort_id| {
+                self.flag_evaluation_state
+                    .unresolved_cohort_ids
+                    .contains(&cohort_id)
+            })
+        });
+        if targets_unresolved_cohort {
+            return Err(FlagError::realtime_cohort_lookup_failed());
+        }
 
         let (cohort_matches, errors) =
             self.resolve_cohort_matches(cohort_property_filters, target_properties, &cohorts);
@@ -2970,6 +2992,20 @@ impl FeatureFlagMatcher {
 
                 match result {
                     Ok(memberships) => memberships,
+                    Err(e) if self.fail_on_realtime_cohort_lookup_error => {
+                        inc(FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, &query_labels, 1);
+                        warn!(
+                            team_id = self.team_id,
+                            person_uuid = %person_uuid,
+                            realtime_cohort_count = realtime_cohort_ids.len(),
+                            error = %e,
+                            "Realtime cohort membership lookup failed, failing the flags that target these cohorts"
+                        );
+                        self.flag_evaluation_state
+                            .unresolved_cohort_ids
+                            .extend(realtime_cohort_ids.iter().copied());
+                        HashMap::new()
+                    }
                     Err(e) => {
                         inc(FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, &query_labels, 1);
                         warn!(
