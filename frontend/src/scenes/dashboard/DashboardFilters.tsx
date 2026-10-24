@@ -15,6 +15,7 @@ import { DashboardMetricVariables } from 'products/metrics/frontend/components/d
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
+import { QuillDashboardFilterBar } from './QuillDashboardFilterBar'
 
 interface DashboardFilterBarProps {
     backTo?: { url: string; name: string }
@@ -23,6 +24,12 @@ interface DashboardFilterBarProps {
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
     const { placement, dashboard, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav && placement === DashboardPlacement.Dashboard) {
+        return <QuillDashboardFilterBar />
+    }
+
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">

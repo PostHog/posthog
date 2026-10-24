@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -18,11 +19,16 @@ import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButto
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import {
+    ExportButton,
+    ExportButtonCopyToClipboardItem,
+    ExportButtonItem,
+} from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -95,6 +101,7 @@ import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
 import { insightCardCaptureTarget } from './insightCardImageCapture'
 import { InsightDetails } from './InsightDetails'
+import { QuillInsightCardMenu } from './QuillInsightCardMenu'
 
 interface InsightMetaProps extends Pick<
     InsightCardProps,
@@ -227,6 +234,7 @@ export function InsightMeta({
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const showCompactTile =
         placement === DashboardPlacement.Dashboard ||
@@ -485,6 +493,110 @@ export function InsightMeta({
             'insight link'
         )
     }
+    const insightEditUrl = inInsightProject(
+        isDataVisualizationNode(insight.query) && insight.query.kind !== NodeKind.BIVisualizationNode
+            ? urls.sqlEditor({
+                  insightShortId: short_id,
+                  dashboard: dashboardId ?? undefined,
+              })
+            : urls.insightEdit(short_id, dashboardId)
+    )
+    const editOverrideWarning = getOverrideWarningPropsForButton(insight.query, filtersOverride, variablesOverride)
+    const copyLinkDataAttr = dashboardId ? 'copy-insight-link-from-dashboard' : 'copy-insight-link-from-card-list-view'
+    const duplicateDataAttr = dashboardId ? 'duplicate-insight-from-dashboard' : 'duplicate-insight-from-card-list-view'
+    const deleteInsight = (): void => {
+        void (async () => {
+            try {
+                await deleteWithUndo?.()
+            } catch (error: any) {
+                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
+            }
+        })()
+    }
+    const exportItems: ExportButtonItem[] = exportContext
+        ? [
+              {
+                  export_format: ExporterFormat.PNG,
+                  insight: insight.id,
+                  dashboard: insightLogicProps.dashboardId,
+                  export_context: exportContext,
+              },
+              {
+                  export_format: ExporterFormat.CSV,
+                  export_context: exportContext,
+              },
+              {
+                  export_format: ExporterFormat.XLSX,
+                  export_context: exportContext,
+              },
+          ]
+        : []
+    const copyToClipboardItems: ExportButtonCopyToClipboardItem[] | undefined = showCopyTableData
+        ? [
+              {
+                  title: 'CSV',
+                  onClick: () => {
+                      if (!copyTableAdapter) {
+                          return
+                      }
+                      copyTableData(copyTableAdapter.toTableData(), ExporterFormat.CSV)
+                      reportInsightResultsCopiedToClipboard('csv', insight.id ?? null, dashboardId ?? null)
+                  },
+                  disabledReason: copyTableAdapter ? undefined : 'No data to copy yet',
+                  'data-attr': 'insight-card-copy-as-csv',
+              },
+          ]
+        : undefined
+    const moreTooltip = canEditInsight
+        ? 'Rename, duplicate, export, copy as PNG, refresh and more…'
+        : 'Duplicate, export, copy as PNG, refresh and more…'
+    const showDescriptionToggle = showCompactTile && !!toggleShowDescription && !!insight.description
+
+    const quillMoreMenu =
+        todayRailNav && !moreButtons ? (
+            <QuillInsightCardMenu
+                tooltip={moreTooltip}
+                onView={() => router.actions.push(insightViewUrl)}
+                onCopyLink={copyInsightLink}
+                copyLinkDataAttr={copyLinkDataAttr}
+                onEdit={canEditInsight ? () => router.actions.push(insightEditUrl) : undefined}
+                editWarning={typeof editOverrideWarning.tooltip === 'string' ? editOverrideWarning.tooltip : undefined}
+                onDuplicate={duplicate}
+                duplicateDataAttr={duplicateDataAttr}
+                onRename={canEditInsight ? rename : undefined}
+                placementDestinations={copyToDestinations}
+                onMoveToDashboard={canEditCurrentDashboard ? moveToDashboard : undefined}
+                onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
+                tileGroupMoveOptions={tileGroupMoveOptions}
+                onMoveToTileGroup={moveToTileGroup}
+                color={ribbonColor}
+                onSetColor={canEditCurrentDashboard ? updateColor : undefined}
+                descriptionShown={tile?.show_description !== false}
+                onToggleDescription={
+                    canEditCurrentDashboard && showDescriptionToggle ? toggleShowDescription : undefined
+                }
+                visualizationItems={showDisplayOptionsMenu ? visualizationItems : undefined}
+                displayOptionTabs={showDisplayOptionsMenu ? displayOptionTabs : undefined}
+                lastRefresh={insight.last_refresh}
+                onRefresh={refresh ? () => refresh() : undefined}
+                refreshDisabledReason={refreshMenuDisabledReason}
+                onSetOverride={canEditInsight && tile ? setOverride : undefined}
+                onOpenAlerts={
+                    showDashboardAlertsMenuItem && insight.id
+                        ? () => {
+                              void loadDeferredInsightAlerts()
+                              setIsManageAlertsModalOpen(true)
+                          }
+                        : undefined
+                }
+                exportItems={exportItems}
+                copyToClipboardItems={exportContext ? copyToClipboardItems : undefined}
+                onCopyImage={() => copyImage(insightCardCaptureTarget(insight, tile, dashboardId))}
+                copyImageDisabledReason={copyImageDisabledReason}
+                onRemoveFromDashboard={canEditCurrentDashboard ? removeFromDashboard : undefined}
+                onDeleteInsight={canEditInsight && !removeFromDashboard && deleteWithUndo ? deleteInsight : undefined}
+            />
+        ) : undefined
 
     return (
         <>
@@ -555,9 +667,7 @@ export function InsightMeta({
                                     icon: <IconLink />,
                                     tooltip: 'Copy link to insight',
                                     'aria-label': 'Copy link to insight',
-                                    'data-attr': dashboardId
-                                        ? 'copy-insight-link-from-dashboard'
-                                        : 'copy-insight-link-from-card-list-view',
+                                    'data-attr': copyLinkDataAttr,
                                     onClick: copyInsightLink,
                                 }}
                             >
@@ -566,23 +676,7 @@ export function InsightMeta({
                         )}
                         {canEditInsight && (
                             <>
-                                <LemonButton
-                                    to={inInsightProject(
-                                        isDataVisualizationNode(insight.query) &&
-                                            insight.query.kind !== NodeKind.BIVisualizationNode
-                                            ? urls.sqlEditor({
-                                                  insightShortId: short_id,
-                                                  dashboard: dashboardId ?? undefined,
-                                              })
-                                            : urls.insightEdit(short_id, dashboardId)
-                                    )}
-                                    fullWidth
-                                    {...getOverrideWarningPropsForButton(
-                                        insight.query,
-                                        filtersOverride,
-                                        variablesOverride
-                                    )}
-                                >
+                                <LemonButton to={insightEditUrl} fullWidth {...editOverrideWarning}>
                                     Edit
                                 </LemonButton>
                                 {rename && (
@@ -598,15 +692,7 @@ export function InsightMeta({
                             </>
                         )}
                         {duplicate && (
-                            <LemonButton
-                                onClick={duplicate}
-                                fullWidth
-                                data-attr={
-                                    dashboardId
-                                        ? 'duplicate-insight-from-dashboard'
-                                        : 'duplicate-insight-from-card-list-view'
-                                }
-                            >
+                            <LemonButton onClick={duplicate} fullWidth data-attr={duplicateDataAttr}>
                                 Duplicate
                             </LemonButton>
                         )}
@@ -644,7 +730,7 @@ export function InsightMeta({
                         {canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
-                                {showCompactTile && toggleShowDescription && !!insight.description && (
+                                {showDescriptionToggle && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}
                                     </LemonButton>
@@ -704,19 +790,7 @@ export function InsightMeta({
                         {canEditInsight && !removeFromDashboard && deleteWithUndo && (
                             <>
                                 <LemonDivider />
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        void (async () => {
-                                            try {
-                                                await deleteWithUndo?.()
-                                            } catch (error: any) {
-                                                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
-                                            }
-                                        })()
-                                    }}
-                                    fullWidth
-                                >
+                                <LemonButton status="danger" onClick={deleteInsight} fullWidth>
                                     Delete insight
                                 </LemonButton>
                             </>
@@ -729,49 +803,8 @@ export function InsightMeta({
                                 <ExportButton
                                     fullWidth
                                     sideIcon={<IconChevronRight className="size-3" />}
-                                    items={[
-                                        {
-                                            export_format: ExporterFormat.PNG,
-                                            insight: insight.id,
-                                            dashboard: insightLogicProps.dashboardId,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.XLSX,
-                                            export_context: exportContext,
-                                        },
-                                    ]}
-                                    copyToClipboardItems={
-                                        showCopyTableData
-                                            ? [
-                                                  {
-                                                      title: 'CSV',
-                                                      onClick: () => {
-                                                          if (!copyTableAdapter) {
-                                                              return
-                                                          }
-                                                          copyTableData(
-                                                              copyTableAdapter.toTableData(),
-                                                              ExporterFormat.CSV
-                                                          )
-                                                          reportInsightResultsCopiedToClipboard(
-                                                              'csv',
-                                                              insight.id ?? null,
-                                                              dashboardId ?? null
-                                                          )
-                                                      },
-                                                      disabledReason: copyTableAdapter
-                                                          ? undefined
-                                                          : 'No data to copy yet',
-                                                      'data-attr': 'insight-card-copy-as-csv',
-                                                  },
-                                              ]
-                                            : undefined
-                                    }
+                                    items={exportItems}
+                                    copyToClipboardItems={copyToClipboardItems}
                                 />
                             </>
                         ) : null}
@@ -800,11 +833,8 @@ export function InsightMeta({
                         )}
                     </>
                 }
-                moreTooltip={
-                    canEditInsight
-                        ? 'Rename, duplicate, export, copy as PNG, refresh and more…'
-                        : 'Duplicate, export, copy as PNG, refresh and more…'
-                }
+                moreTooltip={moreTooltip}
+                moreMenu={quillMoreMenu}
                 extraControls={
                     placement !== DashboardPlacement.Public &&
                     (surveyOpportunityInsight || canShowCreateAnomalyAlert || feedbackButtons) ? (

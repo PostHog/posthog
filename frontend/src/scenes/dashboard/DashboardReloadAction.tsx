@@ -13,6 +13,11 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import {
+    AUTO_REFRESH_INTERVAL_OPTIONS,
+    dashboardRefreshDisabledReason,
+    dashboardRefreshProgressText,
+} from 'scenes/dashboard/dashboardRefreshStatus'
 import { Scene } from 'scenes/sceneTypes'
 
 export const LastRefreshText = (): JSX.Element => {
@@ -32,21 +37,12 @@ export const LastRefreshText = (): JSX.Element => {
 /** Loading / progress / pessimistic last refresh — same as the left side of `DashboardReloadAction`, without refresh controls. */
 export function DashboardRefreshStatusText(): JSX.Element {
     const { itemsLoading, refreshMetrics, dashboardLoadData } = useValues(dashboardLogic)
-    const isInitialLoad =
-        dashboardLoadData?.action === 'initial_load' || dashboardLoadData?.action === 'initial_load_with_variables'
     return (
         <span className="text-muted text-sm whitespace-nowrap">
             {itemsLoading ? (
                 <span className="flex items-center gap-1">
                     <Spinner textColored className="text-sm" />
-                    {refreshMetrics.total ? (
-                        <>
-                            {isInitialLoad ? 'Loaded' : 'Refreshed'} {refreshMetrics.completed} out of{' '}
-                            {refreshMetrics.total}
-                        </>
-                    ) : (
-                        <>{isInitialLoad ? 'Loading' : 'Refreshing'}...</>
-                    )}
+                    <span>{dashboardRefreshProgressText(refreshMetrics, dashboardLoadData?.action)}</span>
                 </span>
             ) : (
                 <LastRefreshText />
@@ -55,15 +51,6 @@ export function DashboardRefreshStatusText(): JSX.Element {
     )
 }
 
-const REFRESH_INTERVAL_SECONDS = [900, 1800, 3600]
-if (process.env.NODE_ENV === 'development') {
-    REFRESH_INTERVAL_SECONDS.unshift(10)
-}
-const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
-    label: humanFriendlyDuration(value),
-    value: value,
-}))
-
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } = useValues(dashboardLogic)
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
@@ -71,15 +58,13 @@ export function DashboardReloadAction(): JSX.Element {
 
     usePageVisibilityCb(setPageVisibility)
 
-    const refreshDisabledReason =
-        !itemsLoading &&
-        blockRefresh &&
-        nextAllowedDashboardRefresh &&
-        dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
-            ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
-            : ''
+    const refreshDisabledReason = dashboardRefreshDisabledReason({
+        itemsLoading,
+        blockRefresh,
+        nextAllowedDashboardRefresh,
+    })
 
-    const options = INTERVAL_OPTIONS.map((option) => {
+    const options = AUTO_REFRESH_INTERVAL_OPTIONS.map((option) => {
         return {
             ...option,
             disabledReason: !autoRefresh.enabled ? 'Enable auto refresh to set the interval' : undefined,

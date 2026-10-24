@@ -9,10 +9,9 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { normalizeDashboardBreakdownFilter } from 'scenes/dashboard/dashboardActiveFilters'
 import {
     DashboardControl,
     dashboardControlScopeText,
@@ -20,13 +19,14 @@ import {
 } from 'scenes/dashboard/dashboardControls'
 import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardPropertyFilterGroupTypes } from 'scenes/dashboard/dashboardPropertyFilterGroupTypes'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps, IntervalType } from '~/types'
 
 import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
@@ -100,8 +100,6 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
     const { setDates, setProperties, setBreakdownFilter, setDashboardEditing } = useActions(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-
-    const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -191,21 +189,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                     }}
                     pageKey={'dashboard_' + dashboard?.id}
                     propertyFilters={effectiveEditBarFilters.properties}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.EventMetadata,
-                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.SessionProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                    ]}
+                    taxonomicGroupTypes={dashboardPropertyFilterGroupTypes(groupsTaxonomicTypes)}
                 />
             </DashboardControlSlot>
             <DashboardControlSlot
@@ -227,12 +211,8 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                                     DashboardEventSource.DashboardFilters
                                 )
                             }
-                            let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
                             // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                            if (breakdown_filter && !breakdown_filter.breakdown_type && !breakdown_filter.breakdowns) {
-                                saved_breakdown_filter = null
-                            }
-                            setBreakdownFilter(saved_breakdown_filter)
+                            setBreakdownFilter(normalizeDashboardBreakdownFilter(breakdown_filter))
                         }}
                         updateDisplay={() => {}}
                         disablePropertyInfo
