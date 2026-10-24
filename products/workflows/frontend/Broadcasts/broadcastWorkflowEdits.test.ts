@@ -60,7 +60,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ]
     >([
         ['a scheduled broadcast', 'active', ['active'], [], false, true],
-        ['a recurring broadcast between runs', 'active', ['active'], ['completed'], false, true],
+        ['a recurring broadcast between runs', 'active', ['active'], ['completed'], false, false],
         ['a broadcast whose schedule was paused', 'active', ['paused'], [], false, true],
         ['a broadcast sent right away', 'active', [], ['completed'], false, false],
         ['a broadcast whose launch never finished', 'active', [], [], false, true],

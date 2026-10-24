@@ -131,11 +131,11 @@ export function canMoveToDraft(
     const neverSent = batchJobs?.length === 0
     return (
         broadcast?.status === 'active' &&
-        // Only a send still to come can be stopped, since relaunching one that went out resends it. The
-        // wizard models a single schedule, so a relaunch would fold several into one. A launch or a
-        // one-time schedule that never started a run sent nothing, so it can go back to draft too.
+        // Only a send still to come can be stopped, provided it has never dispatched any runs.
+        // Once a broadcast is sending or sent (has batch jobs), it is locked to preserve
+        // recipient history and performance stats.
         schedules.length <= 1 &&
-        (neverSent || (schedules.length === 1 && schedules[0].status !== 'completed')) &&
+        neverSent &&
         batchJobs !== null &&
         !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
