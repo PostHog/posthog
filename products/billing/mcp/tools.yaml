@@ -20,9 +20,9 @@ tools:
         description: >
             The product features the organization's plans include, with any overrides applied. The cheapest read in the
             billing API, readable by any member. Use it to check whether a feature such as group analytics or
-            white-labelling is available before suggesting it. Needs an API key or OAuth token with organization access,
-            because a key limited to specific projects gets a 403. Beta: behind the organization-billing-api flag, and
-            the output shape may change while it is.
+            white-labelling is available before suggesting it. Needs an API key or OAuth token with organization access.
+            With a key limited to specific projects, call billing-project-features-get instead. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
     billing-forecast-get:
         operation: billing_forecast_retrieve
@@ -143,11 +143,157 @@ tools:
             product, add-on or feature a question is about. A product or add-on says whether the organization subscribes
             to it. A feature says whether it is available to the organization, trials and overrides included, and lists
             the add-ons that carry it. For prices and plans, pass the product key to billing-product-get. Readable by
-            any member. Needs an API key or OAuth token with organization access, because a key limited to specific
-            projects gets a 403. Beta: behind the organization-billing-api flag, and the output shape may change while
+            any member. Needs an API key or OAuth token with organization access. With a key limited to specific
+            projects, call billing-project-products-summary-get instead. Beta: behind the organization-billing-api flag,
+            and the output shape may change while it is.
+        feature_flag: organization-billing-api
+        url_prefix: /organization/billing/overview
+    billing-project-features-get:
+        operation: billing_project_features_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a project's available features
+        description: >
+            The product features the plans of the active project's organization include, with any overrides applied. The
+            answer is the same for every project in the organization. Readable by any member. Works with an API key or
+            OAuth token limited to specific projects when the key covers this project. Use it to check whether a feature
+            such as group analytics is available before suggesting it. Beta: behind the organization-billing-api flag,
+            and the output shape may change while it is.
+        feature_flag: organization-billing-api
+    billing-project-products-summary-get:
+        operation: billing_project_products_summary_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get every product in summary for a project
+        description: >
+            Every product the organization of the active project can use, with its add-ons and the names of its
+            features, without prices or plans. A product or add-on says whether the organization subscribes to it. A
+            feature says whether it is available to the organization and lists the add-ons that carry it. The answer is
+            the same for every project in the organization. Readable by any member. Works with an API key or OAuth token
+            limited to specific projects when the key covers this project. Use it to find the product, add-on or feature
+            a question is about. Beta: behind the organization-billing-api flag, and the output shape may change while
             it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/overview
+    billing-project-spend-timeseries-get:
+        operation: billing_project_spend_timeseries_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a project's spend over time
+        description: >
+            The active project's share of the organization's spend over time, as dollar amounts, summed across the
+            project's environments. Needs usage read access. Owners always have it, and admins have it when owner-only
+            billing is off. Members have it when owner-only billing is off and the organization allows member usage and
+            spend reads, for the projects they can see. Works with an API key or OAuth token limited to specific
+            projects when the key covers this project. Use it to find what one project costs or to investigate a cost
+            spike in it. For quantities call billing-project-usage-timeseries-get. To compare projects, call
+            billing-spend-timeseries-get with an organization-wide key. Beta: behind the organization-billing-api flag,
+            and the output shape may change while it is.
+        param_overrides:
+            usage_types:
+                description: >
+                    JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as
+                    e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit
+                    for all usage types.
+            breakdowns:
+                description: >
+                    JSON-encoded array, NOT a comma-separated string. Pass `["type"]` for a series per product, or omit
+                    it for one series across the project. Any other value fails with a 400 error.
+            interval:
+                description: Time bucket size, one of "day", "week" or "month". Default "day".
+        feature_flag: organization-billing-api
+        url_prefix: /organization/billing/spend
+    billing-project-usage-status-get:
+        operation: billing_project_usage_status_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a project's usage limit status
+        description: >
+            The usage limits of the active project's organization, per product and add-on. For each it returns the limit
+            in effect, whether usage is over or approaching it, and whether PostHog is limiting the resource now. Limits
+            belong to the organization, so the answer is the same for every project in it. No counts, so any member can
+            read it. Works with an API key or OAuth token limited to specific projects when the key covers this project.
+            Use it for "is PostHog dropping our events" or "am I near my events limit". For this project's usage so far
+            this period call billing-project-usage-summary-get. Beta: behind the organization-billing-api flag, and the
+            output shape may change while it is.
+        feature_flag: organization-billing-api
+        url_prefix: /organization/billing/usage
+    billing-project-usage-summary-get:
+        operation: billing_project_usage_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a project's usage this billing period
+        description: >
+            Usage so far this billing period for the active project, per usage key, summed across the project's
+            environments. It returns quantities only, with the billing period they cover. Needs usage read access.
+            Owners always have it, and admins have it when owner-only billing is off. Members have it when owner-only
+            billing is off and the organization allows member usage and spend reads, for the projects they can see.
+            Works with an API key or OAuth token limited to specific projects when the key covers this project. Use it
+            for "how many events has this project used this month". For the organization total with limits and limiting
+            state call billing-usage-summary-get, and for this project's usage over time call
+            billing-project-usage-timeseries-get. Beta: behind the organization-billing-api flag, and the output shape
+            may change while it is.
+        feature_flag: organization-billing-api
+        url_prefix: /organization/billing/usage
+    billing-project-usage-timeseries-get:
+        operation: billing_project_usage_timeseries_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a project's usage over time
+        description: >
+            Usage over time for the active project as quantities, summed across the project's environments. Needs usage
+            read access. Owners always have it, and admins have it when owner-only billing is off. Members have it when
+            owner-only billing is off and the organization allows member usage and spend reads, for the projects they
+            can see. Works with an API key or OAuth token limited to specific projects when the key covers this project.
+            Use it to investigate a usage spike in one project or to compare periods. For this project's usage so far
+            this period call billing-project-usage-summary-get, and for dollar amounts call
+            billing-project-spend-timeseries-get. To compare projects, call billing-usage-timeseries-get with an
+            organization-wide key. Beta: behind the organization-billing-api flag, and the output shape may change while
+            it is.
+        param_overrides:
+            usage_types:
+                description: >
+                    JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as
+                    e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit
+                    for all usage types.
+            breakdowns:
+                description: >
+                    JSON-encoded array, NOT a comma-separated string. Pass `["type"]` for a series per usage type, or
+                    omit it for one series across the project. Any other value fails with a 400 error.
+            interval:
+                description: Time bucket size, one of "day", "week" or "month". Default "day".
+        feature_flag: organization-billing-api
+        url_prefix: /organization/billing/usage
     billing-projects-list:
         operation: billing_project_list
         enabled: true
@@ -249,9 +395,9 @@ tools:
             usage and spend reads. That member grant covers the series only, not the totals on
             billing-spend-summary-get. Use it to investigate a cost spike, compare periods, or attribute spend to
             products or projects. For spend so far this period call billing-spend-summary-get, and for quantities call
-            billing-usage-timeseries-get. Needs an API key or OAuth token with organization access, because a key
-            limited to specific projects gets a 403. Beta: behind the organization-billing-api flag, and the output
-            shape may change while it is.
+            billing-usage-timeseries-get. Needs an API key or OAuth token with organization access. With a key limited
+            to specific projects, call billing-project-spend-timeseries-get instead. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         param_overrides:
             team_ids:
                 description: >
@@ -375,8 +521,9 @@ tools:
             Per product and add-on: the limit in effect, whether usage is over or approaching it, and whether the
             resource is being limited right now. No counts, so any member can read it. Use it for "am I near my events
             limit" or "is ingestion being limited"; for the counts call billing-usage-summary-get. Needs an API key or
-            OAuth token with organization access, because a key limited to specific projects gets a 403. Beta: behind
-            the organization-billing-api flag, and the output shape may change while it is.
+            OAuth token with organization access. With a key limited to specific projects, call
+            billing-project-usage-status-get instead. Beta: behind the organization-billing-api flag, and the output
+            shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/usage
     billing-usage-summary-get:
@@ -397,8 +544,9 @@ tools:
             billing-usage-timeseries-get reads the same numbers per project with usage read access, and
             billing-usage-status-get is the read for members. Use it for "how many events have we used". For amounts
             call billing-spend-summary-get, and for usage over time call billing-usage-timeseries-get. Needs an API key
-            or OAuth token with organization access, because a key limited to specific projects gets a 403. Beta: behind
-            the organization-billing-api flag, and the output shape may change while it is.
+            or OAuth token with organization access. With a key limited to specific projects, call
+            billing-project-usage-summary-get instead. Beta: behind the organization-billing-api flag, and the output
+            shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/usage
     billing-usage-timeseries-get:
@@ -418,9 +566,9 @@ tools:
             usage and spend reads. That member grant covers the series only, not the totals on
             billing-usage-summary-get. Use it to investigate a usage spike, compare periods, or attribute usage to
             projects. For usage so far this period call billing-usage-summary-get, and for dollar amounts call
-            billing-spend-timeseries-get. Needs an API key or OAuth token with organization access, because a key
-            limited to specific projects gets a 403. Beta: behind the organization-billing-api flag, and the output
-            shape may change while it is.
+            billing-spend-timeseries-get. Needs an API key or OAuth token with organization access. With a key limited
+            to specific projects, call billing-project-usage-timeseries-get instead. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         param_overrides:
             team_ids:
                 description: >
@@ -440,7 +588,7 @@ tools:
                     not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like
                     "type,team" will fail with a 400 error.
             interval:
-                description: Time bucket size, one of "day" or "week". Default "day".
+                description: Time bucket size, one of "day", "week" or "month". Default "day".
             top_projects:
                 description: >
                     Maximum number of projects to return, ranked by total, when breakdowns includes "team". The projects

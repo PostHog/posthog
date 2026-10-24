@@ -2,6 +2,9 @@
 
 Every read is the organization read pinned to the project's teams. A project's numbers match what
 the organization routes report for it, and billing serves no new query.
+
+Features, the products summary and usage status belong to the organization and are the same for
+every project in it. The project routes return them as the organization routes do.
 """
 
 from __future__ import annotations
@@ -27,8 +30,11 @@ from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustaine
 from ee.api.billing import BillingExportThrottle, BillingQueryTimeout, BillingUsageRequestSerializer
 from ee.api.organization_billing import (
     BETA_NOTICE,
+    BillingFeaturesSerializer,
     BillingPeriodSerializer,
+    BillingProductsSummarySerializer,
     BillingReadViewSet,
+    BillingUsageStatusSerializer,
     PaginatedBillingTimeSeriesPointListSerializer,
     _billing_period,
 )
@@ -80,12 +86,15 @@ class ProjectUsageSummarySerializer(serializers.Serializer):
 
 
 PROJECT_BILLING_READ_ACTIONS = ["usage", "usage_timeseries", "spend_timeseries", "usage_export", "spend_export"]
+# The organization's own reads, the same for every project in it, and readable by any member.
+ORGANIZATION_READ_ACTIONS = ["features", "products_summary", "usage_status"]
 EXPORT_THROTTLES = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle]
 
 
 @extend_schema(extensions={"x-product": "billing"})
 class ProjectBillingViewSet(BillingReadViewSet):
-    """Read one project's usage and its share of the organization's spend.
+    """Read one project's usage and its share of the organization's spend, and its organization's
+    features, products and usage status.
 
     A credential reaches a project when it covers the project. An organization-wide session, personal
     key or OAuth token covers every project. A project-scoped key covers its projects, and a project
@@ -93,8 +102,8 @@ class ProjectBillingViewSet(BillingReadViewSet):
     """
 
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = PROJECT_BILLING_READ_ACTIONS
-    scope_object_read_actions = PROJECT_BILLING_READ_ACTIONS
+    psak_allowed_actions = PROJECT_BILLING_READ_ACTIONS + ORGANIZATION_READ_ACTIONS
+    scope_object_read_actions = PROJECT_BILLING_READ_ACTIONS + ORGANIZATION_READ_ACTIONS
     # The routing mixin adds the project membership check for project routes.
     permission_classes = [permissions.IsAuthenticated, PostHogFeatureFlagPermission]
 
@@ -199,6 +208,36 @@ class ProjectBillingViewSet(BillingReadViewSet):
         return self._export(
             request, "spend", ProjectTimeseriesRequestSerializer, pinned_team_ids=self._project_team_ids()
         )
+
+    @extend_schema(
+        operation_id="billing_project_features_retrieve",
+        summary="Get the features the project's organization has",
+        description=BETA_NOTICE,
+        responses={200: OpenApiResponse(response=BillingFeaturesSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="features")
+    def features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._features(request)
+
+    @extend_schema(
+        operation_id="billing_project_products_summary_retrieve",
+        summary="Get every product in summary for the project's organization",
+        description=BETA_NOTICE,
+        responses={200: OpenApiResponse(response=BillingProductsSummarySerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="products/summary")
+    def products_summary(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._products_summary(request)
+
+    @extend_schema(
+        operation_id="billing_project_usage_status_retrieve",
+        summary="Get the project's organization's usage against limits, without the counts",
+        description=BETA_NOTICE,
+        responses={200: OpenApiResponse(response=BillingUsageStatusSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="usage/status")
+    def usage_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._usage_status(request)
 
 
 def _usage_key(breakdown_value: Any) -> str:

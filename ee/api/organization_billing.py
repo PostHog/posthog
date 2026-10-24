@@ -801,6 +801,47 @@ class BillingReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
         return self._cursor_url(request, cursor)
 
+    def _features(self, request: Request) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        data = self._manager().get_organization_features(organization, grants)
+        return Response({"available_product_features": data.get("available_product_features", [])})
+
+    def _products_summary(self, request: Request) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        data = self._manager().get_organization_products_summary(organization, grants)
+        return Response({"results": data.get("products", [])})
+
+    def _usage_status(self, request: Request) -> Response:
+        """What any member may know about usage: per product and add-on, the limit in effect,
+        whether usage is over or approaching it, and whether the resource is being limited right
+        now. The counts themselves are on `usage` and need usage read access."""
+        organization = self.organization
+        grants = self._grants(request, organization)
+        data = self._manager().get_organization_usage_status(organization, grants)
+        organization_usage = organization.usage or {}
+
+        def with_quota_state(item: dict[str, Any]) -> dict[str, Any]:
+            own = organization_usage.get(item.get("usage_key") or "")
+            own = own if isinstance(own, dict) else {}
+            return {
+                **item,
+                "quota_limited_until": _iso(own.get("quota_limited_until")),
+                "quota_limiting_suspended_until": _iso(own.get("quota_limiting_suspended_until")),
+            }
+
+        return Response(
+            {
+                "billing_period": _billing_period(data.get("billing_period")),
+                "usage_reported_through": data.get("usage_reported_through"),
+                "products": [
+                    {**with_quota_state(product), "addons": [with_quota_state(a) for a in product.get("addons", [])]}
+                    for product in data.get("products", [])
+                ],
+            }
+        )
+
 
 @extend_schema(extensions={"x-product": "billing"})
 class OrganizationBillingViewSet(BillingReadViewSet):
@@ -892,10 +933,7 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="features")
     def features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        organization = self.organization
-        grants = self._grants(request, organization)
-        data = self._manager().get_organization_features(organization, grants)
-        return Response({"available_product_features": data.get("available_product_features", [])})
+        return self._features(request)
 
     @extend_schema(
         operation_id="billing_products_summary_retrieve",
@@ -905,10 +943,7 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="products/summary")
     def summary(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        organization = self.organization
-        grants = self._grants(request, organization)
-        data = self._manager().get_organization_products_summary(organization, grants)
-        return Response({"results": data.get("products", [])})
+        return self._products_summary(request)
 
     @extend_schema(
         operation_id="billing_products_list",
@@ -1185,30 +1220,4 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="usage/status")
     def usage_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """What any member may know about usage: per product and add-on, the limit in effect,
-        whether usage is over or approaching it, and whether the resource is being limited right
-        now. The counts themselves are on `usage` and need usage read access."""
-        organization = self.organization
-        grants = self._grants(request, organization)
-        data = self._manager().get_organization_usage_status(organization, grants)
-        organization_usage = organization.usage or {}
-
-        def with_quota_state(item: dict[str, Any]) -> dict[str, Any]:
-            own = organization_usage.get(item.get("usage_key") or "")
-            own = own if isinstance(own, dict) else {}
-            return {
-                **item,
-                "quota_limited_until": _iso(own.get("quota_limited_until")),
-                "quota_limiting_suspended_until": _iso(own.get("quota_limiting_suspended_until")),
-            }
-
-        return Response(
-            {
-                "billing_period": _billing_period(data.get("billing_period")),
-                "usage_reported_through": data.get("usage_reported_through"),
-                "products": [
-                    {**with_quota_state(product), "addons": [with_quota_state(a) for a in product.get("addons", [])]}
-                    for product in data.get("products", [])
-                ],
-            }
-        )
+        return self._usage_status(request)

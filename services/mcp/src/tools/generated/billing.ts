@@ -145,6 +145,156 @@ const billingProductsSummaryGet = (): ToolBase<
     },
 })
 
+const BillingProjectFeaturesGetSchema = () => z.object({})
+
+const billingProjectFeaturesGet = (): ToolBase<
+    ReturnType<typeof BillingProjectFeaturesGetSchema>,
+    Schemas.BillingFeatures
+> => ({
+    name: 'billing-project-features-get',
+    schema: BillingProjectFeaturesGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectFeaturesGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BillingFeatures>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/features/`,
+        })
+        return result
+    },
+})
+
+const BillingProjectProductsSummaryGetSchema = () => z.object({})
+
+const billingProjectProductsSummaryGet = (): ToolBase<
+    ReturnType<typeof BillingProjectProductsSummaryGetSchema>,
+    Schemas.BillingProductsSummary
+> => ({
+    name: 'billing-project-products-summary-get',
+    schema: BillingProjectProductsSummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectProductsSummaryGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BillingProductsSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/products/summary/`,
+        })
+        return result
+    },
+})
+
+const BillingProjectSpendTimeseriesGetSchema = () => {
+    const BillingProjectSpendTimeseriesRetrieveQueryParams =
+        orvalSchemas.BillingProjectSpendTimeseriesRetrieveQueryParams()
+    return BillingProjectSpendTimeseriesRetrieveQueryParams.extend({
+        usage_types: BillingProjectSpendTimeseriesRetrieveQueryParams.shape['usage_types'].describe(
+            'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
+        ),
+        breakdowns: BillingProjectSpendTimeseriesRetrieveQueryParams.shape['breakdowns'].describe(
+            'JSON-encoded array, NOT a comma-separated string. Pass `["type"]` for a series per product, or omit it for one series across the project. Any other value fails with a 400 error.'
+        ),
+        interval: BillingProjectSpendTimeseriesRetrieveQueryParams.shape['interval'].describe(
+            'Time bucket size, one of "day", "week" or "month". Default "day".'
+        ),
+    })
+}
+
+const billingProjectSpendTimeseriesGet = (): ToolBase<
+    ReturnType<typeof BillingProjectSpendTimeseriesGetSchema>,
+    Schemas.PaginatedBillingTimeSeriesPointList
+> => ({
+    name: 'billing-project-spend-timeseries-get',
+    schema: BillingProjectSpendTimeseriesGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingProjectSpendTimeseriesGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedBillingTimeSeriesPointList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/spend/timeseries/`,
+            query: {
+                breakdowns: params.breakdowns,
+                end_date: params.end_date,
+                interval: params.interval,
+                start_date: params.start_date,
+                usage_types: params.usage_types,
+            },
+        })
+        return result
+    },
+})
+
+const BillingProjectUsageStatusGetSchema = () => z.object({})
+
+const billingProjectUsageStatusGet = (): ToolBase<
+    ReturnType<typeof BillingProjectUsageStatusGetSchema>,
+    Schemas.BillingUsageStatus
+> => ({
+    name: 'billing-project-usage-status-get',
+    schema: BillingProjectUsageStatusGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectUsageStatusGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BillingUsageStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/usage/status/`,
+        })
+        return result
+    },
+})
+
+const BillingProjectUsageSummaryGetSchema = () => z.object({})
+
+const billingProjectUsageSummaryGet = (): ToolBase<
+    ReturnType<typeof BillingProjectUsageSummaryGetSchema>,
+    Schemas.ProjectUsageSummary
+> => ({
+    name: 'billing-project-usage-summary-get',
+    schema: BillingProjectUsageSummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProjectUsageSummaryGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProjectUsageSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/usage/`,
+        })
+        return result
+    },
+})
+
+const BillingProjectUsageTimeseriesGetSchema = () => {
+    const BillingProjectUsageTimeseriesRetrieveQueryParams =
+        orvalSchemas.BillingProjectUsageTimeseriesRetrieveQueryParams()
+    return BillingProjectUsageTimeseriesRetrieveQueryParams.extend({
+        usage_types: BillingProjectUsageTimeseriesRetrieveQueryParams.shape['usage_types'].describe(
+            'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
+        ),
+        breakdowns: BillingProjectUsageTimeseriesRetrieveQueryParams.shape['breakdowns'].describe(
+            'JSON-encoded array, NOT a comma-separated string. Pass `["type"]` for a series per usage type, or omit it for one series across the project. Any other value fails with a 400 error.'
+        ),
+        interval: BillingProjectUsageTimeseriesRetrieveQueryParams.shape['interval'].describe(
+            'Time bucket size, one of "day", "week" or "month". Default "day".'
+        ),
+    })
+}
+
+const billingProjectUsageTimeseriesGet = (): ToolBase<
+    ReturnType<typeof BillingProjectUsageTimeseriesGetSchema>,
+    Schemas.PaginatedBillingTimeSeriesPointList
+> => ({
+    name: 'billing-project-usage-timeseries-get',
+    schema: BillingProjectUsageTimeseriesGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingProjectUsageTimeseriesGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedBillingTimeSeriesPointList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/billing/usage/timeseries/`,
+            query: {
+                breakdowns: params.breakdowns,
+                end_date: params.end_date,
+                interval: params.interval,
+                start_date: params.start_date,
+                usage_types: params.usage_types,
+            },
+        })
+        return result
+    },
+})
+
 const BillingProjectsListSchema = () => z.object({})
 
 const billingProjectsList = (): ToolBase<
@@ -400,7 +550,7 @@ const BillingUsageTimeseriesGetSchema = () => {
             'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
         ),
         interval: BillingUsageTimeseriesRetrieveQueryParams.shape['interval'].describe(
-            'Time bucket size, one of "day" or "week". Default "day".'
+            'Time bucket size, one of "day", "week" or "month". Default "day".'
         ),
         top_projects: BillingUsageTimeseriesRetrieveQueryParams.shape['top_projects'].describe(
             'Maximum number of projects to return, ranked by total, when breakdowns includes "team". The projects beyond it are folded into one "All other projects (N)" series rather than dropped, so totals still reconcile. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest projects.'
@@ -452,6 +602,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-overview-get': billingOverviewGet,
     'billing-product-get': billingProductGet,
     'billing-products-summary-get': billingProductsSummaryGet,
+    'billing-project-features-get': billingProjectFeaturesGet,
+    'billing-project-products-summary-get': billingProjectProductsSummaryGet,
+    'billing-project-spend-timeseries-get': billingProjectSpendTimeseriesGet,
+    'billing-project-usage-status-get': billingProjectUsageStatusGet,
+    'billing-project-usage-summary-get': billingProjectUsageSummaryGet,
+    'billing-project-usage-timeseries-get': billingProjectUsageTimeseriesGet,
     'billing-projects-list': billingProjectsList,
     'billing-spend-get': billingSpendGet,
     'billing-spend-summary-get': billingSpendSummaryGet,

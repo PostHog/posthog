@@ -852,19 +852,29 @@ describe('Tool Filtering - Scoped Teams', () => {
     // `organization_member:*`, etc.) scope can't be exercised with a
     // project-scoped key — the backend 403s them. Hide from `tools/list` for
     // sessions whose token carries `scoped_teams`, surface them otherwise.
-    it('hides tools requiring an org-scoped scope when scopedTeams is non-empty', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [42] })
+    it('hides tools the backend refuses for a project-scoped token when scopedTeams is non-empty', () => {
+        const tools = getToolsForFeatures({
+            scopedTeams: [42],
+            featureFlags: { 'organization-billing-api': true, 'cross-project-dashboards': true },
+        })
         expect(tools).not.toContain('roles-list') // organization:read
         expect(tools).not.toContain('org-members-list') // organization_member:read
         expect(tools).not.toContain('organizations-list') // organization:read
         expect(tools).not.toContain('organization-get') // organization:read
         expect(tools).not.toContain('projects-get') // organization:read
+        expect(tools).not.toContain('billing-usage-timeseries-get') // organization route, billing:read
+        expect(tools).not.toContain('cross-project-dashboards-list') // organization route, cross_project_dashboard:read
     })
 
     it('keeps project-scoped tools visible when scopedTeams is non-empty', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [42], featureFlags: { 'context-layer': true } })
+        const tools = getToolsForFeatures({
+            scopedTeams: [42],
+            featureFlags: { 'context-layer': true, 'organization-billing-api': true },
+        })
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('feature-flag-get-all')
+        expect(tools).toContain('billing-project-usage-timeseries-get')
+        expect(tools).toContain('project-get') // under the organization, but the URL names the project
         expect(tools).not.toContain('context-wiki-channel-resolve')
         expect(tools).not.toContain('context-wiki-page-retrieve')
         expect(tools).not.toContain('context-wiki-page-update')
@@ -874,10 +884,14 @@ describe('Tool Filtering - Scoped Teams', () => {
     })
 
     it('keeps org-scope tools visible when scopedTeams is empty (unscoped token)', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [], featureFlags: { 'context-layer': true } })
+        const tools = getToolsForFeatures({
+            scopedTeams: [],
+            featureFlags: { 'context-layer': true, 'organization-billing-api': true },
+        })
         expect(tools).toContain('roles-list')
         expect(tools).toContain('organization-get')
         expect(tools).toContain('context-wiki-page-update')
+        expect(tools).toContain('billing-usage-timeseries-get')
     })
 
     it('keeps org-scope tools visible when scopedTeams is undefined', () => {
@@ -1024,13 +1038,19 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
-    it('organization-billing-api flag gates the tools that call the organization billing API', () => {
+    it('organization-billing-api flag gates the tools that call the organization and project billing routes', () => {
         const gated = [
             'billing-subscription-get',
             'billing-usage-status-get',
             'billing-usage-timeseries-get',
             'billing-spend-timeseries-get',
             'billing-projects-list',
+            'billing-project-usage-summary-get',
+            'billing-project-usage-timeseries-get',
+            'billing-project-spend-timeseries-get',
+            'billing-project-features-get',
+            'billing-project-products-summary-get',
+            'billing-project-usage-status-get',
         ]
         const off = getToolsForFeatures({ featureFlags: { 'organization-billing-api': false } })
         for (const tool of gated) {
