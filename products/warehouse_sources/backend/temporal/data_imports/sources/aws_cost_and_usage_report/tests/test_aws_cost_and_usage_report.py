@@ -327,6 +327,9 @@ class TestSync:
 
         assert str(result.raised).startswith("AWS Cost and Usage Report request failed: UnsupportedCompression")
         assert table_rows(result.items) == []
+        assert any(
+            str(result.raised).startswith(prefix) for prefix in AwsCostAndUsageReportSource().get_non_retryable_errors()
+        )
 
     def test_a_run_mixing_parquet_and_csv_periods_yields_arrow_tables_only(self) -> None:
         march = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.csv.gz"
