@@ -54,7 +54,7 @@ export class CdpUsageReporterService {
         await this.send(() => this.batch.drain())
     }
 
-    private async send(sendBatch: () => Promise<void>): Promise<void> {
+    private async send(sendBatch: () => Promise<unknown>): Promise<void> {
         if (this.timer) {
             clearTimeout(this.timer)
             this.timer = null

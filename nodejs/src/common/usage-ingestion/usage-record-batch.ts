@@ -88,13 +88,15 @@ export class UsageRecordBatch {
      * awaits belongs to the next flush, so a caller that keeps adding stays bounded: one
      * pass, one send. A caller that is finished adding wants {@link drain} instead, because
      * nothing would flush that record afterwards.
+     *
+     * Returns the records that reached the service, as {@link UsageIngestionClient.ingest} does.
      */
-    async flush(): Promise<void> {
+    async flush(): Promise<UsageRecordInput[]> {
         const pending = this.pendingAcknowledgements
         this.pendingAcknowledgements = []
         await Promise.all(pending)
         if (!this.client || this.records.size === 0) {
-            return
+            return []
         }
         // Aggregate producers have no per-record capture time, so retain their flush-time clock.
         const flushedAtMs = Date.now()
@@ -107,7 +109,7 @@ export class UsageRecordBatch {
             timestampMs: record.timestampMs ?? flushedAtMs,
         }))
         this.records.clear()
-        await this.client.ingest(records)
+        return this.client.ingest(records)
     }
 
     /**

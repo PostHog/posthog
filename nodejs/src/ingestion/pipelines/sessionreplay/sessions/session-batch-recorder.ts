@@ -32,6 +32,7 @@ interface SessionBatchEntry {
     featureRecorder: SessionFeatureRecorder
     sessionKey: SessionKey
     retentionPeriod: RetentionPeriod
+    captureTimestampMs?: number
 }
 
 // A flush holds the batch lock, so nothing else here wants the pool while it runs.
@@ -120,7 +121,8 @@ export class SessionBatchRecorder {
     public async record(
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod,
-        sessionKey: SessionKey
+        sessionKey: SessionKey,
+        captureTimestampMs?: number
     ): Promise<number> {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
@@ -181,6 +183,7 @@ export class SessionBatchRecorder {
                 }
                 return 0
             }
+            existingBatchState.captureTimestampMs ??= captureTimestampMs
         } else {
             this.sessions.set(teamId, sessionId, {
                 sessionBlockRecorder: new SessionBlockRecorder(sessionId, teamId, this.batchId, this.compression),
@@ -198,6 +201,7 @@ export class SessionBatchRecorder {
                 ),
                 sessionKey,
                 retentionPeriod,
+                captureTimestampMs,
             })
         }
 
@@ -246,9 +250,14 @@ export class SessionBatchRecorder {
     /**
      * Flushes the session recordings to storage and commits Kafka offsets
      *
+     * @param beforeCommit - Runs with the stored sessions after the flush stores the batch and before
+     *   its offsets commit. A crash between the two replays the batch, so this work must be safe to
+     *   repeat. A throw fails the flush, so the callback handles its own errors.
      * @throws If the flush operation fails
      */
-    public async flush(): Promise<SessionBlockMetadata[]> {
+    public async flush(
+        beforeCommit?: (sessions: SessionBlockMetadata[]) => Promise<void>
+    ): Promise<SessionBlockMetadata[]> {
         logger.info('🔁', 'session_batch_recorder_flushing', {
             sessions: this.sessions.size,
             totalSize: this._size,
@@ -280,7 +289,14 @@ export class SessionBatchRecorder {
 
             for (const [
                 index,
-                { sessionBlockRecorder, consoleLogRecorder, featureRecorder, sessionKey, retentionPeriod },
+                {
+                    sessionBlockRecorder,
+                    consoleLogRecorder,
+                    featureRecorder,
+                    sessionKey,
+                    retentionPeriod,
+                    captureTimestampMs,
+                },
             ] of entries.entries()) {
                 const {
                     buffer,
@@ -360,6 +376,7 @@ export class SessionBatchRecorder {
                     retentionPeriodDays,
                     isDeleted: false,
                     ...(earliestCapturedAtMs === undefined ? {} : { earliestCapturedAtMs }),
+                    captureTimestampMs,
                 })
 
                 totalEvents += eventCount
@@ -371,6 +388,7 @@ export class SessionBatchRecorder {
             await this.consoleLogStore.flush()
             await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
+            await beforeCommit?.(blockMetadata)
             await this.offsetManager.commit()
 
             // Update metrics

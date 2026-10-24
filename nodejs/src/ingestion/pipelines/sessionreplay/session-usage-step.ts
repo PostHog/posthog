@@ -1,17 +1,13 @@
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
+import {
+    SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS,
+    SESSION_TRACKER_REDIS_TTL_SECONDS,
+} from '~/ingestion/pipelines/sessionreplay/constants'
+import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
+import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 
-import { ParsedMessageData } from './kafka/types'
-import { SessionRecordingIngesterMetrics } from './metrics'
-import { NewSessionFlag, Recordable, SessionReplayHeaders } from './pipeline-types'
-import { TeamForReplay } from './teams/types'
-
-type SessionUsageInput = {
-    team: TeamForReplay
-    headers: SessionReplayHeaders
-    parsedMessage: ParsedMessageData
-} & NewSessionFlag
+const MOBILE_METER = 'mobile_replay_recordings'
 
 /**
  * The meter this session bills under. Every session bills exactly one, so no `snapshot_source`
@@ -23,49 +19,62 @@ type SessionUsageInput = {
  * libraries, so it bills neither meter for a session outside those values. Those are holes on its
  * side rather than a contract to copy.
  *
- * The meter reads the first message processed for the session. The report instead reads the
- * earliest snapshot's metadata, so the two disagree if one session's messages disagree with each
- * other about their source, which no single client does.
+ * The meter reads the snapshot source stored with the replay metadata.
  */
 function billableMeter(snapshotSource: string | null): string {
-    return snapshotSource === 'mobile' ? 'mobile_replay_recordings' : 'session_replay_recordings'
+    return snapshotSource === 'mobile' ? MOBILE_METER : 'session_replay_recordings'
 }
 
-export function createRecordSessionUsageStep<T extends SessionUsageInput>(
-    usageBatch?: UsageRecordBatch
-): ProcessingStep<Recordable<T>, Recordable<T>> {
-    return function recordSessionUsage(value): Promise<PipelineResult<Recordable<T>>> {
-        if (value.isNewSession) {
-            const meter = billableMeter(value.parsedMessage.snapshot_source)
-            const captureTimestampMs = value.headers.now?.getTime()
-            usageBatch?.add(
-                value.team.teamId,
-                meter,
-                value.headers.session_id,
-                1,
-                undefined,
-                Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
-            )
-        }
-        return Promise.resolve(ok(value))
+export function recordPersistedSessionUsage(usageBatch: UsageRecordBatch, sessions: SessionBlockMetadata[]): void {
+    for (const session of sessions) {
+        usageBatch.add(
+            session.teamId,
+            billableMeter(session.snapshotSource),
+            session.sessionId,
+            1,
+            undefined,
+            session.captureTimestampMs
+        )
     }
 }
 
 /**
- * Counts the new sessions that lose their flag before they can bill. The pipeline marks a session
- * seen before this step's message is parsed, so a first message that fails takes the flag with it:
- * a later valid message for the same session bills nothing, while the report still counts the
- * recording it produced. Marking later is not free — the mark sits after key resolution so a
- * recording is never written in cleartext — so measure how often this happens before paying for it.
+ * Bills each saved session once. A session sends data in many batches, and every flush that saves it
+ * reaches here, so the session tracker records which sessions already billed. A session bills on the
+ * first flush that saves it and finds it unbilled. The bill counts only once the record reaches the
+ * usage service, so a failed send bills on the session's next saved batch.
  */
-export function trackUnbilledNewSessions<T extends NewSessionFlag, U>(
-    step: ProcessingStep<T, U>
-): ProcessingStep<T, U> {
-    return async function trackUnbilledNewSession(value): Promise<PipelineResult<U>> {
-        const result = await step(value)
-        if (value.isNewSession && !isOkResult(result)) {
-            SessionRecordingIngesterMetrics.incrementUnbilledNewSession(result.reason)
+export async function billPersistedSessions(
+    usageBatch: UsageRecordBatch,
+    sessionTracker: SessionTracker,
+    sessions: SessionBlockMetadata[]
+): Promise<void> {
+    const billable = new SessionSet()
+    for (const session of sessions) {
+        if (usageBatch.accepts(session.teamId)) {
+            billable.add(session.teamId, session.sessionId)
         }
-        return result
     }
+    if (billable.size === 0) {
+        return
+    }
+
+    const unbilled = await sessionTracker.findUnbilled(billable)
+    recordPersistedSessionUsage(
+        usageBatch,
+        sessions.filter((session) => unbilled.has(session.teamId, session.sessionId))
+    )
+    const received = await usageBatch.flush()
+    await sessionTracker.markBilled(
+        received
+            .filter((record) => unbilled.has(record.teamId, record.recordId))
+            .map((record) => ({
+                teamId: record.teamId,
+                sessionId: record.recordId,
+                ttlSeconds:
+                    record.usageKey === MOBILE_METER
+                        ? SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS
+                        : SESSION_TRACKER_REDIS_TTL_SECONDS,
+            }))
+    )
 }
