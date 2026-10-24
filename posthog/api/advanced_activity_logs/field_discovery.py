@@ -9,6 +9,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, Change
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
 from .constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
@@ -28,7 +29,12 @@ class AdvancedActivityLogFieldDiscovery:
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
         cached = get_cached_fields(str(self.organization_id))
-        record_count = self._get_org_record_count()
+        cached_record_count = cached.pop("record_count", None) if cached is not None else None
+        # A small-org entry expires after 12 hours, so its count is fresh enough to skip the org-wide count.
+        if cached_record_count is not None and cached_record_count <= SMALL_ORG_THRESHOLD:
+            record_count = cached_record_count
+        else:
+            record_count = self._get_org_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
             if cached is not None:
@@ -56,46 +62,41 @@ class AdvancedActivityLogFieldDiscovery:
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
+        # One scan of the activity rows serves all four option lists.
+        rows = queryset.order_by().values_list("user_id", "scope", "activity", "client").distinct()
+        user_ids: set[int] = set()
+        scopes: set[str] = set()
+        activities: set[str] = set()
+        clients: set[str] = set()
+        for user_id, scope, activity, client in rows:
+            if user_id:
+                user_ids.add(user_id)
+            if scope:
+                scopes.add(scope)
+            if activity:
+                activities.add(activity)
+            if client:
+                clients.add(client)
+
         return {
-            "users": self._get_available_users(queryset),
-            "scopes": self._get_available_scopes(queryset),
-            "activities": self._get_available_activities(queryset),
-            "clients": self._get_available_clients(queryset),
+            "users": self._get_available_users(user_ids),
+            "scopes": [{"value": scope} for scope in sorted(scopes)],
+            "activities": [{"value": activity} for activity in sorted(activities)],
+            "clients": [{"value": client} for client in sorted(clients)],
         }
 
-    def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        users_query = (
-            queryset.order_by().values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
-        )
-        seen_users = set()
-        unique_users = []
+    def _get_available_users(self, user_ids: set[int]) -> list[dict[str, str]]:
+        if not user_ids:
+            return []
 
-        for user in users_query:
-            if user["user__uuid"] and user["user__uuid"] not in seen_users:
-                seen_users.add(user["user__uuid"])
-                unique_users.append(
-                    {
-                        "value": str(user["user__uuid"]),
-                        "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
-                    }
-                )
-
-        return unique_users
-
-    def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
-        scopes_query = queryset.order_by().values_list("scope", flat=True).distinct()
-        scopes = set(scopes_query)
-        return [{"value": scope} for scope in sorted(scopes) if scope]
-
-    def _get_available_activities(self, queryset: QuerySet) -> list[dict[str, str]]:
-        activities_query = queryset.order_by().values_list("activity", flat=True).distinct()
-        activities = set(activities_query)
-        return [{"value": activity} for activity in sorted(activities) if activity]
-
-    def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients_query = queryset.order_by().values_list("client", flat=True).distinct()
-        clients = set(clients_query)
-        return [{"value": client} for client in sorted(c for c in clients if c)]
+        users = User.objects.filter(id__in=user_ids).order_by("id").values("uuid", "first_name", "last_name", "email")
+        return [
+            {
+                "value": str(user["uuid"]),
+                "label": f"{user['first_name']} {user['last_name']}".strip() or user["email"],
+            }
+            for user in users
+        ]
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)
