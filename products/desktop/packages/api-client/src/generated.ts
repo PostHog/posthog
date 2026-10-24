@@ -12374,6 +12374,8 @@ export namespace Schemas {
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
      * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13782,7 +13784,9 @@ export namespace Schemas {
         | "ConectoCRM"
         | "CloudflareR2"
         | "Particle"
-        | "FileUpload";
+        | "FileUpload"
+        | "Dripify"
+        | "AwsS3Tables";
     /**
      * * `web` - web
      * * `api` - api
@@ -15200,6 +15204,8 @@ export namespace Schemas {
          * * `CloudflareR2` - CloudflareR2
          * * `Particle` - Particle
          * * `FileUpload` - FileUpload
+         * * `Dripify` - Dripify
+         * * `AwsS3Tables` - AwsS3Tables
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
