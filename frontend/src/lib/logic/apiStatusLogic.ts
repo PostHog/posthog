@@ -23,8 +23,10 @@ export interface apiStatusLogicActions {
     onApiResponse: (
         response?: Response,
         error?: any,
-        startedByUserAction?: boolean
+        startedByUserAction?: boolean,
+        background?: boolean
     ) => {
+        background: boolean
         error: any
         response: Response | undefined
         startedByUserAction: boolean
@@ -87,10 +89,11 @@ function joinSensitiveActionCallbacks(
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
-        onApiResponse: (response?: Response, error?: any, startedByUserAction?: boolean) => ({
+        onApiResponse: (response?: Response, error?: any, startedByUserAction?: boolean, background?: boolean) => ({
             response,
             error,
             startedByUserAction: !!startedByUserAction,
+            background: !!background,
         }),
         resolveSensitiveAction: (outcome: 'success' | 'failure') => ({ outcome }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
@@ -157,11 +160,12 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 posthog.captureException(e)
             }
         },
-        onApiResponse: async ({ response, error, startedByUserAction }, breakpoint) => {
+        onApiResponse: async ({ response, error, startedByUserAction, background }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
-                if (error?.message === 'Failed to fetch') {
+                // A background poll that drops is not proof the app is offline, and the user did not ask for it.
+                if (error?.message === 'Failed to fetch' && !background) {
                     actions.setInternetConnectionIssue(true)
                 }
             }

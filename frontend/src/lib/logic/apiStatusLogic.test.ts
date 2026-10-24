@@ -30,6 +30,35 @@ const MOCK_IMPERSONATED_USER: UserType = {
 describe('apiStatusLogic', () => {
     let logic: ReturnType<typeof apiStatusLogic.build>
 
+    describe('connection banner', () => {
+        beforeEach(() => {
+            // Common logics send their own requests, and each response cancels a pending banner check.
+            initKeaTests(false)
+            logic = apiStatusLogic()
+            logic.mount()
+        })
+
+        it.each([
+            ['a user-facing request', false, true],
+            ['a background poll', true, false],
+        ])('shows the banner after %s fails without a response: %s', async (_, background, expected) => {
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(undefined, new TypeError('Failed to fetch'), false, background)
+            }).toFinishAllListeners()
+
+            expect(logic.values.internetConnectionIssue).toBe(expected)
+        })
+        it('clears the banner when a background poll succeeds', async () => {
+            logic.actions.setInternetConnectionIssue(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse({ status: 200, ok: true } as Response, undefined, false, true)
+            }).toFinishAllListeners()
+
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+    })
+
     describe('401 handling during impersonation', () => {
         it('skips auto-logout on 401 for impersonated users', async () => {
             useMocks({
