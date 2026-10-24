@@ -118,6 +118,23 @@ Each label takes light or dark text from the cell fill behind it, and is dropped
 `config.highlightedColumns` draws a band behind the named columns, for a column the consumer selected or is hovering.
 The consumer owns the column header, so it owns the click and hover that set those indices.
 
+## Histogram
+
+Distributions with real bin edges, mainly latency: `bins: { start, end, count }[]` on a numeric x axis.
+Each bar spans its bin's edges, so bins of different widths (log-spaced latency buckets) draw at their true widths, edge to edge.
+Use `BarChart` when the x values are categories.
+
+- `series: { key, label, data, color? }[]` stacks layers per bin (ok and error, or one per service), with `data` aligned to `bins` as passed. `bin.count` is ignored when `series` is set.
+- Bins may arrive in any order. Non-finite or empty bins are dropped, and a bin that overlaps the previous one starts at the previous bin's `end`. A gap between bins stays empty.
+- `config.xAxis` and `config.yAxis` take `scaleType` (`linear` or `log`), `label`, `hide`, and the y-axis format fields (`format: 'duration_ns'`, `prefix`, `tickFormatter`, …). The x formatter also writes the tooltip's bin range and the marker values.
+- A log x axis ticks in 1-2-5 decade steps: every decade first, then all the 5s, then all the 2s, never a partial step. A bin starting at or below zero is drawn one bin-ratio wide (the ratio of the first positive bin), and a bin ending at or below zero is not drawn but still counts toward totals.
+- `yAxis.scaleType: 'log'` keeps a long tail readable next to one tall bin. Without it, `config.minBarHeight` (default 1px) keeps a non-empty bin visible. Empty bins draw nothing and keep their space. Count ticks are whole numbers when every count is whole.
+- Bars wider than 3px get a 1px gutter. Narrower bars fill edge to edge. Edges snap to device pixels, and bins narrower than a device pixel merge into one column with their summed counts, so with 1,000+ bins no bin drops out of the drawing, the hover, or a selection.
+- `config.markers` draws labeled dashed lines with their values above the plot: `{ percentile: 95 }` estimates the value by linear interpolation inside the bin that crosses it (as Prometheus' `histogram_quantile` does), and `{ value, label }` sits at an exact value such as an SLO or an upstream percentile. Labels that would collide move to the other side of their line, then drop the value, then hide. `estimateHistogramPercentile` is exported for the same estimate outside the chart.
+- `onRangeSelect` enables drag to select. The live band snaps to whole bins as the pointer moves, and the callback fires `{ min, max }` with `min` at the first bin's `start` and `max` at the last bin's exclusive `end`. A drag that ends exactly on an edge excludes the bin beyond it. A drag under 8px wide selects nothing, so a wobbly click stays a click. Escape abandons a drag in progress.
+- `selectedRange` is controlled: it draws the selection band at its exact values and fades the bars outside it. `onRangeClear` fires on Escape while the pointer is over a bin.
+- Hover resolves the bin under the cursor, empty bins included. The default tooltip (`HistogramTooltip`) shows the bin range, its count and share of the total, one row per non-empty layer, and the share below the bin's `end`. A `tooltip` render prop receives `HistogramTooltipContext` with `bin`, `bins` (more than one when sub-pixel bins merged), `count`, `fraction`, and `cumulativeFraction`.
+
 ## SankeyChart
 
 Flow between stages: `nodes: { id, label?, color?, meta? }[]` and `links: { source, target, value, color?, meta? }[]`, where `source` and `target` are node ids.

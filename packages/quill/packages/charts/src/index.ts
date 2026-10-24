@@ -74,6 +74,23 @@ export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 
+// Histogram
+export { Histogram } from './charts/Histogram/Histogram'
+export type { HistogramProps } from './charts/Histogram/Histogram'
+export type {
+    HistogramAxisConfig,
+    HistogramBin,
+    HistogramConfig,
+    HistogramMarker,
+    HistogramRange,
+    HistogramSeries,
+    HistogramTooltipConfig,
+    HistogramTooltipContext,
+} from './charts/Histogram/types'
+export { HistogramTooltip } from './charts/Histogram/HistogramTooltip'
+export type { HistogramTooltipProps } from './charts/Histogram/HistogramTooltip'
+export { estimateHistogramPercentile } from './core/histogram-layout'
+
 // Heatmap
 export { Heatmap } from './charts/Heatmap/Heatmap'
 export type {
@@ -184,6 +201,7 @@ export type {
     ComboChartConfig,
     CreateScalesFn,
     DateRangeZoomData,
+    PixelRangeSelectData,
     DragRect,
     LineChartConfig,
     PointClickData,

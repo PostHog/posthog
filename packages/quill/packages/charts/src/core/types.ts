@@ -612,6 +612,15 @@ export interface AreaSelectData extends LabelRange {
     yPixel1: number
 }
 
+/** Payload of a completed x-only drag on a continuous axis ({@link ChartProps.onPixelRangeSelect}).
+ *  Both edges are canvas pixels clamped to the plot. */
+export interface PixelRangeSelectData {
+    /** Left edge of the dragged range (always <= xPixel1). */
+    xPixel0: number
+    /** Right edge of the dragged range. */
+    xPixel1: number
+}
+
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */
 export type DrawHoverResult = boolean
 

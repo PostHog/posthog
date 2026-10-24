@@ -103,6 +103,9 @@ export interface HogChart<Meta = unknown> {
     sankeyNodeLabels(): string[]
     /** Column headers rendered by a Sankey chart, left to right. */
     sankeyColumnLabels(): string[]
+    /** Histogram marker labels (`p50 34.5ms`) in left-to-right order. A label crowded out by its
+     *  neighbors is absent, though its line still draws. */
+    histogramMarkerLabels(): string[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -258,6 +261,10 @@ export function getHogChart<Meta = unknown>(
             ),
         sankeyColumnLabels: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
+                (el) => el.textContent ?? ''
+            ),
+        histogramMarkerLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-histogram-marker-label"]')).map(
                 (el) => el.textContent ?? ''
             ),
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
