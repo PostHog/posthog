@@ -84,6 +84,7 @@ CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.cap
 CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
 SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_scout_report_repository"
 REVISION_COUNT_PATH = "products.signals.backend.scout_harness.tools.report.get_content_revision_count"
+REFUSAL_COUNTER_PATH = "products.signals.backend.scout_report.judge.increment_scout_report_safety_refusal"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
@@ -97,8 +98,8 @@ def _refusing_judge():
 
 
 UNSAFE_JUDGES = [
-    ("unsafe_verdict", lambda: _safe_judge(choice=False, explanation="prompt injection"), "prompt injection"),
-    ("model_refusal", _refusing_judge, SAFETY_REFUSAL_EXPLANATION),
+    ("unsafe_verdict", lambda: _safe_judge(choice=False, explanation="prompt injection"), "prompt injection", False),
+    ("model_refusal", _refusing_judge, SAFETY_REFUSAL_EXPLANATION, True),
 ]
 
 
@@ -380,7 +381,7 @@ class TestScoutReportAPI(APIBaseTest):
         assert enqueue.call_args_list[3].kwargs["edit_note"] is None
 
     @parameterized.expand(UNSAFE_JUDGES)
-    def test_emit_report_unsafe_suppresses_but_returns_id(self, _name, judge, explanation) -> None:
+    def test_emit_report_unsafe_suppresses_but_returns_id(self, _name, judge, explanation, refused) -> None:
         run = _make_run(self.team)
         config = run.scout_config
         assert config is not None
@@ -390,6 +391,7 @@ class TestScoutReportAPI(APIBaseTest):
             judge(),
             patch(EMBED_PATH),
             patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+            patch(REFUSAL_COUNTER_PATH) as refusal_counter,
         ):
             response = self.client.post(
                 self._emit_url(str(run.id)),
@@ -402,6 +404,7 @@ class TestScoutReportAPI(APIBaseTest):
         assert body["report_status"] == SignalReport.Status.SUPPRESSED
         assert body["safety_explanation"] == explanation
         assert body["report_id"] is not None
+        assert [c.args for c in refusal_counter.call_args_list] == ([("emit",)] if refused else [])
         queue.assert_not_called()
         # The judge-rejected prompts must not persist: a suppressed report is still reachable from
         # the Dismissed view, where a click would hand that wording to an action-capable agent run.
@@ -1256,14 +1259,14 @@ class TestScoutReportAPI(APIBaseTest):
         judge_mock.assert_not_awaited()
 
     @parameterized.expand(UNSAFE_JUDGES)
-    def test_unsafe_edit_is_rejected_and_report_keeps_its_content(self, _name, judge, explanation) -> None:
+    def test_unsafe_edit_is_rejected_and_report_keeps_its_content(self, _name, judge, explanation, refused) -> None:
         # `emit_report` judges everything it authors; before the edit path got the same judge, an
         # unsafe summary or suggested prompt could land on a surfaced report by editing it in — and a
         # suggested prompt's wording is handed to an agent run told to act on it.
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        with judge():
+        with judge(), patch(REFUSAL_COUNTER_PATH) as refusal_counter:
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={
@@ -1275,6 +1278,7 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert f"edit rejected by the safety judge: {explanation}" in response.content.decode()
+        assert [c.args for c in refusal_counter.call_args_list] == ([("edit",)] if refused else [])
         report = SignalReport.objects.get(id=created["report_id"])
         assert report.summary == self._payload()["summary"]
         assert report.suggested_prompts == []
