@@ -44,6 +44,14 @@ from .enums import (
 MAX_CLAUSES_PER_QUERY = 10
 MAX_SPARKLINE_BATCH_SIZE = 20
 
+
+class MetricQueryTooManyRowsError(ValueError):
+    """The query has more (time bucket, series) rows than the row budget allows.
+
+    A caller can retry with a coarser interval, because fewer buckets give fewer rows.
+    """
+
+
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"

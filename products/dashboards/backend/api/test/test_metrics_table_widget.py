@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -18,6 +19,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.constants import METRICS_TABLE_SPARKLINE_POINTS
 from products.dashboards.backend.widget_registry import METRICS_TABLE_WIDGET_TYPE, validate_widget_config
+from products.metrics.backend.facade.contracts import MetricQueryTooManyRowsError
 from products.metrics.backend.facade.testing import seed_metric, truncate_metrics_tables
 
 QUEUE_COLUMN = {"label": "Queue depth", "metricName": "queue_depth", "aggregation": "avg"}
@@ -251,3 +253,57 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
         result = self._run({"groupBy": "route", "columns": columns, "dateRange": {"date_from": "-1h"}})
 
         assert [row["values"] for row in result["rows"]] == [[10.0, 4.0]]
+
+    @patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 60)
+    def test_too_many_label_values_retry_with_fewer_buckets(self) -> None:
+        for route in ("/r1", "/r2", "/r3", "/r4", "/r5"):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="busy_workers",
+                points=[(self.now - dt.timedelta(minutes=minute), 2.0) for minute in range(1, 60)],
+                labels={"route": route},
+            )
+        column = {"label": "Busy", "metricName": "busy_workers", "aggregation": "avg"}
+
+        result = self._run({"groupBy": "route", "columns": [column], "dateRange": {"date_from": "-1h"}})
+
+        assert result.get("queryError") is None
+        assert result["totalCount"] == 5
+        assert [row["values"][0] for row in result["rows"]] == [2.0] * 5
+
+    @parameterized.expand(
+        [
+            ("histogram", ValueError("histogram bounds differ across the selected series/time range")),
+            ("row budget", MetricQueryTooManyRowsError("query produced too many (time bucket, series) rows")),
+        ]
+    )
+    def test_metrics_query_errors_reach_the_tile_as_a_readable_message(self, _name: str, error: Exception) -> None:
+        with patch("products.dashboards.backend.widgets.metrics_table.run_metric_query", side_effect=error):
+            result = self._run({"groupBy": "route", "columns": [QUEUE_COLUMN]})
+
+        assert result["queryError"] == str(error)
+        assert result["rows"] == []
+
+    def test_increase_column_shows_the_same_total_after_the_retry(self) -> None:
+        for route in ("/c1", "/c2", "/c3", "/c4", "/c5"):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="jobs_done_total",
+                points=[(self.now - dt.timedelta(minutes=59 - minute), 60.0 * minute) for minute in range(60)],
+                labels={"route": route},
+                metric_type="sum",
+                is_monotonic=True,
+            )
+        config = {
+            "groupBy": "route",
+            "columns": [{"label": "Jobs", "metricName": "jobs_done_total", "aggregation": "increase"}],
+            "dateRange": {"date_from": "-1h"},
+        }
+
+        full_buckets = self._run(config)
+        with patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 60):
+            retried = self._run(config)
+
+        assert [row["values"][0] for row in retried["rows"]] == pytest.approx(
+            [row["values"][0] for row in full_buckets["rows"]], rel=0.25
+        )
