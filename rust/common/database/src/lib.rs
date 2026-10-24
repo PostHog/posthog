@@ -13,8 +13,13 @@ use sqlx::{
 };
 use thiserror::Error;
 
+pub mod operation_gate;
 pub mod writer_guard;
 
+pub use operation_gate::{
+    BreakerState, GatePermit, GateRejection, OperationGate, OperationGateConfig,
+    DB_GATE_BREAKER_STATE_GAUGE, DB_GATE_BREAKER_TRANSITIONS_COUNTER, DB_GATE_REJECTED_COUNTER,
+};
 pub use writer_guard::{
     install_writer_guard, WriterGuard, WriterGuardConfig, DB_WRITER_GUARD_CAPPED_COUNTER,
     DB_WRITER_PROBE_COUNTER,
@@ -27,6 +32,9 @@ pub enum CustomDatabaseError {
 
     #[error("Client timeout error")]
     Timeout(#[from] tokio::time::error::Elapsed),
+
+    #[error("Operation gate rejected the call: {0}")]
+    GateRejected(#[from] GateRejection),
 }
 
 pub type PostgresReader = Arc<dyn Client + Send + Sync>;
@@ -40,6 +48,40 @@ pub trait Client {
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError>;
 
     fn get_pool_stats(&self) -> Option<PoolStats>;
+
+    /// The gate that callers pass through before they take a connection. `get_connection` does
+    /// not apply it, because the gate must hold its slot for the whole operation, not only for
+    /// the acquire.
+    fn operation_gate(&self) -> Option<&OperationGate> {
+        None
+    }
+}
+
+/// A pool with an [`OperationGate`] attached.
+pub struct GatedClient {
+    pool: Arc<PgPool>,
+    gate: OperationGate,
+}
+
+impl GatedClient {
+    pub fn new(pool: Arc<PgPool>, gate: OperationGate) -> Self {
+        Self { pool, gate }
+    }
+}
+
+#[async_trait]
+impl Client for GatedClient {
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.pool.get_connection().await
+    }
+
+    fn get_pool_stats(&self) -> Option<PoolStats> {
+        self.pool.get_pool_stats()
+    }
+
+    fn operation_gate(&self) -> Option<&OperationGate> {
+        Some(&self.gate)
+    }
 }
 
 #[derive(Debug, Clone)]

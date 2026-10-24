@@ -133,6 +133,24 @@ The ping waits for the dropped query.
 If the query completes, the connection goes back to the pool.
 If `statement_timeout` cancels the query, the ping fails and sqlx closes the connection.
 If the database never answers, the connection stays checked out.
+
+### Persons DB operation gate
+
+`PERSONS_DB_GATE_ENABLED` (default `false`) puts an operation gate from `common-database` in front of the persons reader and writer pools.
+`get_connection_with_metrics` passes the gate before it takes a connection, and the connection holds the gate slot until it drops.
+A writer pool that aliases the reader pool shares the reader's gate.
+
+- A semaphore the size of the pool caps the persons calls in flight. A call waits at most `PERSONS_DB_GATE_MAX_WAIT_MS` (default 100ms) for a slot, then fails with `db_gate_saturated`.
+- A per-pod circuit breaker per pool counts availability failures: a slot wait past the cap, a failed acquire, and an acquire that the caller abandons, for example at the persons DB deadline. Query errors do not count.
+- The reader judges a 10s window with at least 50 calls (`PERSONS_READER_GATE_WINDOW_SECS`, `PERSONS_READER_GATE_MIN_CALLS`). The writer judges a 30s window with at least 20 calls (`PERSONS_WRITER_GATE_WINDOW_SECS`, `PERSONS_WRITER_GATE_MIN_CALLS`).
+- The breaker opens when failures reach `PERSONS_DB_GATE_FAILURE_RATE_PERCENT` (default 50) of the calls in the window.
+- While the breaker is open, persons calls fail with `db_gate_open` without touching the pool. Flags that need persons data return `failed`, and the other flags evaluate normally.
+- After the open period, `PERSONS_DB_GATE_HALF_OPEN_TRIALS` (default 3) real calls test the pool. If all succeed, the breaker closes. If one fails, the breaker opens again for double the period, from `PERSONS_DB_GATE_BASE_OPEN_MS` (default 1000ms) up to `PERSONS_DB_GATE_MAX_OPEN_MS` (default 30000ms), with 20% jitter.
+- The group type mapping cache fetch runs in its own task and does not pass the gate.
+
+The same switch makes a failed realtime cohort lookup fail the flags that target those cohorts with `realtime_cohort_lookup_failed`, instead of reading as non-membership.
+
+The gate emits `db_gate_rejected_total` (`pool`, `reason`), `db_gate_breaker_state` (`pool`; 0 closed, 1 half-open, 2 open), and `db_gate_breaker_transitions_total` (`pool`, `to`).
 Keep the persons statement timeouts below the deadline so that Postgres cancels ordinary slow queries before the deadline drops them.
 
 ### Total connection count
@@ -437,6 +455,7 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
 | `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |
 | `PERSONS_DB_DEADLINE_RESERVE_MS`            | 500      | Time left for the rest of the request after that deadline        |
+| `PERSONS_DB_GATE_ENABLED`                   | false    | Operation gate and circuit breaker on the persons pools          |
 
 ### Tuning guidance
 

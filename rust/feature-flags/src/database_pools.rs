@@ -1,7 +1,10 @@
 use crate::api::errors::FlagError;
 use crate::config::Config;
 use crate::database::pool_names;
-use common_database::{get_pool_with_config, PoolConfig};
+use common_database::{
+    get_pool_with_config, GatedClient, OperationGate, OperationGateConfig, PoolConfig,
+    PostgresReader, PostgresWriter,
+};
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +17,10 @@ pub struct DatabasePools {
     pub non_persons_writer: Arc<PgPool>,
     pub persons_reader: Arc<PgPool>,
     pub persons_writer: Arc<PgPool>,
+    /// What /flags evaluation uses to reach the persons pools. With PERSONS_DB_GATE_ENABLED,
+    /// each wraps its pool in an operation gate. Otherwise each is the plain pool.
+    pub persons_reader_client: PostgresReader,
+    pub persons_writer_client: PostgresWriter,
     pub behavioral_cohorts_reader: Option<Arc<PgPool>>,
     pub test_before_acquire: bool,
 }
@@ -92,6 +99,74 @@ impl DatabasePools {
         })
         .map(|(pool, statement_timeout_ms, _)| (pool, statement_timeout_ms))
         .collect()
+    }
+
+    fn persons_gate(
+        config: &Config,
+        pool_name: &str,
+        max_connections: u32,
+        window_secs: u64,
+        min_calls: u32,
+    ) -> OperationGate {
+        OperationGate::new(OperationGateConfig {
+            max_concurrent: max_connections as usize,
+            max_wait: Duration::from_millis(config.persons_db_gate_max_wait_ms),
+            window: Duration::from_secs(window_secs.max(1)),
+            min_calls,
+            failure_rate_threshold: f64::from(config.persons_db_gate_failure_rate_percent.min(100))
+                / 100.0,
+            base_open: Duration::from_millis(config.persons_db_gate_base_open_ms),
+            max_open: Duration::from_millis(
+                config
+                    .persons_db_gate_max_open_ms
+                    .max(config.persons_db_gate_base_open_ms),
+            ),
+            half_open_trials: config.persons_db_gate_half_open_trials,
+            pool_name: Arc::from(pool_name),
+            ..OperationGateConfig::default()
+        })
+    }
+
+    /// Wraps the persons pools in operation gates when PERSONS_DB_GATE_ENABLED is set. A writer
+    /// that aliases the reader shares the reader's gate, so one pool never has two slot limits.
+    pub fn persons_clients(
+        config: &Config,
+        persons_reader: &Arc<PgPool>,
+        persons_writer: &Arc<PgPool>,
+        max_connections: u32,
+    ) -> (PostgresReader, PostgresWriter) {
+        if !*config.persons_db_gate_enabled {
+            return (persons_reader.clone(), persons_writer.clone());
+        }
+        let reader: PostgresReader = Arc::new(GatedClient::new(
+            persons_reader.clone(),
+            Self::persons_gate(
+                config,
+                pool_names::PERSONS_READER,
+                max_connections,
+                config.persons_reader_gate_window_secs,
+                config.persons_reader_gate_min_calls,
+            ),
+        ));
+        let writer: PostgresWriter = if Arc::ptr_eq(persons_reader, persons_writer) {
+            reader.clone()
+        } else {
+            Arc::new(GatedClient::new(
+                persons_writer.clone(),
+                Self::persons_gate(
+                    config,
+                    pool_names::PERSONS_WRITER,
+                    max_connections,
+                    config.persons_writer_gate_window_secs,
+                    config.persons_writer_gate_min_calls,
+                ),
+            ))
+        };
+        info!(
+            max_wait_ms = config.persons_db_gate_max_wait_ms,
+            "Persons DB operation gates enabled"
+        );
+        (reader, writer)
     }
 
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
@@ -355,11 +430,16 @@ impl DatabasePools {
             None
         };
 
+        let (persons_reader_client, persons_writer_client) =
+            Self::persons_clients(config, &persons_reader, &persons_writer, max_pg_connections);
+
         Ok(DatabasePools {
             non_persons_reader,
             non_persons_writer,
             persons_reader,
             persons_writer,
+            persons_reader_client,
+            persons_writer_client,
             behavioral_cohorts_reader,
             test_before_acquire: *config.test_before_acquire,
         })

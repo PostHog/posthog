@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 pub mod common;
 use crate::common::persons_db_proxy::PersonsDbProxy;
 use crate::common::ServerHandle;
-use feature_flags::config::{Config, DEFAULT_TEST_CONFIG};
+use feature_flags::config::{Config, FlexBool, DEFAULT_TEST_CONFIG};
 use feature_flags::flags::flag_models::FeatureFlagRow;
 use feature_flags::team::team_models::Team;
 use feature_flags::utils::test_utils::TestContext;
@@ -252,6 +252,47 @@ async fn person_flags_fail_within_the_deadline_when_new_connections_open_too_slo
 
     assert_person_flags_fail_within(&server, &team, &[CONTINUITY_FLAG, PERSON_FLAG], deadline)
         .await?;
+
+    proxy.resume();
+    assert_recovers(&server, &team).await
+}
+
+#[tokio::test]
+#[ignore = "depends on timing; runs alone in ci-rust-flags-db-faults.yml"]
+async fn open_gate_fails_person_flags_without_waiting_and_closes_after_recovery() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let (team, _) = insert_team_with_flags(&context).await?;
+    let proxy = PersonsDbProxy::start().await?;
+    proxy.stall_new_connections();
+    let deadline = Duration::from_millis(2500);
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.persons_read_database_url = proxy.url();
+    config.persons_db_deadline_ms = deadline.as_millis() as u64;
+    config.acquire_timeout_secs = 1;
+    config.persons_db_gate_enabled = FlexBool(true);
+    // The first failed persons reader call opens the breaker.
+    config.persons_reader_gate_min_calls = 1;
+    config.persons_db_gate_base_open_ms = 500;
+    config.persons_db_gate_max_open_ms = 1000;
+    config.persons_db_gate_half_open_trials = 1;
+    let server = start_server(config, &team).await;
+
+    assert_person_flags_fail_within(&server, &team, &[CONTINUITY_FLAG, PERSON_FLAG], deadline)
+        .await?;
+
+    // The open breaker rejects persons calls before they wait for the pool's acquire timeout.
+    let body = assert_person_flags_fail_within(
+        &server,
+        &team,
+        &[CONTINUITY_FLAG, PERSON_FLAG],
+        Duration::ZERO,
+    )
+    .await?;
+    assert_eq!(
+        body["flags"][PERSON_FLAG]["reason"]["code"],
+        json!("db_gate_open"),
+        "{body}"
+    );
 
     proxy.resume();
     assert_recovers(&server, &team).await

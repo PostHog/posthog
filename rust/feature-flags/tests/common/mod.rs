@@ -318,12 +318,22 @@ impl ServerHandle {
                 redis_reader_client.clone(),
             ));
 
+            let (persons_reader_client, persons_writer_client) =
+                feature_flags::database_pools::DatabasePools::persons_clients(
+                    &config,
+                    &persons_reader,
+                    &persons_writer,
+                    config.max_pg_connections,
+                );
+
             // Create DatabasePools for tests
             let database_pools = Arc::new(feature_flags::database_pools::DatabasePools {
                 non_persons_reader: non_persons_reader.clone(),
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                persons_reader_client,
+                persons_writer_client,
                 behavioral_cohorts_reader: None,
                 test_before_acquire: *config.test_before_acquire,
             });
