@@ -1,5 +1,7 @@
 import './ErrorTrackingPreview.scss'
 
+import { useId } from 'react'
+
 import { Spinner } from '@posthog/lemon-ui'
 
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
@@ -23,22 +25,26 @@ function areaPath(line: string): string {
  * up, the stack trace fills in, and the exceptions sparkline steps up. One hidden
  * checkbox drives it all via `:checked ~` styles - no timers or state, per the preview
  * rules in the `building-product-empty-states` skill. Before/after pairs are stacked in
- * `__swap` grids and crossfaded, so nothing shifts.
+ * `__swap` grids and crossfaded, so nothing shifts. The crash is one-way for the button:
+ * only the separate "Reset" link clears it, so a double-click can't undo it.
  */
 export function ErrorTrackingPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()
+    // Per-instance id, so a second mounted preview can't toggle this one's checkbox.
+    const crashId = useId()
 
     return (
         <div className={cn('ErrorPreview', isStatic && 'ErrorPreview--static')}>
             {/* Crash state, before all cards so `:checked ~` can style them. */}
-            <input type="checkbox" id="error-preview-crash" className="ErrorPreview__checkbox" />
+            <input type="checkbox" id={crashId} className="ErrorPreview__checkbox" />
 
             <div className="ErrorPreview__app">
                 <div className="ErrorPreview__chrome">
                     <span className="ErrorPreview__chrome-dot" />
                     <span className="ErrorPreview__chrome-dot" />
                     <span className="ErrorPreview__chrome-dot" />
-                    <span className="ErrorPreview__url">yourapp.com/checkout</span>
+                    <span className="ErrorPreview__url">shop.example.com/checkout</span>
+                    <span className="ErrorPreview__app-tag">Example app</span>
                 </div>
                 <div className="ErrorPreview__screen">
                     <div className="ErrorPreview__order">
@@ -51,16 +57,19 @@ export function ErrorTrackingPreview({ mode }: { mode: ProductEmptyStateMode }):
                             Uncaught TypeError: cart is undefined
                         </span>
                     </div>
-                    <label htmlFor="error-preview-crash" className="ErrorPreview__cta">
+                    <label htmlFor={crashId} className="ErrorPreview__cta">
                         <span className="ErrorPreview__swap">
                             <span className="ErrorPreview__when-before">Place order</span>
-                            <span className="ErrorPreview__when-after">Place order (it throws)</span>
+                            <span className="ErrorPreview__when-after">Order failed</span>
                         </span>
                     </label>
                     <div className="ErrorPreview__hint ErrorPreview__swap">
-                        <span className="ErrorPreview__when-before">Click the button to throw a bug on purpose.</span>
+                        <span className="ErrorPreview__when-before">Click to throw an example bug.</span>
                         <span className="ErrorPreview__when-after">
-                            Caught, grouped, and counted below. Click again to undo.
+                            Caught and counted in the example issue below. Your real errors appear after setup.{' '}
+                            <label htmlFor={crashId} className="ErrorPreview__reset">
+                                Reset
+                            </label>
                         </span>
                     </div>
                 </div>

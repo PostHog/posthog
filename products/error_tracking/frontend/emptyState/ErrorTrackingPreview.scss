@@ -78,10 +78,26 @@
     }
 
     &__url {
+        min-width: 0;
         margin-left: 0.375rem;
+        overflow: hidden;
         font-family: var(--font-mono);
         font-size: 0.625rem;
         color: var(--color-text-secondary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__app-tag {
+        flex-shrink: 0;
+        padding: 0 0.3125rem;
+        margin-left: auto;
+        font-size: 0.5625rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        white-space: nowrap;
+        border: 1px dashed var(--color-border-primary);
+        border-radius: 999px;
     }
 
     &__screen {
@@ -151,6 +167,14 @@
         font-size: 0.625rem;
         color: var(--color-text-tertiary);
         text-align: center;
+    }
+
+    &__reset {
+        font-weight: 600;
+        text-decoration: underline;
+        cursor: pointer;
+
+        @include preview-accent-text(var(--error-preview-accent));
     }
 
     // Issues panel
@@ -333,14 +357,27 @@
     @include preview-swap-hidden;
 }
 
+// The failed button stops taking clicks, so a double-click can't flip the crash back off.
+// `pointer-events` switches at once, ahead of the crossfade. Only "Reset" clears it.
 .ErrorPreview__checkbox:checked ~ .ErrorPreview__app .ErrorPreview__cta {
     color: var(--color-text-error);
+    pointer-events: none;
     background: var(--danger-highlight);
     box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--danger) 35%, transparent);
+    animation: ErrorPreview__shake 400ms ease-in-out;
+}
+
+.ErrorPreview__checkbox:checked ~ .ErrorPreview__app .ErrorPreview__toast {
+    animation: ErrorPreview__pop 400ms ease-out;
+}
+
+.ErrorPreview__checkbox:checked ~ .ErrorPreview__app .ErrorPreview__hint {
+    color: var(--color-text-secondary);
 }
 
 .ErrorPreview__checkbox:checked ~ .ErrorPreview__panel .ErrorPreview__row--hero {
     background: color-mix(in oklab, var(--error-preview-accent) 8%, transparent);
+    animation: ErrorPreview__flash 1.2s ease-out;
 }
 
 // The checkbox stays keyboard-focusable while visually hidden, so the button it labels
@@ -363,6 +400,43 @@
 
     50% {
         box-shadow: 0 0 0 4px color-mix(in oklab, var(--error-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes ErrorPreview__shake {
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    20%,
+    60% {
+        transform: translateX(-3px);
+    }
+
+    40%,
+    80% {
+        transform: translateX(3px);
+    }
+}
+
+@keyframes ErrorPreview__pop {
+    from {
+        transform: scale(0.9);
+    }
+
+    to {
+        transform: scale(1);
+    }
+}
+
+@keyframes ErrorPreview__flash {
+    from {
+        box-shadow: inset 0 0 0 1px var(--error-preview-accent);
+    }
+
+    to {
+        box-shadow: inset 0 0 0 1px transparent;
     }
 }
 
