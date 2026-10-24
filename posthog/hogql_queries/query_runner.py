@@ -55,6 +55,7 @@ from posthog.schema import (
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
+    ExperimentQuery,
     FilterLogicalOperator,
     FunnelsActorsQuery,
     FunnelsQuery,
@@ -94,6 +95,7 @@ from posthog.schema import (
     PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyValuesQuery,
     QueryStatus,
     QueryStatusResponse,
     QueryTiming,
@@ -117,6 +119,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsTableQuery,
     WebVitalsQuery,
 )
@@ -385,6 +388,43 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
+
+# Modes that never enqueue an async calculation. The async worker does not keep the native cluster
+# route, so a native cluster query must not run in any other mode.
+NATIVE_EVENTS_CLUSTER_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
+    {
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    }
+)
+
+NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
+    HogQLQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    PathsV2Query,
+    StickinessQuery,
+    LifecycleQuery,
+    EventsQuery,
+    ActorsQuery,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    PropertyValuesQuery,
+    ExperimentQuery,
+    ExperimentExposureQuery,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebVitalsQuery,
+)
+
+NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR = (
+    "Native cluster comparisons require synchronous execution. Use refresh=blocking or force_blocking with async=false."
+)
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
@@ -2143,6 +2183,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
+        query_modifiers = query_node_modifiers(self.query)
+        if self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster):
+            raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
+
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
             event="query async recalculation initiated",
@@ -2450,10 +2494,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         if self.modifiers.useNewEventsCluster:
-            if not isinstance(self.query, HogQLQuery):
-                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
+            if not isinstance(self.query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
+                raise ExposedHogQLError(f"Native cluster comparisons do not support {self.query.__class__.__name__}.")
+            if execution_mode not in NATIVE_EVENTS_CLUSTER_EXECUTION_MODES:
+                raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
 
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in

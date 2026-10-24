@@ -6360,8 +6360,7 @@ class HogQLQueryModifiers(BaseModel):
             " table (`true`), or keep its existing connection (`false` or unset). This"
             " is an internal rollout switch for eligible projects. PostHog staff manage"
             " eligibility through instance settings. Each query must opt in; project"
-            " defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons"
-            " are supported."
+            " defaults cannot enable it. Only synchronous queries are supported."
         ),
     )
     useNewEventsSchema: bool | None = Field(

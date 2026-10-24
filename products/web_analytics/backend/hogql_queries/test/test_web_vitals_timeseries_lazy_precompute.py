@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -26,6 +26,8 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebVitalsQuery,
 )
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client import sync_execute
@@ -77,8 +79,29 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
 
 
 class TestVitalsTimeseriesGate(APIBaseTest):
+    @parameterized.expand([(None,), (False,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_async_guard_follows_the_wrapper_choice_over_a_native_source(self, wrapper: bool | None) -> None:
+        query = _vitals_query(
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=wrapper) if wrapper is not None else None,
+            source_overrides={"modifiers": HogQLQueryModifiers(useNewEventsCluster=True)},
+        )
+        runner = WebVitalsQueryRunner(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=False)
+        )
+        original = runner.query
+        with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
+            if wrapper is None:
+                with self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"):
+                    runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
+                enqueue.assert_not_called()
+            else:
+                runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
+                enqueue.assert_called_once()
+        self.assertIs(runner.query, original)
+
     @parameterized.expand([(path, outer) for path in ("runner", "source_fallback") for outer in (False, True)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_wrapper_cluster_choice_overrides_the_source(self, path: str, outer: bool) -> None:
         query = _vitals_query(
             modifiers=HogQLQueryModifiers(useNewEventsCluster=outer),
