@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import hashlib
 import tempfile
 import subprocess
@@ -16,6 +17,10 @@ from products.canvas.backend.build_service import node_executable, run_cloud_bui
 from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_source_project, validate_source_project
+
+QUILL_CHARTS_SKILL_TYPES = (
+    Path(__file__).resolve().parents[2] / "skills/building-react-quill-canvases/references/quill-charts"
+)
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
@@ -241,6 +246,15 @@ class TestCanvasCloudBuilder(SimpleTestCase):
 
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         validate_builder_output(result)
+
+    def test_skill_chart_types_come_from_the_pinned_quill_charts(self) -> None:
+        stamp = json.loads((QUILL_CHARTS_SKILL_TYPES / "generated-from.json").read_text())
+
+        self.assertEqual(
+            stamp["version"],
+            platform_dependencies()["@posthog/quill-charts"],
+            "Run `node products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs` after changing the pin.",
+        )
 
     def test_bundles_the_canvas_sdk_import_inline(self) -> None:
         payload = synthetic_source_project(
