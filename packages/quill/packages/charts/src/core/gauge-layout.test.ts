@@ -2,6 +2,7 @@ import {
     computeGaugeLayout,
     gaugeAngles,
     gaugeFraction,
+    isOverGauge,
     layoutGaugeText,
     resolveGaugeBounds,
     ringSectorBox,
@@ -173,5 +174,23 @@ describe('gauge layout', () => {
         expect(
             layoutGaugeText({ layout: tiny, measure, fontFamily: 'x', valueText: '42%', labelText: 'CPU' }).label
         ).toBeNull()
+    })
+
+    it.each([
+        ['the center', 0, 0, true],
+        ['the outer edge of the ring', 1, 0, true],
+        ['a corner of the box, outside the ring', 1.2, 1.2, false],
+    ])('hit-tests %s for the tooltip', (_name, dx, dy, expected) => {
+        const layout = computeGaugeLayout({
+            width: 400,
+            height: 400,
+            sweep: 360,
+            thickness: 0.15,
+            showBands: false,
+            footer: 0,
+            padding: 0,
+        })
+        const point = { x: layout.cx + dx * layout.outerRadius, y: layout.cy + dy * layout.outerRadius }
+        expect(isOverGauge(layout, point.x, point.y)).toBe(expected)
     })
 })
