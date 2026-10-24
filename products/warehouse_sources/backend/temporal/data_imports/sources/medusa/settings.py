@@ -92,6 +92,12 @@ MEDUSA_ENDPOINTS: dict[str, MedusaEndpointConfig] = {
     "InventoryItems": MedusaEndpointConfig(
         name="InventoryItems", path="/inventory-items", data_selector="inventory_items", incremental_field_name=None
     ),
+    "Reservations": MedusaEndpointConfig(name="Reservations", path="/reservations", data_selector="reservations"),
+    "Payments": MedusaEndpointConfig(name="Payments", path="/payments", data_selector="payments"),
+    "Promotions": MedusaEndpointConfig(name="Promotions", path="/promotions", data_selector="promotions"),
+    "ProductCategories": MedusaEndpointConfig(
+        name="ProductCategories", path="/product-categories", data_selector="product_categories"
+    ),
 }
 
 ENDPOINTS = tuple(MEDUSA_ENDPOINTS)
