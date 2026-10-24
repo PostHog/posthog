@@ -8,7 +8,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { TIME_RANGE_LABELS, TimeRange, applicationObservabilityLogic } from './applicationObservabilityLogic'
+import {
+    TIME_RANGE_LABELS,
+    TimeRange,
+    applicationObservabilityLogic,
+    drillDownParams,
+} from './applicationObservabilityLogic'
 import type { HealthStatusEnumApi, ServiceHealthApi } from './generated/api.schemas'
 
 export const scene: SceneExport = {
@@ -28,14 +33,6 @@ const STATUS_TAG: Record<HealthStatusEnumApi, 'success' | 'warning' | 'danger'> 
     warning: 'warning',
     serious: 'danger',
     critical: 'danger',
-}
-
-// Matches the Traces (products/tracing) and Logs (products/logs) scenes' URL contracts: both read
-// `serviceNames` (comma-separated is fine for one name) and a `dateRange` JSON object of
-// `{date_from, date_to}`, where date_from accepts a relative string like our own TimeRange values.
-function drillDownParams(serviceName: string, timeRange: TimeRange): string {
-    const dateRange = JSON.stringify({ date_from: timeRange, date_to: null })
-    return `serviceNames=${encodeURIComponent(serviceName)}&dateRange=${encodeURIComponent(dateRange)}`
 }
 
 export function formatRate(perSecond: number | null): string {

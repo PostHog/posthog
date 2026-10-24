@@ -28,6 +28,14 @@ const TIME_RANGE_MS: Record<TimeRange, number> = {
 // One 5-minute bucket, the grain the backend computes health at.
 const POLL_INTERVAL_MS = 5 * 60 * 1000
 
+// Matches the Traces and Logs URL readers: `serviceNames` goes through parseTagsFilter, which splits a
+// plain string on commas, so it is a JSON array; `dateRange` is a JSON `{date_from, date_to}` object.
+export function drillDownParams(serviceName: string, timeRange: TimeRange): string {
+    const serviceNames = JSON.stringify([serviceName])
+    const dateRange = JSON.stringify({ date_from: timeRange, date_to: null })
+    return `serviceNames=${encodeURIComponent(serviceNames)}&dateRange=${encodeURIComponent(dateRange)}`
+}
+
 function isTimeRange(value: unknown): value is TimeRange {
     // `in` also matches inherited keys like `toString`, so a `?range=toString` URL would pass.
     return typeof value === 'string' && Object.hasOwn(TIME_RANGE_LABELS, value)
