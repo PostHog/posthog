@@ -9,6 +9,8 @@ import { tryCatch } from '~/common/utils/try-catch'
 import { PluginsServerConfig } from '../../types'
 
 export const MAX_FETCH_TIMEOUT_MS = 10000
+// The response lands in the invocation state, which can be queued through Kafka with a 6 MB message limit.
+export const MAX_FETCH_RESPONSE_BYTES = 5 * 1024 * 1024
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
@@ -134,7 +136,7 @@ export async function cdpTrackedFetch({
     // which run inside undici's connect flow where no caller context is otherwise available.
     const doFetch = () =>
         fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
-            tryCatch(async () => await fetch(url, fetchParams))
+            tryCatch(async () => await fetch(url, { maxResponseBytes: MAX_FETCH_RESPONSE_BYTES, ...fetchParams }))
         )
 
     let [fetchError, fetchResponse] = await doFetch()

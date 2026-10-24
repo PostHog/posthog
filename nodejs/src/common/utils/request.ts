@@ -132,6 +132,7 @@ export type FetchOptions = {
     // negotiates HTTP/1.1 uses the same dispatcher, so its idle sockets also close after this time. Pass a constant:
     // each distinct value keeps a dispatcher for the life of the process, and at most 8 values are allowed.
     http2IdleTimeoutMs?: number
+    maxResponseBytes?: number
 }
 
 export type FetchResponse = {
@@ -155,6 +156,13 @@ export class InvalidRequestError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'InvalidRequestError'
+    }
+}
+
+export class ResponseTooLargeError extends Error {
+    constructor(maxBytes: number) {
+        super(`Response body is larger than the ${maxBytes} byte limit`)
+        this.name = 'ResponseTooLargeError'
     }
 }
 
@@ -667,7 +675,17 @@ export async function _fetch(
 
     const readBody = (): Promise<string> => {
         if (!bodyPromise) {
-            bodyPromise = readAndDestroyBody(result.body).finally(() => lifecycle?.onBodyDone())
+            const maxBytes = options.maxResponseBytes
+            const read =
+                maxBytes === undefined
+                    ? readAndDestroyBody(result.body)
+                    : readCappedBody(result.body, maxBytes, false).then(({ bytes, overLimit }) => {
+                          if (overLimit) {
+                              throw new ResponseTooLargeError(maxBytes)
+                          }
+                          return bytes.toString('utf8')
+                      })
+            bodyPromise = read.finally(() => lifecycle?.onBodyDone())
         }
         return bodyPromise
     }
