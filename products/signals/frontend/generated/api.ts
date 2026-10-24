@@ -49,6 +49,7 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
+    RankingOutcomesResponseApi,
     RecordCheckResultRequestApi,
     RecordCheckResultResponseApi,
     RecordStructuredOutputRequestApi,
@@ -1459,6 +1460,24 @@ export const signalsReportsPrCiStatuses = async (
     options?: RequestInit
 ): Promise<PullRequestCiStatusesResponseApi> => {
     return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRankingOutcomesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/ranking_outcomes/`
+}
+
+/**
+ * What each public outcome of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no outcomes.
+ * @summary List the ranking model's public outcomes
+ */
+export const signalsReportsRankingOutcomesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RankingOutcomesResponseApi> => {
+    return apiMutator<RankingOutcomesResponseApi>(getSignalsReportsRankingOutcomesListUrl(projectId), {
         ...options,
         method: 'GET',
     })

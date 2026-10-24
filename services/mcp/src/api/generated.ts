@@ -33116,6 +33116,8 @@ export namespace Schemas {
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
      * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -34528,6 +34530,8 @@ export namespace Schemas {
       CloudflareR2: 'CloudflareR2',
       Particle: 'Particle',
       FileUpload: 'FileUpload',
+      Dripify: 'Dripify',
+      AwsS3Tables: 'AwsS3Tables',
     } as const;
 
     /**
@@ -35953,7 +35957,9 @@ export namespace Schemas {
        * * `ConectoCRM` - ConectoCRM
        * * `CloudflareR2` - CloudflareR2
        * * `Particle` - Particle
-       * * `FileUpload` - FileUpload */
+       * * `FileUpload` - FileUpload
+       * * `Dripify` - Dripify
+       * * `AwsS3Tables` - AwsS3Tables */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -38920,7 +38926,9 @@ export namespace Schemas {
        * * `ConectoCRM` - ConectoCRM
        * * `CloudflareR2` - CloudflareR2
        * * `Particle` - Particle
-       * * `FileUpload` - FileUpload */
+       * * `FileUpload` - FileUpload
+       * * `Dripify` - Dripify
+       * * `AwsS3Tables` - AwsS3Tables */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -51588,7 +51596,9 @@ export namespace Schemas {
        * * `ConectoCRM` - ConectoCRM
        * * `CloudflareR2` - CloudflareR2
        * * `Particle` - Particle
-       * * `FileUpload` - FileUpload */
+       * * `FileUpload` - FileUpload
+       * * `Dripify` - Dripify
+       * * `AwsS3Tables` - AwsS3Tables */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -53034,7 +53044,9 @@ export namespace Schemas {
        * * `ConectoCRM` - ConectoCRM
        * * `CloudflareR2` - CloudflareR2
        * * `Particle` - Particle
-       * * `FileUpload` - FileUpload */
+       * * `FileUpload` - FileUpload
+       * * `Dripify` - Dripify
+       * * `AwsS3Tables` - AwsS3Tables */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -78147,34 +78159,73 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users.
+     * * `scored` - scored
+     * * `stale` - stale
+     * * `unscored` - unscored
+     * * `not_available` - not_available
      */
-    export type ReportRankingScores = {[key: string]: number};
+    export type RankingStatusEnum = typeof RankingStatusEnum[keyof typeof RankingStatusEnum];
+
+
+    export const RankingStatusEnum = {
+      Scored: 'scored',
+      Stale: 'stale',
+      Unscored: 'unscored',
+      NotAvailable: 'not_available',
+    } as const;
 
     /**
-     * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+     * * `open` - Open
+     * * `action` - Action
+     * * `fix` - Fix
      */
-    export type ReportRankingLifts = {[key: string]: number};
+    export type RankingOutcomeEnum = typeof RankingOutcomeEnum[keyof typeof RankingOutcomeEnum];
+
+
+    export const RankingOutcomeEnum = {
+      Open: 'open',
+      Action: 'action',
+      Fix: 'fix',
+    } as const;
+
+    export interface ReportRankingPrediction {
+      /** Outcome the model predicts. Read inbox-ranking-outcomes-list for what each outcome means.
+       *
+       * * `open` - Open
+       * * `action` - Action
+       * * `fix` - Fix */
+      outcome: RankingOutcomeEnum;
+      /** The model's calibrated probability that the outcome happens within the outcome's horizon. */
+      probability: number;
+      /**
+         * The probability divided by the outcome's base rate. 1.0 is an average report, 2.7 means 2.7x as likely as the average report. Compare lifts across outcomes, not raw probabilities. Null when the model has no saved base rate for the outcome.
+         * @nullable
+         */
+      lift: number | null;
+      /** True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution. */
+      readable: boolean;
+    }
 
     export interface ReportRanking {
-      /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users. */
-      served_key: string;
-      /** Feature family of the served model. Empty for non-staff users. */
-      model_name: string;
-      /** Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users. */
-      model_version: string;
-      /** Version of the serving manifest that chose the model. Empty for non-staff users. */
-      manifest_version: string;
-      /** When the scoring sweep scored the report. */
-      scored_at: string;
-      /** Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users. */
-      scores: ReportRankingScores;
-      /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
-      lifts: ReportRankingLifts;
-      /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
-      readable_heads: string[];
-      /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
-      stale: boolean;
+      /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+       *
+       * * `scored` - scored
+       * * `stale` - stale
+       * * `unscored` - unscored
+       * * `not_available` - not_available */
+      status: RankingStatusEnum;
+      /**
+         * Key of the served model that wrote the score, as `<model_name>@<model_version>`. Do not compare predictions from different keys.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * When the scoring sweep scored the report.
+         * @nullable
+         */
+      scored_at: string | null;
+      /** The served model's predictions, one per public outcome that it scored. A prediction says what may happen, never what did: the report's status and its PR fields say whether it was resolved. */
+      predictions: ReportRankingPrediction[];
     }
 
     export interface ReportPlanStep {
@@ -78365,12 +78416,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly channel_id: string | null;
-      /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
-      readonly ranking: ReportRanking | null;
+      /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
+      readonly ranking: ReportRanking;
       /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
       readonly plan: ReportPlan | null;
       /**
-         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
          * @nullable
          */
       readonly inbox_merge_key: number | null;
@@ -78384,7 +78435,7 @@ export namespace Schemas {
       previous?: string | null;
       results: SignalReportList[];
       /**
-         * The ranker that ordered the page when sort=recommended: priority, or open, action or fixed for that head of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * The ranker that ordered the page when sort=recommended: priority, or open, action or fix for that outcome of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
          * @nullable
          */
       ranker?: string | null;
@@ -99419,6 +99470,66 @@ export namespace Schemas {
       Jev: 'jev',
     } as const;
 
+    export interface RankingOutcomeInfo {
+      /** Name of the outcome in the `ranking` field's predictions.
+       *
+       * * `open` - Open
+       * * `action` - Action
+       * * `fix` - Fix */
+      outcome: RankingOutcomeEnum;
+      /** Short label the inbox shows for the outcome. */
+      label: string;
+      /** What the outcome predicts, in one sentence. */
+      description: string;
+      /**
+         * Days after scoring within which the outcome counts. Null when the served model did not save it.
+         * @nullable
+         */
+      horizon_days: number | null;
+      /**
+         * Name of the report set the outcome was trained on. Null when the served model did not save it.
+         * @nullable
+         */
+      cohort: string | null;
+      /**
+         * The outcome's base rate: a report's lift is its probability divided by this value. Null when the served model has no saved base rate for the outcome.
+         * @nullable
+         */
+      base_rate: number | null;
+      /** True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution. */
+      readable: boolean;
+    }
+
+    /**
+     * * `scored` - scored
+     * * `unscored` - unscored
+     * * `not_available` - not_available
+     */
+    export type RankingOutcomesStatusEnum = typeof RankingOutcomesStatusEnum[keyof typeof RankingOutcomesStatusEnum];
+
+
+    export const RankingOutcomesStatusEnum = {
+      Scored: 'scored',
+      Unscored: 'unscored',
+      NotAvailable: 'not_available',
+    } as const;
+
+    export interface RankingOutcomesResponse {
+      /** scored: the served model has scored reports in this project. unscored: no readable score yet. not_available: you cannot see the ranking model's output.
+       *
+       * * `scored` - scored
+       * * `unscored` - unscored
+       * * `not_available` - not_available */
+      status: RankingOutcomesStatusEnum;
+      /**
+         * Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.
+         * @nullable
+         */
+      model: string | null;
+      /** One entry per public outcome, in the inbox order. */
+      outcomes: RankingOutcomeInfo[];
+    }
+
     export interface Rapid7InsightvmScannerFindingSignalExtra {
       severity: string | null;
       cvss_v3_score: string | null;
@@ -100510,8 +100621,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly channel_id: string | null;
-      /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
-      readonly ranking: ReportRanking | null;
+      /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
+      readonly ranking: ReportRanking;
       /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
       readonly plan: ReportPlan | null;
     }
@@ -110105,7 +110216,9 @@ export namespace Schemas {
        * * `ConectoCRM` - ConectoCRM
        * * `CloudflareR2` - CloudflareR2
        * * `Particle` - Particle
-       * * `FileUpload` - FileUpload */
+       * * `FileUpload` - FileUpload
+       * * `Dripify` - Dripify
+       * * `AwsS3Tables` - AwsS3Tables */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -111582,7 +111695,9 @@ export namespace Schemas {
        * * `ConectoCRM` - ConectoCRM
        * * `CloudflareR2` - CloudflareR2
        * * `Particle` - Particle
-       * * `FileUpload` - FileUpload */
+       * * `FileUpload` - FileUpload
+       * * `Dripify` - Dripify
+       * * `AwsS3Tables` - AwsS3Tables */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -113026,7 +113141,9 @@ export namespace Schemas {
        * * `ConectoCRM` - ConectoCRM
        * * `CloudflareR2` - CloudflareR2
        * * `Particle` - Particle
-       * * `FileUpload` - FileUpload */
+       * * `FileUpload` - FileUpload
+       * * `Dripify` - Dripify
+       * * `AwsS3Tables` - AwsS3Tables */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -136248,13 +136365,21 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fix, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400.
      */
     ordering?: string;
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
+    /**
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_lift?: string;
+    /**
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_probability?: string;
     /**
      * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
      */
@@ -136272,7 +136397,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string;
     /**
