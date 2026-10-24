@@ -9,12 +9,14 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.lookups import IContains
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 from posthog.models.tagged_item import TaggedItem
 from posthog.utils import relative_date_parse
 
+from products.customer_analytics.backend.domain import parse_company_domain
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import Account, AccountRelationship, CustomPropertyValue, DisplayType
 from products.customer_analytics.backend.models.custom_property_definition import DATA_TYPE_BY_DISPLAY_TYPE, DataType
@@ -44,6 +46,8 @@ ACCOUNT_DATETIME_FIELDS = frozenset(
     }
 )
 RELATIVE_DATE_VALUE_RE = re.compile(r"[+-]?\d+[hdwmqysHDWMQY](?:Start|End)?")
+# Hostname characters only, so a fragment can't match across the JSON quotes and commas of `email_domains`.
+DOMAIN_FRAGMENT_RE = re.compile(r"[a-z0-9.-]+")
 UTC_TIMEZONE = ZoneInfo("UTC")
 
 ACCOUNT_DIRECT_FIELDS = {
@@ -77,11 +81,12 @@ def account_search_q(query: str, *, member_external_ids: Collection[str] = ()) -
         predicate |= Q(_properties__known_emails__contains=[email])
         if member_external_ids:
             predicate |= Q(external_id__in=member_external_ids)
-        domain = email.rsplit("@", 1)[-1]
-    else:
-        domain = normalized if "@" not in normalized else ""
-    if "." in domain:
-        predicate |= Q(_properties__email_domains__contains=[domain])
+        predicate |= Q(_properties__email_domains__contains=[email.rsplit("@", 1)[-1]])
+        return predicate
+    domain_fragment = parse_company_domain(normalized) or normalized
+    if DOMAIN_FRAGMENT_RE.fullmatch(domain_fragment):
+        predicate |= Q(IContains(KeyTextTransform("website_domain", "_properties"), domain_fragment))
+        predicate |= Q(IContains(KeyTextTransform("email_domains", "_properties"), domain_fragment))
     return predicate
 
 
