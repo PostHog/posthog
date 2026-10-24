@@ -131,10 +131,11 @@ describe('experimentLogic', () => {
             total_exposures: { control: 600, test: 350, $multiple: 50 },
             sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
             bias_risk: { multiple_variant_percentage: 5 },
-            health_findings: [{ code: 'srm' }, { code: 'bias_risk_multiple_excluded' }],
+            health_findings: [{ code: 'srm', subcode: 'split_changed' }, { code: 'bias_risk_multiple_excluded' }],
         }
         const noServerVerdicts = {
             srm_server: null,
+            srm_cause: null,
             zero_exposures_server: null,
             zero_exposures_cause: null,
             bias_risk_server: null,
@@ -176,6 +177,7 @@ describe('experimentLogic', () => {
                     has_srm: true,
                     has_bias_risk: true,
                     srm_server: true,
+                    srm_cause: 'split_changed',
                     zero_exposures_server: false,
                     bias_risk_server: true,
                 },
