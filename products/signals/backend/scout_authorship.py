@@ -8,6 +8,8 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.db.models import CharField, F, Func, Q, QuerySet, Value
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -136,7 +138,7 @@ def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:
     return SignalScoutRun.objects.for_team(team_id).filter(scout_config_id__in=opted_out_configs.values("id"))
 
 
-def inbox_hidden_report_ids(team_id: int) -> QuerySet[SignalScoutRun]:
+def inbox_hidden_report_ids(team_id: int) -> QuerySet[SignalScoutRun, dict[str, Any]]:
     """The ids of the reports kept out of the inbox because the scout that authored them turned off its inbox destination.
 
     Only authorship counts, read from the config's current setting: an opted-out scout that edits
