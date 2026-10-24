@@ -82,6 +82,11 @@ function pickVariantDetails<T>(details: Record<string, T>, keys: string[], previ
         // While a key collides with another variant's, hold its details under the old key until it's unique again
         picked[isUnique(keys, key) ? key : sourceKey] = details[sourceKey]
     })
+    // An update that leaves the colliding keys as they are, like a split change, must keep holding them
+    const collisionUnresolved = keys.some((key) => !isUnique(keys, key))
+    if (collisionUnresolved && heldKey !== undefined && !Object.hasOwn(picked, heldKey)) {
+        picked[heldKey] = details[heldKey]
+    }
     return picked
 }
 

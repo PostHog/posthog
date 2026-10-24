@@ -506,6 +506,28 @@ describe('createExperimentLogic', () => {
             })
         })
 
+        it("keeps a renamed variant's details through a split change while its key still collides", () => {
+            startWith(['control', 'test'], {
+                variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
+                variant_screenshot_media_ids: { test: ['media-1'] },
+            })
+
+            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'control') })
+            // A split change sends the same, still colliding, keys
+            logic.actions.setFeatureFlagConfig({
+                variants: [
+                    { key: 'control', rollout_percentage: 30 },
+                    { key: 'control', rollout_percentage: 70 },
+                ],
+            })
+            logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', 'control-b') })
+
+            expect(logic.values.experiment.parameters).toEqual({
+                variant_notes: { control: 'Current checkout', 'control-b': 'One-page checkout' },
+                variant_screenshot_media_ids: { 'control-b': ['media-1'] },
+            })
+        })
+
         it("drops a removed variant's details, without shifting the rest onto other variants", () => {
             startWith(['control', 'test', 'test-2'], {
                 variant_notes: { test: 'One-page checkout', 'test-2': 'Express checkout' },
