@@ -60073,6 +60073,8 @@ export namespace Schemas {
     export interface MetricsQuerySeries {
       /** Clause alias that produced this series (`formula` for the formula result) */
       clause?: string | null;
+      /** Bucket upper edges a histogram quantile series was estimated from. The true quantile can be anywhere between two edges. */
+      histogramBounds?: number[] | null;
       /** Label values identifying this series; empty for an ungrouped query */
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
@@ -122395,6 +122397,11 @@ export namespace Schemas {
          * @nullable
          */
       unit?: string | null;
+      /**
+         * Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.
+         * @nullable
+         */
+      histogram_bounds?: number[] | null;
     }
 
     export interface _MetricAnomalyReport {

@@ -176,6 +176,9 @@ class MetricSeries:
     # from the ingested unit when the clause transforms the values: COUNT has no
     # unit and RATE is per second. Set by `run_metric_query`, not by callers.
     unit: str | None = None
+    # Bucket upper edges a histogram quantile was estimated from, merged over every
+    # point. The estimate can be anywhere between two edges. None for other aggregations.
+    histogram_bounds: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
