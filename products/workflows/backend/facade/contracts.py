@@ -14,6 +14,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
     SetupStepKey,
+    WorkflowImportNoteLevel,
     WorkflowProposalStatus,
 )
 
@@ -887,3 +888,59 @@ class SetupStep:
 
     key: SetupStepKey
     done: bool
+
+
+@frozen
+class ImportNote:
+    """What an import changed or left out of a workflow, for the team to review before enabling it."""
+
+    level: WorkflowImportNoteLevel
+    message: str
+    # The workflow step the note is about, or None for the whole workflow.
+    step_id: str | None = None
+    step_name: str | None = None
+
+
+@frozen
+class TranslatedWorkflow:
+    source_id: str
+    name: str
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@frozen
+class CampaignSource:
+    """A Customer.io automation as its Journeys UI API returns it, with the templates its messages use."""
+
+    campaign: dict[str, Any]
+    actions: list[dict[str, Any]]
+    templates: dict[str, dict[str, Any]]
+
+
+@frozen
+class ImportOptions:
+    # Customer.io snippet name to its content, inlined wherever a message includes the snippet.
+    snippets: dict[str, str]
+    # Customer.io segment id to the PostHog cohort that stands in for it.
+    segment_cohorts: dict[str, int]
+
+
+@frozen
+class PreviousImport:
+    """The earlier import of a source object, when there is one."""
+
+    record_id: UUID | None
+    hog_flow_id: UUID | None
+    hog_flow_is_draft: bool
+
+
+@frozen
+class WorkflowImportRecord:
+    id: UUID
+    source: str
+    source_id: str
+    source_name: str
+    hog_flow_id: UUID | None
+    notes: tuple[dict[str, Any], ...]
+    updated_at: datetime
