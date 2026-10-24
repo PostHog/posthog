@@ -1460,7 +1460,7 @@ export class PostgresPersonRepository
         const updateKeys = Object.keys(unparsedUpdate)
         for (let i = 0; i < updateKeys.length; i++) {
             const key = updateKeys[i]
-            if (key === 'properties' || key === 'properties_last_updated_at' || key === 'properties_last_operation') {
+            if (key === 'properties') {
                 const sanitizedValue = values[i] // Already sanitized in the map above
                 if (typeof sanitizedValue === 'string') {
                     personJsonFieldSizeHistogram
@@ -1559,18 +1559,14 @@ export class PostgresPersonRepository
                 `
                 UPDATE posthog_person SET
                     properties = $1,
-                    properties_last_updated_at = $2,
-                    properties_last_operation = $3,
-                    is_identified = $4,
-                    last_seen_at = $5,
+                    is_identified = $2,
+                    last_seen_at = $3,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $6 AND uuid = $7 AND version = $8 AND is_deleted = false
+                WHERE team_id = $4 AND uuid = $5 AND version = $6 AND is_deleted = false
                 RETURNING ${PERSON_COLUMNS}
                 `,
                 [
                     JSON.stringify(finalProperties),
-                    JSON.stringify(personUpdate.properties_last_updated_at),
-                    JSON.stringify(personUpdate.properties_last_operation),
                     personUpdate.is_identified,
                     personUpdate.last_seen_at?.toISO() ?? null,
                     personUpdate.team_id,
