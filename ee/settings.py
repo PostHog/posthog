@@ -11,9 +11,9 @@ from posthog.utils import str_to_bool
 # SSO
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
-    "ee.api.authentication.MultitenantSAMLAuth",
+    "posthog.api.sso.MultitenantSAMLAuth",
     "posthog.api.oidc.MultitenantOIDCAuth",
-    "ee.api.authentication.CustomGoogleOAuth2",
+    "posthog.api.sso.CustomGoogleOAuth2",
 ]
 
 # SAML base attributes
@@ -58,7 +58,7 @@ if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_O
     # middleware must be added after `AuthenticationMiddleware``
     MIDDLEWARE = MIDDLEWARE.copy()
     auth_middleware_index = MIDDLEWARE.index("django.contrib.auth.middleware.AuthenticationMiddleware")
-    MIDDLEWARE.insert(auth_middleware_index + 1, "ee.middleware.AdminOAuth2Middleware")
+    MIDDLEWARE.insert(auth_middleware_index + 1, "posthog.admin.oauth2.AdminOAuth2Middleware")
 
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
 CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
