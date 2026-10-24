@@ -5243,6 +5243,14 @@ class TestPrinter(BaseTest):
         printed = self._select(select)
         assert expected in printed, f"expected {expected} in:\n{printed}"
 
+    @parameterized.expand([("IN", "globalIn(events.uuid"), ("NOT IN", "globalNotIn(events.uuid")])
+    def test_global_in_round_trips_through_printed_hogql(self, op, expected):
+        hogql = self._print(
+            f"SELECT uuid FROM events WHERE uuid {op} (SELECT uuid FROM events WHERE event = 'signup')",
+            dialect="hogql",
+        )
+        assert expected in self._select(hogql)
+
     @parameterized.expand(
         [
             ("non_sharded_subquery", "SELECT event FROM events WHERE person_id IN (SELECT id FROM persons)"),
