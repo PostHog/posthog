@@ -5006,3 +5006,13 @@ class TestCreateForPosthogTables(BaseTest):
         assert "system.customer_tasks" not in system_table_names
         with pytest.raises(TableAccessDeniedError):
             database.get_table("system.activity_logs")
+
+    def test_table_get_field_missing_field_raises_query_error(self):
+        database = Database.create_for_posthog_tables(self.team)
+        events_table = database.get_table("events")
+        with pytest.raises(QueryError) as exc_info:
+            events_table.get_field("non_existent_field_xyz")
+        assert 'Field "non_existent_field_xyz" not found on table' in str(exc_info.value)
+        assert isinstance(exc_info.value, ExposedHogQLError)
+        assert exc_info.value.code_name == "hogql_query_error"
+
