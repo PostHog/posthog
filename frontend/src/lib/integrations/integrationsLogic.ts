@@ -33,6 +33,7 @@ import {
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
 import type {
+    GitHubReadinessStatusEnumApi,
     GitHubAvailableInstallationApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubRepoApi,
@@ -174,11 +175,13 @@ export interface integrationsLogicValues {
     githubDiscoveryProjectId: number | string | null
     githubIntegrations: IntegrationType[]
     githubPersonalConnected: boolean | null
+    githubReadiness: GitHubReadinessStatusEnumApi
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
     githubRepositoriesTotal: Record<number, number>
     githubSuggestionSubscribers: number
     integrations: IntegrationType[] | null
+    integrationsLoadFailed: boolean
     integrationsLoading: boolean
     linearIntegrations: IntegrationType[]
     linkedGithubInstallation: IntegrationConfigApi | null
@@ -369,6 +372,7 @@ export interface integrationsLogicActions {
             display_name: string
             errors?: string | undefined
             files_write_requestable?: boolean | undefined
+            github_readiness?: GitHubReadinessStatusEnumApi | null | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -434,6 +438,7 @@ export interface integrationsLogicActions {
             display_name: string
             errors?: string | undefined
             files_write_requestable?: boolean | undefined
+            github_readiness?: GitHubReadinessStatusEnumApi | null | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -698,6 +703,7 @@ export interface integrationsLogicActions {
 export interface integrationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | undefined
+        githubReadiness: (githubIntegrations: IntegrationType[]) => GitHubReadinessStatusEnumApi
         githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         linearIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         githubAvailableInstallations: (
@@ -837,6 +843,15 @@ export const integrationsLogic = kea<integrationsLogicType>([
         clearIntegrations: true,
     }),
     reducers({
+        integrationsLoadFailed: [
+            false,
+            {
+                loadIntegrations: () => false,
+                loadIntegrationsSuccess: () => false,
+                loadIntegrationsFailure: () => true,
+                clearIntegrations: () => false,
+            },
+        ],
         integrations: [null as IntegrationType[] | null, { clearIntegrations: () => null }],
         githubDisconnecting: [false, { setGithubDisconnecting: (_, { disconnecting }) => disconnecting }],
         githubDiscoveryGeneration: [
@@ -1448,6 +1463,18 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null) => {
                 return integrations?.filter((x) => x.kind == 'slack')
+            },
+        ],
+        githubReadiness: [
+            (s) => [s.githubIntegrations],
+            (integrations: IntegrationType[]): GitHubReadinessStatusEnumApi => {
+                if (integrations.some((integration) => integration.github_readiness === 'ready')) {
+                    return 'ready'
+                }
+                return (
+                    integrations[0]?.github_readiness ??
+                    (integrations.length ? 'temporarily_unavailable' : 'not_connected')
+                )
             },
         ],
         githubIntegrations: [

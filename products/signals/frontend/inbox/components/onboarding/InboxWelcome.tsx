@@ -71,10 +71,8 @@ function CommandCta(): JSX.Element {
 
 function GithubFirstCta(): JSX.Element {
     useMountedLogic(integrationsLogic)
-    const { githubIntegrations, integrationsLoading } = useValues(integrationsLogic)
-    const hasGithubIntegration = githubIntegrations.some(
-        (integration) => integration.installation_status !== 'unavailable'
-    )
+    const { githubReadiness, integrationsLoading } = useValues(integrationsLogic)
+    const hasGithubIntegration = githubReadiness === 'ready'
 
     if (integrationsLoading) {
         return <LemonSkeleton className="h-10 w-64 rounded" />

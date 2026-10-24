@@ -16,6 +16,7 @@ import {
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
+    type SignalTeamConfigApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -368,37 +369,7 @@ export type SignalUserAutonomyConfigDraft = Partial<SignalUserAutonomyConfigApi>
 
 // ── Team-level autonomy config (backend SignalTeamConfigViewSet; singleton per team) ─
 
-export interface SignalTeamConfig {
-    id?: string
-    /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
-    autostart_enabled?: boolean | null
-    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). "Never" is expressed via autostart_enabled instead. */
-    default_autostart_priority: SignalReportPriority | null
-    /** Default Slack channel for this team's inbox notifications. */
-    default_slack_notification_channel?: string | null
-    /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
-    autostart_base_branches?: Record<string, string>
-    /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
-    issue_tracking_integration?: number | null
-    /** Where those issues land: github {repository}, linear {team_id}, jira {project_key}, plus an optional 'label'. */
-    issue_tracking_config?: Record<string, string>
-    /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
-    max_reports_per_day?: number | null
-    /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
-    default_open_pull_request_ready?: boolean
-    /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */
-    github_issue_writeback_enabled?: boolean
-    /** Whether self-driving labels every PR it opens, so GitHub search can separate them from other bot work. */
-    pull_request_label_enabled?: boolean
-    /** The label name to apply, at most 50 characters. Null or blank means the default label. */
-    pull_request_label?: string | null
-    /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
-    reports_generated_today?: number
-    /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
-    daily_report_limit_reached?: boolean
-    created_at?: string
-    updated_at?: string
-}
+export interface SignalTeamConfig extends Partial<SignalTeamConfigApi> {}
 
 // ── Runs (composed client-side from scout runs + signal-pipeline tasks) ───────
 

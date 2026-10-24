@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { engineeringAnalyticsCiSignalsConfigUpdate } from 'products/engineering_analytics/frontend/generated/api'
+import type { GitHubReadinessStatusEnumApi } from 'products/integrations/frontend/generated/api.schemas'
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
 
@@ -60,6 +61,7 @@ import { scoutSuggestionsLogic } from './scoutSuggestionsLogic'
 export interface inboxSetupLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     githubIntegrations: IntegrationType[] // integrationsLogic
+    githubReadiness: GitHubReadinessStatusEnumApi // integrationsLogic
     integrationsLoading: boolean // integrationsLogic
     searchParams: Record<string, any> // router
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
@@ -298,7 +300,7 @@ export interface inboxSetupLogicMeta {
         inProgress: (savedState: InboxOnboardingStateApi | null, started: boolean, resumingSetup: boolean) => boolean
         completed: (savedState: InboxOnboardingStateApi | null) => boolean
         sourceCount: (draft: InboxOnboardingDraftApi) => number
-        hasGithubIntegration: (githubIntegrations: IntegrationType[]) => boolean
+        hasGithubIntegration: (githubReadiness: GitHubReadinessStatusEnumApi) => boolean
         isFinalStep: (draft: InboxOnboardingDraftApi) => boolean
         defaultScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -351,7 +353,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             sourcesDataLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             integrationsLogic,
-            ['githubIntegrations', 'integrationsLoading'],
+            ['githubIntegrations', 'githubReadiness', 'integrationsLoading'],
             scoutFleetLogic,
             ['scoutConfigs', 'scoutConfigsLoading'],
             scoutSuggestionsLogic,
@@ -607,9 +609,8 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         completed: [(s) => [s.savedState], (state: InboxOnboardingStateApi | null): boolean => !!state?.completed_at],
         sourceCount: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): number => selectedSourceCount(draft)],
         hasGithubIntegration: [
-            (s) => [s.githubIntegrations],
-            (integrations: IntegrationType[]): boolean =>
-                integrations.some((integration) => integration.installation_status !== 'unavailable'),
+            (s) => [s.githubReadiness],
+            (readiness: GitHubReadinessStatusEnumApi): boolean => readiness === 'ready',
         ],
         isFinalStep: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): boolean => draft.step === 'github'],
         defaultScouts: [
