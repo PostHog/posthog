@@ -6,6 +6,7 @@ import structlog
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field, PrivateAttr
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EventsNode,
@@ -17,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -51,6 +53,12 @@ from ee.hogai.utils.untrusted import as_untrusted_data
 logger = structlog.get_logger(__name__)
 
 DIAGNOSIS_MAX_EXECUTION_TIME = 30
+
+
+def _error_message(error: QueryError | ValidationError) -> str:
+    if isinstance(error, ValidationError) and isinstance(error.detail, list):
+        return " ".join(str(detail) for detail in error.detail)
+    return str(error)
 
 
 def _recordings_filters_description(event_negation_prompt: str) -> str:
@@ -249,6 +257,12 @@ class FilterSessionRecordingsTool(MaxTool):
             query_results = await database_sync_to_async(self._get_recordings_with_filters, thread_sensitive=False)(
                 recordings_query
             )
+        except (QueryError, ValidationError) as e:
+            # A filter on a deleted cohort or action is bad input, so the agent must correct the filters.
+            raise MaxToolRetryableError(
+                f"The recordings filters are not valid: {_error_message(e)}. "
+                "Remove the invalid filter or use a cohort or action that exists, then try again."
+            )
         except Exception as e:
             capture_exception(e)
             content = f"⚠️ Updated session recordings filters, but encountered an issue fetching results: {e}"
@@ -286,6 +300,9 @@ class FilterSessionRecordingsTool(MaxTool):
             linkages = await database_sync_to_async(self._get_event_session_linkage, thread_sensitive=False)(
                 recordings_query
             )
+        except (QueryError, ValidationError) as e:
+            logger.warning("failed_to_diagnose_empty_recordings_result", error=_error_message(e))
+            return ""
         except Exception as e:
             capture_exception(e)
             logger.warning("failed_to_diagnose_empty_recordings_result", error=str(e))
