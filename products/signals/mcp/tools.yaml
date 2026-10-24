@@ -31,6 +31,22 @@ tools:
             one version with its full profile. A 404 means activity summaries are not available for this project, or
             that the requested version does not exist.
         feature_flag: activity-summary
+    inbox-ranking-heads-list:
+        operation: signals_reports_ranking_heads_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List inbox ranking heads
+        description: >
+            List the outcome heads the inbox ranking model predicts for each report (`open`, `action`, `fixed`), with
+            what each one means, its horizon in days, its cohort, its base rate, and whether training could read it. The
+            values come from the model that scored this project's reports, so read this tool for the current meaning of
+            the `ranking` field in inbox-reports-list rather than relying on a fixed description. A lift is the
+            probability divided by the base rate. `status: not_available` means you cannot see the ranking model.
     inbox-report-actions-list:
         operation: signals_reports_actions_list
         enabled: true
@@ -491,22 +507,6 @@ tools:
             id:
                 aliases:
                     - survivor_report_id
-    inbox-ranking-heads-list:
-        operation: signals_reports_ranking_heads_list
-        enabled: true
-        scopes:
-            - task:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List inbox ranking heads
-        description: >
-            List the outcome heads the inbox ranking model predicts for each report (`open`, `action`, `fixed`), with
-            what each one means, its horizon in days, its cohort, its base rate, and whether training could read it.
-            The values come from the model that scored this project's reports, so read this tool for the current
-            meaning of the `ranking` field in inbox-reports-list rather than relying on a fixed description. A lift is
-            the probability divided by the base rate. `status: not_available` means you cannot see the ranking model.
     inbox-reports-retrieve:
         operation: signals_reports_retrieve
         enabled: true
