@@ -1,4 +1,5 @@
 import json
+import math
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -106,6 +107,7 @@ class TestWatchRankConsumer(BaseTest):
             ),
             ("ranking_failure_leaves_no_rank", None, RuntimeError("clickhouse down"), "failed", None),
             ("redelivery_keeps_the_current_rank", _CURRENT_RANK, None, "already_ranked", _CURRENT_RANK),
+            ("deleted_observation_is_skipped", None, None, "missing", None),
         ]
     )
     def test_ranks_the_observation_in_a_result(
@@ -127,6 +129,8 @@ class TestWatchRankConsumer(BaseTest):
         observation = self._observation(scanner, "sess-new", watch_rank=existing_rank)
         nearest = MagicMock(side_effect=nearest_error, return_value=(str(neighbour.id), 0.05))
         message = _result_message(team_id=self.team.id, observation_id=str(observation.id), scanner_id=str(scanner.id))
+        if outcome == "missing":
+            observation.delete()
 
         with (
             patch(f"{_WATCH_RANK}.anchor_vectors", AsyncMock(return_value=self._ANCHORS)),
@@ -135,8 +139,10 @@ class TestWatchRankConsumer(BaseTest):
             # It would close the connection that holds the test transaction.
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
-            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, 0.0) == outcome
+            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, 0.0, math.inf) == outcome
 
+        if outcome == "missing":
+            return
         observation.refresh_from_db()
         if expected_rank is None:
             assert observation.watch_rank is None
@@ -144,13 +150,35 @@ class TestWatchRankConsumer(BaseTest):
             assert observation.watch_rank is not None
             assert expected_rank.items() <= observation.watch_rank.items()
 
-    def test_a_revoked_partition_ends_the_batch_without_crashing(self) -> None:
-        messages = [
-            MagicMock(**{"error.return_value": None, "timestamp.return_value": (1, 0), "value.return_value": b"{}"})
-            for _ in range(2)
+    @parameterized.expand(
+        [
+            # A revoked partition stops the batch, and the rest of it is read again rather than skipped.
+            ("revoked_partition", KafkaException("partition revoked"), "ranked", [0], 1),
+            # A message still failing at the end of the batch budget goes back to Kafka unstored.
+            ("deferred_retry", None, "deferred", [], 0),
         ]
-        consumer = MagicMock(**{"store_offsets.side_effect": KafkaException("partition revoked")})
+    )
+    def test_unfinished_messages_are_read_again(
+        self, _name: str, store_error: Exception | None, outcome: str, stored: list[int], rewind_from: int
+    ) -> None:
+        messages = [
+            MagicMock(
+                **{
+                    "error.return_value": None,
+                    "timestamp.return_value": (1, 0),
+                    "value.return_value": b"{}",
+                    "topic.return_value": "results",
+                    "partition.return_value": 0,
+                    "offset.return_value": offset,
+                }
+            )
+            for offset in range(3)
+        ]
+        consumer = MagicMock(**{"store_offsets.side_effect": store_error})
 
-        async_to_sync(WatchRankConsumer(MagicMock()).process_batch)(consumer, messages)
+        with patch.object(WatchRankConsumer, "handle", AsyncMock(return_value=outcome)):
+            async_to_sync(WatchRankConsumer(MagicMock()).process_batch)(consumer, messages)
 
-        consumer.store_offsets.assert_called_once_with(message=messages[0])
+        assert [c.kwargs["message"] for c in consumer.store_offsets.call_args_list] == [messages[i] for i in stored]
+        (seek,) = consumer.seek.call_args_list
+        assert seek.args[0].offset == rewind_from

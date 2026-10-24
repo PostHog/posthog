@@ -243,19 +243,22 @@ class RankRequest:
     vector: list[float]
 
 
-async def rank_observation(request: RankRequest) -> bool:
+async def rank_observation(request: RankRequest) -> Literal["ranked", "already_ranked", "missing"]:
     """Rank one observation from its embedding and save the rank on the row, unless it has a current one.
 
     Keeping an existing rank makes a redelivered result harmless, and stops a second pass from moving a
     duplicate link in a way that could make two observations point at each other.
     """
-    existing = await (
+    row = await (
         ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id)
-        .values_list("watch_rank", flat=True)
+        .values("watch_rank")
         .afirst()
     )
-    if current_rank({"watch_rank": existing}) is not None:
-        return False
+    # A deleted observation, or a deleted team, leaves nothing to rank.
+    if row is None:
+        return "missing"
+    if current_rank({"watch_rank": row["watch_rank"]}) is not None:
+        return "already_ranked"
     category, contrast = classify(request.vector, await anchor_vectors(request.team_id))
     duplicate_of: str | None = None
     # The feed only groups issue rows, so a routine row skips the ClickHouse lookup.
@@ -279,7 +282,7 @@ async def rank_observation(request: RankRequest) -> bool:
     await ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id).aupdate(
         watch_rank=rank.to_json()
     )
-    return True
+    return "ranked"
 
 
 def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:

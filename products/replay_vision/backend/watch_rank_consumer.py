@@ -5,6 +5,7 @@ embedded document to the results topic, and this consumer ranks the Replay Visio
 vectors. A worker outage only delays ranks, and a database outage shorter than the retry window too.
 """
 
+import math
 import time
 import signal
 import asyncio
@@ -17,7 +18,7 @@ from django.db import close_old_connections
 import orjson
 import structlog
 from asgiref.sync import sync_to_async
-from confluent_kafka import Consumer, KafkaException, Message
+from confluent_kafka import Consumer, KafkaException, Message, TopicPartition
 from prometheus_client import Counter
 
 from posthog.kafka_client import helper
@@ -37,16 +38,19 @@ logger = structlog.get_logger(__name__)
 
 CONSUMER_GROUP = "replay-vision-watch-rank"
 
-# Small batches keep a full batch well inside the liveness window and Kafka's poll interval.
 _BATCH_SIZE = 50
 _POLL_TIMEOUT_S = 1.0
-# ClickHouse loads the embeddings table from its own topic a few seconds after the worker writes both.
-_CLICKHOUSE_VISIBILITY_DELAY_S = 10.0
+# A batch stops after this long and goes back to Kafka, so the loop polls well inside the poll interval.
+_BATCH_BUDGET_S = 240.0
+_MAX_POLL_INTERVAL_S = 360.0
+# ClickHouse loads the embeddings table from its own topic some seconds after the worker writes both.
+_CLICKHOUSE_VISIBILITY_DELAY_S = 30.0
+# How long one observation keeps failing, across batches, before the consumer moves past it.
 _RETRY_WINDOW_S = 600.0
 _RETRY_BACKOFF_S = 2.0
 _RETRY_BACKOFF_MAX_S = 60.0
 
-Outcome = Literal["skipped", "ranked", "already_ranked", "failed", "interrupted"]
+Outcome = Literal["skipped", "ranked", "already_ranked", "missing", "failed", "deferred", "interrupted"]
 
 MESSAGES_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_messages_total",
@@ -93,14 +97,18 @@ def parse_rank_request(value: bytes | None) -> RankRequest | None:
     return RankRequest(team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
 
 
-class OffsetStore(Protocol):
+class BatchConsumer(Protocol):
     def store_offsets(self, *, message: Message) -> None: ...
+
+    def seek(self, partition: TopicPartition, /) -> None: ...
 
 
 class WatchRankConsumer:
     def __init__(self, liveness: LivenessTracker) -> None:
         self._liveness = liveness
         self._stop = asyncio.Event()
+        # When each observation that is still failing first failed, so its retry window spans batches.
+        self._first_failed_at: dict[str, float] = {}
 
     async def _wait(self, seconds: float) -> bool:
         """Sleep, unless shutdown comes first. True when the full time passed."""
@@ -110,20 +118,22 @@ class WatchRankConsumer:
             return True
         return False
 
-    async def handle(self, value: bytes | None, produced_at: float) -> Outcome:
-        """Rank the observation in one message, retrying failures for a bounded time."""
+    async def handle(self, value: bytes | None, produced_at: float, batch_deadline: float) -> Outcome:
+        """Rank the observation in one message, retrying failures until the batch or retry window ends."""
         request = parse_rank_request(value)
         if request is None:
             return "skipped"
         if not await self._wait(produced_at + _CLICKHOUSE_VISIBILITY_DELAY_S - time.time()):
             return "interrupted"
-        deadline = time.monotonic() + _RETRY_WINDOW_S
+        give_up_at = self._first_failed_at.get(request.observation_id, math.inf)
         backoff = _RETRY_BACKOFF_S
         while True:
             # Async ORM calls share one thread, so a connection that broke must be replaced before a retry.
             await sync_to_async(close_old_connections)()
             try:
-                return "ranked" if await rank_observation(request) else "already_ranked"
+                outcome = await rank_observation(request)
+                self._first_failed_at.pop(request.observation_id, None)
+                return outcome
             except Exception:
                 logger.exception(
                     "replay_vision.watch_rank_consumer.rank_failed",
@@ -131,33 +141,58 @@ class WatchRankConsumer:
                     observation_id=request.observation_id,
                 )
             self._liveness.record_heartbeat()
-            if time.monotonic() + backoff > deadline:
+            now = time.monotonic()
+            give_up_at = min(
+                give_up_at, self._first_failed_at.setdefault(request.observation_id, now) + _RETRY_WINDOW_S
+            )
+            if now + backoff > give_up_at:
                 # The backfill command can write a rank this gave up on.
+                self._first_failed_at.pop(request.observation_id, None)
                 return "failed"
+            if now + backoff > batch_deadline:
+                return "deferred"
             if not await self._wait(backoff):
                 return "interrupted"
             backoff = min(backoff * 2, _RETRY_BACKOFF_MAX_S)
 
-    async def process_batch(self, consumer: OffsetStore, messages: Sequence[Message]) -> None:
-        for message in messages:
-            # The unhandled rest of the batch keeps no stored offset, so the next owner reads it again.
+    async def process_batch(self, consumer: BatchConsumer, messages: Sequence[Message]) -> None:
+        batch_deadline = time.monotonic() + _BATCH_BUDGET_S
+        for index, message in enumerate(messages):
             if self._stop.is_set():
                 return
             if message.error():
                 logger.warning("replay_vision.watch_rank_consumer.kafka_error", error=str(message.error()))
                 continue
             _, produced_at_ms = message.timestamp()
-            outcome = await self.handle(message.value(), produced_at_ms / 1000)
+            outcome = await self.handle(message.value(), produced_at_ms / 1000, batch_deadline)
             self._liveness.record_heartbeat()
             if outcome == "interrupted":
+                return
+            if outcome == "deferred":
+                self._rewind(consumer, messages[index:])
                 return
             MESSAGES_TOTAL.labels(outcome=outcome).inc()
             try:
                 consumer.store_offsets(message=message)
             except KafkaException:
-                # A rebalance took the partition, and its new owner starts from the last committed offset.
                 logger.warning("replay_vision.watch_rank_consumer.offset_store_failed", partition=message.partition())
+                self._rewind(consumer, messages[index + 1 :])
                 return
+
+    @staticmethod
+    def _rewind(consumer: BatchConsumer, unhandled: Sequence[Message]) -> None:
+        """Seek each partition back to its first unhandled message, so the next poll reads it again."""
+        first: dict[tuple[str, int], int] = {}
+        for message in unhandled:
+            topic, partition = message.topic(), message.partition()
+            if topic is not None and partition is not None:
+                first.setdefault((topic, partition), message.offset() or 0)
+        for (topic, partition), offset in first.items():
+            try:
+                consumer.seek(TopicPartition(topic, partition, offset))
+            except KafkaException:
+                # A rebalance took the partition, and its new owner starts from the last committed offset.
+                continue
 
     @staticmethod
     def _consumer_config() -> dict[str, Any]:
@@ -174,8 +209,9 @@ class WatchRankConsumer:
             # Offsets are stored only after a message is handled, and committed in the background.
             "enable.auto.commit": True,
             "enable.auto.offset.store": False,
-            # One message can retry for the whole retry window before the loop polls again.
-            "max.poll.interval.ms": int((_RETRY_WINDOW_S + 300) * 1000),
+            "max.poll.interval.ms": int(_MAX_POLL_INTERVAL_S * 1000),
+            # The worker writes results inside Kafka transactions, and an aborted one must never rank.
+            "isolation.level": "read_committed",
             "security.protocol": security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
         }
         config.update(
