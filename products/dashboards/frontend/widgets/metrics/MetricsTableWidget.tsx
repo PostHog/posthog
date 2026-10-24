@@ -39,6 +39,8 @@ export type MetricsTableWidgetResult = {
     rows?: MetricsTableResultRow[]
     totalCount?: number
     hasMore?: boolean
+    /** Set when the metrics query refused the config, with the reason to show. */
+    queryError?: string | null
 }
 
 const WIDGET_LIST_COUNT_ROWS = { singular: 'row', plural: 'rows' }
@@ -198,6 +200,22 @@ export function MetricsTableWidget({ result, loading, config, tileId }: Dashboar
                         <p className="m-0 text-sm text-muted">
                             Open the widget settings. Choose a label, such as http.route, and up to 4 metrics. The table
                             shows one row for each value of the label.
+                        </p>
+                    </div>
+                </WidgetCardBodyMessage>
+            </WidgetCardContent>
+        )
+    }
+
+    if (payload.queryError) {
+        return (
+            <WidgetCardContent>
+                <WidgetCardBodyMessage>
+                    <div className="flex max-w-sm flex-col items-center gap-1 px-2 text-balance">
+                        <p className="m-0 text-base font-semibold text-primary">This table can't load</p>
+                        <p className="m-0 text-sm text-muted">{payload.queryError}</p>
+                        <p className="m-0 text-sm text-muted">
+                            Try a shorter date range, a label with fewer values, or a filter in the widget settings.
                         </p>
                     </div>
                 </WidgetCardBodyMessage>
