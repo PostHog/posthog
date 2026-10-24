@@ -30,6 +30,7 @@ from django.db import OperationalError
 import orjson
 import structlog
 import posthoganalytics
+import temporalio.exceptions
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 from rest_framework.exceptions import (
@@ -487,6 +488,9 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     if isinstance(exc, APIQueriesBudgetExceeded):
         # A team over its budget is refused on purpose, not a platform failure.
         return QueryErrorCategory.RATE_LIMITED, SloOutcome.SUCCESS
+    if temporalio.exceptions.is_cancelled_exception(exc):
+        # Temporal cancelled the activity that runs this query. The frame where the cancellation lands is arbitrary.
+        return QueryErrorCategory.CANCELLED, SloOutcome.SUCCESS
     category = classify_query_error(exc)
     if category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
         return category, SloOutcome.SUCCESS

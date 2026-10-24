@@ -16,6 +16,7 @@ from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
+import temporalio.exceptions
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -1555,6 +1556,15 @@ class TestQueryRunner(BaseTest):
                 QueryRanConcurrently,
                 SloOutcome.FAILURE,
                 "error",
+                False,
+            ),
+            (
+                # Temporal cancels a sync activity mid-query (heartbeat timeout, worker drain, workflow cancel).
+                # The interceptor already drops it, so it must not fail the SLO or reach error tracking.
+                "temporal_activity_cancelled",
+                lambda: temporalio.exceptions.CancelledError("Cancelled"),
+                SloOutcome.SUCCESS,
+                "cancelled",
                 False,
             ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
