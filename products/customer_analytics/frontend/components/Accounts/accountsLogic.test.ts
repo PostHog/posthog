@@ -48,6 +48,7 @@ import {
     ACCOUNTS_DEFAULT_COLUMNS,
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
+    customPropertyAlias,
     relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
@@ -513,6 +514,26 @@ describe('accountsLogic', () => {
         resolveDefinitions({ count: 1, results: [buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })] })
         await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
         expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
+    })
+
+    it('resolves custom property aliases from every definitions page', async () => {
+        logic.unmount()
+        const firstPage = buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID, name: 'Plan' })
+        const secondPage = buildCustomPropertyDefinition({ id: AE_DEFINITION_ID, name: 'Renewal' })
+        mockCustomPropertiesList.mockImplementation(async (_projectId, params) =>
+            (params?.offset ?? 0) > 0
+                ? { count: 2, next: null, results: [secondPage] }
+                : { count: 2, next: 'https://example.com/next-page', results: [firstPage] }
+        )
+        logic = accountsLogic()
+        logic.mount()
+        const columnConfig = accountsColumnConfigLogic.findMounted()!
+        await expectLogic(columnConfig).toFinishAllListeners()
+
+        expect(columnConfig.values.aliasToDefinition).toEqual({
+            [customPropertyAlias(CSM_DEFINITION_ID)]: firstPage,
+            [customPropertyAlias(AE_DEFINITION_ID)]: secondPage,
+        })
     })
 
     it('keeps overview metrics off the list query', () => {
