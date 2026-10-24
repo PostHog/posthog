@@ -8397,15 +8397,15 @@ Note: newsdata.io/documentation is a client-rendered SPA that returns no endpoin
 
 ## NewYorkTimes — gaps
 
-Today (5): `article_search`, `most_popular_emailed`, `most_popular_shared`, `most_popular_viewed`, `top_stories`
+Today (8): `archive`, `article_search`, `books_best_sellers`, `most_popular_emailed`, `most_popular_shared`, `most_popular_viewed`, `times_wire`, `top_stories`
 
 Diffed against: <https://github.com/nytimes/public_api_specs>
 
-- [ ] `archive (/svc/archive/v1/{year}/{month}.json)` — full month-by-month article metadata dump back to 1851 - the natural bulk warehouse table, versus article_search's paginated 100-page cap (high)
-- [ ] `timeswire (/svc/news/v3/content.json)` — continuous feed of newly published items with updated timestamps, the incremental-friendly article stream (high)
-- [ ] `books best-seller list (/svc/books/v3/lists/{date}/{list}.json)` — weekly best-seller rankings, the Books API's headline dataset (medium)
+- [x] `archive (/svc/archive/v1/{year}/{month}.json)` — full month-by-month article metadata dump back to 1851 - the natural bulk warehouse table, versus article_search's paginated 100-page cap (high). Added as `archive`; first sync and full refresh cover the last 12 months, incremental restarts at the watermark's month.
+- [x] `timeswire (/svc/news/v3/content.json)` — continuous feed of newly published items with updated timestamps, the incremental-friendly article stream (high). Added as `times_wire` on `/content/all/all/{time-period}.json`: `/content.json` looks up one item by URL, the feed is the `{time-period}` route.
+- [x] `books best-seller list (/svc/books/v3/lists/{date}/{list}.json)` — weekly best-seller rankings, the Books API's headline dataset (medium). Added as `books_best_sellers` (fan-out over `/lists/names.json`, one row per book per list edition).
 - [ ] `books list names (/svc/books/v3/lists/names.json)` — lookup table resolving the list encoded names, dates and update cadence used by every other books endpoint (medium)
-- [ ] `books best-sellers history (/svc/books/v3/lists/best-sellers/history.json)` — per-title ranking history across weeks, the time series behind the lists (medium)
+- [ ] `books best-sellers history (/svc/books/v3/lists/best-sellers/history.json)` — per-title ranking history across weeks, the time series behind the lists (medium); skipped: no stable row id and no date filter, and a full pull is ~29,000 titles at 20 per page, more requests than the Books API's daily limit. `books_best_sellers` holds the same rankings per edition.
 - [ ] `community user-content (/svc/community/v3/user-content/by-date.json)` — reader comments joined to articles - the only engagement signal in the NYT APIs (medium)
 - [ ] `movie reviews (/svc/movies/v2/reviews/search.json)` — critics' reviews with pick flags, a distinct content corpus from article_search (low)
 - [ ] `movie critics (/svc/movies/v2/critics/{resource-type}.json)` — lookup resolving the critic bylines attached to movie reviews (low)
